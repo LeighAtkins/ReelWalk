@@ -1,0 +1,259 @@
+:root {
+  color-scheme: light;
+  --ink: #15171a;
+  --muted: #687076;
+  --line: #d7dde2;
+  --paper: #f7f4ef;
+  --panel: #ffffff;
+  --mint: #58c4a8;
+  --coral: #f26d5b;
+  --blue: #2d6cdf;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+.shell {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: minmax(340px, 520px) 1fr;
+}
+
+.panels {
+  display: flex;
+  flex-direction: column;
+}
+
+.panel {
+  padding: 40px;
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+}
+
+.preview {
+  padding: 40px;
+  display: grid;
+  place-items: center;
+}
+
+h1 {
+  margin: 0 0 12px;
+  font-size: 34px;
+  line-height: 1.08;
+}
+
+p {
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.uploadBox {
+  display: grid;
+  gap: 18px;
+  margin-top: 28px;
+}
+
+.file {
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  padding: 20px;
+  background: #fbfcfc;
+}
+
+.button {
+  height: 46px;
+  border: 0;
+  border-radius: 8px;
+  color: white;
+  background: var(--blue);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.meter {
+  height: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e8ecef;
+}
+
+.meter > span {
+  display: block;
+  height: 100%;
+  background: var(--mint);
+  transition: width 180ms ease;
+}
+
+.status {
+  min-height: 24px;
+  color: var(--muted);
+  font-size: 15px;
+}
+
+.phone {
+  width: min(360px, 80vw);
+  aspect-ratio: 9 / 16;
+}
+
+.phone.small {
+  width: 200px;
+  margin-top: 20px;
+}
+
+.phone.mini {
+  width: 100%;
+  margin-top: 12px;
+  border-radius: 6px;
+  aspect-ratio: 9 / 16;
+  background: #15171a;
+  box-shadow: 0 24px 80px rgba(21, 23, 26, 0.22);
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  color: white;
+}
+
+.phone video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.placeholder {
+  padding: 32px;
+  text-align: center;
+  color: #cfd6dc;
+}
+
+/* ---------- Batch render ---------- */
+
+.batch-panel {
+  border-top: 1px solid var(--line);
+}
+
+.batch-btn {
+  background: var(--coral);
+  margin-top: 20px;
+}
+
+.batch-summary {
+  margin-top: 12px;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.batch-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-top: 22px;
+}
+
+.batch-card {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 14px;
+  background: #fbfcfc;
+  transition: border-color 200ms ease, box-shadow 200ms ease;
+}
+
+.batch-card.batch-running {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px rgba(45, 108, 223, 0.08);
+}
+
+.batch-card.batch-done {
+  border-color: var(--mint);
+}
+
+.batch-card.batch-failed {
+  border-color: var(--coral);
+}
+
+.batch-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.batch-thumb {
+  font-size: 22px;
+}
+
+.batch-label {
+  font-weight: 600;
+  font-size: 15px;
+}
+
+.batch-status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.batch-time {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.badge-idle    { background: #e8ecef; color: var(--muted); }
+.badge-queued  { background: #fff3cd; color: #856404; }
+.badge-running { background: #d1ecf1; color: #0c5460; }
+.badge-done    { background: #d4edda; color: #155724; }
+.badge-failed  { background: #f8d7da; color: #721c24; }
+
+.small-meter {
+  height: 6px;
+}
+
+.batch-error {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--coral);
+}
+
+@media (max-width: 860px) {
+  .shell {
+    grid-template-columns: 1fr;
+  }
+
+  .panel {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+    padding: 28px;
+  }
+
+  .preview {
+    padding: 28px;
+  }
+}

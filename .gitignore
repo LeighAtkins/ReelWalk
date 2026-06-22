@@ -1,0 +1,27 @@
+node_modules/
+.next/
+.pytest_cache/
+__pycache__/
+*.pyc
+.env
+dist/
+tmp/
+render-output/
+uploaded/
+*.log
+*.tsbuildinfo
+
+# Standalone repo hygiene
+node_modules.bak/
+.corepack/
+coverage/
+*.pid
+.env.*
+!.env.example
+!.env.*.example
+*.tar
+*.tar.gz
+*.tgz
+*.zip
+*.bak
+*.b4-*

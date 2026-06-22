@@ -1,0 +1,35 @@
+# Dependencies (installed inside Docker)
+**/node_modules
+**/.pnpm
+
+# Build outputs
+**/.next
+**/dist
+**/build
+
+# Git & misc
+.git
+.gitignore
+
+# Environment files (passed via env_file in compose)
+.env
+.env.*
+!.env.example
+
+# Docker files themselves
+Dockerfile
+docker-compose*.yml
+
+# CI / scripts / infra not needed in web context
+scripts/
+infra/
+samples/
+docs/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+*.pid

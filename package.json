@@ -1,0 +1,14 @@
+{
+  "name": "reelwalk",
+  "private": true,
+  "packageManager": "pnpm@9.15.4",
+  "scripts": {
+    "dev:web": "pnpm --filter @reelwalk/web dev",
+    "test": "pnpm -r test",
+    "test:render": "pnpm --filter @reelwalk/render test",
+    "test:worker": "pnpm --filter @reelwalk/worker test"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.3"
+  }
+}

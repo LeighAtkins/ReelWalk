@@ -10,9 +10,11 @@ from .config import get_settings
 from .db import create_pool, init_schema, row_to_dict
 from .queue import create_redis, enqueue_render
 from .storage import ensure_bucket, public_url, s3_client
+from .editor_routes import router as editor_router
 
 settings = get_settings()
 app = FastAPI(title="ReelWalk API")
+app.include_router(editor_router)
 logger = logging.getLogger(__name__)
 
 app.add_middleware(

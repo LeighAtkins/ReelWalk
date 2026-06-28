@@ -46,7 +46,8 @@ services:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
-    env_file: .env.example
+    # Runtime secrets live only in the ignored .env file.
+    env_file: .env
     environment:
       DATABASE_URL: postgresql://reelwalk:reelwalk@postgres:5432/reelwalk
       REDIS_URL: redis://redis:6379/0
@@ -65,7 +66,8 @@ services:
     build:
       context: .
       dockerfile: apps/worker/Dockerfile
-    env_file: .env.example
+    # Runtime secrets live only in the ignored .env file.
+    env_file: .env
     environment:
       DATABASE_URL: postgresql://reelwalk:reelwalk@postgres:5432/reelwalk
       REDIS_URL: redis://redis:6379/0
@@ -82,7 +84,7 @@ services:
     build:
       context: .
       dockerfile: apps/web/Dockerfile
-    env_file: .env.example
+    env_file: .env
     environment:
       NEXT_PUBLIC_API_BASE_URL: /api
     restart: unless-stopped
@@ -90,17 +92,25 @@ services:
       api:
         condition: service_started
 
+  editor:
+    build:
+      context: .
+      dockerfile: apps/editor/Dockerfile
+    restart: unless-stopped
+
   nginx:
-    image: nginx:1.27-alpine
+    build:
+      context: ./infra/nginx
+      dockerfile: Dockerfile
     ports:
       - "8080:80"
-    volumes:
-      - ./infra/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
     restart: unless-stopped
     depends_on:
       web:
         condition: service_healthy
       api:
+        condition: service_started
+      editor:
         condition: service_started
 
 volumes:

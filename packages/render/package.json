@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "render:job": "tsx src/render-job.ts",
+    "render:timeline": "tsx src/render-timeline.ts",
     "test": "vitest run"
   },
   "dependencies": {

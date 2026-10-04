@@ -1,14 +1,29 @@
+/* ── Tokens ─────────────────────────────────────────────────── */
+
+/* Palette borrowed from floor-plan drawings: paper, drafting ink, tatami green,
+   and a surveyor's marker yellow for anything in progress. */
 :root {
   color-scheme: light;
-  --ink: #15171a;
-  --muted: #687076;
-  --line: #d7dde2;
-  --paper: #f7f4ef;
-  --panel: #ffffff;
-  --mint: #58c4a8;
-  --coral: #f26d5b;
-  --blue: #2d6cdf;
+
+  --font: "Archivo Variable", "Hiragino Sans", "Yu Gothic UI", "Noto Sans JP", system-ui, sans-serif;
+
+  --paper: #f2f4ef;
+  --sheet: #ffffff;
+  --ink: #16201b;
+  --muted: #5c6860;
+  --rule: #cdd4ca;
+  --green: #1e6b4a;
+  --green-dark: #17553a;
+  --tatami: #dce7d3;
+  --marker: #f4c430;
+  --red: #a3281c;
+  --red-tint: #f9ddd8;
+
+  --radius-frame: 12px;
+  --radius-ui: 6px;
 }
+
+/* ── Base ───────────────────────────────────────────────────── */
 
 * {
   box-sizing: border-box;
@@ -18,7 +33,9 @@ body {
   margin: 0;
   background: var(--paper);
   color: var(--ink);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 1.5;
 }
 
 button,
@@ -26,94 +43,47 @@ input,
 select,
 textarea {
   font: inherit;
+  color: inherit;
 }
 
 a {
-  color: var(--blue);
+  color: inherit;
+}
+
+/* Headlines use Archivo's narrowest width: tall type for a tall format. */
+h1,
+h2,
+h3,
+.condensed {
+  margin: 0;
+  font-stretch: 62%;
+  line-height: 1;
 }
 
 h1 {
-  margin: 0 0 8px;
-  font-size: 28px;
-  line-height: 1.1;
+  font-size: clamp(44px, 7vw, 84px);
+  font-weight: 800;
+  line-height: 0.92;
+  overflow-wrap: anywhere;
 }
 
 h2 {
-  margin: 0 0 12px;
-  font-size: 18px;
+  font-size: 28px;
+  font-weight: 700;
+}
+
+h3 {
+  font-size: 22px;
+  font-weight: 650;
 }
 
 p {
-  line-height: 1.5;
-}
-
-.topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 14px 32px;
-  background: var(--panel);
-  border-bottom: 1px solid var(--line);
-}
-
-.topbar nav {
-  display: flex;
-  gap: 20px;
-}
-
-.topbar a {
-  color: var(--ink);
-  text-decoration: none;
-  font-weight: 600;
-}
-
-.brand {
-  font-size: 20px;
-}
-
-.page {
-  max-width: 1120px;
-  margin: 0 auto;
-  padding: 32px;
-}
-
-.columns {
-  display: grid;
-  grid-template-columns: minmax(320px, 440px) 1fr;
-  gap: 32px;
-  align-items: start;
-}
-
-.stack {
-  display: grid;
-  gap: 20px;
-}
-
-.card {
-  padding: 20px;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-}
-
-.row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.list {
-  display: grid;
-  gap: 12px;
   margin: 0;
-  padding: 0;
-  list-style: none;
 }
 
-.title {
-  font-weight: 700;
-  text-decoration: none;
+:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
 }
 
 .muted {
@@ -125,78 +95,405 @@ p {
 }
 
 .error {
-  color: #b3261e;
-  margin: 0;
+  color: var(--red);
 }
+
+.icon {
+  flex: none;
+  width: 1.15em;
+  height: 1.15em;
+}
+
+/* ── Shell ──────────────────────────────────────────────────── */
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 18px 32px;
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 26px;
+  font-weight: 800;
+  font-stretch: 62%;
+  line-height: 1;
+  text-decoration: none;
+}
+
+.brand-mark {
+  width: 18px;
+  height: 32px;
+  color: var(--green);
+}
+
+.nav {
+  display: flex;
+  gap: 24px;
+}
+
+.nav a {
+  padding: 4px 0;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.nav a:hover {
+  color: var(--ink);
+}
+
+.nav a[aria-current="page"] {
+  border-bottom-color: var(--ink);
+  color: var(--ink);
+}
+
+.page {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 28px 32px 96px;
+}
+
+.page-head {
+  display: grid;
+  gap: 14px;
+  margin-bottom: 40px;
+}
+
+.page-head p {
+  max-width: 60ch;
+  font-size: 17px;
+}
+
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  justify-self: start;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.back-link:hover {
+  color: var(--ink);
+}
+
+/* ── Layout ─────────────────────────────────────────────────── */
+
+.columns {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+  gap: 48px;
+  align-items: start;
+}
+
+.columns-aside {
+  grid-template-columns: minmax(0, 1fr) 340px;
+}
+
+.stack {
+  display: grid;
+  gap: 40px;
+}
+
+/* Every section opens with the same heavy rule, like the title block on a drawing. */
+.section {
+  padding-top: 14px;
+  border-top: 3px solid var(--ink);
+}
+
+.section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.sheet {
+  padding: 22px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-ui);
+  background: var(--sheet);
+}
+
+.sheet h2 {
+  margin-bottom: 6px;
+}
+
+.empty {
+  max-width: 44ch;
+  color: var(--muted);
+}
+
+.empty strong {
+  display: block;
+  color: var(--ink);
+}
+
+/* ── The 9:16 frame ─────────────────────────────────────────── */
+
+/* The one shape the product is about. Listings, media and render jobs all
+   sit in it, so the output format is visible before anything is rendered. */
+.frame {
+  position: relative;
+  display: grid;
+  place-items: center;
+  aspect-ratio: 9 / 16;
+  overflow: hidden;
+  border-radius: var(--radius-frame);
+  background: var(--tatami);
+  color: var(--green);
+}
+
+.frame > img,
+.frame > video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.frame > video {
+  background: #000;
+}
+
+/* A listing with no photo yet shows a floor plan: outer walls, door swings and
+   a six-mat tatami room. It lives here, once, rather than inline in every tile. */
+.frame-plan {
+  background: var(--tatami)
+    url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 90 160' fill='none' stroke='%237ba58e' stroke-linecap='square'><path d='M38 142H14V18h62v124H52' stroke-width='2.5'/><path d='M14 62h30M58 62h18M46 62v20M46 96v8M14 104h10M38 104h38' stroke-width='2'/><path d='M44 62a14 14 0 0 0 14 14M58 62v14M24 104a14 14 0 0 1 14-14M38 104V90M38 142a14 14 0 0 1 14-14M52 142v-14M20 24h50v32H20zM45 24v32M20 40h25M57.5 24v16M45 40h25'/></svg>")
+    center / 64% no-repeat;
+}
+
+.frame > .badge {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+}
+
+.frame-video {
+  background: var(--ink);
+  color: var(--tatami);
+}
+
+.frame-note {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  padding: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.25;
+  text-align: center;
+}
+
+.frame-note .icon {
+  width: 22px;
+  height: 22px;
+}
+
+.frame-queued {
+  border: 2px dashed var(--rule);
+  background: transparent;
+  color: var(--muted);
+}
+
+.frame-running {
+  color: var(--ink);
+}
+
+/* Progress rises from the bottom of the frame the reel will occupy. */
+.frame-fill {
+  position: absolute;
+  inset: auto 0 0;
+  background: var(--marker);
+  transition: height 400ms ease;
+}
+
+.frame-figure {
+  position: relative;
+  font-size: 44px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.frame-failed {
+  background: var(--red-tint);
+  color: var(--red);
+}
+
+/* ── Listing tiles ──────────────────────────────────────────── */
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+  gap: 28px 20px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tile {
+  position: relative;
+  display: grid;
+  align-content: start;
+  gap: 2px;
+}
+
+.tile .frame {
+  margin-bottom: 10px;
+}
+
+.tile:hover .frame,
+.tile:focus-within .frame {
+  outline: 3px solid var(--ink);
+  outline-offset: 2px;
+}
+
+.tile-title {
+  font-size: 21px;
+  font-weight: 700;
+  line-height: 1.05;
+  overflow-wrap: anywhere;
+  text-decoration: none;
+}
+
+/* The whole tile is the link target; the frame outline above is its focus ring. */
+.tile-title::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+
+.tile-title:focus-visible {
+  outline: none;
+}
+
+/* ── Forms ──────────────────────────────────────────────────── */
 
 .form {
   display: grid;
-  gap: 14px;
+  gap: 16px;
   margin-top: 16px;
 }
 
-.form label {
+.form label,
+.form legend {
   display: grid;
   gap: 6px;
   font-size: 14px;
   font-weight: 600;
 }
 
-.form input:not([type="radio"]):not([type="file"]),
+.form input:not([type="radio"]),
 .form select,
 .form textarea {
+  width: 100%;
   padding: 10px 12px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #fff;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-ui);
+  background: var(--sheet);
+  font-weight: 400;
+}
+
+.form textarea {
+  resize: vertical;
+}
+
+.form input::placeholder {
+  color: #8b958e;
+}
+
+.form input:not([type="radio"]):focus-visible,
+.form select:focus-visible,
+.form textarea:focus-visible {
+  border-color: var(--ink);
+  outline-offset: 0;
 }
 
 .form fieldset {
   display: grid;
   gap: 8px;
+  min-width: 0;
   margin: 0;
-  padding: 12px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
+  padding: 0;
+  border: 0;
 }
 
 .form legend {
-  padding: 0 6px;
-  font-size: 14px;
-  font-weight: 600;
+  margin-bottom: 6px;
+  padding: 0;
 }
 
-.form label.radio {
+.form .choice {
   display: flex;
-  align-items: baseline;
-  gap: 8px;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-ui);
+  background: var(--sheet);
   font-weight: 400;
+  cursor: pointer;
 }
 
-.file {
-  border: 1px dashed var(--line);
-  border-radius: 8px;
-  padding: 16px;
-  background: #fbfcfc;
+.form .choice:has(input:checked) {
+  border-color: var(--green);
+  background: var(--tatami);
+}
+
+.choice input {
+  margin: 4px 0 0;
+  accent-color: var(--green);
+}
+
+.choice-text {
+  display: grid;
+  gap: 2px;
 }
 
 .button {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   padding: 11px 18px;
-  border: 0;
-  border-radius: 8px;
-  color: white;
-  background: var(--blue);
-  font-weight: 700;
-  text-align: center;
+  border: 1px solid var(--green);
+  border-radius: var(--radius-ui);
+  background: var(--green);
+  color: #fff;
+  font-weight: 650;
   text-decoration: none;
   cursor: pointer;
 }
 
-.button.secondary {
-  padding: 8px 14px;
+.button:hover {
+  border-color: var(--green-dark);
+  background: var(--green-dark);
+}
+
+.button-quiet {
+  padding: 7px 13px;
+  border-color: var(--ink);
+  background: transparent;
   color: var(--ink);
-  background: #e8ecef;
+  font-size: 14px;
+}
+
+.button-quiet:hover {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--paper);
 }
 
 .button:disabled {
@@ -204,146 +501,330 @@ p {
   opacity: 0.55;
 }
 
+/* ── Upload ─────────────────────────────────────────────────── */
+
+.upload {
+  display: grid;
+  gap: 12px;
+}
+
+.dropzone {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  padding: 24px 16px;
+  border: 2px dashed var(--rule);
+  border-radius: var(--radius-ui);
+  text-align: center;
+  cursor: pointer;
+}
+
+.dropzone:hover,
+.dropzone[data-dragging="true"],
+.dropzone:focus-within {
+  border-color: var(--green);
+  background: var(--tatami);
+}
+
+.dropzone[data-busy="true"] {
+  cursor: progress;
+}
+
+.dropzone .icon {
+  width: 24px;
+  height: 24px;
+  margin-bottom: 6px;
+  color: var(--green);
+}
+
+.dropzone strong {
+  overflow-wrap: anywhere;
+}
+
+/* Kept in the accessibility tree and focusable; the label is what you see. */
+.dropzone input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.upload-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.upload-status {
+  font-size: 14px;
+}
+
+.upload-status[data-tone="error"] {
+  color: var(--red);
+}
+
+.upload-status[data-tone="done"] {
+  color: var(--green);
+  font-weight: 600;
+}
+
 .meter {
-  height: 10px;
+  height: 6px;
   overflow: hidden;
-  border-radius: 999px;
-  background: #e8ecef;
+  border-radius: 3px;
+  background: var(--rule);
 }
 
 .meter > span {
   display: block;
   height: 100%;
-  background: var(--mint);
-  transition: width 180ms ease;
+  background: var(--marker);
+  transition: width 200ms ease;
 }
 
-.badge {
-  display: inline-block;
-  padding: 3px 9px;
-  border-radius: 4px;
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  white-space: nowrap;
-}
-
-.badge-queued {
-  background: #fff3cd;
-  color: #856404;
-}
-
-.badge-running {
-  background: #d1ecf1;
-  color: #0c5460;
-}
-
-.badge-succeeded {
-  background: #d4edda;
-  color: #155724;
-}
-
-.badge-failed {
-  background: #f8d7da;
-  color: #721c24;
-}
-
-.job {
+.media-grid {
   display: grid;
-  gap: 12px;
-}
-
-.result {
-  display: grid;
-  gap: 12px;
-  justify-items: start;
-}
-
-.phone {
-  width: 220px;
-  aspect-ratio: 9 / 16;
-  overflow: hidden;
-  border-radius: 12px;
-  background: #15171a;
-}
-
-.phone video {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.mediaGrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
-  gap: 10px;
-  margin: 16px 0 0;
+  grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+  gap: 16px 12px;
+  margin: 22px 0 0;
   padding: 0;
   list-style: none;
 }
 
-.mediaGrid li {
+.media-grid li {
   display: grid;
-  gap: 4px;
-  overflow: hidden;
-  word-break: break-all;
+  gap: 6px;
+  min-width: 0;
 }
 
-.mediaGrid img,
-.videoTile {
-  width: 100%;
-  aspect-ratio: 1;
+.media-grid .frame {
   border-radius: 8px;
-  object-fit: cover;
-  background: #15171a;
 }
 
-.videoTile {
+.media-name {
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Status ─────────────────────────────────────────────────── */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 9px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.badge-queued {
+  background: #fbe9a9;
+  color: #554000;
+}
+
+.badge-running {
+  background: var(--ink);
+  color: #fff;
+}
+
+.badge-running::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--marker);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+.badge-succeeded {
+  background: var(--tatami);
+  color: var(--green-dark);
+}
+
+.badge-failed {
+  background: var(--red-tint);
+  color: var(--red);
+}
+
+/* ── Render jobs ────────────────────────────────────────────── */
+
+.jobs {
   display: grid;
-  place-items: center;
-  color: #cfd6dc;
-  font-size: 12px;
-  font-weight: 700;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
-.stats {
+.jobs > li + li {
+  margin-top: 24px;
+  padding-top: 24px;
+  border-top: 1px solid var(--rule);
+}
+
+.job {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
+  grid-template-columns: 150px minmax(0, 1fr);
+  gap: 22px;
 }
 
-.stat {
+.job-body {
+  display: grid;
+  align-content: start;
+  justify-items: start;
+  gap: 10px;
+  padding-top: 4px;
+}
+
+.job-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.job-caption {
+  font-size: 17px;
+  overflow-wrap: anywhere;
+}
+
+/* Worker errors can carry a whole backtrace; the first lines say what went wrong. */
+.job .error,
+.table .error {
+  display: -webkit-box;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+}
+
+/* ── Renders dashboard ──────────────────────────────────────── */
+
+.tally {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 28px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* A count is not activity, so the tally's "Rendering" tag keeps still. */
+.tally .badge-running::before {
+  animation: none;
+}
+
+.tally li {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 8px;
   font-size: 22px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.table-scroll {
+  overflow-x: auto;
 }
 
 .table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 14px;
 }
 
 .table th,
 .table td {
-  padding: 10px 8px;
-  border-bottom: 1px solid var(--line);
+  padding: 13px 16px 13px 0;
+  border-bottom: 1px solid var(--rule);
   text-align: left;
-  vertical-align: top;
+  vertical-align: middle;
 }
 
-@media (max-width: 860px) {
-  .columns {
-    grid-template-columns: 1fr;
+.table th {
+  padding-top: 0;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.table td.num,
+.table th.num {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.table a {
+  font-weight: 650;
+  text-decoration-color: var(--rule);
+  text-underline-offset: 3px;
+}
+
+.table a:hover {
+  text-decoration-color: var(--ink);
+}
+
+.table .error {
+  max-width: 340px;
+  margin-top: 4px;
+}
+
+/* ── Motion ─────────────────────────────────────────────────── */
+
+@keyframes pulse {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .badge-running::before {
+    animation: none;
+  }
+
+  .frame-fill,
+  .meter > span {
+    transition: none;
+  }
+}
+
+/* ── Small screens ──────────────────────────────────────────── */
+
+@media (max-width: 900px) {
+  .columns,
+  .columns-aside {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 560px) {
+  .topbar {
+    padding: 14px 16px;
+  }
+
+  .nav {
+    gap: 16px;
   }
 
   .page {
-    padding: 20px;
+    padding: 16px 16px 64px;
   }
 
-  .stats {
-    grid-template-columns: repeat(2, 1fr);
+  .tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 22px 14px;
+  }
+
+  .job {
+    grid-template-columns: 112px minmax(0, 1fr);
+    gap: 16px;
+  }
+
+  .frame-figure {
+    font-size: 34px;
   }
 }

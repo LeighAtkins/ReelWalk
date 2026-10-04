@@ -40,18 +40,35 @@ export async function headObject(objectKey: string): Promise<{ sizeBytes: number
   }
 }
 
+const SIGNED_URL_TTL_SECONDS = 3600;
+
+// Signing the same key twice gives two different URLs, because the timestamp
+// is part of the signature, and a changed src makes the browser reload the
+// image or restart the video. Pages re-render every 2s while a job is active,
+// so a signed URL is reused for the first half of its lifetime.
+const signedUrls = new Map<string, { url: string; reuseUntil: number }>();
+
 /** URL the browser can play or download. CloudFront when configured, otherwise a presigned GET. */
 export async function mediaUrl(objectKey: string, options: { downloadAs?: string } = {}): Promise<string> {
   if (/^https?:\/\//.test(cloudfrontBaseUrl) && !options.downloadAs) {
     return `${cloudfrontBaseUrl.replace(/\/$/, "")}/${objectKey}`;
   }
-  return getSignedUrl(
+
+  const cacheKey = `${objectKey}\n${options.downloadAs ?? ""}`;
+  const cached = signedUrls.get(cacheKey);
+  if (cached && cached.reuseUntil > Date.now()) return cached.url;
+
+  const url = await getSignedUrl(
     presignClient,
     new GetObjectCommand({
       Bucket: bucket,
       Key: objectKey,
       ResponseContentDisposition: options.downloadAs ? `attachment; filename="${options.downloadAs}"` : undefined,
     }),
-    { expiresIn: 3600 },
+    { expiresIn: SIGNED_URL_TTL_SECONDS },
   );
+  // Crude bound: dropping everything only costs one re-sign per key.
+  if (signedUrls.size >= 5000) signedUrls.clear();
+  signedUrls.set(cacheKey, { url, reuseUntil: Date.now() + (SIGNED_URL_TTL_SECONDS * 1000) / 2 });
+  return url;
 }

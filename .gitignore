@@ -32,3 +32,6 @@ packages/db/src/generated/
 playwright-report/
 test-results/
 .tools/
+
+# Local screenshots
+.shots/

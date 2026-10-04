@@ -14,7 +14,14 @@ const initialState: FormState = {};
 export function RenderForm({ propertyId, media, templates }: RenderFormProps) {
   const [state, formAction, pending] = useActionState(createRenderJob, initialState);
 
-  if (media.length === 0) return <p className="muted">Upload a photo or video first.</p>;
+  if (media.length === 0) {
+    return (
+      <p className="empty">
+        <strong>Nothing to render from yet.</strong>
+        Upload a photo or video above first.
+      </p>
+    );
+  }
 
   return (
     <form action={formAction} className="form">
@@ -32,11 +39,11 @@ export function RenderForm({ propertyId, media, templates }: RenderFormProps) {
       <fieldset>
         <legend>Template</legend>
         {templates.map((template, index) => (
-          <label key={template.id} className="radio">
+          <label key={template.id} className="choice">
             <input type="radio" name="templateId" value={template.id} defaultChecked={index === 0} required />
-            <span>
+            <span className="choice-text">
               <strong>{template.name}</strong>
-              <span className="muted small"> {template.description}</span>
+              <span className="muted small">{template.description}</span>
             </span>
           </label>
         ))}
@@ -47,7 +54,7 @@ export function RenderForm({ propertyId, media, templates }: RenderFormProps) {
       </label>
       {state.error ? <p className="error">{state.error}</p> : null}
       <button className="button" type="submit" disabled={pending}>
-        {pending ? "Submitting…" : "Render reel"}
+        {pending ? "Sending to render…" : "Render reel"}
       </button>
     </form>
   );

@@ -12,6 +12,7 @@
     "@aws-sdk/client-s3": "^3.1146.0",
     "@aws-sdk/client-sqs": "^3.1146.0",
     "@aws-sdk/s3-request-presigner": "^3.1146.0",
+    "@fontsource-variable/archivo": "^5.3.0",
     "@reelwalk/core": "workspace:*",
     "@reelwalk/db": "workspace:*",
     "next": "^16.3.8",

@@ -7,6 +7,7 @@ import { z } from "zod";
 import {
   buildReelExportPayload,
   buildTourReel,
+  captionForVibe,
   canExport,
   emptyTimeline,
   instagramIssues,
@@ -17,6 +18,7 @@ import {
   referencedAssetIds,
   resolveUploadType,
   spotSchema,
+  vibeById,
   thumbKeyFor,
   uploadKeyFor,
   type Issue,
@@ -45,16 +47,22 @@ export async function createReel(): Promise<{ id: string }> {
  * viewing order, sweeps towards the windows, the floor plan, room names, and
  * music with cuts on the beat when the library has a song.
  */
-export async function createReelFromTour(input: { tourId: string }): Promise<{ id: string } | { error: string }> {
+export async function createReelFromTour(input: { tourId: string; vibeId?: string }): Promise<{ id: string } | { error: string }> {
   const user = await getCurrentUser();
   const tour = await prisma.tour.findFirst({ where: { id: input.tourId, workspaceId: user.workspaceId }, include: { media: true } });
   if (!tour) return { error: "That tour no longer exists." };
 
   const plan = planSchema.safeParse(tour.plan);
-  const song = await prisma.mediaAsset.findFirst({
-    where: { workspaceId: user.workspaceId, kind: "AUDIO", bpm: { not: null } },
-    orderBy: { fileName: "asc" },
-  });
+  const vibe = vibeById(input.vibeId) ?? null;
+  // The vibe's own song when the library has it, otherwise any song with a known tempo.
+  const song =
+    (vibe
+      ? await prisma.mediaAsset.findFirst({ where: { workspaceId: user.workspaceId, kind: "AUDIO", objectKey: `library/music/${vibe.song}.mp3` } })
+      : null) ??
+    (await prisma.mediaAsset.findFirst({
+      where: { workspaceId: user.workspaceId, kind: "AUDIO", bpm: { not: null } },
+      orderBy: { fileName: "asc" },
+    }));
   const timeline = buildTourReel({
     shots: tour.media
       .filter((asset) => asset.kind === "IMAGE")
@@ -70,10 +78,18 @@ export async function createReelFromTour(input: { tourId: string }): Promise<{ i
       }),
     plan: plan.success ? plan.data : null,
     music: song ? { assetId: song.id, sourceStartMs: 0, volume: 0.7, bpm: song.bpm, beatOffsetMs: song.beatOffsetMs } : null,
+    vibe,
   });
   if (!timeline) return { error: "This tour has too few room photos to build a reel from." };
 
-  const reel = await prisma.reel.create({ data: { workspaceId: user.workspaceId, title: tour.name, timeline } });
+  const reel = await prisma.reel.create({
+    data: {
+      workspaceId: user.workspaceId,
+      title: (vibe ? `${tour.name}: ${vibe.name}` : tour.name).slice(0, 80),
+      caption: vibe ? captionForVibe(vibe, null, song?.attribution) : undefined,
+      timeline,
+    },
+  });
   revalidatePath("/");
   return { id: reel.id };
 }

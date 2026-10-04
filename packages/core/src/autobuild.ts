@@ -1,5 +1,17 @@
 import type { Plan, Spot } from "./plan";
-import { addRoomLabels, DEFAULT_PANO, timelineSchema, type Clip, type ListingDetails, type Music, type Timeline } from "./timeline";
+import {
+  addRoomLabels,
+  DEFAULT_PANO,
+  detailFacts,
+  textSchema,
+  timelineDurationMs,
+  timelineSchema,
+  type Clip,
+  type ListingDetails,
+  type Music,
+  type Timeline,
+} from "./timeline";
+import type { Vibe } from "./vibes";
 import { snapCutsToBeats } from "./beats";
 import { doorRoute, routeLength, shortestTurn, walkInto } from "./walk";
 
@@ -27,6 +39,8 @@ export type TourShot = {
 export const WALK_ORDER = ["living room", "dining room", "kitchen", "hallway", "bedroom", "bathroom", "bonus room", "garage"];
 
 const CLIP_MS = 4000;
+/** How long a vibe's opening line stays up. */
+const HOOK_MS = 3000;
 /** Time a room gets after the camera has walked into it. */
 const DWELL_MS = 2400;
 /** The sweep of a room the camera walked into: not a twitch, not a spin. */
@@ -49,11 +63,11 @@ function distance(a: Spot, b: Spot): number {
  * Orders shots as a viewing would: room types in WALK_ORDER, and within a
  * type the shot nearest to where the walk currently is.
  */
-export function walkOrder(shots: TourShot[]): TourShot[] {
-  const remaining = shots.filter((shot) => !shot.passing && shot.room !== null && WALK_ORDER.includes(shot.room));
+export function walkOrder(shots: TourShot[], rooms: string[] = WALK_ORDER, maxStops: number = MAX_CLIPS): TourShot[] {
+  const remaining = shots.filter((shot) => !shot.passing && shot.room !== null && rooms.includes(shot.room));
   const route: TourShot[] = [];
   let here: Spot | null = null;
-  for (const room of WALK_ORDER) {
+  for (const room of rooms) {
     const inRoom = remaining.filter((shot) => shot.room === room);
     while (inRoom.length > 0) {
       const from = here;
@@ -63,7 +77,7 @@ export function walkOrder(shots: TourShot[]): TourShot[] {
       here = next.spot ?? here;
     }
   }
-  return route.slice(0, MAX_CLIPS);
+  return route.slice(0, Math.min(maxStops, MAX_CLIPS));
 }
 
 const hop = (plan: Plan, from: TourShot, to: TourShot) => doorRoute(plan, [from.spot!.x, from.spot!.y], [to.spot!.x, to.spot!.y]);
@@ -75,10 +89,10 @@ const hop = (plan: Plan, from: TourShot, to: TourShot) => doorRoute(plan, [from.
  * passes a photo taken in that room if there is one, so the camera always
  * has a photo of the space it is moving through.
  */
-export function flyOrder(shots: TourShot[], plan: Plan): TourShot[] {
+export function flyOrder(shots: TourShot[], plan: Plan, rooms: string[] = WALK_ORDER, maxStops: number = MAX_CLIPS): TourShot[] {
   const located = shots.filter((shot) => shot.isPano && shot.spot);
   // One stop per main photo of a room worth showing; other photos can only be passed on the way.
-  const stops = walkOrder(located.filter((shot) => !shot.passing));
+  const stops = walkOrder(located.filter((shot) => !shot.passing), rooms, maxStops);
   if (stops.length < 2) return stops;
 
   const distance = stops.map((from) => stops.map((to) => (from === to ? 0 : routeLength(hop(plan, from, to), plan.aspect))));
@@ -145,7 +159,7 @@ function bearing(from: readonly [number, number], to: readonly [number, number],
  * and turns to the room's window. A photo that is only passed on the way
  * gets a short turn towards where the walk goes next.
  */
-function flyClips(route: TourShot[], plan: Plan): Clip[] {
+function flyClips(route: TourShot[], plan: Plan, dwellMs: number): Clip[] {
   const clips: Clip[] = [];
   route.forEach((shot, index) => {
     const spot = shot.spot!;
@@ -182,7 +196,7 @@ function flyClips(route: TourShot[], plan: Plan): Clip[] {
     }
     const clip: Clip = { ...base, sourceEndMs: 10_000, transitionIn: "walk", pano: { ...DEFAULT_PANO, yawStart, yawEnd: yawStart + turn } };
     const walk = walkInto(plan, clips[index - 1], clip, 10_000);
-    clips.push({ ...clip, sourceEndMs: (walk?.durationMs ?? 1500) + (shot.passing ? PASSING_MS : DWELL_MS) });
+    clips.push({ ...clip, sourceEndMs: (walk?.durationMs ?? 1500) + (shot.passing ? PASSING_MS : dwellMs) });
   });
   return clips;
 }
@@ -192,14 +206,18 @@ export function buildTourReel(input: {
   plan: Plan | null;
   details?: ListingDetails | null;
   music?: Music | null;
+  /** The treatment: which rooms, how fast, the look, the opening line. Without one the draft is neutral. */
+  vibe?: Vibe | null;
 }): Timeline | null {
+  const vibe = input.vibe ?? null;
+  const rooms = vibe?.rooms ?? WALK_ORDER;
   // Located 360 photos on a plan become one continuous walk; anything else is a sequence of shots.
-  const usable = input.shots.filter((shot) => !shot.passing && shot.room !== null && WALK_ORDER.includes(shot.room));
+  const usable = input.shots.filter((shot) => !shot.passing && shot.room !== null && rooms.includes(shot.room));
   const fly = input.plan !== null && usable.length >= 2 && usable.every((shot) => shot.isPano && shot.spot);
-  const route = fly ? flyOrder(input.shots, input.plan!) : walkOrder(input.shots);
+  const route = fly ? flyOrder(input.shots, input.plan!, rooms, vibe?.maxStops) : walkOrder(input.shots, rooms, vibe?.maxStops);
   if (route.length < 2) return null;
 
-  const clips: Clip[] = fly ? flyClips(route, input.plan!) : route.map((shot, index) => {
+  const drafted: Clip[] = fly ? flyClips(route, input.plan!, vibe?.dwellMs ?? DWELL_MS) : route.map((shot, index) => {
     // End the sweep on the window when the tour data says where it is.
     const aim = shot.spot?.aim;
     const pano = shot.isPano
@@ -225,14 +243,43 @@ export function buildTourReel(input: {
     };
   });
 
+  // The vibe's look on every clip, and its own names for the rooms.
+  const clips = drafted.map((clip) => ({
+    ...clip,
+    filter: vibe?.filter ?? clip.filter,
+    room: clip.room && vibe?.roomNames?.[clip.room] ? vibe.roomNames[clip.room] : clip.room,
+  }));
+
   let timeline: Timeline = timelineSchema.parse({
     version: 1,
     clips,
     texts: [],
     music: input.music ?? null,
-    plan: input.plan ? { geometry: input.plan, corner: "top-left", visible: true } : null,
-    details: input.details ?? null,
+    plan: input.plan ? { geometry: input.plan, corner: "top-left", visible: vibe?.plan ?? true } : null,
+    details: input.details ? { ...input.details, contact: vibe?.callToAction ?? input.details.contact } : null,
   });
   timeline = snapCutsToBeats(timeline);
-  return addRoomLabels(timeline);
+  if (!vibe || vibe.roomNames !== null) timeline = addRoomLabels(timeline);
+  if (!vibe) return timeline;
+
+  // The hook holds the first seconds; the first room's name waits until it has gone.
+  const hookEnd = Math.min(HOOK_MS, Math.floor(timelineDurationMs(timeline) / 3));
+  const hook = textSchema.parse({ id: "hook", text: vibe.hook, startMs: 300, endMs: hookEnd, x: 0.5, y: 0.46, style: vibe.hookStyle, color: "#ffffff", size: 1.15 });
+  const texts = timeline.texts
+    .map((text) => (text.startMs < hookEnd ? { ...text, startMs: hookEnd + 200 } : text))
+    .filter((text) => text.endMs - text.startMs >= 600);
+  return { ...timeline, texts: [hook, ...texts] };
+}
+
+/** The caption for a reel in a vibe: its opening lines, the facts, the call to action, hashtags, and any music credit. */
+export function captionForVibe(vibe: Vibe, details: ListingDetails | null, musicCredit?: string | null): string {
+  return [
+    vibe.captionLead,
+    details ? [details.price, ...detailFacts(details)].filter(Boolean).join(" · ") : "",
+    vibe.callToAction,
+    vibe.hashtags,
+    musicCredit ? `Music: ${musicCredit}` : "",
+  ]
+    .filter((line) => line !== "")
+    .join("\n\n");
 }

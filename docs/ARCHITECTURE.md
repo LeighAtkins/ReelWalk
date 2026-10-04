@@ -171,6 +171,13 @@ stale after 60 s, 3 attempts, backoff 15 s then 30 s.
   one walk through every room by the shortest way round, each sweep ending
   on the room's window, the plan, room names and music. It is a pure function, so the
   same code serves the "Auto-build a tour" button and the sample importer.
+- **Vibes.** A vibe (`packages/core/src/vibes.ts`) is data: song, colour
+  look, time per room, which rooms to stop in, the opening line, names for
+  the rooms, whether the plan shows, the call to action and the caption.
+  `buildTourReel` takes one as an option, so a new audience is a new entry
+  in a list, not new code. Vibes describe what a buyer wants to do with the
+  home, never who the buyer is: housing ads may not state a preference for
+  people by age, family status, origin or religion.
 - **Instagram checks.** `instagramIssues` runs on every edit for the export
   sheet and again in the `exportReel` action. Errors (too short, too long,
   caption limits) block export; text under Instagram's UI is a warning with

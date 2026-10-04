@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import {
   buildTourReel,
+  captionForVibe,
   listingDetailsSchema,
   MAX_SHELL_POINTS,
   normalizePlan,
@@ -12,6 +13,7 @@ import {
   type Shell,
   type Spot,
   type TourShot,
+  VIBES,
 } from "@reelwalk/core";
 import { DEFAULT_USER_EMAIL, prisma } from "@reelwalk/db";
 import { panoThumbnail, probe, upload } from "./library/tools";
@@ -189,6 +191,37 @@ async function importTour(dir: string, name: string, workspaceId: string, workdi
   console.log(`${name}: ${plan.rooms.length} rooms on the plan, ${shots.length} located 360 photos (${imported} new)`);
 
   await createSampleReel(tourId, name, workspaceId, plan, shots);
+  await createVibeReels(tourId, name, workspaceId, plan, shots);
+}
+
+/** The same home cut for five audiences: one sample reel per vibe. */
+async function createVibeReels(tourId: string, name: string, workspaceId: string, plan: Plan, shots: TourShot[]): Promise<void> {
+  const details = listingDetailsSchema.parse({ price: "$485,000", beds: "3", baths: "2", area: "1,640 sq ft", address: "Sample home (ZInD)", placement: "end" });
+  for (const vibe of VIBES) {
+    const id = `sample-${tourId}-${vibe.id}`;
+    if (process.env.RESET_SAMPLES === "1") await prisma.reel.deleteMany({ where: { id, workspaceId } });
+    if (await prisma.reel.count({ where: { id } })) continue;
+
+    const song = await prisma.mediaAsset.findUnique({ where: { objectKey: `library/music/${vibe.song}.mp3` } });
+    const timeline = buildTourReel({
+      shots,
+      plan,
+      details,
+      music: song ? { assetId: song.id, sourceStartMs: 0, volume: 0.8, bpm: song.bpm, beatOffsetMs: song.beatOffsetMs } : null,
+      vibe,
+    });
+    if (!timeline) continue;
+    await prisma.reel.create({
+      data: {
+        id,
+        workspaceId,
+        title: `${vibe.name} (ZInD ${name})`,
+        caption: `${captionForVibe(vibe, details, song?.attribution)}\n\nLocal test reel: ZInD is licensed for academic use only, so this is not for posting.`,
+        timeline,
+      },
+    });
+    console.log(`${name}: "${vibe.name}" reel created with ${timeline.clips.filter((clip) => clip.room).length} rooms`);
+  }
 }
 
 /** A first draft from the auto-builder: viewing order, sweeps to the windows, plan, room names, music. */

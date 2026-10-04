@@ -67,6 +67,19 @@ For each tour this creates a **Tour** (the floor plan), one located 360 photo
 per room in the library, and a sample reel, "Floor plan walkthrough", that
 walks the rooms in viewing order with the plan marker and room names.
 
+The importer also creates the sample tour in each of the five vibes:
+
+| Reel | Speaks to | Song | Look and pace |
+| --- | --- | --- | --- |
+| First keys | First-time buyers | Carefree | Warm, every room, friendly labels |
+| The numbers | Investors | Funkorama | Neutral, fast, facts up front, floor plan on |
+| Work from home | Remote workers | Fretless | Cool, unhurried, the bonus room as an office |
+| Made for hosting | People who entertain | Bossa Antigua | Vivid, living, dining and kitchen only |
+| Blank canvas | Renovators and design lovers | Inspired | Black and white, slow, no labels |
+
+The same choice is offered on the home screen: pick a vibe, then
+**Auto-build a tour**.
+
 **Licence: local testing only.** Zillow licenses ZInD data for academic,
 non-commercial use ([terms](https://bridgedataoutput.com/zillowterms)). The
 data is therefore not in the ReelWalk repository, each imported asset is labelled

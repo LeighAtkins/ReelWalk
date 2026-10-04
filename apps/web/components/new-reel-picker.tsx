@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { acceptFor } from "@reelwalk/core";
+import { acceptFor, vibeById, VIBES } from "@reelwalk/core";
 import { createReel, createReelFromTour } from "@/app/actions";
 import { setPendingFiles } from "@/lib/pending-files";
 import { PlusIcon } from "./icons";
@@ -16,6 +16,7 @@ export function NewReelPicker({ librarySize = 0, tours = [] }: { librarySize?: n
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [vibeId, setVibeId] = useState("");
 
   async function start(files: File[]) {
     setBusy(true);
@@ -45,7 +46,7 @@ export function NewReelPicker({ librarySize = 0, tours = [] }: { librarySize?: n
   async function buildFromTour(tourId: string) {
     setBusy(true);
     setError(null);
-    const result = await createReelFromTour({ tourId }).catch(() => ({ error: "Could not build the reel. Check your connection and try again." }));
+    const result = await createReelFromTour({ tourId, vibeId: vibeId || undefined }).catch(() => ({ error: "Could not build the reel. Check your connection and try again." }));
     if ("error" in result) {
       setError(result.error);
       setBusy(false);
@@ -80,6 +81,20 @@ export function NewReelPicker({ librarySize = 0, tours = [] }: { librarySize?: n
         <button type="button" className="btn btn-quiet btn-block" disabled={busy} onClick={startFromLibrary} data-testid="start-from-library">
           Use library media
         </button>
+      ) : null}
+      {tours.length > 0 ? (
+        <label className="field">
+          Vibe for an auto-built tour
+          <select className="text-input" value={vibeId} onChange={(event) => setVibeId(event.target.value)} disabled={busy} data-testid="vibe">
+            <option value="">Neutral</option>
+            {VIBES.map((vibe) => (
+              <option key={vibe.id} value={vibe.id}>
+                {vibe.name}
+              </option>
+            ))}
+          </select>
+          {vibeById(vibeId) ? <span className="muted small">{vibeById(vibeId)!.audience}</span> : null}
+        </label>
       ) : null}
       {tours.map((tour) => (
         <button key={tour.id} type="button" className="btn btn-quiet btn-block" disabled={busy} onClick={() => buildFromTour(tour.id)} data-testid="auto-build">

@@ -26,7 +26,7 @@ import {
   type Timeline,
 } from "@reelwalk/core";
 import type { ReelAsset } from "@reelwalk/render/reel";
-import { exportReel } from "@/app/actions";
+import { deleteReel, exportReel } from "@/app/actions";
 import { formatDuration } from "@/lib/format";
 import type { LibraryAsset } from "@/lib/library";
 import { takePendingFiles } from "@/lib/pending-files";
@@ -570,6 +570,18 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         </Tool>
         <Tool label="Guides" pressed={guides} onClick={() => setGuides(!guides)}>
           <GuidesIcon />
+        </Tool>
+        <Tool
+          label="Delete reel"
+          danger
+          onClick={async () => {
+            if (!window.confirm(`Delete "${title}"? Its exports are deleted too. Uploaded media stays in your library.`)) return;
+            const form = new FormData();
+            form.set("id", reel.id);
+            await deleteReel(form);
+          }}
+        >
+          <TrashIcon />
         </Tool>
       </>
     );

@@ -143,3 +143,14 @@ test("files Instagram cannot use are refused with a reason", async ({ page }) =>
   await expect(page.getByRole("status").filter({ hasText: "not a supported" })).toBeVisible({ timeout: 30_000 });
   await expect(page.getByTestId("clip")).toHaveCount(0);
 });
+
+test("delete a reel", async ({ page }) => {
+  const url = await newReel(page, ["exterior.jpg"]);
+  await expect(page.getByTestId("clip")).toHaveCount(1, { timeout: 60_000 });
+  await waitForSaved(page);
+
+  page.once("dialog", (dialog) => void dialog.accept());
+  await page.getByRole("button", { name: "Delete reel" }).click();
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.locator(`a[href="${new URL(url).pathname}"]`)).toHaveCount(0);
+});

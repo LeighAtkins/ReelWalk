@@ -35,6 +35,30 @@ export type TextStyle = (typeof TEXT_STYLES)[number];
 const ms = z.number().int().min(0);
 const unit = z.number().min(0).max(1);
 
+/**
+ * Camera move through a 360 photo (equirectangular image). Angles are in
+ * degrees: yaw turns left/right, pitch tilts up/down, fov is the zoom.
+ */
+export const panoSchema = z.object({
+  yawStart: z.number().min(-360).max(360),
+  yawEnd: z.number().min(-360).max(360),
+  pitch: z.number().min(-60).max(60).default(0),
+  fov: z.number().min(40).max(120).default(90),
+});
+export type PanoView = z.infer<typeof panoSchema>;
+
+/** A slow quarter-turn, which suits a room shown for a few seconds. */
+export const DEFAULT_PANO: PanoView = { yawStart: -45, yawEnd: 45, pitch: 0, fov: 90 };
+/** On-screen time for a 360 photo: long enough for the sweep to read. */
+export const DEFAULT_PANO_MS = 5000;
+
+/** 360 cameras save a 2:1 equirectangular image. */
+export function isEquirect(width: number | null | undefined, height: number | null | undefined): boolean {
+  if (!width || !height || width < 2000) return false;
+  const ratio = width / height;
+  return ratio > 1.95 && ratio < 2.05;
+}
+
 export const clipSchema = z
   .object({
     id: z.string().min(1),
@@ -55,6 +79,8 @@ export const clipSchema = z
     filter: z.enum(FILTERS).default("none"),
     /** Ken Burns style movement. Photos only. */
     motion: z.enum(MOTIONS).default("none"),
+    /** Set for 360 photos: the camera sweep. Null shows the image flat. */
+    pano: panoSchema.nullable().default(null),
     /** How this clip enters from the previous one. */
     transitionIn: z.enum(TRANSITIONS).default("cut"),
   })
@@ -251,7 +277,7 @@ export function trimClip(
   return fitTexts(updated);
 }
 
-export type ClipSettings = Partial<Pick<Clip, "speed" | "volume" | "fit" | "filter" | "motion" | "transitionIn">>;
+export type ClipSettings = Partial<Pick<Clip, "speed" | "volume" | "fit" | "filter" | "motion" | "transitionIn" | "pano">>;
 
 export function updateClip(timeline: Timeline, id: string, settings: ClipSettings): Timeline {
   return fitTexts(replaceClip(timeline, id, (clip) => clipSchema.parse({ ...clip, ...settings })));

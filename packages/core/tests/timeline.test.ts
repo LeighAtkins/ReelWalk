@@ -6,9 +6,11 @@ import {
   addText,
   clipDurationMs,
   clipStartsMs,
+  DEFAULT_PANO,
   duplicateClip,
   emptyTimeline,
   framePlan,
+  isEquirect,
   locate,
   MIN_CLIP_MS,
   moveClip,
@@ -39,6 +41,7 @@ function video(id: string, sourceStartMs: number, sourceEndMs: number, speed = 1
     filter: "none",
     motion: "none",
     transitionIn: "cut",
+    pano: null,
   };
 }
 
@@ -231,5 +234,26 @@ describe("reel export payload", () => {
   it("refuses a timeline that points at deleted media", () => {
     expect(() => buildReelExportPayload(timeline, library.slice(1))).toThrow(/no longer exists/);
     expect(() => parseReelExportPayload({ timeline, assets: {} })).toThrow(/missing 2/);
+  });
+});
+
+describe("360 photos", () => {
+  it("recognises equirectangular images by their 2:1 shape", () => {
+    expect(isEquirect(4096, 2048)).toBe(true);
+    expect(isEquirect(8192, 4096)).toBe(true);
+    expect(isEquirect(1920, 1080)).toBe(false);
+    expect(isEquirect(1000, 500)).toBe(false);
+    expect(isEquirect(null, null)).toBe(false);
+  });
+
+  it("stores a camera sweep on a clip and survives a round trip", () => {
+    const timeline = updateClip(reel(photo("p", 5000)), "p", { pano: { ...DEFAULT_PANO, yawEnd: 120 } });
+    expect(parseTimeline(JSON.parse(JSON.stringify(timeline))).clips[0].pano).toEqual({ yawStart: -45, yawEnd: 120, pitch: 0, fov: 90 });
+    expect(() => updateClip(timeline, "p", { pano: { ...DEFAULT_PANO, fov: 170 } })).toThrow();
+  });
+
+  it("reads timelines saved before 360 support", () => {
+    const old = { version: 1, clips: [{ id: "x", assetId: "y", kind: "IMAGE", sourceStartMs: 0, sourceEndMs: 3000 }], texts: [], music: null };
+    expect(parseTimeline(old).clips[0].pano).toBeNull();
   });
 });

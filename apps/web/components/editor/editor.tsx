@@ -7,7 +7,10 @@ import type { PlayerRef } from "@remotion/player";
 import {
   addClips,
   addText,
+  clipStartsMs,
   DEFAULT_IMAGE_MS,
+  DEFAULT_PANO,
+  DEFAULT_PANO_MS,
   duplicateClip,
   instagramIssues,
   moveClip,
@@ -44,6 +47,7 @@ import {
   MoveLeftIcon,
   MoveRightIcon,
   MusicIcon,
+  PanoIcon,
   PauseIcon,
   PlayIcon,
   PlusIcon,
@@ -68,6 +72,7 @@ import {
   MediaSheet,
   MotionSheet,
   MusicSheet,
+  PanoSheet,
   SpeedSheet,
   TextSheet,
   TimingSheet,
@@ -96,6 +101,7 @@ type SheetName =
   | "volume"
   | "look"
   | "motion"
+  | "pano"
   | "transition"
   | "text-new"
   | "text-edit"
@@ -105,6 +111,8 @@ type SheetName =
   | "export";
 
 export type EditorProps = {
+  /** Open the media library straight away (a reel started from the library). */
+  openLibrary?: boolean;
   reel: { id: string; title: string; revision: number; caption: string };
   timeline: Timeline;
   library: LibraryAsset[];
@@ -120,15 +128,17 @@ function clipFromAsset(asset: LibraryAsset): Clip {
     assetId: asset.id,
     kind: isImage ? "IMAGE" : "VIDEO",
     sourceStartMs: 0,
-    // Photos get three seconds; videos play in full (the export check catches anything over 3 minutes).
-    sourceEndMs: isImage ? DEFAULT_IMAGE_MS : Math.max(500, asset.durationMs ?? 5000),
+    // Photos get three seconds and 360 photos five; videos play in full (the export check catches anything over 3 minutes).
+    sourceEndMs: asset.isPano ? DEFAULT_PANO_MS : isImage ? DEFAULT_IMAGE_MS : Math.max(500, asset.durationMs ?? 5000),
     speed: 1,
     volume: 1,
     fit: "cover",
     filter: "none",
     // A slow push-in is the default for listing photos.
-    motion: isImage ? "zoom-in" : "none",
+    motion: isImage && !asset.isPano ? "zoom-in" : "none",
     transitionIn: "cut",
+    // A 360 photo opens as a camera sweep through the room.
+    pano: asset.isPano ? DEFAULT_PANO : null,
   };
 }
 
@@ -164,14 +174,14 @@ function Tool({
   );
 }
 
-export function Editor({ reel, timeline: initialTimeline, library: initialLibrary }: EditorProps) {
+export function Editor({ reel, timeline: initialTimeline, library: initialLibrary, openLibrary }: EditorProps) {
   const router = useRouter();
   const [history, dispatch] = useReducer(historyReducer, initialTimeline, initHistory);
   const timeline = history.present;
   const [title, setTitle] = useState(reel.title);
   const [caption, setCaption] = useState(reel.caption);
   const [selection, setSelection] = useState<Selection>(null);
-  const [sheet, setSheet] = useState<SheetName | null>(null);
+  const [sheet, setSheet] = useState<SheetName | null>(openLibrary && initialTimeline.clips.length === 0 ? "media" : null);
   const [library, setLibrary] = useState<Record<string, LibraryAsset>>(() => Object.fromEntries(initialLibrary.map((asset) => [asset.id, asset])));
   const [uploads, setUploads] = useState<PendingUpload[]>([]);
   const [musicUploading, setMusicUploading] = useState(false);
@@ -479,9 +489,18 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
             </Tool>
           </>
         ) : (
-          <Tool label="Motion" onClick={() => setSheet("motion")}>
-            <MotionIcon />
-          </Tool>
+          <>
+            {library[selectedClip.assetId]?.isPano || selectedClip.pano ? (
+              <Tool label="360 view" onClick={() => setSheet("pano")}>
+                <PanoIcon />
+              </Tool>
+            ) : null}
+            {!selectedClip.pano ? (
+              <Tool label="Motion" onClick={() => setSheet("motion")}>
+                <MotionIcon />
+              </Tool>
+            ) : null}
+          </>
         )}
         <Tool label="Look" onClick={() => setSheet("look")}>
           <FilterIcon />
@@ -720,6 +739,23 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
           onApplyAll={() => {
             apply((current) => current.clips.reduce((next, clip) => updateClip(next, clip.id, { filter: selectedClip.filter }), current));
             showToast("Applied to every clip.");
+          }}
+          onClose={closeSheet}
+        />
+      ) : null}
+      {sheet === "pano" && selectedClip ? (
+        <PanoSheet
+          clip={selectedClip}
+          onChange={(pano) =>
+            apply(
+              (current) => updateClip(current, selectedClip.id, { pano, ...(pano ? { motion: "none" as const } : {}) }),
+              `pano-${selectedClip.id}`,
+            )
+          }
+          onPreview={() => {
+            setSheet(null);
+            seek(clipStartsMs(timeline)[selectedClipIndex] ?? 0);
+            playerRef.current?.play();
           }}
           onClose={closeSheet}
         />

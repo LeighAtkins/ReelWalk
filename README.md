@@ -6,6 +6,7 @@ A phone-first editor for Instagram Reels of property listings. Pick photos and w
 
 - Clips: trim, split at the playhead, reorder, duplicate, delete, speed (0.5× to 3×), clip volume, fill or fit the 9:16 frame
 - Photos: on-screen length and slow zoom or pan
+- 360 photos: recognised automatically and shown as a camera sweep through the room; set start, turn, tilt and zoom
 - Looks (colour filters) per clip or for the whole reel, fade-through-black transitions
 - Text: four styles, six colours, size, drag to place, start and end times; Japanese renders correctly
 - Music: upload a song, set volume and where it starts; it fades out at the end
@@ -69,6 +70,14 @@ docker compose up --build
 Open http://localhost:8080 (on a desktop, the browser's phone emulation
 shows it as intended). Tap New reel, pick photos and videos, edit, then
 Export. The export screen shows progress and plays the finished 9:16 MP4.
+
+Load sample content, so there is something to edit straight away: 22 real 360
+room photos, 8 home videos and three ready-made reels, all openly licensed
+(details and sources in [`docs/MEDIA_LIBRARY.md`](docs/MEDIA_LIBRARY.md)):
+
+```bash
+docker compose run --rm import-library
+```
 
 To try it on a real phone on the same network, open `http://<pc-ip>:8080` and
 set `S3_PUBLIC_ENDPOINT_URL=http://<pc-ip>:9000` in `.env` so the phone can

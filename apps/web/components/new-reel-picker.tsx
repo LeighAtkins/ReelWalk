@@ -12,7 +12,7 @@ import { PlusIcon } from "./icons";
  * The editor opens straight away and uploads the files there, with progress
  * on the timeline.
  */
-export function NewReelPicker() {
+export function NewReelPicker({ librarySize = 0 }: { librarySize?: number }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -30,8 +30,20 @@ export function NewReelPicker() {
     }
   }
 
+  async function startFromLibrary() {
+    setBusy(true);
+    setError(null);
+    try {
+      const { id } = await createReel();
+      router.push(`/reels/${id}?library=1`);
+    } catch {
+      setError("Could not start a reel. Check your connection and try again.");
+      setBusy(false);
+    }
+  }
+
   return (
-    <div>
+    <div className="new-reel-stack">
       <label className="new-reel" data-busy={busy}>
         <span className="plus">
           <PlusIcon size={26} />
@@ -52,6 +64,11 @@ export function NewReelPicker() {
           }}
         />
       </label>
+      {librarySize > 0 ? (
+        <button type="button" className="btn btn-quiet btn-block" disabled={busy} onClick={startFromLibrary} data-testid="start-from-library">
+          Use library media
+        </button>
+      ) : null}
       {error ? <p className="error small" role="alert">{error}</p> : null}
     </div>
   );

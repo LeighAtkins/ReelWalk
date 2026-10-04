@@ -85,6 +85,10 @@ model MediaAsset {
   durationMs  Int?
   width       Int?
   height      Int?
+  // Set for media imported from an open library, so the licence travels with the file.
+  sourceUrl   String?
+  license     String?
+  attribution String?
   createdAt   DateTime    @default(now())
   renderJobs  RenderJob[]
 

@@ -80,6 +80,20 @@ services:
       postgres:
         condition: service_healthy
 
+  # Loads openly licensed 360 photos and home videos into the media library
+  # and creates sample reels. Run on demand; safe to run again:
+  #   docker compose run --rm import-library
+  import-library:
+    image: reelwalk-worker
+    profiles: ["tools"]
+    command: ["node_modules/.bin/tsx", "src/import-library.ts"]
+    environment: *app-env
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      minio-init:
+        condition: service_completed_successfully
+
   worker:
     build:
       context: .

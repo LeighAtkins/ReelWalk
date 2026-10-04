@@ -13,7 +13,8 @@
     "db:seed": "pnpm --filter @reelwalk/db seed",
     "e2e": "pnpm --filter @reelwalk/e2e e2e",
     "test:render": "pnpm --filter @reelwalk/render test",
-    "test:worker": "pnpm --filter @reelwalk/worker test"
+    "test:worker": "pnpm --filter @reelwalk/worker test",
+    "library:import": "docker compose run --rm import-library"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.0",

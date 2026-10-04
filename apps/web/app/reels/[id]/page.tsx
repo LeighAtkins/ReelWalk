@@ -11,8 +11,15 @@ export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = { title: "Edit reel · ReelWalk" };
 
-export default async function EditReelPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function EditReelPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ library?: string }>;
+}) {
   const { id } = await params;
+  const { library: openLibrary } = await searchParams;
   const user = await getCurrentUser();
   const reel = await prisma.reel.findFirst({ where: { id, workspaceId: user.workspaceId } });
   if (!reel) notFound();
@@ -21,7 +28,7 @@ export default async function EditReelPage({ params }: { params: Promise<{ id: s
   // Everything this reel uses, plus recent uploads to reuse.
   const [used, recent] = await Promise.all([
     prisma.mediaAsset.findMany({ where: { workspaceId: user.workspaceId, id: { in: referencedAssetIds(timeline) } } }),
-    prisma.mediaAsset.findMany({ where: { workspaceId: user.workspaceId }, orderBy: { createdAt: "desc" }, take: 60 }),
+    prisma.mediaAsset.findMany({ where: { workspaceId: user.workspaceId }, orderBy: { createdAt: "desc" }, take: 120 }),
   ]);
   const unique = new Map([...recent, ...used].map((asset) => [asset.id, asset]));
   const library = await Promise.all([...unique.values()].map(toLibraryAsset));
@@ -29,6 +36,7 @@ export default async function EditReelPage({ params }: { params: Promise<{ id: s
   return (
     <Editor
       key={reel.id}
+      openLibrary={openLibrary === "1"}
       reel={{ id: reel.id, title: reel.title, revision: reel.revision, caption: reel.caption }}
       timeline={timeline}
       library={library}

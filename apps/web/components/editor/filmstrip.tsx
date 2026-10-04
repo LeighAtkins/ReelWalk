@@ -126,7 +126,7 @@ export function Filmstrip({
                   role="listitem"
                   className="clip-block"
                   aria-pressed={selected}
-                  aria-label={`Clip ${index + 1}, ${asset?.kind === "IMAGE" ? "photo" : "video"}, ${formatDuration(duration, true)}`}
+                  aria-label={`Clip ${index + 1}, ${clip.pano ? "360 photo" : asset?.kind === "IMAGE" ? "photo" : "video"}, ${formatDuration(duration, true)}`}
                   data-testid="clip"
                   style={{
                     left: pad + px(starts[index]) + 1,
@@ -137,6 +137,7 @@ export function Filmstrip({
                 >
                   {clip.transitionIn === "fade" && index > 0 ? <span className="clip-fade" aria-hidden="true" /> : null}
                   <span className="clip-meta">
+                    {clip.pano ? "360 " : ""}
                     {clip.kind === "VIDEO" && clip.speed !== 1 ? `${clip.speed}× ` : ""}
                     {formatDuration(duration, true)}
                   </span>

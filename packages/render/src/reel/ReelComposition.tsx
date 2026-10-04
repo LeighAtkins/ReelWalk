@@ -18,6 +18,7 @@ import { Video as RenderVideo } from "@remotion/media";
 import { framePlan, REEL_FORMAT, timelineDurationMs, type Clip, type TextOverlay, type Timeline } from "@reelwalk/core";
 import { useFontsFor } from "./fonts";
 import { FILTER_CSS, textCss } from "./look";
+import { PanoView } from "./PanoView";
 import type { ReelAsset, ReelProps } from "./types";
 
 /** Frames of the dip-to-black on each side of a "fade" transition. */
@@ -92,12 +93,21 @@ const ClipView: React.FC<{ clip: Clip; asset: ReelAsset | undefined; durationInF
     return <AbsoluteFill style={{ backgroundColor: "#163a5c" }} />;
   }
 
-  const progress = durationInFrames > 1 ? frame / (durationInFrames - 1) : 0;
+  // Clamped: a clip is mounted a second early (premount) with negative frames.
+  const progress = durationInFrames > 1 ? Math.min(1, Math.max(0, frame / (durationInFrames - 1))) : 0;
   const transform = asset.kind === "IMAGE" ? motionTransform(clip.motion, progress) : undefined;
   const fadeIn = clip.transitionIn === "fade" ? interpolate(frame, [0, FADE_FRAMES], [0, 1], { extrapolateRight: "clamp" }) : 1;
   const fadeOutValue = fadeOut
     ? interpolate(frame, [durationInFrames - FADE_FRAMES, durationInFrames - 1], [1, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" })
     : 1;
+
+  if (clip.pano && asset.kind === "IMAGE") {
+    return (
+      <AbsoluteFill style={{ opacity: Math.min(fadeIn, fadeOutValue), backgroundColor: "#000" }}>
+        <PanoView src={resolveSrc(asset.src)} pano={clip.pano} progress={progress} style={{ filter: FILTER_CSS[clip.filter] }} />
+      </AbsoluteFill>
+    );
+  }
 
   return (
     <AbsoluteFill style={{ opacity: Math.min(fadeIn, fadeOutValue), overflow: "hidden" }}>

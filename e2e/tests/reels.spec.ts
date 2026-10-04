@@ -154,3 +154,22 @@ test("delete a reel", async ({ page }) => {
   await expect(page).toHaveURL(/\/$/);
   await expect(page.locator(`a[href="${new URL(url).pathname}"]`)).toHaveCount(0);
 });
+
+test("a 360 photo becomes a camera sweep and exports", async ({ page }) => {
+  await newReel(page, ["room-360.jpg"]);
+  await expect(page.getByTestId("clip")).toHaveCount(1, { timeout: 60_000 });
+  // Recognised by its 2:1 shape: five seconds, labelled 360.
+  await expect(page.getByTestId("clip").first()).toContainText("360");
+  await expect(total(page)).toContainText("/ 0:05.0");
+
+  await page.getByTestId("clip").first().click();
+  await page.getByRole("button", { name: "360 view" }).click();
+  await page.getByRole("button", { name: "Half turn" }).click();
+  await expect(page.getByText("180° right")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await waitForSaved(page);
+
+  await page.getByTestId("export-button").click();
+  await page.getByTestId("confirm-export").click();
+  await expect(page.getByTestId("export")).toHaveAttribute("data-status", "SUCCEEDED", { timeout: 4 * 60_000 });
+});

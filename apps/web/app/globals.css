@@ -347,6 +347,21 @@ p {
   cursor: pointer;
 }
 
+.new-reel-stack {
+  display: grid;
+  gap: 8px;
+}
+
+.new-reel-stack .new-reel {
+  /* Leaves room for the library button within the card's 9:16 slot. */
+  aspect-ratio: 9 / 13.4;
+}
+
+.new-reel-stack .btn {
+  padding: 0 10px;
+  font-size: 14px;
+}
+
 .new-reel input {
   position: absolute;
   inset: 0;

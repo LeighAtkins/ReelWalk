@@ -6,6 +6,7 @@ import {
   canExport,
   clipDurationMs,
   FILTERS,
+  DEFAULT_PANO,
   MIN_CLIP_MS,
   MOTIONS,
   SPEEDS,
@@ -16,6 +17,7 @@ import {
   type Issue,
   type Motion,
   type Music,
+  type PanoView,
   type TextOverlay,
   type TextStyle,
 } from "@reelwalk/core";
@@ -116,6 +118,9 @@ function Range({
 
 // ── Media ───────────────────────────────────────────────────────
 
+type LibraryFilter = "all" | "360" | "video" | "photo";
+const FILTER_NAMES: Record<LibraryFilter, string> = { all: "All", "360": "360 photos", video: "Videos", photo: "Photos" };
+
 export function MediaSheet({
   library,
   onUpload,
@@ -128,7 +133,11 @@ export function MediaSheet({
   onClose(): void;
 }) {
   const [picked, setPicked] = useState<string[]>([]);
-  const visual = library.filter((asset) => asset.kind !== "AUDIO");
+  const [filter, setFilter] = useState<LibraryFilter>("all");
+  const everything = library.filter((asset) => asset.kind !== "AUDIO");
+  const typeOf = (asset: LibraryAsset): LibraryFilter => (asset.isPano ? "360" : asset.kind === "VIDEO" ? "video" : "photo");
+  const visual = filter === "all" ? everything : everything.filter((asset) => typeOf(asset) === filter);
+  const filters = (["all", "360", "video", "photo"] as const).filter((name) => name === "all" || everything.some((asset) => typeOf(asset) === name));
   const toggle = (id: string) => setPicked((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]));
 
   return (
@@ -148,9 +157,18 @@ export function MediaSheet({
           }}
         />
       </label>
-      {visual.length > 0 ? (
+      {everything.length > 0 ? (
         <>
-          <p className="muted small">Or reuse something you uploaded before. Tap in the order you want them.</p>
+          <p className="muted small">Or pick from your library. Tap in the order you want them.</p>
+          {filters.length > 2 ? (
+            <Segmented<LibraryFilter>
+              label="Show"
+              options={filters}
+              value={filter}
+              onChange={setFilter}
+              format={(name) => FILTER_NAMES[name]}
+            />
+          ) : null}
           <div className="library-grid">
             {visual.map((asset) => {
               const order = picked.indexOf(asset.id);
@@ -161,10 +179,12 @@ export function MediaSheet({
                   className="library-item"
                   aria-pressed={order >= 0}
                   aria-label={asset.fileName}
+                  title={asset.credit ? `${asset.fileName} (${asset.credit})` : asset.fileName}
+                  data-testid="library-item"
                   onClick={() => toggle(asset.id)}
                 >
                   {asset.thumbUrl ? <img src={asset.thumbUrl} alt="" /> : null}
-                  <span className="chip timecode">{order >= 0 ? order + 1 : asset.durationMs ? formatDuration(asset.durationMs) : "Photo"}</span>
+                  <span className="chip timecode">{order >= 0 ? order + 1 : asset.isPano ? "360" : asset.durationMs ? formatDuration(asset.durationMs) : "Photo"}</span>
                 </button>
               );
             })}
@@ -173,7 +193,7 @@ export function MediaSheet({
             type="button"
             className="btn btn-block"
             disabled={picked.length === 0}
-            onClick={() => onPick(picked.map((id) => visual.find((asset) => asset.id === id)!))}
+            onClick={() => onPick(picked.map((id) => everything.find((asset) => asset.id === id)!))}
           >
             {picked.length === 0 ? "Select media to add" : `Add ${picked.length} to the reel`}
           </button>
@@ -311,6 +331,98 @@ export function MotionSheet({ clip, onChange, onClose }: { clip: Clip; onChange(
     <Sheet title="Photo motion" onClose={onClose}>
       <Segmented label="Motion" options={MOTIONS} value={clip.motion} onChange={onChange} format={(motion) => MOTION_LABELS[motion]} />
       <p className="muted small">A slow zoom or pan keeps a still photo of a room from looking frozen.</p>
+    </Sheet>
+  );
+}
+
+const SWEEPS = [
+  { label: "Quarter turn", degrees: 90 },
+  { label: "Half turn", degrees: 180 },
+  { label: "Full spin", degrees: 360 },
+] as const;
+
+/** Camera move through a 360 photo. */
+export function PanoSheet({
+  clip,
+  onChange,
+  onPreview,
+  onClose,
+}: {
+  clip: Clip;
+  onChange(pano: PanoView | null): void;
+  onPreview(): void;
+  onClose(): void;
+}) {
+  const pano = clip.pano;
+  if (!pano) {
+    return (
+      <Sheet title="360 view" onClose={onClose}>
+        <p className="muted">This photo is shown flat. Turn on the 360 view to move a camera through the room.</p>
+        <button type="button" className="btn btn-signal btn-block" onClick={() => onChange(DEFAULT_PANO)}>
+          Show as 360
+        </button>
+      </Sheet>
+    );
+  }
+  const turn = Math.round(pano.yawEnd - pano.yawStart);
+  return (
+    <Sheet title="360 view" onClose={onClose}>
+      <Range
+        label="Start looking"
+        value={pano.yawStart}
+        min={-180}
+        max={180}
+        step={5}
+        display={`${pano.yawStart}°`}
+        onChange={(yawStart) => onChange({ ...pano, yawStart, yawEnd: yawStart + turn })}
+      />
+      <Range
+        label="Turn by"
+        value={turn}
+        min={-180}
+        max={180}
+        step={5}
+        display={turn === 0 ? "Still" : `${Math.abs(turn)}° ${turn > 0 ? "right" : "left"}`}
+        onChange={(degrees) => onChange({ ...pano, yawEnd: pano.yawStart + degrees })}
+      />
+      <div className="segmented" role="group" aria-label="Turn presets">
+        {SWEEPS.map((sweep) => (
+          <button
+            key={sweep.degrees}
+            type="button"
+            aria-pressed={Math.abs(turn) === sweep.degrees}
+            onClick={() => onChange({ ...pano, yawStart: Math.min(pano.yawStart, 360 - sweep.degrees), yawEnd: Math.min(pano.yawStart, 360 - sweep.degrees) + sweep.degrees })}
+          >
+            {sweep.label}
+          </button>
+        ))}
+      </div>
+      <Range
+        label="Tilt"
+        value={pano.pitch}
+        min={-45}
+        max={45}
+        step={5}
+        display={pano.pitch === 0 ? "Level" : `${Math.abs(pano.pitch)}° ${pano.pitch > 0 ? "up" : "down"}`}
+        onChange={(pitch) => onChange({ ...pano, pitch })}
+      />
+      <Range
+        label="Zoom"
+        value={130 - pano.fov}
+        min={10}
+        max={90}
+        step={5}
+        display={pano.fov <= 65 ? "Close" : pano.fov >= 100 ? "Wide" : "Normal"}
+        onChange={(value) => onChange({ ...pano, fov: 130 - value })}
+      />
+      <div className="segmented">
+        <button type="button" onClick={onPreview}>
+          Play this clip
+        </button>
+        <button type="button" onClick={() => onChange(null)}>
+          Show flat instead
+        </button>
+      </div>
     </Sheet>
   );
 }

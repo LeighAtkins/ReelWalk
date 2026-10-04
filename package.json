@@ -11,7 +11,7 @@
     "db:generate": "turbo run db:generate",
     "db:migrate": "pnpm --filter @reelwalk/db migrate:deploy",
     "db:seed": "pnpm --filter @reelwalk/db seed",
-    "e2e": "pnpm --filter @reelwalk/e2e test",
+    "e2e": "pnpm --filter @reelwalk/e2e e2e",
     "test:render": "pnpm --filter @reelwalk/render test",
     "test:worker": "pnpm --filter @reelwalk/worker test"
   },

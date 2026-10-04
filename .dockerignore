@@ -33,3 +33,9 @@ Thumbs.db
 # Logs
 *.log
 *.pid
+
+# Local tooling and generated code
+.tools
+**/.turbo
+**/generated
+e2e

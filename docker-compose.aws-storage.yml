@@ -1,45 +1,41 @@
-# Use this override when Postgres/Redis stay local but media lives in AWS S3.
+# Use this override when Postgres and the queue stay local but media lives in AWS S3.
+# The bucket needs a CORS rule allowing PUT from the web origin for browser uploads.
 services:
   minio:
     profiles:
       - local-minio
 
-  api:
-    env_file: !override
-      - .env.aws
-    environment:
-      S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-}
-      S3_PUBLIC_ENDPOINT_URL: ${S3_PUBLIC_ENDPOINT_URL:-}
-      S3_REGION: ${S3_REGION:-us-east-1}
-      S3_BUCKET: ${S3_BUCKET:-reelwalk-media-dev}
-      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-false}
-      CLOUDFRONT_BASE_URL: ${CLOUDFRONT_BASE_URL}
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+  minio-init:
+    profiles:
+      - local-minio
 
   worker:
-    env_file: !override
+    env_file:
       - .env.aws
     environment:
-      S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-}
-      S3_PUBLIC_ENDPOINT_URL: ${S3_PUBLIC_ENDPOINT_URL:-}
+      S3_ENDPOINT_URL: ""
+      S3_PUBLIC_ENDPOINT_URL: ""
       S3_REGION: ${S3_REGION:-us-east-1}
       S3_BUCKET: ${S3_BUCKET:-reelwalk-media-dev}
-      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-false}
-    depends_on:
-      api:
+      S3_FORCE_PATH_STYLE: "false"
+    depends_on: !override
+      migrate:
+        condition: service_completed_successfully
+      elasticmq:
         condition: service_started
 
   web:
-    env_file: !override
+    env_file:
       - .env.aws
-
-  nginx:
-    depends_on:
-      web:
-        condition: service_started
-      api:
+    environment:
+      S3_ENDPOINT_URL: ""
+      S3_PUBLIC_ENDPOINT_URL: ""
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_BUCKET: ${S3_BUCKET:-reelwalk-media-dev}
+      S3_FORCE_PATH_STYLE: "false"
+      CLOUDFRONT_BASE_URL: ${CLOUDFRONT_BASE_URL:-}
+    depends_on: !override
+      migrate:
+        condition: service_completed_successfully
+      elasticmq:
         condition: service_started

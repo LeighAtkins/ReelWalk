@@ -1,8 +1,19 @@
 # ReelWalk
 
-Turn real-estate walkthrough video + a floorplan into a polished, shareable social Reel (TikTok / Instagram Reels / YouTube Shorts) with a moving floorplan marker and captions.
+A phone-first editor for Instagram Reels of property listings. Pick photos and walkthrough video, trim, split, reorder, add text and music, then export a 1080×1920 MP4 and share it to Instagram from the phone.
 
-> MVP, not the whole company. See `docs/MVP_SPEC.md` for the scoped Phase 1 build and `docs/TASK_01.md` for the first task.
+**What the editor does**
+
+- Clips: trim, split at the playhead, reorder, duplicate, delete, speed (0.5× to 3×), clip volume, fill or fit the 9:16 frame
+- Photos: on-screen length and slow zoom or pan
+- Looks (colour filters) per clip or for the whole reel, fade-through-black transitions
+- Text: four styles, six colours, size, drag to place, start and end times; Japanese renders correctly
+- Music: upload a song, set volume and where it starts; it fades out at the end
+- Instagram rules built in: 3 s to 3 min, caption and hashtag limits, guides for the areas Instagram covers with its own buttons and caption
+- Undo and redo, autosave, and protection against two tabs overwriting each other
+- Export renders on a worker and keeps going if you leave; the export screen opens the phone's share sheet with the video and copies the caption
+
+> The product strategy (floorplan overlay, AI room labels) is in `docs/PLAN.md` and `docs/MVP_SPEC.md`.
 
 ## Why this exists (one paragraph)
 
@@ -19,10 +30,10 @@ Real-estate agents and listing photographers spend $150–400 per listing on vid
 
 | Layer | Technology |
 | --- | --- |
-| Web | TypeScript, React 19, Next.js 16 App Router, Server Components, Server Actions |
+| Web | TypeScript, React 19, Next.js 16 App Router, Server Components, Server Actions, Remotion Player |
 | Data | PostgreSQL, Prisma 7 |
 | Queue and storage | SQS with a dead-letter queue, S3 (ElasticMQ and MinIO locally) |
-| Rendering | Separate TypeScript worker, Remotion, headless Chrome, ffmpeg |
+| Rendering | Separate TypeScript worker; the same Remotion composition as the preview, headless Chrome, WebCodecs |
 | Monorepo | pnpm workspaces, Turborepo |
 | Runtime | Docker, Kubernetes, Helm, kind for local clusters |
 | CI/CD | GitHub Actions, Trivy, Argo CD (optional) |
@@ -55,9 +66,13 @@ Needs Docker only.
 docker compose up --build
 ```
 
-Open http://localhost:8080. Create a property, upload a photo or video, pick a
-template and render. The job card shows progress, and the finished 9:16 MP4
-plays inline.
+Open http://localhost:8080 (on a desktop, the browser's phone emulation
+shows it as intended). Tap New reel, pick photos and videos, edit, then
+Export. The export screen shows progress and plays the finished 9:16 MP4.
+
+To try it on a real phone on the same network, open `http://<pc-ip>:8080` and
+set `S3_PUBLIC_ENDPOINT_URL=http://<pc-ip>:9000` in `.env` so the phone can
+reach uploaded media.
 
 - MinIO console: http://localhost:9001 (`minioadmin` / `minioadmin`)
 - The timeline editor is at http://localhost:8080/editor/

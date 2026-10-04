@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { copyText } from "@/lib/clipboard";
 import { ShareIcon } from "./icons";
 
 /**
@@ -14,7 +15,7 @@ export function ShareButton({ url, fileName, caption }: { url: string; fileName:
   async function share() {
     setState("busy");
     try {
-      if (caption) await navigator.clipboard?.writeText(caption).catch(() => undefined);
+      if (caption) await copyText(caption);
       const blob = await (await fetch(url)).blob();
       const file = new File([blob], fileName.replace(/[^\w.\- ]+/g, "") || "reel.mp4", { type: "video/mp4" });
       if (!navigator.canShare?.({ files: [file] })) {
@@ -38,7 +39,8 @@ export function ShareButton({ url, fileName, caption }: { url: string; fileName:
       {state === "copied" ? <p className="toast" role="status">Caption copied. Paste it in Instagram.</p> : null}
       {state === "unsupported" ? (
         <p className="muted small" role="status" style={{ gridColumn: "1 / -1" }}>
-          This browser cannot share files. Download the video and post it from your phone&apos;s gallery.
+          This browser cannot share files here (sharing needs HTTPS). Download the video and post it from your
+          phone&apos;s gallery.
         </p>
       ) : null}
       {state === "error" ? (

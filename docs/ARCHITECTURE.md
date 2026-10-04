@@ -37,8 +37,9 @@ SDK in both cases and only the endpoint settings differ.
 | Piece | Role here |
 | --- | --- |
 | **Next.js App Router** | The web app. Pages are Server Components that query Postgres directly; there is no separate REST API for the UI. |
-| **Server Components** | Render on the server with data already loaded. The dashboards and job history are plain `async` functions calling Prisma. |
-| **Server Actions** | Mutations called from forms: create property, issue an upload URL, confirm an upload, create a render, retry a render. Each one validates input with zod and checks the workspace. |
+| **Server Components** | Render on the server with data already loaded. The reels grid, the export screen and the exports list are plain `async` functions calling Prisma. The editor page loads the reel and its media library this way, then hands them to the client editor. |
+| **Server Actions** | Every mutation: create a reel, save the timeline (with a revision check), save the caption, issue an upload URL, confirm an upload, export, retry. Each one validates input with zod and checks the workspace. |
+| **Remotion** | React for video. One composition (`packages/render/src/reel`) draws a reel; `@remotion/player` shows it live in the editor and the worker renders the same component to MP4 ([ADR 0006](adr/0006-one-composition-for-preview-and-export.md)). |
 | **Route Handlers** | Used only where the caller is not this app's UI: `/api/health`, `/api/ready` for Kubernetes probes, `/api/editor/render` for the timeline editor. |
 | **Prisma** | Schema, migrations and a typed client, shared by web and worker through `packages/db`. |
 | **PostgreSQL** | Source of truth for properties, media, jobs and outputs. Job status changes are conditional updates. |
@@ -59,12 +60,12 @@ SDK in both cases and only the endpoint settings differ.
 ## Repository layout
 
 ```
-apps/web          Next.js app (Server Components, Server Actions)
+apps/web          Next.js app: mobile reels editor (Server Components, Server Actions)
 apps/worker       SQS consumer that renders jobs
 apps/editor       Standalone browser timeline editor (Vite)
-packages/core     Pure logic: job state machine, delivery/retry decisions, upload rules
+packages/core     Pure logic: timeline edits, Instagram rules, job state machine, retry decisions, upload rules
 packages/db       Prisma schema, migrations, client, seed
-packages/render   Remotion compositions and render functions
+packages/render   Remotion compositions (the Reel composition) and render functions
 e2e               Playwright tests
 infra/helm        Helm chart for web, worker and the migration Job
 infra/kind        Local cluster config and bootstrap script
@@ -80,10 +81,10 @@ docs/adr          Architecture decision records
 | --- | --- |
 | `Workspace` | Tenant boundary. Every query is scoped to the current user's workspace. |
 | `User` | Belongs to one workspace. There is no login yet: requests act as a seeded demo user, resolved in one function (`apps/web/lib/workspace.ts`). |
-| `Property` | A listing: title, address, description. |
-| `MediaAsset` | An uploaded photo or video. `objectKey` is the S3 key and is unique. |
-| `Template` | A reel style: which Remotion composition, default caption, brand. Seeded. |
-| `RenderJob` | One request to render. Holds `status`, `progress`, `attempt`, `generation`, `heartbeatAt` and the last `error`. |
+| `Reel` | One reel being edited. `timeline` is the edit as JSON (validated by `timelineSchema`), `revision` guards autosave against a second tab, `caption` is the Instagram post text. |
+| `MediaAsset` | The workspace's media library: photos, videos and songs. `objectKey` is the S3 key; `thumbKey` a JPEG made in the browser; `durationMs`, `width`, `height` measured in the browser before upload. |
+| `Property`, `Template` | From the first, per-listing flow. Kept in the schema; the mobile editor does not use them. |
+| `RenderJob` | One request to render. Holds `status`, `progress`, `attempt`, `generation`, `heartbeatAt` and the last `error`. For a reel export (`kind = REEL`), `payload` is a frozen copy of the timeline and the storage keys of its media. |
 | `RenderOutput` | The finished MP4. `jobId` is unique: one output per job, however many times it was rendered. |
 
 ## Render job lifecycle
@@ -113,13 +114,53 @@ with each delivery is `decideDelivery` in `packages/core/src/queue.ts`:
 Timing, all configurable: visibility timeout 120 s, heartbeat every 20 s,
 stale after 60 s, 3 attempts, backoff 15 s then 30 s.
 
+## The editor
+
+```
+┌─────────────────────────┐
+│ ✕   Reel 4      [Export]│  title (autosaves), save state
+│     ┌───────────┐       │
+│     │  9:16      │       │  Remotion Player: the Reel composition
+│     │  preview   │       │  tap to play; drag selected text;
+│     └───────────┘       │  Instagram safe-zone guides
+│ ▶ 0:04.2 / 0:12.0  ↶ ↷  │  timecode, undo, redo
+│ 0s  |1s   2s   3s       │  scale rule
+│ [photo][video  ][photo]+│  clips; the strip scrolls under the
+│      [Just listed]      │  fixed red playhead (scrubbing)
+│ [♫ song.mp3          ]  │  text and music lanes
+│ Split Trim Speed Look … │  tools for the selection
+└─────────────────────────┘
+```
+
+- **State.** The timeline lives in a reducer with undo/redo snapshots.
+  Every edit is a pure function from `packages/core`; sliders merge into one
+  undo step.
+- **Playhead.** The current time is kept outside React state and pushed to
+  the timecode and the timeline scroll position, so playback at 30 fps does
+  not re-render the editor.
+- **Saving.** 700 ms after an edit, `saveReel` sends the whole timeline with
+  the revision it last saw. If another tab saved in between, the save is
+  refused and the editor asks for a reload instead of overwriting.
+- **Instagram checks.** `instagramIssues` runs on every edit for the export
+  sheet and again in the `exportReel` action. Errors (too short, too long,
+  caption limits) block export; text under Instagram's UI is a warning with
+  a "Show me" that turns on the guides.
+- **Sharing.** The export screen fetches the MP4 and opens the phone's share
+  sheet with the file (Web Share API), where Instagram is a target. The
+  caption is copied to the clipboard first, because Instagram ignores text
+  shared with a video.
+
 ## Upload flow
 
-1. The browser calls the `createUploadUrl` Server Action with the file name,
-   type and size. The action validates them and returns a presigned S3 PUT URL.
-2. The browser PUTs the file to S3 directly, with progress.
-3. The browser calls `confirmUpload`. The action checks the object exists
-   with `HeadObject` and only then creates the `MediaAsset` row.
+1. The browser reads the file locally: duration and size from a `<video>`,
+   `<img>` or `<audio>` element, and a 240 px JPEG thumbnail from a canvas.
+   The server never decodes media.
+2. `createUpload` validates name, type and size and returns presigned PUT
+   URLs for the file and its thumbnail.
+3. The browser PUTs both straight to S3, two files at a time, with progress
+   on the timeline. Clips are added in the order they were picked.
+4. `confirmUpload` checks the object exists with `HeadObject` and records
+   the asset.
 
 Server Actions have a small request body limit by default, and a 2 GB video
 has no business in the web server's memory anyway.
@@ -128,7 +169,10 @@ has no business in the web server's memory anyway.
 
 - No authentication. One seeded user and workspace.
 - No AI features yet (Bedrock captions are planned).
+- No pinch-to-zoom on the timeline (fixed 56 px per second) and no
+  drag-to-reorder; clips move with Earlier/Later.
+- Signed media URLs last an hour; a longer editing session needs a reload.
 - Worker autoscaling is CPU-based and off by default; KEDA on queue depth is planned.
 - EKS, RDS and CloudFront are designed for but not deployed (ADR 0005).
 - The enqueue is not transactional with the job insert (ADR 0001).
-- `packages/render` and `apps/editor` are outside the lint and typecheck gate.
+- `apps/editor` (the older desktop pano editor) is outside the lint and typecheck gate.

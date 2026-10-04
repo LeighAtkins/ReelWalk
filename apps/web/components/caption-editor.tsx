@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { countHashtags, INSTAGRAM } from "@reelwalk/core";
 import { saveCaption } from "@/app/actions";
+import { copyText } from "@/lib/clipboard";
 import { CopyIcon } from "./icons";
 
 /** The Instagram post text, with Instagram's limits counted as you type. Saves itself. */
@@ -54,7 +55,7 @@ export function CaptionEditor({ reelId, initial, onChange }: { reelId: string; i
           className="btn btn-quiet"
           disabled={!caption}
           onClick={async () => {
-            await navigator.clipboard.writeText(caption);
+            if (!(await copyText(caption))) return;
             setCopied(true);
             setTimeout(() => setCopied(false), 1800);
           }}

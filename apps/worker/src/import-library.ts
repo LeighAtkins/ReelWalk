@@ -15,6 +15,11 @@ import { panoThumbnail, probe, run, upload } from "./library/tools";
  * already imported are skipped, and existing sample reels are left as they are.
  *
  *   docker compose run --rm import-library
+ *
+ * To replace the sample reels with the current definitions (this discards
+ * edits to them and their exports):
+ *
+ *   docker compose run --rm -e RESET_SAMPLES=1 import-library
  */
 
 /** Width 360 photos are stored at. 4096 is what the renderer uses and what phones can load. */
@@ -124,8 +129,10 @@ async function main() {
   await rm(workdir, { recursive: true, force: true });
 
   let reels = 0;
+  const reset = process.env.RESET_SAMPLES === "1";
   for (const sample of sampleReels(index)) {
-    // Never overwrite: you may have edited a sample.
+    if (reset) await prisma.reel.deleteMany({ where: { id: sample.id, workspaceId: user.workspaceId } });
+    // Otherwise never overwrite: you may have edited a sample.
     const exists = await prisma.reel.count({ where: { id: sample.id } });
     if (exists) continue;
     await prisma.reel.create({

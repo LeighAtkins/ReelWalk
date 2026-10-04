@@ -67,6 +67,9 @@ export type SampleReel = { id: string; title: string; caption: string; timeline:
 
 /** Ready-made reels that show what the editor does. Built only from imported media. */
 export function sampleReels(index: AssetIndex): SampleReel[] {
+  // Sweep angles were chosen by looking at each 360 photo: 0 is the centre of
+  // the image, negative is to its left. Each sweep ends on the room's subject,
+  // and its label is on screen while that subject is in view.
   const reels: (Omit<SampleReel, "timeline"> & { timeline: Timeline | null })[] = [
     {
       id: "sample-country-house",
@@ -76,16 +79,21 @@ export function sampleReels(index: AssetIndex): SampleReel[] {
       timeline: build(
         [
           video(index, "mixkit-8603", 2000, 3000),
-          pano(index, "lythwood_lounge", { yawStart: -70, yawEnd: 60 }, { transitionIn: "fade" }),
-          pano(index, "fireplace", { yawStart: -40, yawEnd: 50 }, { filter: "warm" }),
-          pano(index, "lythwood_room", { yawStart: 20, yawEnd: 110 }),
-          pano(index, "veranda", { yawStart: -60, yawEnd: 30 }, { transitionIn: "fade" }),
+          // Stone-wall sofa corner, round to the garden doors.
+          pano(index, "lythwood_lounge", { yawStart: -25, yawEnd: 55 }, { transitionIn: "fade" }),
+          // Sofa and painting, settling on the fire.
+          pano(index, "fireplace", { yawStart: 75, yawEnd: 18 }, { filter: "warm" }),
+          // Garden window, round to the bedroom's own fireplace.
+          pano(index, "lythwood_room", { yawStart: 25, yawEnd: 110 }),
+          // Across the veranda to the garden.
+          pano(index, "veranda", { yawStart: -45, yawEnd: 10 }, { transitionIn: "fade" }),
         ],
         [
           text("t-title", "Just listed", 300, 3000, { style: "headline", y: 0.4 }),
-          text("t-lounge", "Garden lounge", 3400, 7600, { style: "box", color: "#ffd23f", y: 0.3 }),
-          text("t-fire", "Open fireplace", 8400, 12600, { style: "box", color: "#ffd23f", y: 0.3 }),
-          text("t-cta", "Viewings this weekend", 18400, 23000, { style: "headline", size: 0.8, y: 0.45 }),
+          text("t-lounge", "Garden lounge", 3600, 7800, { style: "box", color: "#ffd23f", y: 0.3 }),
+          text("t-fire", "Open fireplace", 9800, 12800, { style: "box", color: "#ffd23f", y: 0.3 }),
+          text("t-suite", "Bedroom suite", 13600, 17800, { style: "box", color: "#ffd23f", y: 0.3 }),
+          text("t-cta", "Viewings this weekend", 18600, 23000, { style: "headline", size: 0.8, y: 0.45 }),
         ],
       ),
     },
@@ -93,19 +101,25 @@ export function sampleReels(index: AssetIndex): SampleReel[] {
       id: "sample-city-apartment",
       title: "City apartment",
       caption:
-        "A modern apartment with a chef's kitchen, a studio living space and a spa bathroom.\n\n#apartmenttour #modernliving #cityapartment #newlisting",
+        "A modern apartment with a chef's kitchen, a calm bedroom, a spa bathroom and its own terrace.\n\n#apartmenttour #modernliving #cityapartment #newlisting",
       timeline: build(
         [
           video(index, "mixkit-43033", 0, 4000),
-          pano(index, "glasshouse_interior", { yawStart: -80, yawEnd: 40 }),
-          video(index, "mixkit-3111", 0, 3500, { transitionIn: "fade" }),
-          pano(index, "modern_bathroom", { yawStart: -30, yawEnd: 60, fov: 95 }, { filter: "cool" }),
-          video(index, "mixkit-3112", 0, 3500),
+          video(index, "mixkit-4198", 0, 3500, { transitionIn: "fade" }),
+          // The pan arrives on the bed from the window.
+          video(index, "mixkit-4196", 9000, 4000),
+          // Shower, round to the bath under the skylight.
+          pano(index, "modern_bathroom", { yawStart: -70, yawEnd: 20, fov: 95 }, { filter: "cool", transitionIn: "fade" }),
+          // The last part of this clip walks out onto the terrace.
+          video(index, "mixkit-4029", 36000, 4000),
         ],
         [
-          text("t-title", "City apartment", 300, 3600, { style: "headline", y: 0.38 }),
-          text("t-kitchen", "Chef's kitchen", 600, 3800, { style: "outline", y: 0.52, size: 0.8 }),
-          text("t-bath", "Spa bathroom", 13000, 17000, { style: "box", color: "#4da3ff", y: 0.3 }),
+          text("t-title", "City apartment", 300, 3700, { style: "headline", y: 0.36 }),
+          text("t-kitchen", "Chef's kitchen", 700, 3700, { style: "outline", y: 0.5, size: 0.8 }),
+          text("t-living", "Living area", 4400, 7300, { style: "box", color: "#4da3ff", y: 0.3 }),
+          text("t-bed", "Bedroom", 7900, 11300, { style: "box", color: "#4da3ff", y: 0.3 }),
+          text("t-bath", "Spa bathroom", 12600, 16300, { style: "box", color: "#4da3ff", y: 0.3 }),
+          text("t-terrace", "Private terrace", 17000, 20300, { style: "headline", size: 0.8, y: 0.42 }),
         ],
       ),
     },
@@ -115,14 +129,20 @@ export function sampleReels(index: AssetIndex): SampleReel[] {
       caption: "Wake up to the sea. Four rooms, one deck, all in 360.\n\n#seaview #holidayhome #360tour #coastalliving",
       timeline: build(
         [
-          pano(index, "relax_inn_seaview_suite", { yawStart: -90, yawEnd: 20 }),
-          pano(index, "en_suite", { yawStart: -40, yawEnd: 40, fov: 95 }, { transitionIn: "fade" }),
-          pano(index, "cayley_interior", { yawStart: 0, yawEnd: 100 }),
-          pano(index, "sundowner_deck", { yawStart: -60, yawEnd: 60 }, { filter: "vivid", transitionIn: "fade" }),
+          // From the bed to the balcony doors and the sea.
+          pano(index, "relax_inn_seaview_suite", { yawStart: 110, yawEnd: 35 }),
+          // Basin, across the back of the room, to the shower.
+          pano(index, "en_suite", { yawStart: 150, yawEnd: 285, fov: 95 }, { transitionIn: "fade" }),
+          // Dining table, round to the sea through the glass doors.
+          pano(index, "cayley_interior", { yawStart: -110, yawEnd: 5 }),
+          // Along the open side of the deck.
+          pano(index, "sundowner_deck", { yawStart: -40, yawEnd: 35 }, { transitionIn: "fade" }),
         ],
         [
-          text("t-title", "Sea-view retreat", 300, 4200, { style: "headline", y: 0.4 }),
-          text("t-deck", "Sundowner deck", 15600, 19600, { style: "box", color: "#ff5a5f", y: 0.3 }),
+          text("t-title", "Sea-view retreat", 300, 4400, { style: "headline", y: 0.38 }),
+          text("t-bath", "En suite", 5800, 9600, { style: "box", color: "#ff5a5f", y: 0.3 }),
+          text("t-dining", "Dining with a sea view", 11200, 14600, { style: "box", color: "#ff5a5f", y: 0.3 }),
+          text("t-deck", "Sundowner deck", 15800, 19600, { style: "box", color: "#ff5a5f", y: 0.3 }),
         ],
       ),
     },

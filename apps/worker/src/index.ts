@@ -106,7 +106,7 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
 const loops = [
   pollLoop("render-queue", config.queueUrl, (delivery) =>
     handleDelivery(
-      { store, config, render: (job, onProgress) => renderJob(job, s3, config.s3Bucket, onProgress) },
+      { store, config, render: (job, onProgress) => renderJob(job, s3, config.s3Bucket, onProgress, config.renderConcurrency) },
       delivery,
     ),
   ),

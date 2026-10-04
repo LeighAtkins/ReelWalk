@@ -10,7 +10,7 @@ import {
 export type ClaimedJob = {
   id: string;
   generation: number;
-  kind: "TEMPLATE" | "EDITOR";
+  kind: "TEMPLATE" | "EDITOR" | "REEL";
   caption: string | null;
   payload: unknown;
   inputKey: string | null;

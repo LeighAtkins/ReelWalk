@@ -74,6 +74,8 @@ config:
   RENDER_HEARTBEAT_SECONDS: "20"
   RENDER_STALE_SECONDS: "60"
   RENDER_RETRY_BACKOFF_SECONDS: "15"
+  # Browser tabs per render. Keep requests.cpu in step when raising it.
+  RENDER_CONCURRENCY: "4"
 
 secret:
   # true: the chart creates the Secret from `values` (local development only).

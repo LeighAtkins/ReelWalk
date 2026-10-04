@@ -79,7 +79,7 @@ function interpolateCamera(start: CameraParams, end: CameraParams, t: number): C
  */
 const PanoClip: React.FC<{ clip: Clip }> = ({ clip }) => {
   const frame = useCurrentFrame();
-  const { fps, width, height } = useVideoConfig();
+  const { width, height } = useVideoConfig();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const glRef = useRef<WebGLRenderingContext | null>(null);
   const programRef = useRef<WebGLProgram | null>(null);
@@ -240,9 +240,9 @@ const ClipRenderer: React.FC<{ clip: Clip }> = ({ clip }) => {
   return null;
 };
 
-export interface TimelineCompositionProps {
+export type TimelineCompositionProps = {
   project: EditorProject;
-}
+};
 
 export const TimelineComposition: React.FC<TimelineCompositionProps> = ({ project }) => {
   return (

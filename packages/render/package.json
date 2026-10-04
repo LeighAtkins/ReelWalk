@@ -6,10 +6,15 @@
   "scripts": {
     "render:job": "tsx src/render-job.ts",
     "render:timeline": "tsx src/render-timeline.ts",
-    "test": "vitest run"
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@fontsource-variable/archivo": "^5.3.0",
+    "@fontsource-variable/noto-sans-jp": "^5.3.0",
+    "@reelwalk/core": "workspace:*",
     "@remotion/bundler": "^4.0.263",
+    "@remotion/media": "4.0.481",
     "@remotion/renderer": "^4.0.263",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
@@ -21,12 +26,16 @@
     "@types/node": "^22.10.5",
     "@types/react": "^19.0.4",
     "@types/react-dom": "^19.0.2",
-    "vitest": "^2.1.8"
+    "vitest": "^2.1.8",
+    "typescript": "^5.8.3"
   },
   "exports": {
     "./render-job": "./src/render-job.ts",
     "./render-timeline": "./src/render-timeline.ts",
     "./constants": "./src/constants.ts",
-    "./ensure-browser": "./src/ensure-browser.ts"
+    "./ensure-browser": "./src/ensure-browser.ts",
+    "./reel": "./src/reel/index.ts",
+    "./render-reel": "./src/render-reel.ts",
+    "./reel-types": "./src/reel/types.ts"
   }
 }

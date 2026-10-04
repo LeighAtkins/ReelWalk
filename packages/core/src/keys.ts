@@ -2,8 +2,14 @@ import { SUPPORTED_UPLOAD_TYPES } from "./uploads";
 
 const KNOWN_INPUT_EXTENSIONS = new Set([...Object.values(SUPPORTED_UPLOAD_TYPES), "jpeg"]);
 
-export function uploadKeyFor(propertyId: string, assetId: string, extension: string): string {
-  return `uploads/${propertyId}/${assetId}.${extension}`;
+/** Object key for an upload. `ownerId` is the workspace (or a property, for older uploads). */
+export function uploadKeyFor(ownerId: string, assetId: string, extension: string): string {
+  return `uploads/${ownerId}/${assetId}.${extension}`;
+}
+
+/** JPEG thumbnail the browser makes for an upload. */
+export function thumbKeyFor(objectKey: string): string {
+  return objectKey.replace(/^uploads\//, "thumbs/").replace(/\.[a-z0-9]+$/i, "") + ".jpg";
 }
 
 /**

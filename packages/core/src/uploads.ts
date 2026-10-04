@@ -1,4 +1,4 @@
-export type MediaKind = "VIDEO" | "IMAGE";
+export type MediaKind = "VIDEO" | "IMAGE" | "AUDIO";
 
 /**
  * Content types the render pipeline can consume, mapped to the object key
@@ -13,6 +13,13 @@ export const SUPPORTED_UPLOAD_TYPES: Record<string, string> = {
   "image/jpeg": "jpg",
   "image/png": "png",
   "image/webp": "webp",
+  // Music tracks.
+  "audio/mpeg": "mp3",
+  "audio/mp4": "m4a",
+  "audio/x-m4a": "m4a",
+  "audio/aac": "aac",
+  "audio/wav": "wav",
+  "audio/x-wav": "wav",
 };
 
 const EXTENSION_TO_TYPE: Record<string, string> = {
@@ -46,7 +53,16 @@ export function resolveUploadType(
 }
 
 export function mediaKindFor(contentType: string): MediaKind {
-  return contentType.startsWith("image/") ? "IMAGE" : "VIDEO";
+  if (contentType.startsWith("image/")) return "IMAGE";
+  if (contentType.startsWith("audio/")) return "AUDIO";
+  return "VIDEO";
+}
+
+/** Accept attribute for a file input, per kind of media. */
+export function acceptFor(kinds: MediaKind[]): string {
+  return Object.keys(SUPPORTED_UPLOAD_TYPES)
+    .filter((type) => kinds.includes(mediaKindFor(type)))
+    .join(",");
 }
 
 export const MAX_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024;

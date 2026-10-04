@@ -10,7 +10,10 @@ A phone-first editor for Instagram Reels of property listings. Pick photos and w
 - Floor plan: media from a home tour carries its position, and the reel shows the plan with a marker that moves from room to room and turns with the camera
 - Looks (colour filters) per clip or for the whole reel, fade-through-black transitions
 - Text: four styles, six colours, size, drag to place, start and end times; Japanese renders correctly
-- Music: upload a song, set volume and where it starts; it fades out at the end
+- Music: upload a song or pick one from the library, set volume and where it starts; the tempo is detected and one tap snaps every cut to the beat
+- Listing details: price, beds, baths, area, address and contact as a card at the start or end, placed clear of Instagram's caption
+- Auto-build: a home tour becomes a finished reel in one tap (rooms in viewing order, each 360 sweep ending on the window, plan, room names, cuts on the beat)
+- 3D flythroughs (experimental): a Gaussian splat of a room, rendered offline on a GPU, arrives as a video clip (`docs/adr/0007`)
 - Instagram rules built in: 3 s to 3 min, caption and hashtag limits, guides for the areas Instagram covers with its own buttons and caption
 - Undo and redo, autosave, and protection against two tabs overwriting each other
 - Export renders on a worker and keeps going if you leave; the export screen opens the phone's share sheet with the video and copies the caption

@@ -1,8 +1,8 @@
 # Sample media library
 
 The editor is more useful with something to edit. One command fills the media
-library with 360 photos of real rooms and short home videos, and creates three
-sample reels from them:
+library with 360 photos of real rooms, short home videos and music, and
+creates three sample reels from them:
 
 ```bash
 docker compose up -d            # the stack must be running
@@ -20,11 +20,15 @@ files go to the local object store (MinIO).
 | --- | --- | --- | --- |
 | 360 photos of rooms (lounges, bedrooms, kitchens, bathrooms, veranda, deck) | 22 | [Poly Haven](https://polyhaven.com/hdris/indoor) | CC0 1.0: public domain, any use, no credit required |
 | Home videos (kitchen, bedroom, living room, suite pans, aerial of a house) | 8 | [Mixkit](https://mixkit.co/free-stock-video/) | [Mixkit Stock Video Free License](https://mixkit.co/license/#videoFree): free in commercial and non-commercial projects, including social posts; not for redistribution as stock footage |
+| Music (four instrumental tracks, 91 to 120 bpm) | 4 | [FreePD](https://freepd.com/), downloaded from its Internet Archive copy | CC0 1.0: public domain |
 
 The exact files are listed in `apps/worker/src/library/manifest.ts`. Each
 imported asset stores its source page, licence and attribution in the
 database (`MediaAsset.sourceUrl`, `license`, `attribution`), and the library
 shows the credit when you hover an item.
+
+Each song's tempo and first beat are detected on import (and in the browser
+for songs you upload), which is what **Snap cuts to the beat** uses.
 
 360 photos are stored at 4096×2048. That is what the renderer uses, and what
 phones load comfortably; the originals are 8K.
@@ -63,6 +67,32 @@ data is therefore not in the ReelWalk repository, each imported asset is labelle
 with that licence, and reels made from it should not be posted. Zillow's public
 zind repository includes one sample tour; the full dataset needs an access request
 to Zillow.
+
+## 3D flythroughs (Gaussian splatting)
+
+A camera move through a room, rendered from a 3D reconstruction of it. This
+needs an NVIDIA GPU and Docker with GPU support, and runs outside the app:
+
+```bash
+# once: the sample scenes (680 MB), unpacked on the host
+curl -L -o data/splat/tandt_db.zip https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/datasets/input/tandt_db.zip
+mkdir -p data/splat/tandt_db && tar -xf data/splat/tandt_db.zip -C data/splat/tandt_db db/playroom
+
+# train (about 6 minutes on an RTX 4070) and render a 14 s vertical flythrough
+docker run --rm --gpus all --shm-size 8g   -v "$PWD/data/splat:/data" -v "$PWD/infra/splat:/scripts:ro"   ghcr.io/nerfstudio-project/nerfstudio:latest bash /scripts/reconstruct.sh playroom
+
+# add it to the library, with a sample reel
+docker compose run --rm import-flythrough
+```
+
+The flythrough is then an ordinary video clip in the library. How it works,
+what it costs and its limits are in
+[ADR 0007](adr/0007-splat-flythroughs-as-offline-video.md).
+
+**Licence: local testing only.** The sample scenes are research data (Deep
+Blending, distributed with the 3D Gaussian Splatting paper). They are not in
+the repository, and reels made from them should not be posted. A flythrough
+of your own capture is yours to post.
 
 ## Why not Zillow listing videos
 

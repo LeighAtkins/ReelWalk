@@ -52,7 +52,13 @@ export default async function RendersPage() {
               {jobs.map((job) => (
                 <tr key={job.id}>
                   <td>
-                    {job.property ? <Link href={`/properties/${job.property.id}`}>{job.property.title}</Link> : "Timeline editor"}
+                    {job.property ? (
+                      <Link href={`/properties/${job.property.id}`} prefetch={false}>
+                        {job.property.title}
+                      </Link>
+                    ) : (
+                      "Timeline editor"
+                    )}
                   </td>
                   <td>{job.template?.name ?? "—"}</td>
                   <td>

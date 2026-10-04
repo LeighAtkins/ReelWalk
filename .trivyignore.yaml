@@ -1,0 +1,14 @@
+# Accepted Trivy findings. Each entry says why it is accepted.
+misconfigurations:
+  - id: DS-0002
+    paths:
+      - "apps/editor/Dockerfile"
+      - "infra/nginx/Dockerfile"
+    statement: >-
+      Stock nginx images used only by the local Compose stack. They are not
+      part of the Kubernetes deployment. Switching to nginx-unprivileged is
+      tracked as follow-up work.
+  - id: DS-0002
+    paths:
+      - "apps/worker/Dockerfile.b4chrome"
+    statement: Backup of an earlier Dockerfile, not built by anything.

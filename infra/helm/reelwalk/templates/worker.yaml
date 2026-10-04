@@ -22,6 +22,8 @@ spec:
         checksum/config: {{ include "reelwalk.configChecksum" . }}
     spec:
       serviceAccountName: {{ include "reelwalk.fullname" . }}
+      securityContext:
+        {{- include "reelwalk.podSecurityContext" . | nindent 8 }}
       # On SIGTERM the worker stops polling and finishes its current render.
       terminationGracePeriodSeconds: {{ .Values.worker.terminationGracePeriodSeconds }}
       containers:
@@ -31,6 +33,8 @@ spec:
           ports:
             - name: health
               containerPort: 8081
+          env:
+            {{- include "reelwalk.homeEnv" . | nindent 12 }}
           envFrom:
             {{- include "reelwalk.envFrom" . | nindent 12 }}
           # No readiness probe: workers pull from SQS and receive no traffic.
@@ -48,7 +52,13 @@ spec:
           volumeMounts:
             - name: shm
               mountPath: /dev/shm
+            # Render scratch space: downloaded input, webpack bundle, output MP4.
+            - name: tmp
+              mountPath: /tmp
       volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 4Gi
         # Chrome needs more shared memory than the 64 MB a container gets by default.
         - name: shm
           emptyDir:

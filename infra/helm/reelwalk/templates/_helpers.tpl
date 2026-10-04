@@ -35,12 +35,29 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{ printf "%s%s" (toJson .Values.config) (toJson .Values.secret.values) | sha256sum }}
 {{- end -}}
 
+{{- define "reelwalk.podSecurityContext" -}}
+runAsNonRoot: true
+runAsUser: 1000
+runAsGroup: 1000
+fsGroup: 1000
+seccompProfile:
+  type: RuntimeDefault
+{{- end -}}
+
+{{/* The image is immutable at runtime; /tmp is the only writable path (an emptyDir). */}}
 {{- define "reelwalk.containerSecurityContext" -}}
 allowPrivilegeEscalation: false
+readOnlyRootFilesystem: true
 runAsNonRoot: true
 runAsUser: 1000
 capabilities:
   drop: ["ALL"]
 seccompProfile:
   type: RuntimeDefault
+{{- end -}}
+
+{{/* Tools that write to $HOME (Prisma, Chrome, tsx) are pointed at the writable /tmp. */}}
+{{- define "reelwalk.homeEnv" -}}
+- name: HOME
+  value: /tmp
 {{- end -}}

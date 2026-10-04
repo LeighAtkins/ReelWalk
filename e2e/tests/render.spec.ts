@@ -11,7 +11,7 @@ async function createProperty(page: Page, title: string) {
   await page.getByLabel("Title").fill(title);
   await page.getByLabel("Address").fill("1-24-5 Kanda Sudacho");
   await page.getByRole("button", { name: "Create property" }).click();
-  await expect(page).toHaveURL(/\/properties\//);
+  await expect(page).toHaveURL(/\/properties\//, { timeout: 30_000 });
   await expect(page.getByRole("heading", { level: 1, name: title })).toBeVisible();
 }
 

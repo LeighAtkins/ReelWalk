@@ -25,6 +25,8 @@ spec:
         checksum/config: {{ include "reelwalk.configChecksum" . }}
     spec:
       serviceAccountName: {{ include "reelwalk.fullname" . }}
+      securityContext:
+        {{- include "reelwalk.podSecurityContext" . | nindent 8 }}
       containers:
         - name: web
           image: "{{ .Values.web.image.repository }}:{{ .Values.web.image.tag }}"
@@ -32,6 +34,8 @@ spec:
           ports:
             - name: http
               containerPort: 3000
+          env:
+            {{- include "reelwalk.homeEnv" . | nindent 12 }}
           envFrom:
             {{- include "reelwalk.envFrom" . | nindent 12 }}
           # Ready: the database is reachable and migrated. Until then the pod
@@ -54,6 +58,16 @@ spec:
             {{- include "reelwalk.containerSecurityContext" . | nindent 12 }}
           resources:
             {{- toYaml .Values.web.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: next-cache
+              mountPath: /workspace/apps/web/.next/cache
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: next-cache
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service

@@ -21,5 +21,11 @@
     "turbo": "^2.11.7",
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.71.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "mysql2": "^3.22.0",
+      "deepmerge-ts": "^8.0.0"
+    }
   }
 }

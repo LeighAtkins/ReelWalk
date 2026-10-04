@@ -21,11 +21,13 @@ One Helm chart, `infra/helm/reelwalk`, with:
   fed by the poll loop. A memory-backed `/dev/shm` for Chrome, and a long
   `terminationGracePeriodSeconds` so a render can finish on shutdown.
 - **migrate**: a Job running `prisma migrate deploy` and the seed. Its name
-  includes a hash of the image tag, because a Job's pod template is immutable.
+  includes a hash of the image tag and chart version, because a Job's pod
+  template is immutable.
 - **ConfigMap** for settings, **Secret** for credentials, both injected with
   `envFrom`. A checksum annotation rolls the pods when either changes.
-- Requests and limits on every container, non-root, no privilege escalation,
-  all capabilities dropped.
+- Requests and limits on every container, non-root, read-only root
+  filesystem (only `/tmp` is writable, as an emptyDir), no privilege
+  escalation, all capabilities dropped.
 
 Postgres, MinIO and ElasticMQ are deliberately outside the chart
 (`infra/k8s/local`). In production they are RDS, S3 and SQS, so they are not

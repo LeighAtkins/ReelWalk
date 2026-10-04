@@ -46,10 +46,15 @@ jobs:
         run: >
           docker run --rm -v "$PWD:/src" "$TRIVY_IMAGE" fs /src
           --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1
-      - name: Scan Dockerfiles and Kubernetes manifests for misconfiguration
+      # Skipped: local-only stand-ins for AWS services, and the Terraform
+      # sketch that is not applied anywhere yet. Accepted findings are listed
+      # with reasons in .trivyignore.yaml.
+      - name: Scan Dockerfiles and the Helm chart for misconfiguration
         run: >
-          docker run --rm -v "$PWD:/src" "$TRIVY_IMAGE" config /src
+          docker run --rm -v "$PWD:/src" -w /src "$TRIVY_IMAGE" config .
           --severity HIGH,CRITICAL --exit-code 1
+          --skip-dirs infra/k8s/local --skip-dirs infra/terraform
+          --ignorefile .trivyignore.yaml
 
   images:
     name: Build and scan ${{ matrix.app }} image

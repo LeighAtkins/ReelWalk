@@ -36,7 +36,9 @@ export default async function PropertiesPage() {
             {properties.map((property) => (
               <li key={property.id} className="card row">
                 <div>
-                  <Link href={`/properties/${property.id}`} className="title">
+                  {/* No prefetch: each property page signs fresh media URLs, so prefetching
+                      every row would render the whole list's pages on each visit. */}
+                  <Link href={`/properties/${property.id}`} className="title" prefetch={false}>
                     {property.title}
                   </Link>
                   <div className="muted small">

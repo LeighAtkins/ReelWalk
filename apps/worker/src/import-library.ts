@@ -5,9 +5,9 @@ import path from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { DEFAULT_USER_EMAIL, prisma } from "@reelwalk/db";
-import { LIBRARY, MIXKIT, POLY_HAVEN, type LibraryItem } from "./library/manifest";
+import { FREEPD, LIBRARY, MIXKIT, POLY_HAVEN, type LibraryItem } from "./library/manifest";
 import { sampleReels, type AssetIndex } from "./library/sample-reels";
-import { panoThumbnail, probe, run, upload } from "./library/tools";
+import { analyseBeats, panoThumbnail, probe, run, upload } from "./library/tools";
 
 /**
  * Fills the workspace's media library with openly licensed 360 photos and
@@ -39,6 +39,19 @@ function describe(item: LibraryItem) {
       extension: "jpg",
     };
   }
+  if (item.kind === "music") {
+    return {
+      key: `music-${item.id}`,
+      objectKey: `library/music/${item.id}.mp3`,
+      thumbKey: null,
+      downloadUrl: FREEPD.fileUrl(item.file),
+      sourceUrl: FREEPD.pageUrl,
+      license: FREEPD.license,
+      attribution: FREEPD.attribution,
+      contentType: "audio/mpeg",
+      extension: "mp3",
+    };
+  }
   return {
     key: `mixkit-${item.id}`,
     objectKey: `library/video/mixkit-${item.id}.mp4`,
@@ -52,10 +65,40 @@ function describe(item: LibraryItem) {
   };
 }
 
-async function download(url: string, destination: string): Promise<void> {
-  const response = await fetch(url, { headers: { "user-agent": "ReelWalk library importer (local development)" } });
-  if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`);
-  await pipeline(Readable.fromWeb(response.body as never), createWriteStream(destination));
+let archiveServers: Promise<string[]> | null = null;
+
+/**
+ * The Internet Archive redirects a download to one of several storage nodes,
+ * and a node can be out of order. Its metadata API names the servers that
+ * hold an item, so those are tried directly as well.
+ */
+function archiveMirrors(url: string): Promise<string[]> {
+  const match = /^https:\/\/archive\.org\/download\/([^/]+)\/(.+)$/.exec(url);
+  if (!match) return Promise.resolve([url]);
+  archiveServers ??= fetch(`https://archive.org/metadata/${match[1]}`)
+    .then((response) => response.json() as Promise<{ d1?: string; d2?: string; dir?: string }>)
+    .then((meta) => [meta.d2, meta.d1].filter((server): server is string => !!server && !!meta.dir).map((server) => `https://${server}${meta.dir}/`))
+    .catch(() => []);
+  return archiveServers.then((servers) => [...servers.map((base) => base + match[2]), url]);
+}
+
+/** Downloads a file, retrying a few times: the sources sometimes answer 5xx under load. */
+async function download(source: string, destination: string): Promise<void> {
+  const urls = await archiveMirrors(source);
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    const url = urls[(attempt - 1) % urls.length];
+    try {
+      const response = await fetch(url, { headers: { "user-agent": "ReelWalk library importer (local development)" } });
+      if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`);
+      await pipeline(Readable.fromWeb(response.body as never), createWriteStream(destination));
+      return;
+    } catch (error) {
+      lastError = error;
+      await new Promise((resolve) => setTimeout(resolve, attempt * 3000));
+    }
+  }
+  throw lastError;
 }
 
 async function importItem(item: LibraryItem, workspaceId: string, workdir: string) {
@@ -68,6 +111,32 @@ async function importItem(item: LibraryItem, workspaceId: string, workdir: strin
   const thumb = path.join(workdir, `${info.key}-thumb.jpg`);
   await download(info.downloadUrl, original);
 
+  if (item.kind === "music") {
+    const [{ stdout }, beat, sizeBytes] = await Promise.all([
+      run("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", original]),
+      analyseBeats(original),
+      upload(info.objectKey, original, info.contentType),
+    ]);
+    const asset = await prisma.mediaAsset.create({
+      data: {
+        workspaceId,
+        kind: "AUDIO",
+        objectKey: info.objectKey,
+        contentType: info.contentType,
+        fileName: item.title,
+        sizeBytes,
+        durationMs: Math.round(Number(stdout) * 1000) || null,
+        bpm: beat?.bpm ?? null,
+        beatOffsetMs: beat?.offsetMs ?? null,
+        sourceUrl: info.sourceUrl,
+        license: info.license,
+        attribution: info.attribution,
+      },
+    });
+    await rm(original, { force: true });
+    return { key: info.key, asset, imported: true };
+  }
+
   if (item.kind === "pano") {
     await run("ffmpeg", ["-v", "error", "-y", "-i", original, "-vf", `scale=${PANO_WIDTH}:${PANO_WIDTH / 2}:flags=lanczos`, "-q:v", "3", media]);
     await panoThumbnail(media, thumb);
@@ -78,7 +147,7 @@ async function importItem(item: LibraryItem, workspaceId: string, workdir: strin
 
   const { width, height, durationMs } = await probe(media);
   const sizeBytes = await upload(info.objectKey, media, info.contentType);
-  await upload(info.thumbKey, thumb, "image/jpeg");
+  await upload(info.thumbKey!, thumb, "image/jpeg");
 
   const asset = await prisma.mediaAsset.create({
     data: {
@@ -116,9 +185,10 @@ async function main() {
       for (let item = queue.shift(); item; item = queue.shift()) {
         try {
           const result = await importItem(item, user.workspaceId, workdir);
-          index[result.key] = { id: result.asset.id, durationMs: result.asset.durationMs };
+          const { id, durationMs, bpm, beatOffsetMs } = result.asset;
+          index[result.key] = { id, durationMs, bpm, beatOffsetMs };
           if (result.imported) imported++;
-          console.log(`${result.imported ? "imported" : "already there"}  ${item.title}`);
+          console.log(`${result.imported ? "imported" : "already there"}  ${item.title}${bpm ? ` (${bpm} bpm)` : ""}`);
         } catch (error) {
           failed++;
           console.warn(`skipped  ${item.title}: ${error instanceof Error ? error.message : error}`);

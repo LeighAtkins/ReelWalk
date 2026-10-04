@@ -173,3 +173,43 @@ test("a 360 photo becomes a camera sweep and exports", async ({ page }) => {
   await page.getByTestId("confirm-export").click();
   await expect(page.getByTestId("export")).toHaveAttribute("data-status", "SUCCEEDED", { timeout: 4 * 60_000 });
 });
+
+test("music: tempo is detected and cuts snap to the beat", async ({ page }) => {
+  await newReel(page, ["exterior.jpg", "living-room.jpg"]);
+  await expect(page.getByTestId("clip")).toHaveCount(2, { timeout: 60_000 });
+  await expect(total(page)).toContainText("/ 0:06.0");
+
+  // A click track at 110 bpm: one beat every 545 ms.
+  await page.getByRole("button", { name: "Music", exact: true }).click();
+  await page.getByTestId("music-input").setInputFiles(fixture("click-110bpm.mp3"));
+  const snap = page.getByTestId("snap-to-beat");
+  await expect(snap).toContainText("110 bpm", { timeout: 30_000 });
+  await snap.click();
+
+  // Two 3 s photos become 5 or 6 beats each, so the reel is no longer exactly 6 s.
+  await expect(total(page)).not.toContainText("/ 0:06.0");
+  await waitForSaved(page);
+});
+
+test("property details are saved with the reel and can write the caption", async ({ page }) => {
+  const url = await newReel(page, ["exterior.jpg"]);
+  await expect(page.getByTestId("clip")).toHaveCount(1, { timeout: 60_000 });
+
+  await page.getByRole("button", { name: "Details", exact: true }).click();
+  await page.getByLabel("Price").fill("¥48,000,000");
+  await page.getByLabel("Beds").fill("3");
+  await page.getByLabel("Baths").fill("2");
+  await page.getByLabel("Size").fill("92 m²");
+  await page.getByLabel("Address or area").fill("Kanda, Chiyoda");
+  await page.getByRole("button", { name: "Write the post caption from these details" }).click();
+  await page.keyboard.press("Escape");
+  await waitForSaved(page);
+
+  await page.goto(url);
+  await page.getByRole("button", { name: "Details", exact: true }).click();
+  await expect(page.getByLabel("Price")).toHaveValue("¥48,000,000");
+  await expect(page.getByLabel("Size")).toHaveValue("92 m²");
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Caption", exact: true }).click();
+  await expect(page.getByRole("textbox", { name: "Post caption" })).toHaveValue(/¥48,000,000 · Kanda, Chiyoda[\s\S]*3 bed · 2 bath · 92 m²/);
+});

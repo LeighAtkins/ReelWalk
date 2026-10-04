@@ -5,6 +5,7 @@ import {
   addText,
   emptyTimeline,
   hasRoomLabels,
+  listingDetailsSchema,
   moveClip,
   normalizePlan,
   parseTimeline,
@@ -12,6 +13,7 @@ import {
   removeRoomLabels,
   roomIndexAt,
   roomTitle,
+  setDetails,
   setPlan,
   type Clip,
 } from "../src";
@@ -81,6 +83,19 @@ describe("room labels", () => {
     const again = addRoomLabels(moveClip(withTitle, "d", 0));
     expect(again.texts.map((text) => text.text).sort()).toEqual(["Bedroom", "Just listed", "Kitchen"]);
     expect(removeRoomLabels(again).texts.map((text) => text.text)).toEqual(["Just listed"]);
+  });
+});
+
+describe("room labels and the details card", () => {
+  it("ends the last label before the card appears", () => {
+    const base = addClips(emptyTimeline(), [clip("a", "kitchen"), clip("d", "bedroom")]);
+    const withCard = setDetails(base, listingDetailsSchema.parse({ price: "¥48,000,000", placement: "end" }));
+    const labels = addRoomLabels(withCard).texts;
+    // 8 s reel: the card holds the last 3.2 s (40% of the reel), so "Bedroom" ends at 4.8 s.
+    expect(labels.map((text) => [text.text, text.endMs])).toEqual([
+      ["Kitchen", 4000],
+      ["Bedroom", 4800],
+    ]);
   });
 });
 

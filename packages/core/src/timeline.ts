@@ -121,7 +121,53 @@ export const musicSchema = z.object({
   /** Where in the song the reel starts. */
   sourceStartMs: ms.default(0),
   volume: unit.default(0.8),
+  /** Tempo of the song and the time of its first beat, when detected. */
+  bpm: z.number().min(40).max(240).nullable().default(null),
+  beatOffsetMs: ms.nullable().default(null),
 });
+
+export const DETAILS_PLACEMENTS = ["end", "start", "both"] as const;
+/** How long the details card stays on screen. */
+export const DETAILS_CARD_MS = 3500;
+
+/** The facts a buyer looks for, shown as a card over the start or end of the reel. */
+export const listingDetailsSchema = z.object({
+  price: z.string().trim().max(24).default(""),
+  beds: z.string().trim().max(6).default(""),
+  baths: z.string().trim().max(6).default(""),
+  area: z.string().trim().max(16).default(""),
+  address: z.string().trim().max(80).default(""),
+  /** Who to contact: an agent's name, a phone number, a handle. */
+  contact: z.string().trim().max(60).default(""),
+  placement: z.enum(DETAILS_PLACEMENTS).default("end"),
+});
+export type ListingDetails = z.infer<typeof listingDetailsSchema>;
+
+export function hasDetails(details: ListingDetails | null | undefined): details is ListingDetails {
+  return !!details && [details.price, details.beds, details.baths, details.area, details.address, details.contact].some((value) => value !== "");
+}
+
+/** "3 bed", "2 bath", "92 m²": the short facts row, skipping anything left empty. */
+export function detailFacts(details: ListingDetails): string[] {
+  return [
+    details.beds ? `${details.beds} bed` : "",
+    details.baths ? `${details.baths} bath` : "",
+    details.area,
+  ].filter((value) => value !== "");
+}
+
+/** A starting point for the Instagram caption, built from the details. */
+export function captionFromDetails(details: ListingDetails): string {
+  const facts = detailFacts(details).join(" · ");
+  return [
+    [details.price, details.address].filter(Boolean).join(" · "),
+    facts,
+    details.contact ? `Viewings: ${details.contact}` : "",
+    "#justlisted #housetour #realestate #newlisting",
+  ]
+    .filter((line) => line !== "")
+    .join("\n\n");
+}
 
 export const timelineSchema = z.object({
   version: z.literal(1),
@@ -130,6 +176,8 @@ export const timelineSchema = z.object({
   music: musicSchema.nullable(),
   /** Floor plan with a marker that follows the clips. Null when the reel has none. */
   plan: planOverlaySchema.nullable().default(null),
+  /** Price, rooms and contact, shown as a card. Null when not filled in. */
+  details: listingDetailsSchema.nullable().default(null),
 });
 
 export type Clip = z.infer<typeof clipSchema>;
@@ -138,7 +186,7 @@ export type Music = z.infer<typeof musicSchema>;
 export type Timeline = z.infer<typeof timelineSchema>;
 
 export function emptyTimeline(): Timeline {
-  return { version: 1, clips: [], texts: [], music: null, plan: null };
+  return { version: 1, clips: [], texts: [], music: null, plan: null, details: null };
 }
 
 /** Validates untrusted JSON (a save from the browser, a row from the database). */
@@ -331,6 +379,10 @@ export function setMusic(timeline: Timeline, music: Music | null): Timeline {
   return { ...timeline, music: music ? musicSchema.parse(music) : null };
 }
 
+export function setDetails(timeline: Timeline, details: ListingDetails | null): Timeline {
+  return { ...timeline, details: details ? listingDetailsSchema.parse(details) : null };
+}
+
 export function setPlan(timeline: Timeline, plan: PlanOverlay | null): Timeline {
   return { ...timeline, plan: plan ? planOverlaySchema.parse(plan) : null };
 }
@@ -345,6 +397,11 @@ const roomLabelId = (clipId: string) => `room-${clipId}`;
  */
 export function addRoomLabels(timeline: Timeline): Timeline {
   const starts = clipStartsMs(timeline);
+  // The details card sits where the labels do, so labels make way for it.
+  const total = timelineDurationMs(timeline);
+  const card = hasDetails(timeline.details) ? Math.min(DETAILS_CARD_MS, Math.floor(total * 0.4)) : 0;
+  const clearFrom = card > 0 && timeline.details!.placement !== "end" ? card : 0;
+  const clearUntil = card > 0 && timeline.details!.placement !== "start" ? total - card : total;
   const managed = new Set(timeline.clips.map((clip) => roomLabelId(clip.id)));
   const labels: TextOverlay[] = [];
   timeline.clips.forEach((clip, index) => {
@@ -369,7 +426,10 @@ export function addRoomLabels(timeline: Timeline): Timeline {
       }),
     );
   });
-  return { ...timeline, texts: [...timeline.texts.filter((text) => !managed.has(text.id) && !text.id.startsWith("room-")), ...labels] };
+  const fitted = labels
+    .map((label) => ({ ...label, startMs: Math.max(label.startMs, clearFrom), endMs: Math.min(label.endMs, clearUntil) }))
+    .filter((label) => label.endMs - label.startMs >= 600);
+  return { ...timeline, texts: [...timeline.texts.filter((text) => !managed.has(text.id) && !text.id.startsWith("room-")), ...fitted] };
 }
 
 export function removeRoomLabels(timeline: Timeline): Timeline {

@@ -1,4 +1,4 @@
-import { mediaKindFor, resolveUploadType, type MediaKind } from "@reelwalk/core";
+import { BEAT_SAMPLE_RATE, detectBeats, mediaKindFor, resolveUploadType, type BeatGrid, type MediaKind } from "@reelwalk/core";
 import { confirmUpload, createUpload } from "@/app/actions";
 import type { LibraryAsset } from "@/lib/library";
 
@@ -109,10 +109,34 @@ function put(url: string, body: Blob, contentType: string, onProgress?: (fractio
   });
 }
 
+/**
+ * Tempo of a song, found in the browser: decode the file, resample the first
+ * 90 seconds to mono, and run the same detector the importer uses.
+ */
+async function detectTempo(file: File): Promise<BeatGrid | null> {
+  try {
+    const context = new AudioContext();
+    const decoded = await context.decodeAudioData(await file.arrayBuffer());
+    void context.close();
+    const seconds = Math.min(90, decoded.duration);
+    const offline = new OfflineAudioContext(1, Math.ceil(seconds * BEAT_SAMPLE_RATE), BEAT_SAMPLE_RATE);
+    const source = offline.createBufferSource();
+    source.buffer = decoded;
+    source.connect(offline.destination);
+    source.start();
+    const rendered = await offline.startRendering();
+    return detectBeats(rendered.getChannelData(0));
+  } catch {
+    // Not decodable here: the song still works, just without beat snapping.
+    return null;
+  }
+}
+
 /** Probes, uploads straight to storage, and records the asset. */
 export async function uploadFile(file: File, onProgress: (fraction: number) => void): Promise<LibraryAsset> {
   const info = await probe(file);
   if (!info) throw new Error(`${file.name} is not a supported photo, video or audio file.`);
+  const beat = info.kind === "AUDIO" ? await detectTempo(file) : null;
 
   const ticket = await createUpload({
     fileName: file.name,
@@ -132,6 +156,8 @@ export async function uploadFile(file: File, onProgress: (fraction: number) => v
     durationMs: info.durationMs,
     width: info.width,
     height: info.height,
+    bpm: beat?.bpm ?? null,
+    beatOffsetMs: beat?.offsetMs ?? null,
   });
   if (!confirmed.ok) throw new Error(confirmed.error);
   return confirmed.asset;

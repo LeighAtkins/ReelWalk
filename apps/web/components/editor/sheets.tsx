@@ -4,6 +4,10 @@ import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import {
   acceptFor,
   canExport,
+  captionFromDetails,
+  DETAILS_PLACEMENTS,
+  hasDetails,
+  listingDetailsSchema,
   clipDurationMs,
   FILTERS,
   DEFAULT_PANO,
@@ -15,6 +19,7 @@ import {
   type Clip,
   type Filter,
   type Issue,
+  type ListingDetails,
   type Motion,
   type Music,
   type PanoView,
@@ -25,6 +30,7 @@ import {
 import { FILTER_CSS, FILTER_LABELS, TEXT_STYLE_LABELS, textCss } from "@reelwalk/render/reel";
 import { formatDuration } from "@/lib/format";
 import type { LibraryAsset } from "@/lib/library";
+import { saveCaption } from "@/app/actions";
 import { CaptionEditor } from "../caption-editor";
 import { AlertIcon, CloseIcon, PlusIcon } from "../icons";
 
@@ -450,6 +456,63 @@ export function TransitionSheet({
   );
 }
 
+// ── Property details ────────────────────────────────────────────
+
+const PLACEMENT_NAMES: Record<ListingDetails["placement"], string> = { end: "At the end", start: "At the start", both: "Both" };
+
+export function DetailsSheet({
+  reelId,
+  details,
+  onChange,
+  onCaption,
+  onClose,
+}: {
+  reelId: string;
+  details: ListingDetails | null;
+  onChange(details: ListingDetails | null): void;
+  onCaption(caption: string): void;
+  onClose(): void;
+}) {
+  const current = details ?? listingDetailsSchema.parse({});
+  const set = (patch: Partial<ListingDetails>) => onChange({ ...current, ...patch });
+  const field = (key: "price" | "beds" | "baths" | "area" | "address" | "contact", label: string, placeholder: string, max: number, mode?: "numeric") => (
+    <label className="field">
+      {label}
+      <input className="text-input" value={current[key]} maxLength={max} placeholder={placeholder} inputMode={mode} onChange={(event) => set({ [key]: event.target.value })} />
+    </label>
+  );
+
+  return (
+    <Sheet title="Property details" onClose={onClose}>
+      <p className="muted small">Shown as a card over the video. Leave a field empty to leave it off the card.</p>
+      {field("price", "Price", "¥48,000,000", 24)}
+      <div className="field-grid">
+        {field("beds", "Beds", "3", 6, "numeric")}
+        {field("baths", "Baths", "2", 6, "numeric")}
+        {field("area", "Size", "92 m²", 16)}
+      </div>
+      {field("address", "Address or area", "Kanda, Chiyoda", 80)}
+      {field("contact", "Contact", "@your_agency or a phone number", 60)}
+      <div className="field">
+        Show the card
+        <Segmented<ListingDetails["placement"]> label="Show the card" options={DETAILS_PLACEMENTS} value={current.placement} onChange={(placement) => set({ placement })} format={(value) => PLACEMENT_NAMES[value]} />
+      </div>
+      <button
+        type="button"
+        className="btn btn-quiet btn-block"
+        disabled={!hasDetails(current)}
+        onClick={async () => {
+          const caption = captionFromDetails(current);
+          await saveCaption({ id: reelId, caption });
+          onCaption(caption);
+        }}
+      >
+        Write the post caption from these details
+      </button>
+    </Sheet>
+  );
+}
+
 // ── Floor plan ──────────────────────────────────────────────────
 
 export function PlanSheet({
@@ -613,6 +676,7 @@ export function MusicSheet({
   music,
   uploading,
   onPick,
+  onSnap,
   onUpload,
   onChange,
   onRemove,
@@ -622,6 +686,8 @@ export function MusicSheet({
   music: Music | null;
   uploading: boolean;
   onPick(asset: LibraryAsset): void;
+  /** Move every cut onto a beat of the song. */
+  onSnap(): void;
   onUpload(file: File): void;
   onChange(patch: Partial<Music>): void;
   onRemove(): void;
@@ -656,6 +722,13 @@ export function MusicSheet({
               onChange={(sourceStartMs) => onChange({ sourceStartMs })}
             />
           ) : null}
+          {music.bpm ? (
+            <button type="button" className="btn btn-signal btn-block" onClick={onSnap} data-testid="snap-to-beat">
+              Snap cuts to the beat ({Math.round(music.bpm)} bpm)
+            </button>
+          ) : (
+            <p className="muted small">No steady beat was found in this song, so cuts cannot snap to it.</p>
+          )}
           <button type="button" className="btn btn-quiet btn-block" onClick={onRemove}>
             Remove music
           </button>

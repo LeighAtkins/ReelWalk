@@ -6,13 +6,17 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import {
   buildReelExportPayload,
+  buildTourReel,
   canExport,
   emptyTimeline,
   instagramIssues,
+  isEquirect,
   MAX_UPLOAD_BYTES,
   parseTimeline,
+  planSchema,
   referencedAssetIds,
   resolveUploadType,
+  spotSchema,
   thumbKeyFor,
   uploadKeyFor,
   type Issue,
@@ -32,6 +36,38 @@ export async function createReel(): Promise<{ id: string }> {
   const reel = await prisma.reel.create({
     data: { workspaceId: user.workspaceId, title: `Reel ${count + 1}`, timeline: emptyTimeline() },
   });
+  revalidatePath("/");
+  return { id: reel.id };
+}
+
+/**
+ * Auto-build: a first draft of a walkthrough from a home tour. Rooms in
+ * viewing order, sweeps towards the windows, the floor plan, room names, and
+ * music with cuts on the beat when the library has a song.
+ */
+export async function createReelFromTour(input: { tourId: string }): Promise<{ id: string } | { error: string }> {
+  const user = await getCurrentUser();
+  const tour = await prisma.tour.findFirst({ where: { id: input.tourId, workspaceId: user.workspaceId }, include: { media: true } });
+  if (!tour) return { error: "That tour no longer exists." };
+
+  const plan = planSchema.safeParse(tour.plan);
+  const song = await prisma.mediaAsset.findFirst({
+    where: { workspaceId: user.workspaceId, kind: "AUDIO", bpm: { not: null } },
+    orderBy: { fileName: "asc" },
+  });
+  const timeline = buildTourReel({
+    shots: tour.media
+      .filter((asset) => asset.kind === "IMAGE")
+      .map((asset) => {
+        const spot = spotSchema.safeParse(asset.spot);
+        return { assetId: asset.id, room: asset.room, spot: spot.success ? spot.data : null, isPano: isEquirect(asset.width, asset.height) };
+      }),
+    plan: plan.success ? plan.data : null,
+    music: song ? { assetId: song.id, sourceStartMs: 0, volume: 0.7, bpm: song.bpm, beatOffsetMs: song.beatOffsetMs } : null,
+  });
+  if (!timeline) return { error: "This tour has too few room photos to build a reel from." };
+
+  const reel = await prisma.reel.create({ data: { workspaceId: user.workspaceId, title: tour.name, timeline } });
   revalidatePath("/");
   return { id: reel.id };
 }
@@ -212,6 +248,9 @@ const confirmSchema = z.object({
   durationMs: z.number().int().positive().nullable(),
   width: z.number().int().positive().nullable(),
   height: z.number().int().positive().nullable(),
+  /** Tempo of a song, detected in the browser. */
+  bpm: z.number().min(40).max(240).nullable().optional(),
+  beatOffsetMs: z.number().int().min(0).nullable().optional(),
 });
 
 export type ConfirmResult = { ok: true; asset: LibraryAsset } | { ok: false; error: string };
@@ -245,6 +284,8 @@ export async function confirmUpload(input: z.input<typeof confirmSchema>): Promi
       durationMs: resolved.kind === "IMAGE" ? null : data.durationMs,
       width: data.width,
       height: data.height,
+      bpm: resolved.kind === "AUDIO" ? (data.bpm ?? null) : null,
+      beatOffsetMs: resolved.kind === "AUDIO" ? (data.beatOffsetMs ?? null) : null,
     },
   });
   return { ok: true, asset: await toLibraryAsset(asset) };

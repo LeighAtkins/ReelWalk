@@ -206,6 +206,8 @@ describe("parsing", () => {
       assetId: "song",
       sourceStartMs: 0,
       volume: 0.5,
+      bpm: null,
+      beatOffsetMs: null,
     });
     expect(parseTimeline(JSON.parse(JSON.stringify(timeline)))).toEqual(timeline);
     expect(parseTimeline({ version: 1, clips: [{ id: "x", assetId: "y", kind: "IMAGE", sourceStartMs: 0, sourceEndMs: 3000 }], texts: [], music: null }).clips[0]).toMatchObject({ speed: 1, fit: "cover" });
@@ -220,7 +222,7 @@ describe("parsing", () => {
 });
 
 describe("reel export payload", () => {
-  const timeline = setMusic(reel(photo("a", 3000)), { assetId: "song", sourceStartMs: 0, volume: 1 });
+  const timeline = setMusic(reel(photo("a", 3000)), { assetId: "song", sourceStartMs: 0, volume: 1, bpm: null, beatOffsetMs: null });
   const library = [
     { id: "asset-a", objectKey: "uploads/w/a.jpg", kind: "IMAGE" as const },
     { id: "song", objectKey: "uploads/w/song.mp3", kind: "AUDIO" as const },

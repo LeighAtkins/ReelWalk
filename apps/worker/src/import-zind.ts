@@ -2,16 +2,7 @@ import { existsSync } from "node:fs";
 import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import {
-  addRoomLabels,
-  DEFAULT_PANO,
-  normalizePlan,
-  roomTitle,
-  timelineSchema,
-  type Clip,
-  type Plan,
-  type Spot,
-} from "@reelwalk/core";
+import { buildTourReel, listingDetailsSchema, normalizePlan, roomTitle, type Plan, type Spot, type TourShot } from "@reelwalk/core";
 import { DEFAULT_USER_EMAIL, prisma } from "@reelwalk/db";
 import { panoThumbnail, probe, upload } from "./library/tools";
 
@@ -40,14 +31,31 @@ type ZindPano = {
   is_inside: boolean;
   image_path: string;
   floor_plan_transformation: { translation: Point; rotation: number; scale: number };
+  layout_raw?: { windows?: Point[] };
 };
 type ZindData = {
   merger: Record<string, Record<string, Record<string, Record<string, ZindPano>>>>;
   redraw: Record<string, Record<string, { vertices: Point[]; doors: [Point, Point][] }>>;
 };
 
-/** Rooms worth a shot in a walkthrough, in the order a viewing would go. */
-const WALK_ORDER = ["living room", "dining room", "kitchen", "hallway", "bedroom", "bathroom", "bonus room", "garage"];
+/**
+ * Where the room's widest window is, as a camera yaw from the centre of the
+ * photo. ZInD lists each window as three points in the room's own
+ * coordinates, with the camera at the origin: left edge, right edge, and a
+ * (bottom, top) pair. In ZInD's convention a point (x, y) is seen at
+ * atan2(-x, y) from the centre of the photo, positive to the right.
+ */
+function windowAim(pano: ZindPano): number | undefined {
+  const points = pano.layout_raw?.windows ?? [];
+  let best: { width: number; yaw: number } | undefined;
+  for (let i = 0; i + 2 < points.length; i += 3) {
+    const [left, right] = [points[i], points[i + 1]];
+    const width = Math.hypot(right[0] - left[0], right[1] - left[1]);
+    const mid: Point = [(left[0] + right[0]) / 2, (left[1] + right[1]) / 2];
+    if (!best || width > best.width) best = { width, yaw: Math.round((Math.atan2(-mid[0], mid[1]) * 180) / Math.PI) };
+  }
+  return best?.yaw;
+}
 
 /**
  * ZInD gives each photo's rotation on the plan in degrees. The centre of the
@@ -86,13 +94,14 @@ async function importTour(dir: string, name: string, workspaceId: string, workdi
     .filter((pano) => pano.is_primary && pano.is_inside);
 
   const seen: Record<string, number> = {};
-  const shots: { assetId: string; room: string; spot: Spot }[] = [];
+  const shots: TourShot[] = [];
   let imported = 0;
   for (const pano of panos) {
     const file = path.join(dir, pano.image_path);
     if (!existsSync(file)) continue;
     const [x, y] = toPlan(...pano.floor_plan_transformation.translation);
-    const spot: Spot = { x, y, heading: headingFor(pano.floor_plan_transformation.rotation) };
+    const aim = windowAim(pano);
+    const spot: Spot = { x, y, heading: headingFor(pano.floor_plan_transformation.rotation), ...(aim === undefined ? {} : { aim }) };
     seen[pano.label] = (seen[pano.label] ?? 0) + 1;
     const title = `${roomTitle(pano.label)}${seen[pano.label] > 1 ? ` ${seen[pano.label]}` : ""} (360)`;
     const objectKey = `library/zind/${name}/${path.basename(pano.image_path)}`;
@@ -125,51 +134,33 @@ async function importTour(dir: string, name: string, workspaceId: string, workdi
         },
       });
       imported++;
+    } else {
+      // Keep positions and window aims current for photos imported earlier.
+      await prisma.mediaAsset.update({ where: { id: asset.id }, data: { spot, room: pano.label } });
     }
-    shots.push({ assetId: asset.id, room: pano.label, spot });
+    shots.push({ assetId: asset.id, room: pano.label, spot, isPano: true });
   }
   console.log(`${name}: ${plan.rooms.length} rooms on the plan, ${shots.length} located 360 photos (${imported} new)`);
 
   await createSampleReel(tourId, name, workspaceId, plan, shots);
 }
 
-/** A walkthrough in viewing order, with the floor plan marker and room names. */
-async function createSampleReel(
-  tourId: string,
-  name: string,
-  workspaceId: string,
-  plan: Plan,
-  shots: { assetId: string; room: string; spot: Spot }[],
-): Promise<void> {
+/** A first draft from the auto-builder: viewing order, sweeps to the windows, plan, room names, music. */
+async function createSampleReel(tourId: string, name: string, workspaceId: string, plan: Plan, shots: TourShot[]): Promise<void> {
   const id = `sample-${tourId}`;
-  // Never overwrite: you may have edited it.
+  if (process.env.RESET_SAMPLES === "1") await prisma.reel.deleteMany({ where: { id, workspaceId } });
+  // Otherwise never overwrite: you may have edited it.
   if (await prisma.reel.count({ where: { id } })) return;
 
-  const route = shots
-    .filter((shot) => WALK_ORDER.includes(shot.room))
-    .sort((a, b) => WALK_ORDER.indexOf(a.room) - WALK_ORDER.indexOf(b.room))
-    .slice(0, 9);
-  if (route.length < 3) return;
-
-  const clips: Clip[] = route.map((shot, index) => ({
-    id: `clip-${index}`,
-    assetId: shot.assetId,
-    kind: "IMAGE",
-    sourceStartMs: 0,
-    sourceEndMs: 4000,
-    speed: 1,
-    volume: 1,
-    fit: "cover",
-    filter: "none",
-    motion: "none",
-    transitionIn: index === 0 ? "cut" : "fade",
-    pano: { ...DEFAULT_PANO, yawStart: -50, yawEnd: 50 },
-    spot: shot.spot,
-    room: shot.room,
-  }));
-  const timeline = addRoomLabels(
-    timelineSchema.parse({ version: 1, clips, texts: [], music: null, plan: { geometry: plan, corner: "top-left", visible: true } }),
-  );
+  // Music from the open library, if it has been imported.
+  const song = await prisma.mediaAsset.findFirst({ where: { workspaceId, kind: "AUDIO", bpm: { not: null } }, orderBy: { fileName: "asc" } });
+  const timeline = buildTourReel({
+    shots,
+    plan,
+    music: song ? { assetId: song.id, sourceStartMs: 0, volume: 0.7, bpm: song.bpm, beatOffsetMs: song.beatOffsetMs } : null,
+    details: listingDetailsSchema.parse({ price: "$485,000", beds: "3", baths: "2", area: "1,640 sq ft", address: "Sample home (ZInD)", placement: "end" }),
+  });
+  if (!timeline) return;
 
   await prisma.reel.create({
     data: {
@@ -180,7 +171,7 @@ async function createSampleReel(
       timeline,
     },
   });
-  console.log(`${name}: sample reel created with ${clips.length} rooms`);
+  console.log(`${name}: sample reel created with ${timeline.clips.length} rooms${song ? `, music at ${song.bpm} bpm` : ""}`);
 }
 
 async function main() {

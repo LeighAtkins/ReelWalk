@@ -1,8 +1,21 @@
-import { DEFAULT_PANO, DEFAULT_PANO_MS, timelineSchema, type Clip, type TextOverlay, type Timeline } from "@reelwalk/core";
+import {
+  clipDurationMs,
+  clipStartsMs,
+  DEFAULT_PANO,
+  DEFAULT_PANO_MS,
+  listingDetailsSchema,
+  snapCutsToBeats,
+  timelineSchema,
+  type Clip,
+  type ListingDetails,
+  type Music,
+  type TextOverlay,
+  type Timeline,
+} from "@reelwalk/core";
 
-type AssetRef = { id: string; durationMs: number | null };
+type AssetRef = { id: string; durationMs: number | null; bpm?: number | null; beatOffsetMs?: number | null };
 
-/** Asset lookup by manifest key: a Poly Haven id, or `mixkit-<id>`. */
+/** Asset lookup by manifest key: a Poly Haven id, `mixkit-<id>`, or `music-<id>`. */
 export type AssetIndex = Record<string, AssetRef | undefined>;
 
 function pano(index: AssetIndex, key: string, sweep: Partial<Clip["pano"] & object> = {}, extra: Partial<Clip> = {}): Clip | null {
@@ -52,32 +65,85 @@ function video(index: AssetIndex, key: string, fromMs: number, lengthMs: number,
   };
 }
 
-function text(id: string, value: string, startMs: number, endMs: number, extra: Partial<TextOverlay> = {}): TextOverlay {
-  return { id, text: value, startMs, endMs, x: 0.5, y: 0.42, style: "plain", color: "#ffffff", size: 1, ...extra };
+/**
+ * A label tied to a clip rather than to a time, so it stays over its subject
+ * when snapping to the beat changes clip lengths. `from` is how far into the
+ * clip it appears; it stays until `before` ms from the clip's end.
+ */
+type Label = { clip: string; text: string; from?: number; before?: number } & Partial<Pick<TextOverlay, "style" | "color" | "size" | "y">>;
+
+function music(index: AssetIndex, key: string): Music | null {
+  const asset = index[`music-${key}`];
+  if (!asset) return null;
+  return { assetId: asset.id, sourceStartMs: 0, volume: 0.7, bpm: asset.bpm ?? null, beatOffsetMs: asset.beatOffsetMs ?? null };
 }
 
-function build(clips: (Clip | null)[], texts: TextOverlay[]): Timeline | null {
-  const present = clips.filter((clip): clip is Clip => clip !== null);
+function build(input: {
+  clips: (Clip | null)[];
+  labels: Label[];
+  music: Music | null;
+  details: ListingDetails;
+  durations: Record<string, number | null>;
+}): Timeline | null {
+  const present = input.clips.filter((clip): clip is Clip => clip !== null);
   // A sample needs most of its clips to make sense.
   if (present.length < 3) return null;
-  return timelineSchema.parse({ version: 1, clips: present, texts, music: null, plan: null });
+
+  const timeline = snapCutsToBeats(
+    timelineSchema.parse({ version: 1, clips: present, texts: [], music: input.music, plan: null, details: input.details }),
+    input.durations,
+  );
+  const starts = clipStartsMs(timeline);
+  const texts = input.labels.flatMap((label, number): TextOverlay[] => {
+    const at = timeline.clips.findIndex((clip) => clip.id === `clip-${label.clip}`);
+    if (at === -1) return [];
+    const startMs = starts[at] + (label.from ?? 400);
+    const endMs = starts[at] + clipDurationMs(timeline.clips[at]) - (label.before ?? 200);
+    if (endMs - startMs < 500) return [];
+    return [
+      {
+        id: `label-${number}`,
+        text: label.text,
+        startMs,
+        endMs,
+        x: 0.5,
+        y: label.y ?? 0.3,
+        style: label.style ?? "box",
+        color: label.color ?? "#ffffff",
+        size: label.size ?? 1,
+      },
+    ];
+  });
+  return timelineSchema.parse({ ...timeline, texts });
 }
 
 export type SampleReel = { id: string; title: string; caption: string; timeline: Timeline };
 
 /** Ready-made reels that show what the editor does. Built only from imported media. */
 export function sampleReels(index: AssetIndex): SampleReel[] {
+  const durations = Object.fromEntries(Object.values(index).map((asset) => [asset!.id, asset!.durationMs]));
+
   // Sweep angles were chosen by looking at each 360 photo: 0 is the centre of
-  // the image, negative is to its left. Each sweep ends on the room's subject,
-  // and its label is on screen while that subject is in view.
+  // the image, negative is to its left. Each sweep ends on the room's subject.
   const reels: (Omit<SampleReel, "timeline"> & { timeline: Timeline | null })[] = [
     {
       id: "sample-country-house",
       title: "Country house tour",
       caption:
         "Just listed: a light-filled country house with a garden lounge, open fire and veranda.\n\nBook a viewing through the link in bio.\n\n#justlisted #housetour #countryhome #realestate #dreamhome",
-      timeline: build(
-        [
+      timeline: build({
+        durations,
+        music: music(index, "acoustic-shifter"),
+        details: listingDetailsSchema.parse({
+          price: "£1,250,000",
+          beds: "4",
+          baths: "3",
+          area: "310 m²",
+          address: "Lythwood, Midlands",
+          contact: "Viewings this weekend",
+          placement: "end",
+        }),
+        clips: [
           video(index, "mixkit-8603", 2000, 3000),
           // Stone-wall sofa corner, round to the garden doors.
           pano(index, "lythwood_lounge", { yawStart: -25, yawEnd: 55 }, { transitionIn: "fade" }),
@@ -88,22 +154,33 @@ export function sampleReels(index: AssetIndex): SampleReel[] {
           // Across the veranda to the garden.
           pano(index, "veranda", { yawStart: -45, yawEnd: 10 }, { transitionIn: "fade" }),
         ],
-        [
-          text("t-title", "Just listed", 300, 3000, { style: "headline", y: 0.4 }),
-          text("t-lounge", "Garden lounge", 3600, 7800, { style: "box", color: "#ffd23f", y: 0.3 }),
-          text("t-fire", "Open fireplace", 9800, 12800, { style: "box", color: "#ffd23f", y: 0.3 }),
-          text("t-suite", "Bedroom suite", 13600, 17800, { style: "box", color: "#ffd23f", y: 0.3 }),
-          text("t-cta", "Viewings this weekend", 18600, 23000, { style: "headline", size: 0.8, y: 0.45 }),
+        labels: [
+          { clip: "mixkit-8603", text: "Just listed", style: "headline", y: 0.4, from: 300, before: 0 },
+          { clip: "lythwood_lounge", text: "Garden lounge", color: "#ffd23f", from: 600 },
+          // The fire comes into view about a third of the way through the sweep.
+          { clip: "fireplace", text: "Open fireplace", color: "#ffd23f", from: 1800 },
+          { clip: "lythwood_room", text: "Bedroom suite", color: "#ffd23f", from: 600 },
         ],
-      ),
+      }),
     },
     {
       id: "sample-city-apartment",
       title: "City apartment",
       caption:
         "A modern apartment with a chef's kitchen, a calm bedroom, a spa bathroom and its own terrace.\n\n#apartmenttour #modernliving #cityapartment #newlisting",
-      timeline: build(
-        [
+      timeline: build({
+        durations,
+        music: music(index, "chill-beat"),
+        details: listingDetailsSchema.parse({
+          price: "¥98,000,000",
+          beds: "2",
+          baths: "1",
+          area: "74 m²",
+          address: "Kanda, Chiyoda, Tokyo",
+          contact: "@demo_realty",
+          placement: "end",
+        }),
+        clips: [
           video(index, "mixkit-43033", 0, 4000),
           video(index, "mixkit-4198", 0, 3500, { transitionIn: "fade" }),
           // The pan arrives on the bed from the window.
@@ -113,22 +190,33 @@ export function sampleReels(index: AssetIndex): SampleReel[] {
           // The last part of this clip walks out onto the terrace.
           video(index, "mixkit-4029", 36000, 4000),
         ],
-        [
-          text("t-title", "City apartment", 300, 3700, { style: "headline", y: 0.36 }),
-          text("t-kitchen", "Chef's kitchen", 700, 3700, { style: "outline", y: 0.5, size: 0.8 }),
-          text("t-living", "Living area", 4400, 7300, { style: "box", color: "#4da3ff", y: 0.3 }),
-          text("t-bed", "Bedroom", 7900, 11300, { style: "box", color: "#4da3ff", y: 0.3 }),
-          text("t-bath", "Spa bathroom", 12600, 16300, { style: "box", color: "#4da3ff", y: 0.3 }),
-          text("t-terrace", "Private terrace", 17000, 20300, { style: "headline", size: 0.8, y: 0.42 }),
+        labels: [
+          { clip: "mixkit-43033", text: "City apartment", style: "headline", y: 0.36, from: 300 },
+          { clip: "mixkit-43033", text: "Chef's kitchen", style: "outline", y: 0.5, size: 0.8, from: 700 },
+          { clip: "mixkit-4198", text: "Living area", color: "#4da3ff" },
+          { clip: "mixkit-4196", text: "Bedroom", color: "#4da3ff" },
+          { clip: "modern_bathroom", text: "Spa bathroom", color: "#4da3ff", from: 1100 },
+          { clip: "mixkit-4029", text: "Private terrace", color: "#4da3ff", y: 0.26 },
         ],
-      ),
+      }),
     },
     {
       id: "sample-sea-view",
       title: "Sea-view retreat (360)",
       caption: "Wake up to the sea. Four rooms, one deck, all in 360.\n\n#seaview #holidayhome #360tour #coastalliving",
-      timeline: build(
-        [
+      timeline: build({
+        durations,
+        music: music(index, "brighter-sun"),
+        details: listingDetailsSchema.parse({
+          price: "R2,400 a night",
+          beds: "1",
+          baths: "1",
+          area: "",
+          address: "Wild Coast, South Africa",
+          contact: "Book direct: link in bio",
+          placement: "end",
+        }),
+        clips: [
           // From the bed to the balcony doors and the sea.
           pano(index, "relax_inn_seaview_suite", { yawStart: 110, yawEnd: 35 }),
           // Basin, across the back of the room, to the shower.
@@ -138,13 +226,13 @@ export function sampleReels(index: AssetIndex): SampleReel[] {
           // Along the open side of the deck.
           pano(index, "sundowner_deck", { yawStart: -40, yawEnd: 35 }, { transitionIn: "fade" }),
         ],
-        [
-          text("t-title", "Sea-view retreat", 300, 4400, { style: "headline", y: 0.38 }),
-          text("t-bath", "En suite", 5800, 9600, { style: "box", color: "#ff5a5f", y: 0.3 }),
-          text("t-dining", "Dining with a sea view", 11200, 14600, { style: "box", color: "#ff5a5f", y: 0.3 }),
-          text("t-deck", "Sundowner deck", 15800, 19600, { style: "box", color: "#ff5a5f", y: 0.3 }),
+        labels: [
+          { clip: "relax_inn_seaview_suite", text: "Sea-view retreat", style: "headline", y: 0.38, from: 300, before: 600 },
+          { clip: "en_suite", text: "En suite", color: "#ff5a5f", from: 800 },
+          { clip: "cayley_interior", text: "Dining with a sea view", color: "#ff5a5f", from: 1200 },
+          { clip: "sundowner_deck", text: "Sundowner deck", color: "#ff5a5f", y: 0.26, from: 600 },
         ],
-      ),
+      }),
     },
   ];
   return reels.filter((reel): reel is SampleReel => reel.timeline !== null);

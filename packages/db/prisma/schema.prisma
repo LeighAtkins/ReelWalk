@@ -97,6 +97,9 @@ model MediaAsset {
   spot        Json?
   // Room name, e.g. "kitchen".
   room        String?
+  // For music: tempo and the time of the first beat, detected at upload or import.
+  bpm          Float?
+  beatOffsetMs Int?
   createdAt   DateTime    @default(now())
   renderJobs  RenderJob[]
 

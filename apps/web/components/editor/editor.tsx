@@ -9,7 +9,9 @@ import {
   addRoomLabels,
   hasRoomLabels,
   removeRoomLabels,
+  setDetails,
   setPlan,
+  snapCutsToBeats,
   addText,
   clipStartsMs,
   DEFAULT_IMAGE_MS,
@@ -43,6 +45,7 @@ import {
   CheckIcon,
   ClockIcon,
   CloseIcon,
+  DetailsIcon,
   DuplicateIcon,
   EditIcon,
   FilterIcon,
@@ -73,6 +76,7 @@ import { Filmstrip, type PendingUpload, type Selection } from "./filmstrip";
 import { historyReducer, initHistory } from "./history";
 import {
   CaptionSheet,
+  DetailsSheet,
   ExportSheet,
   LookSheet,
   MediaSheet,
@@ -110,6 +114,7 @@ type SheetName =
   | "motion"
   | "pano"
   | "plan"
+  | "details"
   | "transition"
   | "text-new"
   | "text-edit"
@@ -347,7 +352,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         const asset = await uploadFile(file, () => undefined);
         if (asset.kind !== "AUDIO") throw new Error(`${file.name} is not an audio file.`);
         setLibrary((current) => ({ ...current, [asset.id]: asset }));
-        apply((current) => setMusic(current, { assetId: asset.id, sourceStartMs: 0, volume: 0.8 }));
+        apply((current) => setMusic(current, { assetId: asset.id, sourceStartMs: 0, volume: 0.8, bpm: asset.bpm, beatOffsetMs: asset.beatOffsetMs }));
         setSelection({ kind: "music" });
       } catch (error) {
         showToast(error instanceof Error ? error.message : "Could not upload the song.");
@@ -602,6 +607,9 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
             <PlanIcon />
           </Tool>
         ) : null}
+        <Tool label="Details" onClick={() => setSheet("details")}>
+          <DetailsIcon />
+        </Tool>
         <Tool label="Caption" onClick={() => setSheet("caption")}>
           <CaptionIcon />
         </Tool>
@@ -818,7 +826,19 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
           library={libraryList}
           music={timeline.music}
           uploading={musicUploading}
-          onPick={(asset) => apply((current) => setMusic(current, { assetId: asset.id, sourceStartMs: 0, volume: current.music?.volume ?? 0.8 }))}
+          onPick={(asset) =>
+            apply((current) =>
+              setMusic(current, { assetId: asset.id, sourceStartMs: 0, volume: current.music?.volume ?? 0.8, bpm: asset.bpm, beatOffsetMs: asset.beatOffsetMs }),
+            )
+          }
+          onSnap={() => {
+            const durations = Object.fromEntries(Object.values(library).map((asset) => [asset.id, asset.durationMs]));
+            const next = snapCutsToBeats(timeline, durations);
+            // Room names follow their clips to the new cut points.
+            apply(() => (hasRoomLabels(next) ? addRoomLabels(next) : next));
+            showToast("Cuts moved onto the beat.");
+            setSheet(null);
+          }}
           onUpload={uploadMusic}
           onChange={(patch) => apply((current) => (current.music ? setMusic(current, { ...current.music, ...patch }) : current), "music")}
           onRemove={deleteSelection}
@@ -838,6 +858,19 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
           onRemove={() => {
             apply((current) => setPlan(current, null));
             setSheet(null);
+          }}
+          onClose={closeSheet}
+        />
+      ) : null}
+
+      {sheet === "details" ? (
+        <DetailsSheet
+          reelId={reel.id}
+          details={timeline.details}
+          onChange={(details) => apply((current) => setDetails(current, details), "details")}
+          onCaption={(text) => {
+            setCaption(text);
+            showToast("Caption written from the details.");
           }}
           onClose={closeSheet}
         />

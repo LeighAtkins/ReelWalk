@@ -19,6 +19,9 @@ export type LibraryAsset = {
   tourId: string | null;
   spot: Spot | null;
   room: string | null;
+  /** For music: tempo and first beat, when detected. */
+  bpm: number | null;
+  beatOffsetMs: number | null;
 };
 
 export async function toLibraryAsset(asset: {
@@ -35,6 +38,8 @@ export async function toLibraryAsset(asset: {
   tourId?: string | null;
   spot?: unknown;
   room?: string | null;
+  bpm?: number | null;
+  beatOffsetMs?: number | null;
 }): Promise<LibraryAsset> {
   const spot = spotSchema.safeParse(asset.spot);
   const [url, thumbUrl] = await Promise.all([mediaUrl(asset.objectKey), asset.thumbKey ? mediaUrl(asset.thumbKey) : null]);
@@ -53,5 +58,7 @@ export async function toLibraryAsset(asset: {
     tourId: asset.tourId ?? null,
     spot: spot.success ? spot.data : null,
     room: asset.room ?? null,
+    bpm: asset.bpm ?? null,
+    beatOffsetMs: asset.beatOffsetMs ?? null,
   };
 }

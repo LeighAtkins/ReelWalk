@@ -999,6 +999,16 @@ p {
   font-weight: 600;
 }
 
+.field-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1.4fr;
+  gap: 10px;
+}
+
+.field-grid .text-input {
+  min-width: 0;
+}
+
 .field-row {
   display: flex;
   align-items: baseline;

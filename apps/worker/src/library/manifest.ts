@@ -7,11 +7,14 @@
  * - Videos: Mixkit, Mixkit Stock Video Free License (free for commercial and
  *   non-commercial projects, including social media posts; not for
  *   redistribution as stock). https://mixkit.co/license/#videoFree
+ * - Music: FreePD, which published its catalogue as CC0 (public domain). The
+ *   site closed; the catalogue is mirrored on the Internet Archive.
  */
 
 export type LibraryPano = { kind: "pano"; id: string; title: string };
 export type LibraryVideo = { kind: "video"; id: number; slug: string; title: string; quality: 720 | 1080 };
-export type LibraryItem = LibraryPano | LibraryVideo;
+export type LibraryMusic = { kind: "music"; id: string; file: string; title: string };
+export type LibraryItem = LibraryPano | LibraryVideo | LibraryMusic;
 
 export const POLY_HAVEN = {
   license: "CC0 1.0",
@@ -25,6 +28,13 @@ export const MIXKIT = {
   attribution: "Mixkit",
   fileUrl: (id: number, quality: number) => `https://assets.mixkit.co/videos/${id}/${id}-${quality}.mp4`,
   pageUrl: (slug: string, id: number) => `https://mixkit.co/free-stock-video/${slug}-${id}/`,
+};
+
+export const FREEPD = {
+  license: "CC0 1.0",
+  attribution: "FreePD",
+  fileUrl: (file: string) => `https://archive.org/download/freepd/${file.split("/").map(encodeURIComponent).join("/")}`,
+  pageUrl: "https://archive.org/details/freepd",
 };
 
 export const LIBRARY: LibraryItem[] = [
@@ -61,4 +71,10 @@ export const LIBRARY: LibraryItem[] = [
   { kind: "video", id: 4198, slug: "pan-shot-of-the-interior-of-a-hotel-room", title: "Bedroom suite, pan", quality: 1080 },
   { kind: "video", id: 8603, slug: "aerial-view-of-manor-house-in-a-hilly-orchard", title: "Manor house from the air", quality: 720 },
   { kind: "video", id: 15064, slug: "house-keys-on-a-table", title: "House keys on a table", quality: 720 },
+
+  // Music. Tempo is detected at import, so cuts can snap to the beat.
+  { kind: "music", id: "acoustic-shifter", file: "Page2/Acoustic Shifter.mp3", title: "Acoustic Shifter" },
+  { kind: "music", id: "chill-beat", file: "Page2/Chill Beat.mp3", title: "Chill Beat" },
+  { kind: "music", id: "brighter-sun", file: "Page2/Brighter Sun.mp3", title: "Brighter Sun" },
+  { kind: "music", id: "electro-chill-b", file: "Page2/Electro Chill B.mp3", title: "Electro Chill B" },
 ];

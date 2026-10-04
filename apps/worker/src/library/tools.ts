@@ -3,6 +3,7 @@ import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import { promisify } from "node:util";
 import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { BEAT_SAMPLE_RATE, detectBeats, type BeatGrid } from "@reelwalk/core";
 import { getConfig } from "../config";
 
 // Shared by the library importers.
@@ -39,6 +40,22 @@ export async function probe(file: string): Promise<{ width: number; height: numb
     height: data.streams[0].height,
     durationMs: Number.isFinite(duration) && duration > 0.2 ? Math.round(duration * 1000) : null,
   };
+}
+
+/**
+ * Tempo of a song. ffmpeg decodes the first 90 seconds to raw mono samples,
+ * and the same detector the browser uses for uploads does the rest.
+ */
+export async function analyseBeats(file: string): Promise<BeatGrid | null> {
+  const { stdout } = await run(
+    "ffmpeg",
+    ["-v", "error", "-t", "90", "-i", file, "-ac", "1", "-ar", String(BEAT_SAMPLE_RATE), "-f", "f32le", "pipe:1"],
+    { encoding: "buffer", maxBuffer: 64 * 1024 * 1024 },
+  );
+  // Copied: a Buffer may start at an offset a Float32Array cannot be aligned to.
+  const bytes = Math.floor(stdout.byteLength / 4) * 4;
+  const samples = new Float32Array(stdout.buffer.slice(stdout.byteOffset, stdout.byteOffset + bytes));
+  return detectBeats(samples);
 }
 
 /**

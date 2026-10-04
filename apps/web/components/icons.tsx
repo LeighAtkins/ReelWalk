@@ -84,6 +84,13 @@ export const FilterIcon = ({ size }: IconProps) => (
     <circle cx="12" cy="15" r="5" />
   </Icon>
 );
+export const DetailsIcon = ({ size }: IconProps) => (
+  <Icon size={size}>
+    <path d="M4 5.5h16v13H4z" />
+    <path d="M7.5 10h5M7.5 14h9" />
+    <circle cx="16.5" cy="10" r="1.2" fill="currentColor" stroke="none" />
+  </Icon>
+);
 export const PlanIcon = ({ size }: IconProps) => (
   <Icon size={size}>
     <path d="M3.5 4.5h17v15h-17z" />

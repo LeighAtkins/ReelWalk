@@ -25,6 +25,11 @@ export const spotSchema = z.object({
   y: unit,
   /** Direction of the centre of the photo, in degrees clockwise from the top of the plan. */
   heading: z.number().min(-360).max(360),
+  /**
+   * For a 360 photo: where the room's main window is, as a camera yaw in
+   * degrees from the centre of the image. Used to aim automatic sweeps.
+   */
+  aim: z.number().min(-180).max(180).optional(),
 });
 export type Spot = z.infer<typeof spotSchema>;
 

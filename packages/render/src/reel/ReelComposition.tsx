@@ -18,6 +18,7 @@ import { Video as RenderVideo } from "@remotion/media";
 import { framePlan, REEL_FORMAT, timelineDurationMs, type Clip, type TextOverlay, type Timeline } from "@reelwalk/core";
 import { useFontsFor } from "./fonts";
 import { FILTER_CSS, textCss } from "./look";
+import { DetailsCardView } from "./DetailsCardView";
 import { PanoView } from "./PanoView";
 import { PlanOverlayView } from "./PlanOverlayView";
 import type { ReelAsset, ReelProps } from "./types";
@@ -203,6 +204,7 @@ export const ReelComposition: React.FC<ReelProps> = ({ timeline, assets }) => {
           <TextView text={text} />
         </Sequence>
       ))}
+      <DetailsCardView timeline={timeline} />
       {musicAsset ? <MusicTrack timeline={timeline} asset={musicAsset} /> : null}
     </AbsoluteFill>
   );

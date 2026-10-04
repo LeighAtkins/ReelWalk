@@ -19,6 +19,11 @@ export default async function ReelsPage() {
     include: { renderJobs: { orderBy: { createdAt: "desc" }, take: 1, select: { status: true } } },
   });
   const librarySize = await prisma.mediaAsset.count({ where: { workspaceId: user.workspaceId, kind: { not: "AUDIO" } } });
+  const tours = await prisma.tour.findMany({
+    where: { workspaceId: user.workspaceId },
+    select: { id: true, name: true, _count: { select: { media: true } } },
+    take: 3,
+  });
   const timelines = reels.map((reel) => readTimeline(reel.timeline));
   const covers = await coverUrls(timelines);
 
@@ -36,7 +41,7 @@ export default async function ReelsPage() {
 
         <ul className="reel-grid">
           <li>
-            <NewReelPicker librarySize={librarySize} />
+            <NewReelPicker librarySize={librarySize} tours={tours.map((tour) => ({ id: tour.id, name: tour.name, rooms: tour._count.media }))} />
           </li>
           {reels.map((reel, index) => {
             const duration = durationOf(timelines[index]);

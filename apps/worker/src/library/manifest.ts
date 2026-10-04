@@ -7,8 +7,9 @@
  * - Videos: Mixkit, Mixkit Stock Video Free License (free for commercial and
  *   non-commercial projects, including social media posts; not for
  *   redistribution as stock). https://mixkit.co/license/#videoFree
- * - Music: FreePD, which published its catalogue as CC0 (public domain). The
- *   site closed; the catalogue is mirrored on the Internet Archive.
+ * - Music: Kevin MacLeod (incompetech.com), CC BY 4.0: free to use, including
+ *   commercially and on social media, as long as the composer is credited.
+ *   https://incompetech.com/music/royalty-free/licenses/
  */
 
 export type LibraryPano = { kind: "pano"; id: string; title: string };
@@ -30,11 +31,12 @@ export const MIXKIT = {
   pageUrl: (slug: string, id: number) => `https://mixkit.co/free-stock-video/${slug}-${id}/`,
 };
 
-export const FREEPD = {
-  license: "CC0 1.0",
-  attribution: "FreePD",
-  fileUrl: (file: string) => `https://archive.org/download/freepd/${file.split("/").map(encodeURIComponent).join("/")}`,
-  pageUrl: "https://archive.org/details/freepd",
+export const INCOMPETECH = {
+  license: "CC BY 4.0",
+  /** The credit the licence asks for. It goes in the caption of a reel that uses the song. */
+  attribution: (title: string) => `"${title}" Kevin MacLeod (incompetech.com), licensed under CC BY 4.0`,
+  fileUrl: (file: string) => `https://incompetech.com/music/royalty-free/mp3-royaltyfree/${encodeURIComponent(file)}`,
+  pageUrl: "https://incompetech.com/music/royalty-free/music.html",
 };
 
 export const LIBRARY: LibraryItem[] = [
@@ -73,8 +75,12 @@ export const LIBRARY: LibraryItem[] = [
   { kind: "video", id: 15064, slug: "house-keys-on-a-table", title: "House keys on a table", quality: 720 },
 
   // Music. Tempo is detected at import, so cuts can snap to the beat.
-  { kind: "music", id: "acoustic-shifter", file: "Page2/Acoustic Shifter.mp3", title: "Acoustic Shifter" },
-  { kind: "music", id: "chill-beat", file: "Page2/Chill Beat.mp3", title: "Chill Beat" },
-  { kind: "music", id: "brighter-sun", file: "Page2/Brighter Sun.mp3", title: "Brighter Sun" },
-  { kind: "music", id: "electro-chill-b", file: "Page2/Electro Chill B.mp3", title: "Electro Chill B" },
+  { kind: "music", id: "carefree", file: "Carefree.mp3", title: "Carefree" },
+  { kind: "music", id: "wallpaper", file: "Wallpaper.mp3", title: "Wallpaper" },
+  { kind: "music", id: "life-of-riley", file: "Life of Riley.mp3", title: "Life of Riley" },
+  { kind: "music", id: "bossa-antigua", file: "Bossa Antigua.mp3", title: "Bossa Antigua" },
+  { kind: "music", id: "inspired", file: "Inspired.mp3", title: "Inspired" },
+  { kind: "music", id: "easy-lemon", file: "Easy Lemon.mp3", title: "Easy Lemon" },
+  { kind: "music", id: "fretless", file: "Fretless.mp3", title: "Fretless" },
+  { kind: "music", id: "funkorama", file: "Funkorama.mp3", title: "Funkorama" },
 ];

@@ -7,6 +7,7 @@ import type { PlayerRef } from "@remotion/player";
 import {
   addClips,
   addRoomLabels,
+  canWalk,
   hasRoomLabels,
   removeRoomLabels,
   setDetails,
@@ -804,6 +805,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
       {sheet === "transition" && selectedClip ? (
         <TransitionSheet
           clip={selectedClip}
+          canWalkHere={canWalk(timeline.clips[timeline.clips.indexOf(selectedClip) - 1], selectedClip)}
           onChange={(transitionIn) => apply((current) => updateClip(current, selectedClip.id, { transitionIn }))}
           onClose={closeSheet}
         />

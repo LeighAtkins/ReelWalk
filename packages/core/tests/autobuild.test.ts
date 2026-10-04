@@ -37,8 +37,17 @@ describe("walkOrder", () => {
 describe("buildTourReel", () => {
   const { plan } = normalizePlan([[[0, 0], [10, 0], [10, 10], [0, 10]]]);
 
-  it("builds a draft with sweeps, the plan, room names and fades", () => {
+  it("makes located 360 photos one continuous walk by the shortest way round", () => {
     const timeline = buildTourReel({ shots, plan })!;
+    expect(timeline.clips.map((clip) => clip.assetId)).toEqual(["living", "kitchen", "bed-near", "bed-far"]);
+    expect(timeline.clips.map((clip) => clip.transitionIn)).toEqual(["cut", "walk", "walk", "walk"]);
+    // Each room is entered looking the way the camera came, then turns at least 45 degrees.
+    for (const clip of timeline.clips.slice(1)) expect(Math.abs(clip.pano!.yawEnd - clip.pano!.yawStart)).toBeGreaterThanOrEqual(45);
+  });
+
+  it("builds a draft with sweeps, the plan, room names and fades", () => {
+    const flat = shots.map((item) => (item.assetId === "living" ? { ...item, isPano: false } : item));
+    const timeline = buildTourReel({ shots: flat, plan })!;
     expect(timeline.clips).toHaveLength(4);
     expect(timeline.clips[0].transitionIn).toBe("cut");
     expect(timeline.clips[1].transitionIn).toBe("fade");

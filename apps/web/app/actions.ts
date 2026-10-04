@@ -60,7 +60,13 @@ export async function createReelFromTour(input: { tourId: string }): Promise<{ i
       .filter((asset) => asset.kind === "IMAGE")
       .map((asset) => {
         const spot = spotSchema.safeParse(asset.spot);
-        return { assetId: asset.id, room: asset.room, spot: spot.success ? spot.data : null, isPano: isEquirect(asset.width, asset.height) };
+        return {
+          assetId: asset.id,
+          room: asset.room,
+          spot: spot.success ? spot.data : null,
+          isPano: isEquirect(asset.width, asset.height),
+          passing: spot.success && spot.data.primary === false,
+        };
       }),
     plan: plan.success ? plan.data : null,
     music: song ? { assetId: song.id, sourceStartMs: 0, volume: 0.7, bpm: song.bpm, beatOffsetMs: song.beatOffsetMs } : null,

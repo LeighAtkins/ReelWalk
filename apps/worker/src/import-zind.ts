@@ -2,7 +2,17 @@ import { existsSync } from "node:fs";
 import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { buildTourReel, listingDetailsSchema, normalizePlan, roomTitle, type Plan, type Spot, type TourShot } from "@reelwalk/core";
+import {
+  buildTourReel,
+  listingDetailsSchema,
+  MAX_SHELL_POINTS,
+  normalizePlan,
+  roomTitle,
+  type Plan,
+  type Shell,
+  type Spot,
+  type TourShot,
+} from "@reelwalk/core";
 import { DEFAULT_USER_EMAIL, prisma } from "@reelwalk/db";
 import { panoThumbnail, probe, upload } from "./library/tools";
 
@@ -31,7 +41,11 @@ type ZindPano = {
   is_inside: boolean;
   image_path: string;
   floor_plan_transformation: { translation: Point; rotation: number; scale: number };
-  layout_raw?: { windows?: Point[] };
+  camera_height: number;
+  ceiling_height: number;
+  layout_raw?: { vertices?: Point[]; windows?: Point[] };
+  /** The whole space the photo is in, where an open-plan area was annotated in parts. */
+  layout_complete?: { vertices?: Point[] };
 };
 type ZindData = {
   merger: Record<string, Record<string, Record<string, Record<string, ZindPano>>>>;
@@ -71,11 +85,33 @@ function headingFor(rotation: number): number {
   return Math.round((Math.atan2(dx, -dy) * 180) / Math.PI);
 }
 
+/**
+ * The room around a photo, as an outline on the plan. ZInD gives the walls in
+ * the photo's own coordinates (camera at the origin, one unit = the camera's
+ * height); its plan transformation turns them counter-clockwise, scales and
+ * shifts them onto the plan. (Checked against the sample tour: the outlines
+ * land on the plan's room corners to within a centimetre or two.)
+ */
+function shellFor(pano: ZindPano, toPlan: (x: number, y: number) => [number, number], planHeight: number): Shell | undefined {
+  const complete = pano.layout_complete?.vertices ?? [];
+  const vertices = complete.length >= 3 && complete.length <= MAX_SHELL_POINTS ? complete : (pano.layout_raw?.vertices ?? []);
+  if (vertices.length < 3 || vertices.length > MAX_SHELL_POINTS || !(pano.camera_height > 0)) return undefined;
+  const { translation, rotation, scale } = pano.floor_plan_transformation;
+  const r = (rotation * Math.PI) / 180;
+  return {
+    points: vertices.map(([x, y]) =>
+      toPlan((x * Math.cos(r) - y * Math.sin(r)) * scale + translation[0], (x * Math.sin(r) + y * Math.cos(r)) * scale + translation[1]),
+    ),
+    eye: (scale * pano.camera_height) / planHeight,
+    ceiling: Math.min(6, Math.max(1.05, pano.ceiling_height / pano.camera_height)),
+  };
+}
+
 async function importTour(dir: string, name: string, workspaceId: string, workdir: string): Promise<void> {
   const data = JSON.parse(await readFile(path.join(dir, "zind_data.json"), "utf8")) as ZindData;
   const floorId = Object.keys(data.redraw)[0];
   const rooms = Object.values(data.redraw[floorId]);
-  const { plan, toPlan } = normalizePlan(
+  const { plan, toPlan, height } = normalizePlan(
     rooms.map((room) => room.vertices),
     rooms.flatMap((room) => room.doors),
   );
@@ -87,11 +123,13 @@ async function importTour(dir: string, name: string, workspaceId: string, workdi
     create: { id: tourId, workspaceId, name: `Zillow sample home ${name}`, plan, sourceUrl: SOURCE_URL, license: LICENSE, attribution: ATTRIBUTION },
   });
 
-  // One photo per room: the "primary" one, which the annotators used for the room's shape.
+  // Every photo taken indoors. The "primary" one of each room is the one a reel stops at;
+  // the others are passed on the way, so a walk always has a photo of where it is.
   const panos = Object.values(data.merger[floorId] ?? {})
     .flatMap((complete) => Object.values(complete))
     .flatMap((partial) => Object.values(partial))
-    .filter((pano) => pano.is_primary && pano.is_inside);
+    .filter((pano) => pano.is_inside)
+    .sort((a, b) => Number(b.is_primary) - Number(a.is_primary));
 
   const seen: Record<string, number> = {};
   const shots: TourShot[] = [];
@@ -101,7 +139,15 @@ async function importTour(dir: string, name: string, workspaceId: string, workdi
     if (!existsSync(file)) continue;
     const [x, y] = toPlan(...pano.floor_plan_transformation.translation);
     const aim = windowAim(pano);
-    const spot: Spot = { x, y, heading: headingFor(pano.floor_plan_transformation.rotation), ...(aim === undefined ? {} : { aim }) };
+    const shell = shellFor(pano, toPlan, height);
+    const spot: Spot = {
+      x,
+      y,
+      heading: headingFor(pano.floor_plan_transformation.rotation),
+      ...(aim === undefined ? {} : { aim }),
+      ...(pano.is_primary ? {} : { primary: false }),
+      ...(shell ? { shell } : {}),
+    };
     seen[pano.label] = (seen[pano.label] ?? 0) + 1;
     const title = `${roomTitle(pano.label)}${seen[pano.label] > 1 ? ` ${seen[pano.label]}` : ""} (360)`;
     const objectKey = `library/zind/${name}/${path.basename(pano.image_path)}`;
@@ -138,7 +184,7 @@ async function importTour(dir: string, name: string, workspaceId: string, workdi
       // Keep positions and window aims current for photos imported earlier.
       await prisma.mediaAsset.update({ where: { id: asset.id }, data: { spot, room: pano.label } });
     }
-    shots.push({ assetId: asset.id, room: pano.label, spot, isPano: true });
+    shots.push({ assetId: asset.id, room: pano.label, spot, isPano: true, passing: !pano.is_primary });
   }
   console.log(`${name}: ${plan.rooms.length} rooms on the plan, ${shots.length} located 360 photos (${imported} new)`);
 
@@ -153,7 +199,9 @@ async function createSampleReel(tourId: string, name: string, workspaceId: strin
   if (await prisma.reel.count({ where: { id } })) return;
 
   // Music from the open library, if it has been imported.
-  const song = await prisma.mediaAsset.findFirst({ where: { workspaceId, kind: "AUDIO", bpm: { not: null } }, orderBy: { fileName: "asc" } });
+  const song =
+    (await prisma.mediaAsset.findUnique({ where: { objectKey: "library/music/wallpaper.mp3" } })) ??
+    (await prisma.mediaAsset.findFirst({ where: { workspaceId, kind: "AUDIO", bpm: { not: null } }, orderBy: { fileName: "asc" } }));
   const timeline = buildTourReel({
     shots,
     plan,
@@ -167,7 +215,9 @@ async function createSampleReel(tourId: string, name: string, workspaceId: strin
       id,
       workspaceId,
       title: `Floor plan walkthrough (ZInD ${name})`,
-      caption: "Local test reel made from the Zillow Indoor Dataset sample tour. Not for posting: ZInD is licensed for academic use only.",
+      caption: `Local test reel made from the Zillow Indoor Dataset sample tour. Not for posting: ZInD is licensed for academic use only.${song?.attribution ? `
+
+Music: ${song.attribution}` : ""}`,
       timeline,
     },
   });

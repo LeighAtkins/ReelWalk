@@ -133,7 +133,7 @@ export function sampleReels(index: AssetIndex): SampleReel[] {
         "Just listed: a light-filled country house with a garden lounge, open fire and veranda.\n\nBook a viewing through the link in bio.\n\n#justlisted #housetour #countryhome #realestate #dreamhome",
       timeline: build({
         durations,
-        music: music(index, "acoustic-shifter"),
+        music: music(index, "carefree"),
         details: listingDetailsSchema.parse({
           price: "£1,250,000",
           beds: "4",
@@ -170,7 +170,7 @@ export function sampleReels(index: AssetIndex): SampleReel[] {
         "A modern apartment with a chef's kitchen, a calm bedroom, a spa bathroom and its own terrace.\n\n#apartmenttour #modernliving #cityapartment #newlisting",
       timeline: build({
         durations,
-        music: music(index, "chill-beat"),
+        music: music(index, "bossa-antigua"),
         details: listingDetailsSchema.parse({
           price: "¥98,000,000",
           beds: "2",
@@ -206,7 +206,7 @@ export function sampleReels(index: AssetIndex): SampleReel[] {
       caption: "Wake up to the sea. Four rooms, one deck, all in 360.\n\n#seaview #holidayhome #360tour #coastalliving",
       timeline: build({
         durations,
-        music: music(index, "brighter-sun"),
+        music: music(index, "inspired"),
         details: listingDetailsSchema.parse({
           price: "R2,400 a night",
           beds: "1",

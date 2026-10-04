@@ -8,3 +8,4 @@ export * from "./queue";
 export * from "./reel-export";
 export * from "./timeline";
 export * from "./uploads";
+export * from "./walk";

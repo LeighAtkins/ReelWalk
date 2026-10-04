@@ -20,12 +20,18 @@ files go to the local object store (MinIO).
 | --- | --- | --- | --- |
 | 360 photos of rooms (lounges, bedrooms, kitchens, bathrooms, veranda, deck) | 22 | [Poly Haven](https://polyhaven.com/hdris/indoor) | CC0 1.0: public domain, any use, no credit required |
 | Home videos (kitchen, bedroom, living room, suite pans, aerial of a house) | 8 | [Mixkit](https://mixkit.co/free-stock-video/) | [Mixkit Stock Video Free License](https://mixkit.co/license/#videoFree): free in commercial and non-commercial projects, including social posts; not for redistribution as stock footage |
-| Music (four instrumental tracks, 91 to 120 bpm) | 4 | [FreePD](https://freepd.com/), downloaded from its Internet Archive copy | CC0 1.0: public domain |
+| Music (Carefree, Wallpaper, Life of Riley, Bossa Antigua, Inspired, Easy Lemon, Fretless, Funkorama) | 8 | [Kevin MacLeod, incompetech.com](https://incompetech.com/music/royalty-free/music.html) | [CC BY 4.0](https://incompetech.com/music/royalty-free/licenses/): any use, including commercial and social posts, with credit to the composer |
 
 The exact files are listed in `apps/worker/src/library/manifest.ts`. Each
 imported asset stores its source page, licence and attribution in the
 database (`MediaAsset.sourceUrl`, `license`, `attribution`), and the library
 shows the credit when you hover an item.
+
+The music licence asks for a credit wherever the reel is posted. Each song
+stores its credit line, and the sample reels end their caption with it
+("Music: "Carefree" Kevin MacLeod (incompetech.com), licensed under CC BY
+4.0"). Keep that line when you post a reel that uses one of these songs.
+Chart music cannot be bundled: add it in Instagram itself when you post.
 
 Each song's tempo and first beat are detected on import (and in the browser
 for songs you upload), which is what **Snap cuts to the beat** uses.

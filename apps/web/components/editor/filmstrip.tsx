@@ -135,7 +135,7 @@ export function Filmstrip({
                   }}
                   onClick={() => onSelect(selected ? null : { kind: "clip", id: clip.id })}
                 >
-                  {clip.transitionIn === "fade" && index > 0 ? <span className="clip-fade" aria-hidden="true" /> : null}
+                  {clip.transitionIn !== "cut" && index > 0 ? <span className="clip-fade" aria-hidden="true" /> : null}
                   <span className="clip-meta">
                     {clip.pano ? "360 " : ""}
                     {clip.kind === "VIDEO" && clip.speed !== 1 ? `${clip.speed}× ` : ""}

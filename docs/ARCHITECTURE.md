@@ -148,6 +148,15 @@ stale after 60 s, 3 attempts, backoff 15 s then 30 s.
   (`PlanOverlayView`) lights up the current room, moves the marker between
   shots and turns its view cone with the 360 camera. Room names can be added
   as labels in one tap.
+- **Walking between 360 photos.** A photo from a tour knows the room around
+  it (outline, camera height, ceiling height). The 360 shader projects the
+  photo onto that room, so the camera can leave the spot the photo was taken
+  from. A clip with the `walk` transition starts with the camera travelling
+  from the previous photo's position, through the doorways, while the two
+  projected photos blend. `walk.ts` in `packages/core` computes the route
+  and the camera's position and direction for any moment; the renderer and
+  the plan marker both read from it
+  ([ADR 0008](adr/0008-walking-between-360-photos.md)).
 - **Music and the beat.** `detectBeats` in `packages/core` finds a song's
   tempo and first beat from its onset envelope. It runs in the importer (on
   samples decoded by ffmpeg) and in the browser at upload (Web Audio), and
@@ -159,8 +168,8 @@ stale after 60 s, 3 attempts, backoff 15 s then 30 s.
   both, above the area Instagram covers with the caption. Room labels are
   shortened to make way for the card.
 - **Auto-build.** `buildTourReel` turns a located tour into a timeline:
-  rooms in viewing order, each 360 sweep ending on the room's window, the
-  plan, room names, music, cuts on the beat. It is a pure function, so the
+  one walk through every room by the shortest way round, each sweep ending
+  on the room's window, the plan, room names and music. It is a pure function, so the
   same code serves the "Auto-build a tour" button and the sample importer.
 - **Instagram checks.** `instagramIssues` runs on every edit for the export
   sheet and again in the `exportReel` action. Errors (too short, too long,

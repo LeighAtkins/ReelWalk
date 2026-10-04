@@ -19,6 +19,24 @@ export const planSchema = z.object({
 });
 export type Plan = z.infer<typeof planSchema>;
 
+/** Most corners a room shape can have. The renderer reserves this many. */
+export const MAX_SHELL_POINTS = 48;
+
+/**
+ * The shape of the room around a 360 photo: its walls as an outline on the
+ * plan, and how high the camera and the ceiling are. With this the photo can
+ * be projected onto the room, so the camera can move away from where the
+ * photo was taken and the walls stay where they are.
+ */
+export const shellSchema = z.object({
+  points: z.array(point).min(3).max(MAX_SHELL_POINTS),
+  /** Camera height above the floor, as a fraction of the plan's height. */
+  eye: z.number().min(0.001).max(1),
+  /** Ceiling height, in camera heights (a 2.4 m ceiling with the camera at 1.5 m is 1.6). */
+  ceiling: z.number().min(1.05).max(6),
+});
+export type Shell = z.infer<typeof shellSchema>;
+
 /** Where a shot was taken: a position on the plan and the way the camera faced. */
 export const spotSchema = z.object({
   x: unit,
@@ -30,6 +48,10 @@ export const spotSchema = z.object({
    * degrees from the centre of the image. Used to aim automatic sweeps.
    */
   aim: z.number().min(-180).max(180).optional(),
+  /** False for an extra photo of a room that already has a main one. */
+  primary: z.boolean().optional(),
+  /** For a 360 photo: the room around it, which makes walking between photos possible. */
+  shell: shellSchema.optional(),
 });
 export type Spot = z.infer<typeof spotSchema>;
 
@@ -78,12 +100,13 @@ function polygonArea(points: readonly (readonly [number, number])[]): number {
 
 /**
  * Turns a plan in any units into the 0..1 box used here, with a small margin.
- * Returns the mapping too, so shot positions can be converted the same way.
+ * Returns the mapping too, so shot positions can be converted the same way,
+ * and the plan's height in the original units.
  */
 export function normalizePlan(
   rooms: readonly (readonly (readonly [number, number])[])[],
   doors: readonly (readonly [readonly [number, number], readonly [number, number]])[] = [],
-): { plan: Plan; toPlan: (x: number, y: number) => [number, number] } {
+): { plan: Plan; toPlan: (x: number, y: number) => [number, number]; height: number } {
   const xs = rooms.flatMap((room) => room.map((p) => p[0]));
   const ys = rooms.flatMap((room) => room.map((p) => p[1]));
   const minX = Math.min(...xs);
@@ -98,7 +121,7 @@ export function normalizePlan(
     rooms: rooms.map((room) => ({ points: room.map(([x, y]) => toPlan(x, y)) })),
     doors: doors.map(([a, b]) => [toPlan(a[0], a[1]), toPlan(b[0], b[1])]),
   });
-  return { plan, toPlan };
+  return { plan, toPlan, height };
 }
 
 /** "living room" -> "Living room". */

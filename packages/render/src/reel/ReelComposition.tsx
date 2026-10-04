@@ -15,7 +15,7 @@ import {
 // WebCodecs-based video, used when the worker renders: about twice as fast as
 // OffthreadVideo here, and it falls back to it for files it cannot decode.
 import { Video as RenderVideo } from "@remotion/media";
-import { framePlan, REEL_FORMAT, timelineDurationMs, type Clip, type TextOverlay, type Timeline } from "@reelwalk/core";
+import { cameraAt, framePlan, REEL_FORMAT, timelineDurationMs, walkInto, type Clip, type Plan, type TextOverlay, type Timeline } from "@reelwalk/core";
 import { useFontsFor } from "./fonts";
 import { FILTER_CSS, textCss } from "./look";
 import { DetailsCardView } from "./DetailsCardView";
@@ -83,13 +83,17 @@ const Media: React.FC<{
   );
 };
 
-const ClipView: React.FC<{ clip: Clip; asset: ReelAsset | undefined; durationInFrames: number; fadeOut: boolean }> = ({
-  clip,
-  asset,
-  durationInFrames,
-  fadeOut,
-}) => {
+const ClipView: React.FC<{
+  clip: Clip;
+  asset: ReelAsset | undefined;
+  durationInFrames: number;
+  fadeOut: boolean;
+  /** The clip before this one and its media, for a walk between two 360 photos. */
+  previous?: { clip: Clip; asset: ReelAsset | undefined };
+  plan: Plan | null;
+}> = ({ clip, asset, durationInFrames, fadeOut, previous, plan }) => {
   const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
   if (!asset) {
     // The source was deleted. Show a neutral frame instead of failing the whole render.
     return <AbsoluteFill style={{ backgroundColor: "#163a5c" }} />;
@@ -104,9 +108,22 @@ const ClipView: React.FC<{ clip: Clip; asset: ReelAsset | undefined; durationInF
     : 1;
 
   if (clip.pano && asset.kind === "IMAGE") {
+    const clipMs = (durationInFrames * 1000) / fps;
+    // A walk needs the photo the camera is leaving; without it the clip simply cuts in.
+    const from = previous?.asset?.kind === "IMAGE" && walkInto(plan, previous.clip, clip, clipMs) ? previous : undefined;
+    const camera = from
+      ? cameraAt(plan, from.clip, clip, (Math.max(0, frame) * 1000) / fps, clipMs)
+      : cameraAt(plan, undefined, clip, progress, 1);
     return (
       <AbsoluteFill style={{ opacity: Math.min(fadeIn, fadeOutValue), backgroundColor: "#000" }}>
-        <PanoView src={resolveSrc(asset.src)} pano={clip.pano} progress={progress} style={{ filter: FILTER_CSS[clip.filter] }} />
+        <PanoView
+          src={resolveSrc(asset.src)}
+          spot={clip.spot}
+          from={from?.clip.spot && from.asset ? { src: resolveSrc(from.asset.src), spot: from.clip.spot } : null}
+          camera={camera}
+          planAspect={plan?.aspect ?? 1}
+          style={{ filter: FILTER_CSS[clip.filter] }}
+        />
       </AbsoluteFill>
     );
   }
@@ -195,6 +212,8 @@ export const ReelComposition: React.FC<ReelProps> = ({ timeline, assets }) => {
             asset={assets[clip.assetId]}
             durationInFrames={durationInFrames}
             fadeOut={timeline.clips[index + 1]?.transitionIn === "fade"}
+            previous={index > 0 ? { clip: timeline.clips[index - 1], asset: assets[timeline.clips[index - 1].assetId] } : undefined}
+            plan={timeline.plan?.geometry ?? null}
           />
         </Sequence>
       ))}

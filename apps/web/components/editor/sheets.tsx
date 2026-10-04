@@ -436,10 +436,13 @@ export function PanoSheet({
 
 export function TransitionSheet({
   clip,
+  canWalkHere,
   onChange,
   onClose,
 }: {
   clip: Clip;
+  /** True when this clip and the one before are 360 photos with known positions. */
+  canWalkHere: boolean;
   onChange(transition: Clip["transitionIn"]): void;
   onClose(): void;
 }) {
@@ -447,11 +450,12 @@ export function TransitionSheet({
     <Sheet title="Transition in" onClose={onClose}>
       <Segmented
         label="Transition"
-        options={["cut", "fade"] as const}
-        value={clip.transitionIn}
+        options={canWalkHere ? (["cut", "fade", "walk"] as const) : (["cut", "fade"] as const)}
+        value={clip.transitionIn === "walk" && !canWalkHere ? "cut" : clip.transitionIn}
         onChange={onChange}
-        format={(transition) => (transition === "cut" ? "Cut" : "Fade through black")}
+        format={(transition) => (transition === "cut" ? "Cut" : transition === "fade" ? "Fade through black" : "Walk there")}
       />
+      {canWalkHere ? <p className="muted small">Walk there moves the camera across the floor plan from the last 360 photo to this one.</p> : null}
     </Sheet>
   );
 }

@@ -1,6 +1,6 @@
 import React from "react";
 import { interpolate, useCurrentFrame, useVideoConfig } from "remotion";
-import { framePlan, INSTAGRAM, panoYawAt, roomIndexAt, type Spot, type Timeline } from "@reelwalk/core";
+import { cameraAt, framePlan, INSTAGRAM, panoYawAt, roomIndexAt, walkInto, type Spot, type Timeline } from "@reelwalk/core";
 
 /** Longest side of the plan drawing, in frame pixels (the frame is 1080 wide). */
 const PLAN_SIZE = 360;
@@ -73,6 +73,13 @@ export const PlanOverlayView: React.FC<{ timeline: Timeline }> = ({ timeline }) 
       y: (from.y + (here.spot.y - from.y) * travel) * drawHeight,
       heading: here.spot.heading + yaw,
     };
+    // On a walk the marker is simply where the camera is.
+    const previous = here.index === current ? clips[current - 1]?.clip : undefined;
+    const clipMs = (entry.durationInFrames * 1000) / fps;
+    if (walkInto(plan, previous, entry.clip, clipMs)) {
+      const camera = cameraAt(plan, previous, entry.clip, (Math.max(0, local) * 1000) / fps, clipMs);
+      marker = { x: camera.x * drawWidth, y: camera.y * drawHeight, heading: camera.heading };
+    }
   }
   const hereRoom = here ? roomIndexAt(plan, here.spot) : -1;
 

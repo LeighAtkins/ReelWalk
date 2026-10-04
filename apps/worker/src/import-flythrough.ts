@@ -40,7 +40,9 @@ async function createSampleReel(scene: string, workspaceId: string, assetId: str
   if (await prisma.reel.count({ where: { id } })) return;
 
   // Music from the open library, if it has been imported.
-  const song = await prisma.mediaAsset.findFirst({ where: { workspaceId, kind: "AUDIO", bpm: { not: null } }, orderBy: { fileName: "desc" } });
+  const song =
+    (await prisma.mediaAsset.findUnique({ where: { objectKey: "library/music/life-of-riley.mp3" } })) ??
+    (await prisma.mediaAsset.findFirst({ where: { workspaceId, kind: "AUDIO", bpm: { not: null } }, orderBy: { fileName: "asc" } }));
   const timeline = timelineSchema.parse({
     version: 1,
     clips: [
@@ -71,7 +73,9 @@ async function createSampleReel(scene: string, workspaceId: string, assetId: str
       id,
       workspaceId,
       title: `3D flythrough (${scene})`,
-      caption: "Local test reel: a camera move rendered from a 3D reconstruction of the room. Not for posting: the photos come from a research dataset.",
+      caption: `Local test reel: a camera move rendered from a 3D reconstruction of the room. Not for posting: the photos come from a research dataset.${song?.attribution ? `
+
+Music: ${song.attribution}` : ""}`,
       timeline,
     },
   });

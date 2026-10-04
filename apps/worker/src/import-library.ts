@@ -5,7 +5,7 @@ import path from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { DEFAULT_USER_EMAIL, prisma } from "@reelwalk/db";
-import { FREEPD, LIBRARY, MIXKIT, POLY_HAVEN, type LibraryItem } from "./library/manifest";
+import { INCOMPETECH, LIBRARY, MIXKIT, POLY_HAVEN, type LibraryItem } from "./library/manifest";
 import { sampleReels, type AssetIndex } from "./library/sample-reels";
 import { analyseBeats, panoThumbnail, probe, run, upload } from "./library/tools";
 
@@ -44,10 +44,10 @@ function describe(item: LibraryItem) {
       key: `music-${item.id}`,
       objectKey: `library/music/${item.id}.mp3`,
       thumbKey: null,
-      downloadUrl: FREEPD.fileUrl(item.file),
-      sourceUrl: FREEPD.pageUrl,
-      license: FREEPD.license,
-      attribution: FREEPD.attribution,
+      downloadUrl: INCOMPETECH.fileUrl(item.file),
+      sourceUrl: INCOMPETECH.pageUrl,
+      license: INCOMPETECH.license,
+      attribution: INCOMPETECH.attribution(item.title),
       contentType: "audio/mpeg",
       extension: "mp3",
     };
@@ -112,10 +112,13 @@ async function importItem(item: LibraryItem, workspaceId: string, workdir: strin
   await download(info.downloadUrl, original);
 
   if (item.kind === "music") {
+    // Recordings differ a lot in level. Bring each to the loudness Instagram plays back at
+    // (about -14 LUFS), so every song sits at the same volume in a reel.
+    await run("ffmpeg", ["-v", "error", "-y", "-i", original, "-af", "loudnorm=I=-14:TP=-1.5:LRA=11", "-ar", "44100", "-c:a", "libmp3lame", "-q:a", "2", media]);
     const [{ stdout }, beat, sizeBytes] = await Promise.all([
-      run("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", original]),
-      analyseBeats(original),
-      upload(info.objectKey, original, info.contentType),
+      run("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", media]),
+      analyseBeats(media),
+      upload(info.objectKey, media, info.contentType),
     ]);
     const asset = await prisma.mediaAsset.create({
       data: {
@@ -133,7 +136,7 @@ async function importItem(item: LibraryItem, workspaceId: string, workdir: strin
         attribution: info.attribution,
       },
     });
-    await rm(original, { force: true });
+    await Promise.all([original, media].map((file) => rm(file, { force: true })));
     return { key: info.key, asset, imported: true };
   }
 
@@ -176,6 +179,8 @@ async function main() {
   const workdir = await mkdtemp(path.join(os.tmpdir(), "reelwalk-library-"));
 
   const index: AssetIndex = {};
+  /** Credit lines by asset id, for songs whose licence asks for one. */
+  const credits = new Map<string, string>();
   let imported = 0;
   let failed = 0;
   // Three at a time: polite to the sources, and quick enough.
@@ -186,6 +191,7 @@ async function main() {
         try {
           const result = await importItem(item, user.workspaceId, workdir);
           const { id, durationMs, bpm, beatOffsetMs } = result.asset;
+          if (item.kind === "music" && result.asset.attribution) credits.set(id, result.asset.attribution);
           index[result.key] = { id, durationMs, bpm, beatOffsetMs };
           if (result.imported) imported++;
           console.log(`${result.imported ? "imported" : "already there"}  ${item.title}${bpm ? ` (${bpm} bpm)` : ""}`);
@@ -205,8 +211,13 @@ async function main() {
     // Otherwise never overwrite: you may have edited a sample.
     const exists = await prisma.reel.count({ where: { id: sample.id } });
     if (exists) continue;
+    // CC BY music must be credited where the reel is posted: in the caption.
+    const credit = sample.timeline.music ? credits.get(sample.timeline.music.assetId) : undefined;
+    const caption = credit ? `${sample.caption}
+
+Music: ${credit}` : sample.caption;
     await prisma.reel.create({
-      data: { id: sample.id, workspaceId: user.workspaceId, title: sample.title, caption: sample.caption, timeline: sample.timeline },
+      data: { id: sample.id, workspaceId: user.workspaceId, title: sample.title, caption, timeline: sample.timeline },
     });
     reels++;
   }

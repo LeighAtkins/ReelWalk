@@ -1,3 +1,4 @@
+import { walkInto } from "./walk";
 import { z } from "zod";
 import { planOverlaySchema, roomTitle, spotSchema, type PlanOverlay } from "./plan";
 
@@ -24,7 +25,8 @@ export const DEFAULT_TEXT_MS = 3000;
 export const SPEEDS = [0.5, 1, 1.5, 2, 3] as const;
 export const FILTERS = ["none", "warm", "cool", "vivid", "mono", "fade"] as const;
 export const MOTIONS = ["none", "zoom-in", "zoom-out", "pan"] as const;
-export const TRANSITIONS = ["cut", "fade"] as const;
+/** "walk" moves the camera between two 360 photos of the same home (see walk.ts). */
+export const TRANSITIONS = ["cut", "fade", "walk"] as const;
 export const TEXT_STYLES = ["plain", "box", "outline", "headline"] as const;
 export const TEXT_COLORS = ["#ffffff", "#111111", "#ffd23f", "#ff5a5f", "#3ddc97", "#4da3ff"] as const;
 
@@ -416,7 +418,8 @@ export function addRoomLabels(timeline: Timeline): Timeline {
       textSchema.parse({
         id: roomLabelId(clip.id),
         text: roomTitle(clip.room),
-        startMs: starts[index] + 200,
+        // A room is named once the camera has walked most of the way into it.
+        startMs: starts[index] + 200 + Math.round((walkInto(timeline.plan?.geometry ?? null, timeline.clips[index - 1], clip, clipDurationMs(clip))?.durationMs ?? 0) * 0.6),
         endMs: starts[index] + clipDurationMs(clip),
         x: 0.5,
         y: 0.74,

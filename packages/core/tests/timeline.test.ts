@@ -42,6 +42,8 @@ function video(id: string, sourceStartMs: number, sourceEndMs: number, speed = 1
     motion: "none",
     transitionIn: "cut",
     pano: null,
+    spot: null,
+    room: null,
   };
 }
 

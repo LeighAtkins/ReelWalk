@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { cancelRender, continueRender, delayRender, useVideoConfig } from "remotion";
-import type { PanoView as PanoSettings } from "@reelwalk/core";
+import { panoYawAt, type PanoView as PanoSettings } from "@reelwalk/core";
 
 const VERTEX_SHADER = `
 attribute vec2 a_position;
@@ -134,9 +134,8 @@ export const PanoView: React.FC<{ src: string; pano: PanoSettings; progress: num
     const current = state.current;
     if (!ready || !current) return;
     const { gl, uniforms } = current;
-    const eased = progress * progress * (3 - 2 * progress); // ease in and out of the turn
     gl.viewport(0, 0, width, height);
-    gl.uniform1f(uniforms.u_yaw, radians(pano.yawStart + (pano.yawEnd - pano.yawStart) * eased));
+    gl.uniform1f(uniforms.u_yaw, radians(panoYawAt(pano, progress)));
     gl.uniform1f(uniforms.u_pitch, radians(pano.pitch));
     gl.uniform1f(uniforms.u_tan_half_fov, Math.tan(radians(pano.fov) / 2));
     gl.uniform1f(uniforms.u_aspect, width / height);

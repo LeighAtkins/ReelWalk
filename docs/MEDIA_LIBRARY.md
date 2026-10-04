@@ -37,19 +37,38 @@ phones load comfortably; the originals are 8K.
 | City apartment | Video and 360 clips mixed, outline and label text styles |
 | Sea-view retreat (360) | Four 360 rooms only |
 
+## Home tours with a floor plan (Zillow Indoor Dataset)
+
+ReelWalk can show a floor plan on the reel with a marker that moves to where
+each shot was taken. That needs media that knows its position on a plan. The
+[Zillow Indoor Dataset (ZInD)](https://github.com/zillow/zind) has exactly
+that: 360 photos of every room of a home, the floor plan, and each photo's
+position and direction on it.
+
+```bash
+# once: put a ZInD tour folder where the importer looks (this folder is git-ignored)
+git clone https://github.com/zillow/zind
+mkdir -p data/zind && cp -r zind/sample_tour data/zind/
+
+docker compose run --rm import-zind
+```
+
+For each tour this creates a **Tour** (the floor plan), one located 360 photo
+per room in the library, and a sample reel, "Floor plan walkthrough", that
+walks the rooms in viewing order with the plan marker and room names.
+
+**Licence: local testing only.** Zillow licenses ZInD data for academic,
+non-commercial use ([terms](https://bridgedataoutput.com/zillowterms)). The
+data is therefore not in the ReelWalk repository, each imported asset is labelled
+with that licence, and reels made from it should not be posted. Zillow's public
+zind repository includes one sample tour; the full dataset needs an access request
+to Zillow.
+
 ## Why not Zillow listing videos
 
-Listing photos and videos on Zillow belong to the agents and photographers
-who made them, and Zillow's terms of use forbid downloading them with
-automated tools. Reels made from them could not be shown publicly. The
-library uses media whose licences allow this instead.
-
-Zillow does publish a research dataset of 360 home panoramas with floor
-plans, the [Zillow Indoor Dataset (ZInD)](https://github.com/zillow/zind). It
-is for non-commercial academic use and needs a signed access request, so it
-cannot be fetched automatically. If you obtain it, its panoramas are standard
-2:1 equirectangular JPEGs: upload them in the editor and they are recognised
-as 360 photos.
+Listing photos and videos on zillow.com belong to the agents and
+photographers who made them, and Zillow's terms of use forbid downloading
+them with automated tools. Reels made from them could not be shown publicly.
 
 ## Your own 360 photos
 

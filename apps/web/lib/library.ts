@@ -1,4 +1,4 @@
-import { isEquirect, type MediaKind } from "@reelwalk/core";
+import { isEquirect, spotSchema, type MediaKind, type Spot } from "@reelwalk/core";
 import { mediaUrl } from "./storage";
 
 /** A media asset as the editor sees it: what it is and where the browser can load it. */
@@ -15,6 +15,10 @@ export type LibraryAsset = {
   isPano: boolean;
   /** "Poly Haven, CC0 1.0" for imported library media; null for your own uploads. */
   credit: string | null;
+  /** Set when the shot belongs to a home tour with a floor plan. */
+  tourId: string | null;
+  spot: Spot | null;
+  room: string | null;
 };
 
 export async function toLibraryAsset(asset: {
@@ -28,7 +32,11 @@ export async function toLibraryAsset(asset: {
   height: number | null;
   license?: string | null;
   attribution?: string | null;
+  tourId?: string | null;
+  spot?: unknown;
+  room?: string | null;
 }): Promise<LibraryAsset> {
+  const spot = spotSchema.safeParse(asset.spot);
   const [url, thumbUrl] = await Promise.all([mediaUrl(asset.objectKey), asset.thumbKey ? mediaUrl(asset.thumbKey) : null]);
   return {
     id: asset.id,
@@ -42,5 +50,8 @@ export async function toLibraryAsset(asset: {
     height: asset.height,
     isPano: asset.kind === "IMAGE" && isEquirect(asset.width, asset.height),
     credit: asset.attribution ? [asset.attribution, asset.license].filter(Boolean).join(", ") : null,
+    tourId: asset.tourId ?? null,
+    spot: spot.success ? spot.data : null,
+    room: asset.room ?? null,
   };
 }

@@ -38,6 +38,7 @@ model Workspace {
   properties Property[]
   reels      Reel[]
   media      MediaAsset[]
+  tours      Tour[]
   renderJobs RenderJob[]
 }
 
@@ -89,11 +90,35 @@ model MediaAsset {
   sourceUrl   String?
   license     String?
   attribution String?
+  // Set when the shot belongs to a walkthrough of one home.
+  tourId      String?
+  tour        Tour?       @relation(fields: [tourId], references: [id], onDelete: SetNull)
+  // Where on the tour's floor plan the shot was taken: { x, y, heading } (spotSchema in @reelwalk/core).
+  spot        Json?
+  // Room name, e.g. "kitchen".
+  room        String?
   createdAt   DateTime    @default(now())
   renderJobs  RenderJob[]
 
   @@index([workspaceId, createdAt])
   @@index([propertyId, createdAt])
+}
+
+// A walkthrough of one home: its floor plan, and the shots located on it.
+model Tour {
+  id          String       @id @default(cuid())
+  workspaceId String
+  workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name        String
+  // Floor plan geometry (planSchema in @reelwalk/core).
+  plan        Json
+  sourceUrl   String?
+  license     String?
+  attribution String?
+  createdAt   DateTime     @default(now())
+  media       MediaAsset[]
+
+  @@index([workspaceId])
 }
 
 model Reel {

@@ -7,6 +7,7 @@ A phone-first editor for Instagram Reels of property listings. Pick photos and w
 - Clips: trim, split at the playhead, reorder, duplicate, delete, speed (0.5× to 3×), clip volume, fill or fit the 9:16 frame
 - Photos: on-screen length and slow zoom or pan
 - 360 photos: recognised automatically and shown as a camera sweep through the room; set start, turn, tilt and zoom
+- Floor plan: media from a home tour carries its position, and the reel shows the plan with a marker that moves from room to room and turns with the camera
 - Looks (colour filters) per clip or for the whole reel, fade-through-black transitions
 - Text: four styles, six colours, size, drag to place, start and end times; Japanese renders correctly
 - Music: upload a song, set volume and where it starts; it fades out at the end

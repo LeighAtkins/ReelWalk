@@ -6,6 +6,10 @@ import { useRouter } from "next/navigation";
 import type { PlayerRef } from "@remotion/player";
 import {
   addClips,
+  addRoomLabels,
+  hasRoomLabels,
+  removeRoomLabels,
+  setPlan,
   addText,
   clipStartsMs,
   DEFAULT_IMAGE_MS,
@@ -26,6 +30,7 @@ import {
   updateText,
   type Clip,
   type Issue,
+  type Plan,
   type Timeline,
 } from "@reelwalk/core";
 import type { ReelAsset } from "@reelwalk/render/reel";
@@ -48,6 +53,7 @@ import {
   MoveRightIcon,
   MusicIcon,
   PanoIcon,
+  PlanIcon,
   PauseIcon,
   PlayIcon,
   PlusIcon,
@@ -73,6 +79,7 @@ import {
   MotionSheet,
   MusicSheet,
   PanoSheet,
+  PlanSheet,
   SpeedSheet,
   TextSheet,
   TimingSheet,
@@ -102,6 +109,7 @@ type SheetName =
   | "look"
   | "motion"
   | "pano"
+  | "plan"
   | "transition"
   | "text-new"
   | "text-edit"
@@ -113,6 +121,8 @@ type SheetName =
 export type EditorProps = {
   /** Open the media library straight away (a reel started from the library). */
   openLibrary?: boolean;
+  /** Floor plans of the home tours the library media belongs to. */
+  tours?: Record<string, { name: string; plan: Plan }>;
   reel: { id: string; title: string; revision: number; caption: string };
   timeline: Timeline;
   library: LibraryAsset[];
@@ -139,6 +149,9 @@ function clipFromAsset(asset: LibraryAsset): Clip {
     transitionIn: "cut",
     // A 360 photo opens as a camera sweep through the room.
     pano: asset.isPano ? DEFAULT_PANO : null,
+    // Tour media knows where it was shot, which drives the floor plan marker.
+    spot: asset.spot,
+    room: asset.room,
   };
 }
 
@@ -174,7 +187,7 @@ function Tool({
   );
 }
 
-export function Editor({ reel, timeline: initialTimeline, library: initialLibrary, openLibrary }: EditorProps) {
+export function Editor({ reel, timeline: initialTimeline, library: initialLibrary, openLibrary, tours = {} }: EditorProps) {
   const router = useRouter();
   const [history, dispatch] = useReducer(historyReducer, initialTimeline, initHistory);
   const timeline = history.present;
@@ -584,6 +597,11 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         <Tool label="Split" disabled={!hasClips} onClick={split}>
           <SplitIcon />
         </Tool>
+        {timeline.plan ? (
+          <Tool label="Floor plan" onClick={() => setSheet("plan")}>
+            <PlanIcon />
+          </Tool>
+        ) : null}
         <Tool label="Caption" onClick={() => setSheet("caption")}>
           <CaptionIcon />
         </Tool>
@@ -705,10 +723,22 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         </p>
       ) : null}
 
-      {sheet === "media" ? <MediaSheet library={libraryList} onUpload={addFiles} onPick={(picked) => {
-        apply((current) => addClips(current, picked.map(clipFromAsset)));
-        setSheet(null);
-      }} onClose={closeSheet} /> : null}
+      {sheet === "media" ? (
+        <MediaSheet
+          library={libraryList}
+          onUpload={addFiles}
+          onPick={(picked) => {
+            apply((current) => {
+              const next = addClips(current, picked.map(clipFromAsset));
+              // The first shot from a home tour brings that home's floor plan with it.
+              const tour = picked.map((asset) => (asset.tourId ? tours[asset.tourId] : undefined)).find(Boolean);
+              return !next.plan && tour ? setPlan(next, { geometry: tour.plan, corner: "top-left", visible: true }) : next;
+            });
+            setSheet(null);
+          }}
+          onClose={closeSheet}
+        />
+      ) : null}
 
       {sheet === "trim" && selectedClip ? (
         <TrimSheet
@@ -792,6 +822,23 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
           onUpload={uploadMusic}
           onChange={(patch) => apply((current) => (current.music ? setMusic(current, { ...current.music, ...patch }) : current), "music")}
           onRemove={deleteSelection}
+          onClose={closeSheet}
+        />
+      ) : null}
+
+      {sheet === "plan" && timeline.plan ? (
+        <PlanSheet
+          overlay={timeline.plan}
+          located={timeline.clips.filter((clip) => clip.spot).length}
+          total={timeline.clips.length}
+          roomLabels={hasRoomLabels(timeline)}
+          canLabel={timeline.clips.some((clip) => clip.room)}
+          onChange={(patch) => apply((current) => (current.plan ? setPlan(current, { ...current.plan, ...patch }) : current))}
+          onRoomLabels={(on) => apply((current) => (on ? addRoomLabels(current) : removeRoomLabels(current)))}
+          onRemove={() => {
+            apply((current) => setPlan(current, null));
+            setSheet(null);
+          }}
           onClose={closeSheet}
         />
       ) : null}

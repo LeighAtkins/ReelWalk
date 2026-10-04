@@ -15,6 +15,8 @@ function photo(id: string, durationMs: number): Clip {
     motion: "none",
     transitionIn: "cut",
     pano: null,
+    spot: null,
+    room: null,
   };
 }
 

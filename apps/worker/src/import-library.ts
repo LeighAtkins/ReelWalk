@@ -1,16 +1,13 @@
-import { execFile } from "node:child_process";
-import { createReadStream, createWriteStream } from "node:fs";
-import { mkdtemp, rm, stat } from "node:fs/promises";
+import { createWriteStream } from "node:fs";
+import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { promisify } from "node:util";
-import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { DEFAULT_USER_EMAIL, prisma } from "@reelwalk/db";
-import { getConfig } from "./config";
 import { LIBRARY, MIXKIT, POLY_HAVEN, type LibraryItem } from "./library/manifest";
 import { sampleReels, type AssetIndex } from "./library/sample-reels";
+import { panoThumbnail, probe, run, upload } from "./library/tools";
 
 /**
  * Fills the workspace's media library with openly licensed 360 photos and
@@ -19,18 +16,6 @@ import { sampleReels, type AssetIndex } from "./library/sample-reels";
  *
  *   docker compose run --rm import-library
  */
-
-const run = promisify(execFile);
-const config = getConfig();
-const s3 = new S3Client({
-  endpoint: config.s3EndpointUrl,
-  region: config.s3Region,
-  forcePathStyle: config.s3ForcePathStyle,
-  credentials:
-    config.s3AccessKeyId && config.s3SecretAccessKey
-      ? { accessKeyId: config.s3AccessKeyId, secretAccessKey: config.s3SecretAccessKey }
-      : undefined,
-});
 
 /** Width 360 photos are stored at. 4096 is what the renderer uses and what phones can load. */
 const PANO_WIDTH = 4096;
@@ -68,27 +53,6 @@ async function download(url: string, destination: string): Promise<void> {
   await pipeline(Readable.fromWeb(response.body as never), createWriteStream(destination));
 }
 
-async function probe(file: string): Promise<{ width: number; height: number; durationMs: number | null }> {
-  const { stdout } = await run("ffprobe", [
-    "-v", "error", "-select_streams", "v:0",
-    "-show_entries", "stream=width,height:format=duration",
-    "-of", "json", file,
-  ]);
-  const data = JSON.parse(stdout) as { streams: { width: number; height: number }[]; format: { duration?: string } };
-  const duration = Number(data.format.duration);
-  return {
-    width: data.streams[0].width,
-    height: data.streams[0].height,
-    durationMs: Number.isFinite(duration) && duration > 0.2 ? Math.round(duration * 1000) : null,
-  };
-}
-
-async function upload(key: string, file: string, contentType: string): Promise<number> {
-  const { size } = await stat(file);
-  await s3.send(new PutObjectCommand({ Bucket: config.s3Bucket, Key: key, Body: createReadStream(file), ContentLength: size, ContentType: contentType }));
-  return size;
-}
-
 async function importItem(item: LibraryItem, workspaceId: string, workdir: string) {
   const info = describe(item);
   const existing = await prisma.mediaAsset.findUnique({ where: { objectKey: info.objectKey } });
@@ -101,8 +65,7 @@ async function importItem(item: LibraryItem, workspaceId: string, workdir: strin
 
   if (item.kind === "pano") {
     await run("ffmpeg", ["-v", "error", "-y", "-i", original, "-vf", `scale=${PANO_WIDTH}:${PANO_WIDTH / 2}:flags=lanczos`, "-q:v", "3", media]);
-    // The thumbnail is the view a 9:16 camera has looking straight ahead, not the warped 2:1 strip.
-    await run("ffmpeg", ["-v", "error", "-y", "-i", media, "-vf", "v360=e:flat:h_fov=59:v_fov=90:w=270:h=480", "-q:v", "5", thumb]);
+    await panoThumbnail(media, thumb);
   } else {
     await run("ffmpeg", ["-v", "error", "-y", "-i", original, "-c", "copy", "-movflags", "+faststart", media]);
     await run("ffmpeg", ["-v", "error", "-y", "-ss", "1", "-i", media, "-frames:v", "1", "-vf", "scale=-2:240", "-q:v", "5", thumb]);

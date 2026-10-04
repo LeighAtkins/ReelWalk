@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { planOverlaySchema, roomTitle, spotSchema, type PlanOverlay } from "./plan";
 
 /**
  * A reel's edit, as a plain JSON document. The browser edits it, Postgres
@@ -52,6 +53,15 @@ export const DEFAULT_PANO: PanoView = { yawStart: -45, yawEnd: 45, pitch: 0, fov
 /** On-screen time for a 360 photo: long enough for the sweep to read. */
 export const DEFAULT_PANO_MS = 5000;
 
+/**
+ * Camera yaw at a point in the clip (`progress` from 0 to 1). The turn eases
+ * in and out. Shared by the 360 view and the floor plan's view cone.
+ */
+export function panoYawAt(pano: PanoView, progress: number): number {
+  const t = Math.min(1, Math.max(0, progress));
+  return pano.yawStart + (pano.yawEnd - pano.yawStart) * (t * t * (3 - 2 * t));
+}
+
 /** 360 cameras save a 2:1 equirectangular image. */
 export function isEquirect(width: number | null | undefined, height: number | null | undefined): boolean {
   if (!width || !height || width < 2000) return false;
@@ -81,6 +91,10 @@ export const clipSchema = z
     motion: z.enum(MOTIONS).default("none"),
     /** Set for 360 photos: the camera sweep. Null shows the image flat. */
     pano: panoSchema.nullable().default(null),
+    /** Where the shot was taken on the floor plan, when known. */
+    spot: spotSchema.nullable().default(null),
+    /** Name of the room, when known ("kitchen"). */
+    room: z.string().max(40).nullable().default(null),
     /** How this clip enters from the previous one. */
     transitionIn: z.enum(TRANSITIONS).default("cut"),
   })
@@ -114,6 +128,8 @@ export const timelineSchema = z.object({
   clips: z.array(clipSchema).max(100),
   texts: z.array(textSchema).max(50),
   music: musicSchema.nullable(),
+  /** Floor plan with a marker that follows the clips. Null when the reel has none. */
+  plan: planOverlaySchema.nullable().default(null),
 });
 
 export type Clip = z.infer<typeof clipSchema>;
@@ -122,7 +138,7 @@ export type Music = z.infer<typeof musicSchema>;
 export type Timeline = z.infer<typeof timelineSchema>;
 
 export function emptyTimeline(): Timeline {
-  return { version: 1, clips: [], texts: [], music: null };
+  return { version: 1, clips: [], texts: [], music: null, plan: null };
 }
 
 /** Validates untrusted JSON (a save from the browser, a row from the database). */
@@ -313,6 +329,55 @@ export function removeText(timeline: Timeline, id: string): Timeline {
 
 export function setMusic(timeline: Timeline, music: Music | null): Timeline {
   return { ...timeline, music: music ? musicSchema.parse(music) : null };
+}
+
+export function setPlan(timeline: Timeline, plan: PlanOverlay | null): Timeline {
+  return { ...timeline, plan: plan ? planOverlaySchema.parse(plan) : null };
+}
+
+/** Ids of the text overlays that addRoomLabels manages. */
+const roomLabelId = (clipId: string) => `room-${clipId}`;
+
+/**
+ * Adds (or refreshes) a label with the room's name over every clip that
+ * knows its room. Labels added before are replaced, so this can be run again
+ * after reordering clips. Other text is left alone.
+ */
+export function addRoomLabels(timeline: Timeline): Timeline {
+  const starts = clipStartsMs(timeline);
+  const managed = new Set(timeline.clips.map((clip) => roomLabelId(clip.id)));
+  const labels: TextOverlay[] = [];
+  timeline.clips.forEach((clip, index) => {
+    if (!clip.room) return;
+    // Consecutive shots of the same room share one label.
+    if (index > 0 && timeline.clips[index - 1].room === clip.room) {
+      const previous = labels[labels.length - 1];
+      if (previous) previous.endMs = starts[index] + clipDurationMs(clip);
+      return;
+    }
+    labels.push(
+      textSchema.parse({
+        id: roomLabelId(clip.id),
+        text: roomTitle(clip.room),
+        startMs: starts[index] + 200,
+        endMs: starts[index] + clipDurationMs(clip),
+        x: 0.5,
+        y: 0.74,
+        style: "box",
+        color: "#ffffff",
+        size: 0.8,
+      }),
+    );
+  });
+  return { ...timeline, texts: [...timeline.texts.filter((text) => !managed.has(text.id) && !text.id.startsWith("room-")), ...labels] };
+}
+
+export function removeRoomLabels(timeline: Timeline): Timeline {
+  return { ...timeline, texts: timeline.texts.filter((text) => !text.id.startsWith("room-")) };
+}
+
+export function hasRoomLabels(timeline: Timeline): boolean {
+  return timeline.texts.some((text) => text.id.startsWith("room-"));
 }
 
 /** Assets a timeline refers to, for loading URLs and for checking ownership. */

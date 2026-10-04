@@ -21,6 +21,8 @@ function pano(index: AssetIndex, key: string, sweep: Partial<Clip["pano"] & obje
     motion: "none",
     transitionIn: "cut",
     pano: { ...DEFAULT_PANO, ...sweep },
+    spot: null,
+    room: null,
     ...extra,
   };
 }
@@ -44,6 +46,8 @@ function video(index: AssetIndex, key: string, fromMs: number, lengthMs: number,
     motion: "none",
     transitionIn: "cut",
     pano: null,
+    spot: null,
+    room: null,
     ...extra,
   };
 }
@@ -56,7 +60,7 @@ function build(clips: (Clip | null)[], texts: TextOverlay[]): Timeline | null {
   const present = clips.filter((clip): clip is Clip => clip !== null);
   // A sample needs most of its clips to make sense.
   if (present.length < 3) return null;
-  return timelineSchema.parse({ version: 1, clips: present, texts, music: null });
+  return timelineSchema.parse({ version: 1, clips: present, texts, music: null, plan: null });
 }
 
 export type SampleReel = { id: string; title: string; caption: string; timeline: Timeline };

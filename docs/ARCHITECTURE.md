@@ -83,6 +83,7 @@ docs/adr          Architecture decision records
 | `User` | Belongs to one workspace. There is no login yet: requests act as a seeded demo user, resolved in one function (`apps/web/lib/workspace.ts`). |
 | `Reel` | One reel being edited. `timeline` is the edit as JSON (validated by `timelineSchema`), `revision` guards autosave against a second tab, `caption` is the Instagram post text. |
 | `MediaAsset` | The workspace's media library: photos, videos and songs. `objectKey` is the S3 key; `thumbKey` a JPEG made in the browser; `durationMs`, `width`, `height` measured in the browser before upload. |
+| `Tour` | A walkthrough of one home: its floor plan (`plan`, validated by `planSchema`). Media that belongs to it stores `tourId`, the `room` name and a `spot` (position and camera direction on the plan). |
 | `Property`, `Template` | From the first, per-listing flow. Kept in the schema; the mobile editor does not use them. |
 | `RenderJob` | One request to render. Holds `status`, `progress`, `attempt`, `generation`, `heartbeatAt` and the last `error`. For a reel export (`kind = REEL`), `payload` is a frozen copy of the timeline and the storage keys of its media. |
 | `RenderOutput` | The finished MP4. `jobId` is unique: one output per job, however many times it was rendered. |
@@ -141,6 +142,12 @@ stale after 60 s, 3 attempts, backoff 15 s then 30 s.
 - **Saving.** 700 ms after an edit, `saveReel` sends the whole timeline with
   the revision it last saw. If another tab saved in between, the save is
   refused and the editor asks for a reload instead of overwriting.
+- **Floor plan.** Media from a home tour knows where it was shot. Adding it
+  to a reel copies that position onto the clip and embeds the tour's plan in
+  the timeline, so the export needs nothing else. The overlay
+  (`PlanOverlayView`) lights up the current room, moves the marker between
+  shots and turns its view cone with the 360 camera. Room names can be added
+  as labels in one tap.
 - **Instagram checks.** `instagramIssues` runs on every edit for the export
   sheet and again in the `exportReel` action. Errors (too short, too long,
   caption limits) block export; text under Instagram's UI is a warning with

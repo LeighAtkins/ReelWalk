@@ -18,6 +18,7 @@ import {
   type Motion,
   type Music,
   type PanoView,
+  type PlanOverlay,
   type TextOverlay,
   type TextStyle,
 } from "@reelwalk/core";
@@ -445,6 +446,62 @@ export function TransitionSheet({
         onChange={onChange}
         format={(transition) => (transition === "cut" ? "Cut" : "Fade through black")}
       />
+    </Sheet>
+  );
+}
+
+// ── Floor plan ──────────────────────────────────────────────────
+
+export function PlanSheet({
+  overlay,
+  located,
+  total,
+  roomLabels,
+  canLabel,
+  onChange,
+  onRoomLabels,
+  onRemove,
+  onClose,
+}: {
+  overlay: PlanOverlay;
+  located: number;
+  total: number;
+  roomLabels: boolean;
+  canLabel: boolean;
+  onChange(patch: Partial<Pick<PlanOverlay, "corner" | "visible">>): void;
+  onRoomLabels(on: boolean): void;
+  onRemove(): void;
+  onClose(): void;
+}) {
+  return (
+    <Sheet title="Floor plan" onClose={onClose}>
+      <p className="muted small">
+        A marker on the floor plan shows where each shot was taken and which way the camera looks.{" "}
+        {located === total ? "Every clip in this reel has a position." : `${located} of ${total} clips have a position; the marker waits at the last known one for the others.`}
+      </p>
+      <div className="field">
+        Show on the video
+        <Segmented<"on" | "off"> label="Show floor plan" options={["on", "off"]} value={overlay.visible ? "on" : "off"} onChange={(value) => onChange({ visible: value === "on" })} format={(value) => (value === "on" ? "Shown" : "Hidden")} />
+      </div>
+      <div className="field">
+        Position
+        <Segmented<PlanOverlay["corner"]>
+          label="Position"
+          options={["top-left", "top-right"]}
+          value={overlay.corner}
+          onChange={(corner) => onChange({ corner })}
+          format={(corner) => (corner === "top-left" ? "Top left" : "Top right")}
+        />
+      </div>
+      {canLabel ? (
+        <div className="field">
+          Room names
+          <Segmented<"on" | "off"> label="Room names" options={["on", "off"]} value={roomLabels ? "on" : "off"} onChange={(value) => onRoomLabels(value === "on")} format={(value) => (value === "on" ? "Label each room" : "No labels")} />
+        </div>
+      ) : null}
+      <button type="button" className="btn btn-quiet btn-block" onClick={onRemove}>
+        Remove floor plan from this reel
+      </button>
     </Sheet>
   );
 }

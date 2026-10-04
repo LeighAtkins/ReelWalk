@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { referencedAssetIds } from "@reelwalk/core";
+import { planSchema, referencedAssetIds, type Plan } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
 import { Editor } from "@/components/editor/editor";
 import { toLibraryAsset } from "@/lib/library";
@@ -33,6 +33,14 @@ export default async function EditReelPage({
   const unique = new Map([...recent, ...used].map((asset) => [asset.id, asset]));
   const library = await Promise.all([...unique.values()].map(toLibraryAsset));
 
+  // Floor plans of the tours this media belongs to.
+  const tourIds = [...new Set(library.map((asset) => asset.tourId).filter((value): value is string => value !== null))];
+  const tours: Record<string, { name: string; plan: Plan }> = {};
+  for (const tour of await prisma.tour.findMany({ where: { id: { in: tourIds }, workspaceId: user.workspaceId } })) {
+    const plan = planSchema.safeParse(tour.plan);
+    if (plan.success) tours[tour.id] = { name: tour.name, plan: plan.data };
+  }
+
   return (
     <Editor
       key={reel.id}
@@ -40,6 +48,7 @@ export default async function EditReelPage({
       reel={{ id: reel.id, title: reel.title, revision: reel.revision, caption: reel.caption }}
       timeline={timeline}
       library={library}
+      tours={tours}
     />
   );
 }

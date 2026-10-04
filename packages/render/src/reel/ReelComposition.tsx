@@ -19,6 +19,7 @@ import { framePlan, REEL_FORMAT, timelineDurationMs, type Clip, type TextOverlay
 import { useFontsFor } from "./fonts";
 import { FILTER_CSS, textCss } from "./look";
 import { PanoView } from "./PanoView";
+import { PlanOverlayView } from "./PlanOverlayView";
 import type { ReelAsset, ReelProps } from "./types";
 
 /** Frames of the dip-to-black on each side of a "fade" transition. */
@@ -196,6 +197,7 @@ export const ReelComposition: React.FC<ReelProps> = ({ timeline, assets }) => {
           />
         </Sequence>
       ))}
+      <PlanOverlayView timeline={timeline} />
       {plan.texts.map(({ text, from, durationInFrames }) => (
         <Sequence key={text.id} from={from} durationInFrames={durationInFrames} name={`text ${text.text.slice(0, 12)}`}>
           <TextView text={text} />

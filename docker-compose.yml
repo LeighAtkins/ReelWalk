@@ -94,6 +94,22 @@ services:
       minio-init:
         condition: service_completed_successfully
 
+  # Imports home tours in the Zillow Indoor Dataset format from ./data/zind
+  # (not in the repository): 360 photos located on a floor plan.
+  #   docker compose run --rm import-zind
+  import-zind:
+    image: reelwalk-worker
+    profiles: ["tools"]
+    command: ["node_modules/.bin/tsx", "src/import-zind.ts"]
+    environment: *app-env
+    volumes:
+      - ./data/zind:/data/zind:ro
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      minio-init:
+        condition: service_completed_successfully
+
   worker:
     build:
       context: .

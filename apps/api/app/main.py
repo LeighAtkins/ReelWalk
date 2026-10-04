@@ -79,23 +79,60 @@ async def get_listing(listing_id: str) -> dict:
     return listing
 
 
+# Content types the stub render pipeline can consume, mapped to the object key
+# extension. The worker and the Remotion composition rely on this extension to
+# tell still images from video, so it must be preserved end to end.
+SUPPORTED_UPLOAD_TYPES: dict[str, str] = {
+    "video/mp4": "mp4",
+    "video/quicktime": "mov",
+    "video/x-m4v": "m4v",
+    "video/webm": "webm",
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/webp": "webp",
+}
+_EXTENSION_TO_TYPE = {ext: ctype for ctype, ext in SUPPORTED_UPLOAD_TYPES.items()}
+_EXTENSION_TO_TYPE["jpeg"] = "image/jpeg"
+
+
+def resolve_upload_type(content_type: str | None, filename: str | None) -> tuple[str, str] | None:
+    """Return (content_type, extension) for an upload, or None if unsupported.
+
+    Browsers sometimes send application/octet-stream, so fall back to the
+    filename extension in that case.
+    """
+    normalized = (content_type or "").split(";")[0].strip().lower()
+    if normalized in SUPPORTED_UPLOAD_TYPES:
+        return normalized, SUPPORTED_UPLOAD_TYPES[normalized]
+    if normalized in {"", "application/octet-stream"} and filename and "." in filename:
+        ext = filename.rsplit(".", 1)[1].lower()
+        if ext in _EXTENSION_TO_TYPE:
+            return _EXTENSION_TO_TYPE[ext], ext
+    return None
+
+
 @app.post("/listings/{listing_id}/upload")
 async def upload_video(listing_id: str, file: UploadFile = File(...)) -> dict:
-    if file.content_type not in {"video/mp4", "application/octet-stream"}:
-        raise HTTPException(status_code=400, detail="Only MP4 uploads are supported in Task 01")
+    resolved = resolve_upload_type(file.content_type, file.filename)
+    if resolved is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported upload type. Accepted: {', '.join(sorted(SUPPORTED_UPLOAD_TYPES))}",
+        )
+    content_type, extension = resolved
 
     async with app.state.pool.acquire() as conn:
         listing = await conn.fetchrow("select id from listings where id = $1", listing_id)
     if not listing:
         raise HTTPException(status_code=404, detail="Listing not found")
 
-    object_key = f"uploads/{listing_id}/{uuid4()}.mp4"
+    object_key = f"uploads/{listing_id}/{uuid4()}.{extension}"
     async with s3_client(settings) as client:
         await client.upload_fileobj(
             file.file,
             settings.s3_bucket,
             object_key,
-            ExtraArgs={"ContentType": "video/mp4"},
+            ExtraArgs={"ContentType": content_type},
         )
 
     job_id = uuid4()

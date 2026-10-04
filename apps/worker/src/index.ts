@@ -8,7 +8,7 @@ import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3
 import Redis from "ioredis";
 import pg from "pg";
 import { getConfig } from "./config";
-import { outputKeyFor, parseRenderJobPayload, RenderJobPayload } from "./job";
+import { inputFilenameFor, outputKeyFor, parseRenderJobPayload, RenderJobPayload } from "./job";
 
 const { Pool } = pg;
 
@@ -126,7 +126,7 @@ async function processLegacyJob(
     recursive: true,
   }).then(() => path.join(os.tmpdir(), `reelwalk-${job.jobId}`));
 
-  const inputPath = path.join(workdir, "input.mp4");
+  const inputPath = path.join(workdir, inputFilenameFor(job));
   const outputPath = path.join(workdir, "stub.mp4");
   const outputKey = outputKeyFor(job);
 
@@ -203,16 +203,35 @@ async function main() {
     forcePathStyle: config.s3ForcePathStyle,
   });
 
+  // Per-worker processing list: jobs are atomically moved here while being
+  // rendered and removed once finished, so a crash mid-render leaves the
+  // payload recoverable instead of silently losing it (plain LPOP did).
+  const processingList = `${config.queueName}:processing:${os.hostname()}`;
+  const orphaned = await redis.lrange(processingList, 0, -1);
+  if (orphaned.length > 0) {
+    console.warn(`Re-queueing ${orphaned.length} job(s) left in ${processingList} by a previous crash`);
+    for (const raw of orphaned) {
+      await redis.lpush(config.queueName, raw);
+      await redis.lrem(processingList, 1, raw);
+    }
+  }
+
   console.log(`Worker polling ${config.queueName}`);
   while (true) {
-    const raw = await redis.lpop(config.queueName);
+    const raw = await redis.lmove(config.queueName, processingList, "LEFT", "RIGHT");
     if (!raw) {
       await wait(config.pollSeconds * 1000);
       continue;
     }
-    const job = parseRenderJobPayload(raw);
-    console.log(`Rendering job ${job.jobId} (type: ${job.type ?? "legacy"})`);
-    await processJob(job, pool, s3, config);
+    try {
+      const job = parseRenderJobPayload(raw);
+      console.log(`Rendering job ${job.jobId} (type: ${job.type ?? "legacy"})`);
+      await processJob(job, pool, s3, config);
+    } catch (error) {
+      console.error("Dropping unprocessable queue payload", raw, error);
+    } finally {
+      await redis.lrem(processingList, 1, raw);
+    }
   }
 }
 

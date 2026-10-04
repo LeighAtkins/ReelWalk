@@ -16,7 +16,7 @@ cp .env.example .env
 docker compose up --build
 ```
 
-Open http://localhost:8080 and upload an MP4.
+Open http://localhost:8080 and upload an MP4 or a JPG/PNG panorama.
 
 MinIO console is available at http://localhost:9001 with `minioadmin` / `minioadmin`.
 

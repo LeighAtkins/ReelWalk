@@ -48,7 +48,7 @@ async function pollJob(listingId: string, onJob: (job: Job) => void) {
 export default function Home() {
   const fileRef = useRef<HTMLInputElement>(null);
   const [progress, setProgress] = useState(0);
-  const [status, setStatus] = useState("Choose a walkthrough MP4.");
+  const [status, setStatus] = useState("Choose a walkthrough video or a 360\u00b0 panorama image.");
   const [busy, setBusy] = useState(false);
   const [job, setJob] = useState<Job | null>(null);
 
@@ -64,7 +64,7 @@ export default function Home() {
       const listingResponse = await fetch(`${apiBase}/listings`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ title: file.name.replace(/\.mp4$/i, "") }),
+        body: JSON.stringify({ title: file.name.replace(/\.[a-z0-9]+$/i, "") }),
       });
       if (!listingResponse.ok) throw new Error("Could not create listing");
       const listing = await listingResponse.json();
@@ -89,9 +89,9 @@ export default function Home() {
     <main className="shell">
       <section className="panel">
         <h1>New listing</h1>
-        <p>Upload a walkthrough MP4 and ReelWalk will run the Task 01 stub render pipeline.</p>
+        <p>Upload a walkthrough video (MP4/MOV) or a panorama image (JPG/PNG) and ReelWalk will run the stub render pipeline.</p>
         <div className="uploadBox">
-          <input ref={fileRef} className="file" type="file" accept="video/mp4" disabled={busy} />
+          <input ref={fileRef} className="file" type="file" accept="video/mp4,video/quicktime,video/webm,image/jpeg,image/png,image/webp" disabled={busy} />
           <button className="button" type="button" disabled={busy} onClick={submit}>
             Upload and render
           </button>

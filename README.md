@@ -38,13 +38,12 @@ cp .env.example .env
 docker compose up --build
 ```
 
-Open http://localhost:8080, upload a walkthrough MP4, and wait for the inline 9:16 stub render.
+Open http://localhost:8080, upload a walkthrough video (MP4/MOV/WebM) or a panorama image (JPG/PNG/WebP), and wait for the inline 9:16 stub render.
 
 Local services:
 
 - Nginx public entrypoint: http://localhost:8080
-- Web direct debugging: http://localhost:3000 (frontend only; use Nginx for uploads)
-- API direct debugging: http://localhost:8000
+- Web and API direct ports (3000/8000) are not published on the host by `docker-compose.override.yml`; use Nginx on 8080
 - MinIO console: http://localhost:9001 (`minioadmin` / `minioadmin`)
 
 The Task 01 slice uses Nginx as the single browser-facing origin, MinIO as S3, Redis as the local render queue, Postgres for listing/job state, and a local Node worker that calls the Remotion render package.

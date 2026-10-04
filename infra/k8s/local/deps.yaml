@@ -1,0 +1,199 @@
+# Local stand-ins for the managed services ReelWalk uses in AWS:
+# Postgres for RDS, MinIO for S3, ElasticMQ for SQS. Not part of the Helm
+# chart, because in production these are not deployed with the app.
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+spec:
+  selector:
+    app: postgres
+  ports:
+    - port: 5432
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              value: reelwalk
+            - name: POSTGRES_PASSWORD
+              value: reelwalk
+            - name: POSTGRES_DB
+              value: reelwalk
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "reelwalk", "-d", "reelwalk"]
+            periodSeconds: 5
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio
+spec:
+  type: NodePort
+  selector:
+    app: minio
+  ports:
+    - port: 9000
+      nodePort: 30900
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minio
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: minio
+  template:
+    metadata:
+      labels:
+        app: minio
+    spec:
+      containers:
+        - name: minio
+          # MinIO no longer publishes images on Docker Hub; Chainguard builds it from source.
+          image: cgr.dev/chainguard/minio:latest
+          args: ["server", "/data"]
+          ports:
+            - containerPort: 9000
+          env:
+            - name: MINIO_ROOT_USER
+              value: minioadmin
+            - name: MINIO_ROOT_PASSWORD
+              value: minioadmin
+          readinessProbe:
+            httpGet:
+              path: /minio/health/ready
+              port: 9000
+            periodSeconds: 5
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+# Creates the bucket. Retries until MinIO accepts connections.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: minio-bucket
+spec:
+  backoffLimit: 20
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: mc
+          image: cgr.dev/chainguard/minio-client:latest
+          args: ["--config-dir", "/tmp/.mc", "mb", "--ignore-existing", "local/reelwalk-dev"]
+          env:
+            - name: MC_HOST_local
+              value: http://minioadmin:minioadmin@minio:9000
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: elasticmq
+data:
+  elasticmq.conf: |
+    include classpath("application.conf")
+    node-address {
+      protocol = http
+      host = elasticmq
+      port = 9324
+      context-path = ""
+    }
+    rest-sqs {
+      enabled = true
+      bind-port = 9324
+      bind-hostname = "0.0.0.0"
+      sqs-limits = strict
+    }
+    queues {
+      render-jobs {
+        defaultVisibilityTimeout = 120 seconds
+        # After 3 failed receives a message moves to the dead-letter queue.
+        # Keep in step with RENDER_MAX_ATTEMPTS.
+        deadLettersQueue {
+          name = "render-jobs-dlq"
+          maxReceiveCount = 3
+        }
+      }
+      render-jobs-dlq { }
+    }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: elasticmq
+spec:
+  selector:
+    app: elasticmq
+  ports:
+    - port: 9324
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: elasticmq
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: elasticmq
+  template:
+    metadata:
+      labels:
+        app: elasticmq
+    spec:
+      containers:
+        - name: elasticmq
+          image: softwaremill/elasticmq-native:1.6.12
+          ports:
+            - containerPort: 9324
+          readinessProbe:
+            tcpSocket:
+              port: 9324
+            periodSeconds: 5
+          volumeMounts:
+            - name: config
+              mountPath: /opt/elasticmq.conf
+              subPath: elasticmq.conf
+      volumes:
+        - name: config
+          configMap:
+            name: elasticmq

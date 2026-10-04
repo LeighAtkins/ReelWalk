@@ -1,0 +1,26 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      aws-sdk:
+        patterns: ["@aws-sdk/*"]
+      remotion:
+        patterns: ["remotion", "@remotion/*"]
+      prisma:
+        patterns: ["prisma", "@prisma/*"]
+
+  - package-ecosystem: docker
+    directories:
+      - /apps/web
+      - /apps/worker
+      - /apps/editor
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

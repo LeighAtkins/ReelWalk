@@ -1,0 +1,14 @@
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: reelwalk
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      # Web app: http://localhost:8081
+      - containerPort: 30080
+        hostPort: 8081
+        protocol: TCP
+      # MinIO API, so the browser can use presigned upload/download URLs.
+      - containerPort: 30900
+        hostPort: 9100
+        protocol: TCP

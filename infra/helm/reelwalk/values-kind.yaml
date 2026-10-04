@@ -1,0 +1,38 @@
+# Local kind cluster. MinIO stands in for S3 and ElasticMQ for SQS; both are
+# deployed by infra/k8s/local, outside this chart, because in production they
+# are AWS services and not part of the application release.
+
+web:
+  replicas: 2
+  service:
+    type: NodePort
+    # Mapped to http://localhost:8081 by infra/kind/cluster.yaml.
+    nodePort: 30080
+
+worker:
+  replicas: 2
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      memory: 2Gi
+
+config:
+  S3_BUCKET: reelwalk-dev
+  S3_FORCE_PATH_STYLE: "true"
+  S3_ENDPOINT_URL: http://minio:9000
+  # The browser reaches MinIO through the NodePort mapped to localhost:9100.
+  S3_PUBLIC_ENDPOINT_URL: http://localhost:9100
+  SQS_ENDPOINT_URL: http://elasticmq:9324
+  SQS_QUEUE_URL: http://elasticmq:9324/000000000000/render-jobs
+  SQS_DLQ_URL: http://elasticmq:9324/000000000000/render-jobs-dlq
+  RENDER_RETRY_BACKOFF_SECONDS: "5"
+
+secret:
+  create: true
+  # Throwaway credentials for the local dependencies only.
+  values:
+    DATABASE_URL: postgresql://reelwalk:reelwalk@postgres:5432/reelwalk
+    S3_ACCESS_KEY_ID: minioadmin
+    S3_SECRET_ACCESS_KEY: minioadmin

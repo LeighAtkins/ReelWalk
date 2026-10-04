@@ -1,0 +1,30 @@
+# Argo CD Application: the cluster pulls the Helm chart from Git and keeps the
+# release in step with it. Apply once with:
+#   kubectl --context kind-reelwalk apply -f infra/argocd/application.yaml
+# From then on, deploy by merging to the tracked branch, not with `helm upgrade`.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: reelwalk
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/LeighAtkins/ReelWalk.git
+    targetRevision: main
+    path: infra/helm/reelwalk
+    helm:
+      releaseName: reelwalk
+      valueFiles:
+        - values-kind.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: reelwalk
+  syncPolicy:
+    automated:
+      # Delete resources that were removed from Git.
+      prune: true
+      # Revert manual changes made in the cluster.
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

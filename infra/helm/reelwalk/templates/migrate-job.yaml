@@ -1,0 +1,43 @@
+{{- if .Values.migrate.enabled }}
+# A Job's pod template is immutable, so the name carries a hash of the image
+# tag: a new release creates a new Job and the old one is removed.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "reelwalk.fullname" . }}-migrate-{{ .Values.worker.image.tag | toString | sha256sum | trunc 8 }}
+  labels:
+    {{- include "reelwalk.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migrate
+  annotations:
+    # Argo CD waits for this Job to complete before syncing the Deployments.
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  backoffLimit: 4
+  template:
+    metadata:
+      labels:
+        {{- include "reelwalk.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: migrate
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: {{ include "reelwalk.fullname" . }}
+      containers:
+        - name: migrate
+          image: "{{ .Values.worker.image.repository }}:{{ .Values.worker.image.tag }}"
+          imagePullPolicy: {{ .Values.worker.image.pullPolicy }}
+          workingDir: /workspace/packages/db
+          # `migrate deploy` only applies committed migrations and takes an
+          # advisory lock, so it is safe to run on every release. The seed is
+          # written as upserts.
+          command: ["sh", "-c", "node_modules/.bin/prisma migrate deploy && node_modules/.bin/tsx prisma/seed.ts"]
+          envFrom:
+            {{- include "reelwalk.envFrom" . | nindent 12 }}
+          securityContext:
+            {{- include "reelwalk.containerSecurityContext" . | nindent 12 }}
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 512Mi
+{{- end }}

@@ -1,9 +1,11 @@
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { bundle } from "@remotion/bundler";
 import { renderMedia, selectComposition } from "@remotion/renderer";
 import type { Timeline } from "@reelwalk/core";
 import { REEL_COMPOSITION_ID, type ReelAsset } from "./reel/types";
+import { renderConcurrency } from "./concurrency";
 
 let bundled: Promise<string> | null = null;
 
@@ -46,10 +48,7 @@ export async function renderReel(
     colorSpace: "bt709",
     inputProps,
     outputLocation,
-    // Browser tabs rendering in parallel. More is not faster: on a 24-core
-    // machine 4 tabs beat Remotion's default of half the cores, because the
-    // tabs compete for video decoding.
-    concurrency: input.concurrency ?? 4,
+    concurrency: renderConcurrency(input.concurrency, os.availableParallelism()),
     onProgress: ({ progress }) => onProgress?.(progress),
   });
   return outputLocation;

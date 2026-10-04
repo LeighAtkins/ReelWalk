@@ -33,6 +33,11 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
 
+# Nothing installs packages at runtime, so the package managers (and their
+# own vulnerable dependencies) are removed.
+RUN apk upgrade --no-cache \
+  && rm -rf /usr/local/lib/node_modules /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /opt/yarn-*
+
 # The standalone output contains the server and only the node_modules it traces.
 COPY --from=builder /workspace/apps/web/.next/standalone ./
 COPY --from=builder /workspace/apps/web/.next/static apps/web/.next/static

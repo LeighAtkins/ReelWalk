@@ -8,7 +8,7 @@ const nextConfig: NextConfig = {
   output: "standalone",
   outputFileTracingRoot: join(appDir, "../.."),
   // Workspace packages ship TypeScript sources, so Next compiles them.
-  transpilePackages: ["@reelwalk/core", "@reelwalk/db"],
+  transpilePackages: ["@reelwalk/core", "@reelwalk/db", "@reelwalk/render"],
 };
 
 export default nextConfig;

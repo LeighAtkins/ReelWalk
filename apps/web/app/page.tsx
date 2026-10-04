@@ -1,71 +1,68 @@
 import Link from "next/link";
 import { prisma } from "@reelwalk/db";
-import { CreatePropertyForm } from "@/components/create-property-form";
+import { BrandMark } from "@/components/icons";
+import { NewReelPicker } from "@/components/new-reel-picker";
 import { StatusBadge } from "@/components/status-badge";
-import { countOf } from "@/lib/format";
-import { mediaUrl } from "@/lib/storage";
+import { TabBar } from "@/components/tab-bar";
+import { formatDuration } from "@/lib/format";
+import { coverUrls, durationOf, readTimeline } from "@/lib/reels";
 import { getCurrentUser } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
 
-export default async function PropertiesPage() {
+export default async function ReelsPage() {
   const user = await getCurrentUser();
-  const properties = await prisma.property.findMany({
+  const reels = await prisma.reel.findMany({
     where: { workspaceId: user.workspaceId },
-    orderBy: { createdAt: "desc" },
-    include: {
-      _count: { select: { media: true, renderJobs: true } },
-      renderJobs: { orderBy: { createdAt: "desc" }, take: 1, select: { status: true } },
-      media: { where: { kind: "IMAGE" }, orderBy: { createdAt: "desc" }, take: 1, select: { objectKey: true } },
-    },
+    orderBy: { updatedAt: "desc" },
+    take: 60,
+    include: { renderJobs: { orderBy: { createdAt: "desc" }, take: 1, select: { status: true } } },
   });
-  const covers = await Promise.all(properties.map((property) => (property.media[0] ? mediaUrl(property.media[0].objectKey) : null)));
+  const timelines = reels.map((reel) => readTimeline(reel.timeline));
+  const covers = await coverUrls(timelines);
 
   return (
     <>
-      <header className="page-head">
-        <h1>Properties</h1>
-        <p>
-          {user.workspace.name} has {countOf(properties.length, "listing")}. Open one to add photos or a walkthrough video and render a
-          vertical reel.
-        </p>
-      </header>
+      <main className="shell">
+        <header className="shell-head">
+          <span className="brand">
+            <BrandMark />
+            ReelWalk
+          </span>
+          <span className="muted small">{user.workspace.name}</span>
+        </header>
+        <h1 style={{ marginBottom: 16 }}>Reels</h1>
 
-      <div className="columns columns-aside">
-        <section>
-          {properties.length === 0 ? (
-            <p className="empty">
-              <strong>No properties yet.</strong>
-              Create the first one with the form on this page.
-            </p>
-          ) : (
-            <ul className="tiles">
-              {properties.map((property, index) => (
-                <li key={property.id} className="tile">
-                  <div className={covers[index] ? "frame" : "frame frame-plan"}>
-                    {covers[index] ? <img src={covers[index]} alt="" loading="lazy" /> : null}
-                    {property.renderJobs[0] ? <StatusBadge status={property.renderJobs[0].status} /> : null}
-                  </div>
-                  {/* No prefetch: each property page signs fresh media URLs, so prefetching
-                      every tile would render the whole list's pages on each visit. */}
-                  <Link href={`/properties/${property.id}`} className="tile-title condensed" prefetch={false}>
-                    {property.title}
-                  </Link>
-                  <div className="muted small">{property.address ?? "No address"}</div>
-                  <div className="muted small">
-                    {property._count.media} media, {countOf(property._count.renderJobs, "render")}
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-
-        <aside className="sheet">
-          <h2>New property</h2>
-          <CreatePropertyForm />
-        </aside>
-      </div>
+        <ul className="reel-grid">
+          <li>
+            <NewReelPicker />
+          </li>
+          {reels.map((reel, index) => {
+            const duration = durationOf(timelines[index]);
+            const lastExport = reel.renderJobs[0];
+            return (
+              <li key={reel.id}>
+                {/* No prefetch: each editor page is a heavy render (media library, signed
+                    URLs). Prefetching every card filled the browser's six connections to
+                    the host, and a tap on New reel then waited behind them. */}
+                <Link href={`/reels/${reel.id}`} className="reel-card" data-testid="reel-card" prefetch={false}>
+                  <span className="reel-thumb">
+                    {covers[index] ? (
+                      <img src={covers[index]!} alt="" />
+                    ) : (
+                      <span className="empty-frame">No media yet</span>
+                    )}
+                    {duration > 0 ? <span className="chip timecode">{formatDuration(duration)}</span> : null}
+                  </span>
+                  <span className="reel-card-title">{reel.title}</span>
+                  {lastExport ? <StatusBadge status={lastExport.status} /> : <span className="muted small">Draft</span>}
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      </main>
+      <TabBar />
     </>
   );
 }

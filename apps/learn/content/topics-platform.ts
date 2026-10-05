@@ -529,9 +529,10 @@ export const platformTopics: Topic[] = [
     ],
     status: "built",
     statusNote:
-      "Real and green: lint, typecheck, unit tests, helm lint, Trivy scans, image builds and Playwright E2E run on every PR; the OIDC + ECR push steps exist but have never run because no AWS role is configured.",
+      "Real and green: lint, typecheck, unit tests, helm lint, Trivy scans, image builds and Playwright E2E run on every PR. On main the scanned images are pushed to GHCR and a release job commits the new image tag for Argo CD. The OIDC + ECR push steps exist but have never run because no AWS role is configured.",
     inRepo: [
-      { path: ".github/workflows/ci.yml", what: "Jobs verify, dependency-scan, images (matrix web/worker) and e2e; ECR push gated on vars.AWS_ROLE_ARN." },
+      { path: ".github/workflows/ci.yml", what: "Jobs verify, dependency-scan, images (matrix web/worker, GHCR push on main), e2e and release; ECR push gated on vars.AWS_ROLE_ARN." },
+      { path: "infra/helm/reelwalk/values-gitops.yaml", what: "Image repository and tag. The release job rewrites it with the commit SHA on every merge to main." },
       { path: "turbo.json", what: "The typecheck and test tasks that pnpm typecheck / pnpm test fan out across the workspace." },
       { path: "e2e/package.json", what: "Script renamed to e2e so turbo run test no longer launched the browser suite in the unit-test job." },
     ],
@@ -546,6 +547,7 @@ export const platformTopics: Topic[] = [
       { ja: "成果物{せいかぶつ}", en: "artifact", note: "アーティファクト is more common in speech." },
       { ja: "OIDC", en: "OpenID Connect", note: "Said オーアイディーシー. Short-lived AWS tokens instead of stored keys." },
       { ja: "ECR", en: "Elastic Container Registry", note: "Said イーシーアール." },
+      { ja: "GHCR", en: "GitHub Container Registry", note: "Said ジーエイチシーアール." },
     ],
     qa: [
       {
@@ -566,19 +568,22 @@ export const platformTopics: Topic[] = [
           { ja: "OIDCで、短期間のトークンをもらう設計です。", en: "The design gets a short-lived token via OIDC." },
           { ja: "そのため、ジョブにid-tokenの権限を付けています。", en: "That is why the job has the id-token permission." },
           { ja: "ただ、AWSのロールがまだないので、ECRへのプッシュは未実行{みじっこう}です。", en: "But there is no AWS role yet, so the ECR push has never run." },
+          { ja: "今は代{か}わりに、[GHCR]{ジーエイチシーアール}にプッシュしています。", en: "For now, the images go to GHCR instead." },
+          { ja: "ジョブのトークンで認証するので、ここでも鍵{かぎ}は保存しません。", en: "It authenticates with the job's own token, so no key is stored there either." },
         ],
-        tip: "Be explicit that the push is wired but never executed; the step is skipped until AWS_ROLE_ARN is set.",
+        tip: "Be explicit that the ECR push is wired but never executed (skipped until AWS_ROLE_ARN is set), and that the GHCR push is the one that really runs.",
       },
       {
         q: { ja: "CDの部分は、どうなっていますか？", en: "What about the CD part?" },
         a: [
-          { ja: "本来{ほんらい}は、CIがイメージをECRにプッシュします。", en: "The intended flow: CI pushes images to ECR." },
-          { ja: `そして、${ARGO}がクラスターに反映{はんえい}します。`, en: "Then Argo CD applies them to the cluster." },
-          { ja: "ただ今は、ECRもArgo CDも、まだ動いていません。", en: "But right now neither ECR nor Argo CD is running." },
-          { ja: "デプロイは、ローカルのkindにhelm upgradeで行っています。", en: "I deploy to local kind with helm upgrade." },
-          { ja: "イメージタグの更新を自動化するのが、次の課題{かだい}です。", en: "Automating the image tag update is the next task." },
+          { ja: "mainにマージすると、CIがイメージを[GHCR]{ジーエイチシーアール}にプッシュします。", en: "On a merge to main, CI pushes the images to GHCR." },
+          { ja: "タグは、コミットのSHAです。", en: "The tag is the commit SHA." },
+          { ja: "次に、CIがそのタグをvaluesファイルに書いて、コミットします。", en: "Next, CI writes that tag into a values file and commits it." },
+          { ja: `${ARGO}がそのコミットを検知{けんち}して、クラスターに反映{はんえい}します。`, en: "Argo CD detects that commit and applies it to the cluster." },
+          { ja: "CIは、クラスターの認証情報を持ちません。", en: "CI holds no cluster credentials." },
+          { ja: "ただ、動かしているのはローカルのkindで、EKSではまだです。", en: "But this runs on local kind, not on EKS yet." },
         ],
-        tip: "Separating CI (real, green) from CD (designed) clearly is the honest and strong answer.",
+        tip: "CI and CD are both real now, but only against a local cluster. Say that scope plainly: the registry is GHCR, and ECR and EKS are designed.",
       },
     ],
     videoSearch: ["GitHub Actions 入門 CI/CD", "GitHub Actions OIDC AWS 解説", "GitHub Actions Docker ビルド キャッシュ"],
@@ -611,7 +616,8 @@ export const platformTopics: Topic[] = [
       { ja: "ReelWalkでは、Applicationのマニフェストを書きました。", en: "For ReelWalk I wrote the Application manifest." },
       { ja: "Helmチャートとvalues-kind.yamlを、参照{さんしょう}する設定です。", en: "It points at the Helm chart and values-kind.yaml." },
       { ja: "pruneとselfHealを、有効{ゆうこう}にしています。", en: "prune and selfHeal are enabled." },
-      { ja: "ただ、まだクラスターにはインストールしていません。", en: "But it is not installed in any cluster yet." },
+      { ja: "イメージのタグは、CIがGitに書き込{こ}みます。", en: "CI writes the image tag into Git." },
+      { ja: "ローカルのkindにインストールして、動かしています。", en: "It is installed and running on local kind." },
     ],
     why: [
       { ja: "Gitが唯一{ゆいいつ}の正解になり、変更の履歴{りれき}が残ります。", en: "Git becomes the single source of truth, with a change history." },
@@ -619,12 +625,13 @@ export const platformTopics: Topic[] = [
       { ja: "CIに、クラスターの認証情報を渡さなくて済{す}みます。", en: "CI does not need cluster credentials." },
       { ja: "一方で、Argo CD自体{じたい}の運用が増えます。", en: "On the other hand, Argo CD itself must be operated." },
     ],
-    status: "designed",
+    status: "local",
     statusNote:
-      "Written, not installed: the Application manifest and install script exist and the migration Job carries a sync-wave, but Argo CD has never run; deploys are helm upgrade on kind.",
+      "Running on local kind only: Argo CD v3.5.3 is installed, the Application auto-syncs main with prune and selfHeal, and a merge to main was seen rolling new GHCR images into the cluster. Never run against EKS or in production.",
     inRepo: [
-      { path: "infra/argocd/application.yaml", what: "Application tracking main, path infra/helm/reelwalk with values-kind.yaml, automated prune and selfHeal." },
-      { path: "infra/argocd/install.sh", what: "Installs Argo CD v3.5.3 into kind with server-side apply, then prints the hand-over steps." },
+      { path: "infra/argocd/application.yaml", what: "Application tracking main, path infra/helm/reelwalk with values-kind.yaml and values-gitops.yaml, automated prune and selfHeal." },
+      { path: "infra/argocd/install.sh", what: "Installs Argo CD v3.5.3 into kind with server-side apply, then applies the Application." },
+      { path: "infra/helm/reelwalk/values-gitops.yaml", what: "Image repository and tag, rewritten by the CI release job on every merge to main." },
       { path: "infra/helm/reelwalk/templates/migrate-job.yaml", what: "argocd.argoproj.io/sync-wave: \"-1\" so the migration completes before the Deployments sync." },
     ],
     terms: [
@@ -652,13 +659,13 @@ export const platformTopics: Topic[] = [
       {
         q: { ja: `${ARGO}は、実際に使っていますか？`, en: "Are you actually using Argo CD?" },
         a: [
-          { ja: "マニフェストと、インストール用のスクリプトは書きました。", en: "I wrote the manifest and an install script." },
-          { ja: "ただ、まだクラスターにはインストールしていません。", en: "But I have not installed it in a cluster yet." },
-          { ja: "今は、kindにhelm upgradeでデプロイしています。", en: "Right now I deploy to kind with helm upgrade." },
+          { ja: "はい、ローカルのkindで使っています。", en: "Yes, on local kind." },
+          { ja: "mainにマージすると、新しいイメージが自動でデプロイされます。", en: "When I merge to main, the new images are deployed automatically." },
+          { ja: "ただ、本番での運用経験はまだありません。", en: "But I have no production experience with it yet." },
           { ja: "マイグレーションのJobには、sync-waveを付けています。", en: "The migration Job has a sync-wave annotation." },
           { ja: "Deploymentより先に、Jobが終わるようにするためです。", en: "So the Job finishes before the Deployments sync." },
         ],
-        tip: "Honesty first, then one detail (sync-wave -1) that shows you understand ordering.",
+        tip: "Scope first (local kind, not production), then one detail (sync-wave -1) that shows you understand ordering.",
       },
       {
         q: { ja: "ロールバックは、どうしますか？", en: "How do you roll back?" },

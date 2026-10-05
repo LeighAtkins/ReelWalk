@@ -12,3 +12,11 @@ misconfigurations:
     paths:
       - "apps/worker/Dockerfile.b4chrome"
     statement: Backup of an earlier Dockerfile, not built by anything.
+  - id: DS-0002
+    paths:
+      - "infra/splat/Dockerfile"
+    statement: >-
+      Local GPU experiment image built on nerfstudio's image, which runs as
+      root and writes its outputs to bind mounts. It is run by hand on a
+      workstation and is not part of the Compose stack or the Kubernetes
+      deployment.

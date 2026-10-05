@@ -43,7 +43,7 @@ Real-estate agents and listing photographers spend $150–400 per listing on vid
 | Rendering | Separate TypeScript worker; the same Remotion composition as the preview, headless Chrome, WebCodecs |
 | Monorepo | pnpm workspaces, Turborepo |
 | Runtime | Docker, Kubernetes, Helm, kind for local clusters |
-| CI/CD | GitHub Actions, Trivy, Argo CD (optional) |
+| CI/CD | GitHub Actions, Trivy, GHCR, Argo CD |
 | Tests | Vitest, Playwright |
 
 How the pieces fit, what each one does, the schema and the job lifecycle are in
@@ -111,7 +111,9 @@ kubectl --context kind-reelwalk -n reelwalk scale deploy/reelwalk-worker --repli
 kind delete cluster --name reelwalk
 ```
 
-To deploy through Argo CD instead of `helm upgrade`, see `infra/argocd/install.sh`.
+To deploy through Argo CD instead of `helm upgrade`, run
+`infra/argocd/install.sh`. From then on the cluster runs the images CI built
+from `main`, and a merge to `main` is a deploy.
 
 If `kubectl` fails with `x509: certificate signed by unknown authority`, an
 antivirus HTTPS scanner is intercepting the connection to the cluster on
@@ -146,8 +148,14 @@ Database changes: edit `packages/db/prisma/schema.prisma`, then
 3. Build both images and scan them with Trivy
 4. Start the Compose stack and run the Playwright suite
 
-On `main`, images are pushed to ECR once the repository variables
-`AWS_ROLE_ARN` and `AWS_REGION` are set (GitHub OIDC, no stored keys).
+On `main`, the scanned images are pushed to GitHub Container Registry
+(`ghcr.io/leighatkins/reelwalk-web` and `-worker`, tagged with the commit SHA).
+A final `release` job then writes that SHA into
+`infra/helm/reelwalk/values-gitops.yaml` and commits it. CI never talks to the
+cluster: Argo CD sees the commit and rolls the new images out.
+
+Images are also pushed to ECR once the repository variables `AWS_ROLE_ARN` and
+`AWS_REGION` are set (GitHub OIDC, no stored keys).
 
 ## Product docs
 

@@ -1,5 +1,7 @@
 # ReelWalk — TASK 01: Scaffold repo + vertical upload→S3→stub-render slice
 
+> **Historical.** This describes the first slice (FastAPI, Redis). The current stack is Next.js, Prisma, SQS and Kubernetes: see `README.md` and `docs/ARCHITECTURE.md`.
+
 > **Bounded first task.** Do not build the whole MVP. Land this slice end-to-end, prove the pipeline, then stop and report back.
 
 ## Objective

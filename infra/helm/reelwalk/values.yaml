@@ -50,6 +50,10 @@ ingress:
   host: reelwalk.example.com
   annotations: {}
 
+# Secrets for pulling from a private registry, e.g. [{name: ghcr-pull}].
+# Not needed for public images, or for ECR on EKS (the node role can pull).
+imagePullSecrets: []
+
 serviceAccount:
   # On EKS, annotate with eks.amazonaws.com/role-arn so pods get AWS access
   # through IRSA instead of static keys.

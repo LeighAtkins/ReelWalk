@@ -64,6 +64,8 @@ jobs:
       contents: read
       # Lets the job request a short-lived AWS token through OIDC.
       id-token: write
+      # Lets the job push to GitHub Container Registry with GITHUB_TOKEN.
+      packages: write
     strategy:
       fail-fast: false
       matrix:
@@ -88,8 +90,20 @@ jobs:
           docker run --rm -v /var/run/docker.sock:/var/run/docker.sock "$TRIVY_IMAGE" image "$IMAGE"
           --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1
 
-      # Pushing needs an AWS role. Until the repository variables AWS_ROLE_ARN
-      # and AWS_REGION are set, the pipeline stops after the scan.
+      # Only scanned images are pushed. GHCR needs no setup: the job's own
+      # token is the credential. The tag is the commit SHA, so a tag never
+      # changes meaning and a rollback is a Git revert.
+      - name: Push image to GHCR
+        if: github.ref == 'refs/heads/main'
+        env:
+          GHCR_IMAGE: ghcr.io/leighatkins/reelwalk-${{ matrix.app }}
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker tag "$IMAGE" "$GHCR_IMAGE:${{ github.sha }}"
+          docker push "$GHCR_IMAGE:${{ github.sha }}"
+
+      # Pushing to ECR as well needs an AWS role. Until the repository
+      # variables AWS_ROLE_ARN and AWS_REGION are set, these steps are skipped.
       - name: Configure AWS credentials
         if: github.ref == 'refs/heads/main' && vars.AWS_ROLE_ARN != ''
         uses: aws-actions/configure-aws-credentials@v4
@@ -107,6 +121,42 @@ jobs:
         run: |
           docker tag "$IMAGE" "$REGISTRY/$IMAGE"
           docker push "$REGISTRY/$IMAGE"
+
+  # GitOps hand-off: CI never touches the cluster. It records the new image tag
+  # in Git, and Argo CD (infra/argocd) notices the commit and rolls it out.
+  release:
+    name: Record image tag for Argo CD
+    runs-on: ubuntu-latest
+    needs: [images, e2e, dependency-scan]
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Point the GitOps values at this commit's images
+        run: |
+          cat > infra/helm/reelwalk/values-gitops.yaml <<EOF
+          # Written by the "release" job in .github/workflows/ci.yml. Do not edit
+          # by hand: to roll back, revert the commit that changed this file.
+          web:
+            image:
+              repository: ghcr.io/leighatkins/reelwalk-web
+              tag: "${GITHUB_SHA}"
+          worker:
+            image:
+              repository: ghcr.io/leighatkins/reelwalk-worker
+              tag: "${GITHUB_SHA}"
+          EOF
+      # A push made with GITHUB_TOKEN does not start another workflow run, so
+      # this commit cannot loop.
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add infra/helm/reelwalk/values-gitops.yaml
+          git commit -m "release: deploy ${GITHUB_SHA::7}"
+          git pull --rebase origin main
+          git push origin HEAD:main
 
   e2e:
     name: End-to-end tests

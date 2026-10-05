@@ -1,0 +1,10 @@
+# Written by the "release" job in .github/workflows/ci.yml. Do not edit
+# by hand: to roll back, revert the commit that changed this file.
+web:
+  image:
+    repository: ghcr.io/leighatkins/reelwalk-web
+    tag: "dev"
+worker:
+  image:
+    repository: ghcr.io/leighatkins/reelwalk-worker
+    tag: "dev"

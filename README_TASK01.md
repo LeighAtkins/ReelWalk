@@ -1,5 +1,7 @@
 # ReelWalk Task 01 Quickstart
 
+> **Historical.** This describes the first slice (FastAPI, Redis). The current stack is Next.js, Prisma, SQS and Kubernetes: see `README.md` and `docs/ARCHITECTURE.md`.
+
 Task 01 wires a local upload-to-render slice:
 
 1. Web uploads an MP4.

@@ -2,5 +2,5 @@ apiVersion: v2
 name: reelwalk
 description: ReelWalk web app (Next.js) and render workers
 type: application
-version: 0.2.0
+version: 0.3.0
 appVersion: "0.1.0"

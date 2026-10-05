@@ -108,6 +108,23 @@ The flythrough is then an ordinary video clip in the library. How it works,
 what it costs and its limits are in
 [ADR 0007](adr/0007-splat-flythroughs-as-offline-video.md).
 
+### A whole home from its 360 photos
+
+The same idea for a tour, which has only one or two 360 photos per room. A
+depth model, fitted to the room shapes in the tour, stands in for the
+overlap a splat normally needs, and the splat is filmed along the route of a
+tour reel:
+
+```bash
+docker build -t reelwalk-splat infra/splat
+docker compose run --rm import-zind node_modules/.bin/tsx src/export-camera-path.ts sample-zind-000 > data/splat/house-poses.json
+docker run --rm --gpus all --shm-size 8g   -v "$PWD/data/zind:/zind:ro" -v "$PWD/data/splat:/data"   -v reelwalk-hf:/root/.cache/huggingface -v "$PWD/infra/splat:/scripts:ro"   --entrypoint bash reelwalk-splat /scripts/house.sh
+docker compose run --rm import-flythrough
+```
+
+About 25 minutes on an RTX 4070. What it is good and bad at is in
+[ADR 0009](adr/0009-house-splat-from-360-photos.md).
+
 **Licence: local testing only.** The sample scenes are research data (Deep
 Blending, distributed with the 3D Gaussian Splatting paper). They are not in
 the repository, and reels made from them should not be posted. A flythrough

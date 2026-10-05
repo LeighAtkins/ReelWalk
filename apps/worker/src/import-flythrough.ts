@@ -1,7 +1,7 @@
 import { readdir, mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { listingDetailsSchema, timelineSchema } from "@reelwalk/core";
+import { listingDetailsSchema, parseTimeline, timelineSchema, type TextOverlay } from "@reelwalk/core";
 import { DEFAULT_USER_EMAIL, prisma } from "@reelwalk/db";
 import { probe, run, upload } from "./library/tools";
 
@@ -18,15 +18,29 @@ import { probe, run, upload } from "./library/tools";
 const SOURCE_DIR = process.env.SPLAT_DIR ?? "/data/splat";
 const SUFFIX = "-reel.mp4";
 
+type Source = { sourceUrl: string; license: string; attribution: string };
+
 /**
- * The sample rooms come from a research dataset, so like the ZInD tours they
- * are for local testing and not for posting.
+ * Where each scene's photos come from. Both are research data, so the
+ * flythroughs are for local testing and not for posting.
  */
-const SAMPLE_SOURCE = {
+const HOUSE_SOURCE: Source = {
+  sourceUrl: "https://github.com/zillow/zind",
+  license: "ZInD Terms of Use (academic, non-commercial)",
+  attribution: "Zillow Indoor Dataset",
+};
+const ROOM_SOURCE: Source = {
   sourceUrl: "https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/",
   license: "Research dataset: testing only",
   attribution: "Scene photos: Deep Blending (Hedman et al. 2018), via the 3D Gaussian Splatting dataset",
 };
+const sourceFor = (scene: string): Source => (scene === "house" ? HOUSE_SOURCE : ROOM_SOURCE);
+
+/**
+ * The house flythrough follows the camera route of this reel frame for
+ * frame (see infra/splat/house.sh), so that reel's room names fit it as they are.
+ */
+const HOUSE_ROUTE_REEL = "sample-zind-000";
 
 function title(scene: string): string {
   return `${scene.charAt(0).toUpperCase()}${scene.slice(1)} flythrough`;
@@ -43,6 +57,12 @@ async function createSampleReel(scene: string, workspaceId: string, assetId: str
   const song =
     (await prisma.mediaAsset.findUnique({ where: { objectKey: "library/music/life-of-riley.mp3" } })) ??
     (await prisma.mediaAsset.findFirst({ where: { workspaceId, kind: "AUDIO", bpm: { not: null } }, orderBy: { fileName: "asc" } }));
+  // The house was filmed along a tour reel's route: reuse that reel's room names and details.
+  const route = scene === "house" ? await prisma.reel.findUnique({ where: { id: HOUSE_ROUTE_REEL } }) : null;
+  const routeTimeline = route ? parseTimeline(route.timeline) : null;
+  const texts: TextOverlay[] = routeTimeline
+    ? routeTimeline.texts.filter((text) => text.endMs <= durationMs + 100).map((text) => ({ ...text, endMs: Math.min(text.endMs, durationMs) }))
+    : [{ id: "title", text: "Step inside", startMs: 400, endMs: 3400, style: "headline", color: "#ffffff", size: 1, x: 0.5, y: 0.22 }];
   const timeline = timelineSchema.parse({
     version: 1,
     clips: [
@@ -63,16 +83,18 @@ async function createSampleReel(scene: string, workspaceId: string, assetId: str
         room: null,
       },
     ],
-    texts: [{ id: "title", text: "Step inside", startMs: 400, endMs: 3400, style: "headline", color: "#ffffff", size: 1, x: 0.5, y: 0.22 }],
+    texts,
     music: song ? { assetId: song.id, sourceStartMs: 0, volume: 0.7, bpm: song.bpm, beatOffsetMs: song.beatOffsetMs } : null,
     plan: null,
-    details: listingDetailsSchema.parse({ price: "$512,000", beds: "4", baths: "2", area: "1,910 sq ft", address: "Sample home (3D flythrough)", placement: "end" }),
+    details:
+      routeTimeline?.details ??
+      listingDetailsSchema.parse({ price: "$512,000", beds: "4", baths: "2", area: "1,910 sq ft", address: "Sample home (3D flythrough)", placement: "end" }),
   });
   await prisma.reel.create({
     data: {
       id,
       workspaceId,
-      title: `3D flythrough (${scene})`,
+      title: scene === "house" ? "Whole-home splat flythrough (ZInD)" : `3D flythrough (${scene})`,
       caption: `Local test reel: a camera move rendered from a 3D reconstruction of the room. Not for posting: the photos come from a research dataset.${song?.attribution ? `
 
 Music: ${song.attribution}` : ""}`,
@@ -112,7 +134,7 @@ async function main() {
     const sizeBytes = await upload(objectKey, media, "video/mp4");
     await upload(thumbKey, thumb, "image/jpeg");
 
-    const data = { sizeBytes, durationMs, width, height, ...SAMPLE_SOURCE };
+    const data = { sizeBytes, durationMs, width, height, ...sourceFor(scene) };
     const asset = await prisma.mediaAsset.upsert({
       where: { objectKey },
       update: data,

@@ -15,7 +15,7 @@ A phone-first editor for Instagram Reels of property listings. Pick photos and w
 - Walk between rooms: with a home tour, the camera travels from one 360 photo to the next through the doorways in one continuous move, with no cuts (`docs/adr/0008`)
 - Auto-build: a home tour becomes a finished reel in one tap (the shortest walk through every room, each sweep ending on the window, plan, room names)
 - Vibes: the same tour cut five ways for five kinds of buyer (first home, investment, working from home, hosting, renovating), each with its own song, look, pace, rooms, opening line and caption
-- 3D flythroughs (experimental): a Gaussian splat of a room, rendered offline on a GPU, arrives as a video clip (`docs/adr/0007`)
+- 3D flythroughs (experimental): Gaussian splats rendered offline on a GPU arrive as video clips, either one room from 100+ photos (`docs/adr/0007`) or a whole home from its tour's 360 photos (`docs/adr/0009`)
 - Instagram rules built in: 3 s to 3 min, caption and hashtag limits, guides for the areas Instagram covers with its own buttons and caption
 - Undo and redo, autosave, and protection against two tabs overwriting each other
 - Export renders on a worker and keeps going if you leave; the export screen opens the phone's share sheet with the video and copies the caption

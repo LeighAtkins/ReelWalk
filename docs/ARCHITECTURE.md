@@ -51,9 +51,9 @@ SDK in both cases and only the endpoint settings differ.
 | **Kubernetes** | Runs web and worker as separate Deployments with probes, resource limits and rolling updates; runs migrations as a Job. |
 | **Helm** | Packages the Kubernetes manifests. `values.yaml` targets AWS, `values-kind.yaml` the local cluster. |
 | **kind** | A Kubernetes cluster inside Docker, for running the chart locally. |
-| **GitHub Actions** | Lint, typecheck, unit tests, Helm lint, image builds, Trivy scans, end-to-end tests. Pushes to ECR once an AWS role is configured. |
+| **GitHub Actions** | Lint, typecheck, unit tests, Helm lint, image builds, Trivy scans, end-to-end tests. On `main`, pushes the scanned images to GHCR and commits the new tag for Argo CD. Also pushes to ECR once an AWS role is configured. |
 | **Trivy** | Scans the lockfile, the Dockerfiles and manifests, and the built images for known vulnerabilities and misconfiguration. |
-| **Argo CD** | Optional GitOps deploy: the cluster pulls the chart from Git and keeps itself in sync (`infra/argocd`). |
+| **Argo CD** | GitOps deploy: the cluster pulls the chart and the image tag from Git and keeps itself in sync, so a merge to `main` is a deploy and a revert is a rollback (`infra/argocd`). |
 | **Vitest** | Unit tests for the state machine, queue decisions, upload rules and the worker's message handler. |
 | **Playwright** | End-to-end tests through a real browser against the running stack, including a real render. |
 

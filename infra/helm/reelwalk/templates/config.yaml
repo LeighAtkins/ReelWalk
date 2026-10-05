@@ -39,3 +39,8 @@ metadata:
     {{- with .Values.serviceAccount.annotations }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
+{{- with .Values.imagePullSecrets }}
+# Every pod runs as this ServiceAccount, so the pull secrets are set once here.
+imagePullSecrets:
+  {{- toYaml . | nindent 2 }}
+{{- end }}

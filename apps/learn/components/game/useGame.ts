@@ -22,9 +22,11 @@ export function useHostGame(room: string) {
   useEffect(() => {
     const saved = readLocal<{ state: GameState; scores: RoundScore[] } | null>(key, null);
     if (saved) {
-      ref.current = saved.state;
+      // Saved games from before a field existed get its default.
+      const s = { ...initialState(), ...saved.state };
+      ref.current = s;
       scoresRef.current = saved.scores;
-      setState(saved.state);
+      setState(s);
       setScores(saved.scores);
     }
   }, [key]);
@@ -92,6 +94,13 @@ export function useHostGame(room: string) {
           case "text":
             if (live && sameRound && !s.lifelines.text) commit({ ...s, lifelines: { ...s.lifelines, text: true } });
             break;
+          case "notes-full":
+          case "notes-cue":
+          case "notes-off": {
+            const notes = body.a.slice(6) as GameState["notes"];
+            if (s.notes !== notes) commit({ ...s, notes });
+            break;
+          }
         }
       },
       setStatus,

@@ -166,6 +166,9 @@ function HostGame({ room, onNewRoom }: { room: string; onNewRoom: () => void }) 
               <li>応募者の画面には、点数とコメントと模範解答が出ます。</li>
             </ol>
             <p className="note">応募者は「もう一度」「キーワード」「質問文を見る」を使えます。使うと、あなたの画面に表示されます。</p>
+            <p className="note">
+              応募者は、模範解答のメモを見ながら練習することもできます（全文・キーワードだけ・なし）。今は「{{ full: "全文", cue: "キーワードだけ", off: "なし" }[state.notes]}」です。
+            </p>
           </div>
 
           <button type="button" className="btn btn-ink big" onClick={start}>
@@ -200,6 +203,9 @@ function HostGame({ room, onNewRoom }: { room: string; onNewRoom: () => void }) 
           <div className="question-card">
             <p className="question-text">{toPlain(q.q.ja)}</p>
             {q.note && <p className="question-note">見るポイント：{q.note}</p>}
+            <p className="notes-flag" data-notes={state.notes}>
+              応募者のメモ：{{ full: "模範解答を見ながら練習中", cue: "キーワードだけ見ています", off: "メモなし（本番と同じ）" }[state.notes]}
+            </p>
             <LifelineFlags l={state.lifelines} />
           </div>
 

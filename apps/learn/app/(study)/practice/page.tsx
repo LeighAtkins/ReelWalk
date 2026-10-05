@@ -39,7 +39,10 @@ export default function PracticePage() {
         <h2>Question drill</h2>
         <p className="note">A question is read aloud; you answer, record yourself, then compare with a model answer.</p>
         <div className="row wrap">
-          <Link className="btn btn-ink" href="/drill/">
+          <Link className="btn btn-ink" href="/coach/">
+            Talking-points coach
+          </Link>
+          <Link className="btn" href="/drill/">
             Start the drill
           </Link>
           <Link className="btn" href="/phrases/">

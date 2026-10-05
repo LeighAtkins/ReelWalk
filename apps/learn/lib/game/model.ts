@@ -20,7 +20,11 @@ export interface GameState {
   lifelines: { repeats: number; hint: boolean; text: boolean };
   /** The candidate asked for a repeat and the interviewer hasn't acknowledged it. */
   repeatPending: boolean;
+  /** What the candidate has on screen: the full talking points, cue words, or nothing (real interview). */
+  notes: Notes;
 }
+
+export type Notes = "full" | "cue" | "off";
 
 export interface RoundScore {
   round: number;
@@ -37,7 +41,7 @@ export interface RoundScore {
 }
 
 export type HostMsg = { k: "state"; s: GameState } | { k: "score"; r: RoundScore } | { k: "stamp"; id: string; n: number };
-export type CandAction = "join" | "done" | "repeat" | "hint" | "text";
+export type CandAction = "join" | "done" | "repeat" | "hint" | "text" | "notes-full" | "notes-cue" | "notes-off";
 export type CandMsg = { k: "intent"; a: CandAction; round: number; n: number };
 
 export const initialState = (): GameState => ({
@@ -51,6 +55,7 @@ export const initialState = (): GameState => ({
   answerSeconds: 0,
   lifelines: { repeats: 0, hint: false, text: false },
   repeatPending: false,
+  notes: "full",
 });
 
 export interface GameQuestion {
@@ -63,13 +68,15 @@ export interface GameQuestion {
   note?: string;
   /** English tip from the lesson, for the candidate's review. */
   tip?: string;
+  /** A shorter model answer to learn first, where one exists. */
+  short?: Line[];
 }
 
 export function question(id: string): GameQuestion | undefined {
   const [kind, a, b] = id.split(":");
   if (kind === "o") {
     const o = OPENING.find((x) => x.id === a);
-    return o && { id, label: { ja: "定番", en: "Standard" }, q: o.q, a: o.a, note: o.note };
+    return o && { id, label: { ja: "定番", en: "Standard" }, q: o.q, a: o.a, note: o.note, short: o.short };
   }
   if (kind === "g") {
     const qa = generalQA[Number(a)];
@@ -146,6 +153,11 @@ export function keywords(q: GameQuestion, max = 6): string[] {
     }
   }
   return [...strong, ...weak.sort((x, y) => y.length - x.length)].slice(0, max);
+}
+
+/** Two or three words to jog the memory for one talking point. */
+export function cues(line: Line, max = 3): string[] {
+  return keywords({ id: "", label: { ja: "", en: "" }, q: line, a: [line] }, max);
 }
 
 export function penaltyFor(l: GameState["lifelines"]): number {

@@ -1455,3 +1455,211 @@ select {
 .stepper .btn {
   min-height: 38px;
 }
+
+/* ---------- Coach ---------- */
+
+.coach-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.coach-picker button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 46px;
+  padding: 6px 12px;
+  border-radius: 12px;
+  border: 1.5px solid var(--rule);
+  background: var(--surface);
+  text-align: left;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.coach-picker button[aria-pressed='true'] {
+  border-color: var(--deploy);
+  box-shadow: inset 0 0 0 1.5px var(--deploy);
+}
+
+.coach-pick-n {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--soft);
+  font-weight: 800;
+  font-size: 13px;
+}
+
+.coach-pick-mark {
+  margin-left: auto;
+}
+
+.coach-steps {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+
+.coach-steps button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 8px 2px;
+  border-radius: 12px;
+  border: 1.5px solid var(--rule);
+  background: var(--surface);
+  font-weight: 700;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.coach-steps button[aria-current='step'] {
+  background: var(--deploy);
+  border-color: var(--deploy);
+  color: #fff;
+}
+
+.coach-step-n {
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+.coach-step-en {
+  font-size: 11.5px;
+  font-weight: 600;
+  opacity: 0.8;
+}
+
+.coach-steps button[data-done]:not([aria-current]) .coach-step-n {
+  color: var(--deploy);
+  opacity: 1;
+}
+
+.coach-tip {
+  font-size: 15px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--deploy) 9%, var(--surface));
+}
+
+.coach-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.coach-line {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--soft);
+}
+
+.coach-line:last-child {
+  border-bottom: 0;
+}
+
+.coach-n {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  margin-top: 8px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--soft);
+  font-weight: 800;
+  font-size: 12px;
+}
+
+.coach-line .speak {
+  margin-top: 6px;
+}
+
+.coach-big {
+  font-size: 21px;
+}
+
+.chunks {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.chunk {
+  font-size: 22px;
+  padding: 6px 12px;
+  border-left: 5px solid var(--deploy);
+  background: var(--paper);
+  border-radius: 0 10px 10px 0;
+}
+
+.recall-cues .keyword {
+  font-size: 20px;
+}
+
+.cheer {
+  text-align: center;
+  font-weight: 700;
+  color: var(--deploy);
+}
+
+.faces {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.faces button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 10px 4px;
+  border-radius: 14px;
+  border: 1.5px solid var(--rule);
+  background: var(--surface);
+  font-weight: 700;
+  font-size: 13.5px;
+  cursor: pointer;
+}
+
+.faces button[aria-pressed='true'] {
+  border-color: var(--deploy);
+  background: color-mix(in srgb, var(--deploy) 10%, var(--surface));
+}
+
+.face {
+  font-size: 30px;
+}
+
+.blanks summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.blank {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 10px;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.blank input {
+  font: inherit;
+  font-size: 16px;
+  color: var(--ink);
+  min-height: 42px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1.5px solid var(--rule);
+}

@@ -25,6 +25,11 @@ export default function Home() {
         </div>
       </section>
 
+      <Link href="/coach/" className="role" style={{ display: "flex", flexDirection: "column", gap: 4, padding: "16px 18px", borderRadius: 18, color: "#fff", textDecoration: "none", background: "var(--deploy)" }}>
+        <strong style={{ fontSize: 20 }}>Talking-points coach</strong>
+        <span style={{ fontSize: 14.5 }}>Build each interview answer up slowly: listen, repeat, recall, then solo.</span>
+      </Link>
+
       <Link href="/game/" className="role role-cand" style={{ display: "flex", flexDirection: "column", gap: 4, padding: "16px 18px", borderRadius: 18, color: "#fff", textDecoration: "none", background: "var(--upload)" }}>
         <strong lang="ja" style={{ fontSize: 20 }}>模擬面接ゲーム</strong>
         <span style={{ fontSize: 14.5 }}>Two phones: one plays the interviewer, one answers. Open it on both.</span>

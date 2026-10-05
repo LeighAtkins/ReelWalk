@@ -28,8 +28,8 @@ export const NODES: MapNode[] = [
   { id: "cloudfront", x: 62, y: 500, topic: "cloudfront", code: "W", name: { aws: "CloudFront", local: "MinIO URL" }, sub: "動画の配信{はいしん}", color: "#9A7B2F" },
   { id: "actions", x: 46, y: 606, topic: "github-actions", code: "C", name: { aws: "Actions", local: "Actions" }, sub: "テスト", color: "#00994C" },
   { id: "trivy", x: 113, y: 606, topic: "trivy", code: "T", name: { aws: "Trivy", local: "Trivy" }, sub: "脆弱性{ぜいじゃくせい}", color: "#EE8A00" },
-  { id: "registry", x: 180, y: 606, topic: "docker", code: "P", name: { aws: "ECR", local: "kind load" }, sub: "イメージ", color: "#00A3D9" },
-  { id: "argocd", x: 247, y: 606, topic: "argocd", code: "C", name: { aws: "Argo CD", local: "helm" }, sub: "同期{どうき}", color: "#00994C" },
+  { id: "registry", x: 180, y: 606, topic: "docker", code: "P", name: { aws: "ECR", local: "GHCR" }, sub: "イメージ", color: "#00A3D9" },
+  { id: "argocd", x: 247, y: 606, topic: "argocd", code: "C", name: { aws: "Argo CD", local: "Argo CD" }, sub: "同期{どうき}", color: "#00994C" },
   { id: "cluster", x: 314, y: 606, topic: "kubernetes", code: "P", name: { aws: "EKS", local: "kind" }, sub: "クラスター", color: "#00A3D9" },
 ];
 
@@ -251,13 +251,13 @@ export const ROUTES: Route[] = [
       },
       {
         at: "registry",
-        line: { ja: "Dockerイメージをビルドして、ECRにプッシュします。", en: "It builds the Docker images and pushes them to ECR." },
-        more: [{ ja: "ECRへのプッシュは、AWSアカウントの確認待{かくにんま}ちで、まだ動かしていません。", en: "The ECR push hasn't run yet: the AWS account is waiting on verification." }],
+        line: { ja: "Dockerイメージをビルドして、[GHCR]{ジーエイチシーアール}にプッシュします。", en: "It builds the Docker images and pushes them to GHCR, GitHub's container registry." },
+        more: [{ ja: "ECRへのプッシュも用意{ようい}していますが、AWSアカウントの確認待{かくにんま}ちで、まだ動かしていません。", en: "An ECR push is wired up too, but it hasn't run yet: the AWS account is waiting on verification." }],
       },
       {
         at: "argocd",
         line: { ja: "Argo CDが、GitのHelmチャートとクラスターを同期{どうき}します。", en: "Argo CD syncs the cluster with the Helm chart in Git." },
-        more: [{ ja: "マニフェストは書きましたが、まだインストールはしていません。", en: "The manifests are written but not installed yet." }],
+        more: [{ ja: "ローカルのkindで、mainへのマージが自動で反映{はんえい}されるのを確認しました。", en: "On local kind, I confirmed that a merge to main is rolled out automatically." }],
       },
       {
         at: "cluster",

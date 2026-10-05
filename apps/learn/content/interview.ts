@@ -480,7 +480,7 @@ export const scripts: Script[] = [
     title: { ja: "技術スタックが合う理由", en: "Why my stack matches the job" },
     seconds: 75,
     intro:
-      "Walk their stack in the order of the job post and give one concrete thing you did with each. Say plainly which parts you have run (Next.js, Prisma, Helm on kind, CI) and which you have only written (Argo CD). That contrast reads as self-aware, not weak.",
+      "Walk their stack in the order of the job post and give one concrete thing you did with each. Say plainly which parts you have run (Next.js, Prisma, Helm on kind, CI), which you have run only locally (Argo CD on kind) and which are only designed (EKS, RDS). That contrast reads as self-aware, not weak.",
     lines: [
       {
         ja: "求人の技術スタックは、ReelWalkとほぼ同じです。",
@@ -519,8 +519,12 @@ export const scripts: Script[] = [
         en: "The Helm chart runs as non-root and sets resource limits.",
       },
       {
-        ja: "Argo CDは、マニフェストは用意しましたが、継続的には運用していません。",
-        en: "For Argo CD, I've written the manifests but haven't run it continuously.",
+        ja: "Argo CDは、ローカルのkindに入れて、mainへのマージで自動デプロイされるところまで確認しました。",
+        en: "For Argo CD, I installed it on local kind and confirmed that a merge to main deploys automatically.",
+      },
+      {
+        ja: "ただ、本番での運用経験はまだありません。",
+        en: "But I have no experience running it in production yet.",
       },
       {
         ja: "すぐに手を動かせる部分と、これから学ぶ部分がはっきりしています。",

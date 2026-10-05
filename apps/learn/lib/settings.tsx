@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { setVoiceSource, type VoiceSource } from "./speech";
 import { useLocal } from "./store";
 
 export interface Settings {
@@ -12,9 +13,11 @@ export interface Settings {
   rate: number;
   /** Chosen Japanese voice, or null for the best available. */
   voiceURI: string | null;
+  /** A recorded VOICEVOX voice, or the device's own speech engine. */
+  voiceSource: VoiceSource;
 }
 
-export const DEFAULT_SETTINGS: Settings = { furigana: true, english: "show", rate: 0.9, voiceURI: null };
+export const DEFAULT_SETTINGS: Settings = { furigana: true, english: "show", rate: 0.9, voiceURI: null, voiceSource: "ryusei" };
 
 export function useSettings() {
   const [settings, setSettings] = useLocal<Settings>("settings", DEFAULT_SETTINGS);
@@ -31,5 +34,6 @@ export function SettingsEffect() {
     root.dataset.furigana = s.furigana ? "on" : "off";
     root.dataset.english = s.english;
   }, [s.furigana, s.english]);
+  useEffect(() => setVoiceSource(s.voiceSource), [s.voiceSource]);
   return null;
 }

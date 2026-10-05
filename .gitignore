@@ -41,3 +41,6 @@ data/
 
 # Static export of the learning site
 apps/learn/out/
+
+# Intermediate audio from scripts/generate-audio.mts
+apps/learn/.audio-wav/

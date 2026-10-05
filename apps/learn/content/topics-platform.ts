@@ -555,7 +555,7 @@ export const platformTopics: Topic[] = [
           { ja: "e2eのスクリプト名がtestで、turboに拾{ひろ}われていました。", en: "The e2e package script was named test, so turbo picked it up." },
           { ja: "Dockerのレイヤーは、Actionsのキャッシュに保存しています。", en: "Docker layers are cached in the Actions cache." },
           { ja: "E2Eが失敗したら、ログとトレースを自動で保存します。", en: "When E2E fails, logs and traces are saved automatically." },
-          { ja: "Trivyのバージョンは、一か所{いっかしょ}で固定{こてい}しています。", en: "Trivy's version is pinned in one place." },
+          { ja: "Trivyのバージョンは、一{いっ}か所{しょ}で固定{こてい}しています。", en: "Trivy's version is pinned in one place." },
         ],
         tip: "Tell one story with cause, fix and result. The turbo test-script collision (commit 1095187) is concrete and easy to explain.",
       },

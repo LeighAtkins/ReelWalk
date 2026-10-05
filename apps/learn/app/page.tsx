@@ -2,8 +2,7 @@ import Link from "next/link";
 import { Countdown, Plan } from "@/components/Plan";
 import { Ja } from "@/components/Ja";
 import { Speak } from "@/components/Speak";
-
-const OPENER = "本日{ほんじつ}はお時間をいただき、ありがとうございます。よろしくお願{ねが}いいたします。";
+import { OPENER, VOICES } from "@/content/misc";
 
 export default function Home() {
   return (
@@ -17,12 +16,12 @@ export default function Home() {
       </section>
 
       <section className="one-liner" aria-label="Your first line in the interview">
-        <Speak text={OPENER} />
+        <Speak text={OPENER.ja} />
         <div className="line-body">
           <p className="ja-line">
-            <Ja text={OPENER} />
+            <Ja text={OPENER.ja} />
           </p>
-          <p className="en-line">Thank you for your time today. I look forward to speaking with you.</p>
+          <p className="en-line">{OPENER.en}</p>
         </div>
       </section>
 
@@ -78,6 +77,9 @@ export default function Home() {
         <p className="note" style={{ marginTop: 10 }}>
           The <strong>振</strong> button at the top switches furigana, <strong>EN</strong> hides English until you tap it, and the speed button sets the
           voice and pace. Add this page to your home screen to open it like an app.
+        </p>
+        <p className="note" style={{ marginTop: 8 }}>
+          Recorded audio: {VOICES.map((v) => v.credit).join(", ")}.
         </p>
       </section>
     </div>

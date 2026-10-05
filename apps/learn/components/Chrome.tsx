@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { useSettings } from "@/lib/settings";
 import { japaneseVoices, onVoicesChanged, speak, supported } from "@/lib/speech";
 import { Ja } from "./Ja";
+import { VOICES, VOICE_TEST } from "@/content/misc";
 
 const TABS = [
   { href: "/", ja: "今日", en: "Today", match: (p: string) => p === "/" },
@@ -89,8 +90,22 @@ function VoiceSheet({ onClose }: { onClose: () => void }) {
             </button>
           ))}
         </div>
-        <p className="label">Japanese voice</p>
-        {!supported() ? (
+        <p className="label">Voice</p>
+        <div className="voices">
+          {VOICES.map((v) => (
+            <button key={v.id} type="button" aria-pressed={s.voiceSource === v.id} onClick={() => patch({ voiceSource: v.id })}>
+              {v.label} <span className="note">({v.credit})</span>
+            </button>
+          ))}
+          <button type="button" aria-pressed={s.voiceSource === "device"} onClick={() => patch({ voiceSource: "device" })}>
+            This device's own voice
+          </button>
+        </div>
+        <p className="note">
+          Recorded voices work on any phone, offline once loaded. Readings follow the furigana, so pitch accent can occasionally be off; check new words against a
+          dictionary or a native speaker.
+        </p>
+        {s.voiceSource !== "device" ? null : !supported() ? (
           <p className="note">This browser has no speech engine. Safari on iPhone and Chrome on Android both have one.</p>
         ) : voices.length === 0 ? (
           <p className="note">
@@ -112,7 +127,7 @@ function VoiceSheet({ onClose }: { onClose: () => void }) {
         <button
           type="button"
           className="btn btn-ink test"
-          onClick={() => speak("冪等性{べきとうせい}を意識{いしき}して、ワーカーを設計{せっけい}しました。", { rate: s.rate, voiceURI: s.voiceURI })}
+          onClick={() => speak(VOICE_TEST.ja, { rate: s.rate, voiceURI: s.voiceURI })}
         >
           Test: <Ja text="冪等性{べきとうせい}を意識{いしき}して設計{せっけい}しました" />
         </button>

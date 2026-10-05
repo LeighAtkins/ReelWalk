@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { speak, stop, supported } from "@/lib/speech";
+import { speak, stop } from "@/lib/speech";
 import { useSettings } from "@/lib/settings";
 
 let activeSetter: ((v: boolean) => void) | null = null;
@@ -10,9 +10,6 @@ let activeSetter: ((v: boolean) => void) | null = null;
 export function Speak({ text, label = "Play", size = "md", rate }: { text: string; label?: string; size?: "sm" | "md" | "lg"; rate?: number }) {
   const [s] = useSettings();
   const [playing, setPlaying] = useState(false);
-  const [ok, setOk] = useState(true);
-
-  useEffect(() => setOk(supported()), []);
   useEffect(() => () => {
     if (activeSetter === setPlaying) activeSetter = null;
   }, []);
@@ -37,9 +34,8 @@ export function Speak({ text, label = "Play", size = "md", rate }: { text: strin
       className={`speak speak-${size}`}
       data-playing={playing || undefined}
       onClick={onClick}
-      disabled={!ok}
       aria-label={playing ? "Stop" : label}
-      title={ok ? label : "This browser has no speech engine"}
+      title={label}
     >
       {playing ? <StopIcon /> : <PlayIcon />}
     </button>

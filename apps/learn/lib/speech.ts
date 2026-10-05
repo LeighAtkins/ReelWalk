@@ -1,6 +1,7 @@
 "use client";
 
-import { toSpeech } from "./ruby";
+import { audioKey } from "./audio-key";
+import { toPlain, toSpeech } from "./ruby";
 
 /**
  * Japanese text-to-speech through the browser's Web Speech API.
@@ -56,7 +57,54 @@ export function speak(text: string, opts: SpeakOptions): Promise<boolean> {
   return enqueue(text, opts, generation);
 }
 
-function enqueue(text: string, opts: SpeakOptions, gen: number): Promise<boolean> {
+/**
+ * A recorded voice plays the MP3 rendered for this exact text (public/audio/<voice>, see
+ * scripts/generate-audio.mts), falling back to the device voice if there is
+ * none. "device": always use the browser's speech engine.
+ */
+export type VoiceSource = "ryusei" | "no7" | "device";
+let source: VoiceSource = "ryusei";
+export function setVoiceSource(next: VoiceSource) {
+  source = next;
+}
+
+// One shared element: iOS lets an element that played inside a tap keep
+// playing later sources, which playlists rely on.
+let player: HTMLAudioElement | null = null;
+let settle: ((ok: boolean) => void) | null = null;
+const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
+
+function playRecorded(text: string, opts: SpeakOptions, gen: number): Promise<"done" | "stopped" | "missing"> {
+  return new Promise((resolve) => {
+    player ??= new Audio();
+    const el = player;
+    const finish = (r: "done" | "stopped" | "missing") => {
+      el.onended = el.onerror = null;
+      if (settle === onStop) settle = null;
+      resolve(r);
+    };
+    const onStop = () => finish("stopped");
+    settle = onStop;
+    el.onended = () => finish(gen === generation ? "done" : "stopped");
+    el.onerror = () => finish("missing");
+    el.src = `${BASE}/audio/${source}/${audioKey(text)}.mp3`;
+    el.playbackRate = opts.rate;
+    el.preservesPitch = true;
+    if ("mediaSession" in navigator) navigator.mediaSession.metadata = new MediaMetadata({ title: toPlain(text), artist: "ReelWalk 面接ノート" });
+    el.play().catch((e: DOMException) => finish(e.name === "NotAllowedError" ? "stopped" : "missing"));
+  });
+}
+
+async function enqueue(text: string, opts: SpeakOptions, gen: number): Promise<boolean> {
+  if (gen !== generation) return false;
+  if (source !== "device" && (opts.lang ?? "ja-JP") === "ja-JP") {
+    const r = await playRecorded(text, opts, gen);
+    if (r !== "missing") return r === "done" && gen === generation;
+  }
+  return speakDevice(text, opts, gen);
+}
+
+function speakDevice(text: string, opts: SpeakOptions, gen: number): Promise<boolean> {
   return new Promise((resolve) => {
     if (!supported() || gen !== generation) return resolve(false);
     const lang = opts.lang ?? "ja-JP";
@@ -80,6 +128,8 @@ function enqueue(text: string, opts: SpeakOptions, gen: number): Promise<boolean
 
 export function stop(): void {
   generation++;
+  player?.pause();
+  settle?.(false);
   if (supported()) window.speechSynthesis.cancel();
 }
 

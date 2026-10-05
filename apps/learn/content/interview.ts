@@ -351,18 +351,22 @@ export const scripts: Script[] = [
         ja: "この判断は純粋{じゅんすい}な関数にして、Vitestでケースごとにテストしました。",
         en: "I made that decision logic a pure function and tested each case with Vitest.",
       },
-      { ja: "ただ、まだ残っている課題もあります。", en: "There is still one open gap, though." },
+      { ja: "もう一つ、後から直した問題があります。", en: "There was one more problem that I fixed later." },
       {
-        ja: "ジョブの保存とメッセージの送信が、一つのトランザクションではありません。",
-        en: "Saving the job and sending the message aren't one transaction.",
+        ja: "最初は、ジョブの保存とメッセージの送信が、一つのトランザクションではありませんでした。",
+        en: "At first, saving the job and sending the message weren't one transaction.",
       },
       {
-        ja: "送信に失敗した場合は、ジョブを失敗にして、再試行できるようにしています。",
-        en: "If the send fails, the job is marked failed so the user can retry.",
+        ja: "保存の直後にプロセスが落ちると、メッセージのないジョブが残ります。",
+        en: "If the process died right after the save, a job was left with no message.",
       },
       {
-        ja: "次は、トランザクショナル・アウトボックスで、この隙間{すきま}を埋めたいです。",
-        en: "Next I'd like to close that gap with a transactional outbox.",
+        ja: "そこで、トランザクショナル・アウトボックスを入れて、この隙間{すきま}を埋めました。",
+        en: "So I added a transactional outbox and closed that gap.",
+      },
+      {
+        ja: "メッセージもジョブと一緒にDBに書いて、その後でキューに送ります。",
+        en: "The message is written to the database together with the job, and sent to the queue afterwards.",
       },
       {
         ja: "この経験から、失敗する前提で設計することを、強く意識するようになりました。",

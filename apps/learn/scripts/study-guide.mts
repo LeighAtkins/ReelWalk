@@ -124,7 +124,7 @@ function stateSvg(): string {
     ${arrow("M260 162 L162 162", "attempt failed: retry with backoff", 140, 186)}
     ${arrow("M380 140 L478 78", "output uploaded", 392, 96)}
     ${arrow("M380 160 L478 222", "attempts exhausted", 400, 212)}
-    ${arrow("M100 172 C100 290 420 290 478 240", "enqueue failed / dead-lettered", 180, 282)}
+    ${arrow("M100 172 C100 290 420 290 478 240", "dead-lettered", 180, 282)}
     ${arrow("M540 210 C540 20 120 20 100 128", "manual retry (generation + 1)", 220, 30)}
   </svg>`;
 }
@@ -398,7 +398,8 @@ ${ROUTES.map(routeSection).join("")}
   <li><code>RenderOutput.jobId</code> is unique and written with an upsert: one output per job.</li>
   <li>Finished jobs and old generations are discarded without rendering.</li>
   <li>A manual retry bumps the generation, so late messages from the old run are ignored.</li></ol>
-  <b>Honest gaps:</b> the job insert and the queue send are not one transaction (a transactional outbox would fix it), and there is no per-claim fencing token yet.</div>
+  <b>Transactional outbox.</b> The job row and its queue message are written in one transaction (the <code>OutboxMessage</code> table). The web app sends the message right after the commit, and a relay loop in every worker sends whatever is left, so a saved job always gets its message (ADR 0010).<br>
+  <b>Honest gap:</b> there is no per-claim fencing token yet.</div>
 </div>
 
 <div class="page">
@@ -523,12 +524,13 @@ function xml(): string {
         x(
           "reliability",
           [
-            "Job states: QUEUED -> RUNNING (worker claims) -> SUCCEEDED (output uploaded). RUNNING -> QUEUED (attempt failed, retry with backoff). RUNNING -> FAILED (attempts exhausted). QUEUED -> FAILED (enqueue failed or dead-lettered). FAILED -> QUEUED (manual retry, generation + 1).",
+            "Job states: QUEUED -> RUNNING (worker claims) -> SUCCEEDED (output uploaded). RUNNING -> QUEUED (attempt failed, retry with backoff). RUNNING -> FAILED (attempts exhausted). QUEUED -> FAILED (dead-lettered). FAILED -> QUEUED (manual retry, generation + 1).",
             "Every status change is one conditional update whose where-clause includes the expected status and generation, so concurrent writers can't both win.",
             "Delivery decision: job missing, finished, or different generation -> delete message; QUEUED -> claim; RUNNING with fresh heartbeat -> leave it; RUNNING with heartbeat older than 60 s -> claim (previous worker died).",
             "Timing: visibility timeout 120 s, heartbeat every 20 s, stale after 60 s, 3 attempts, backoff 15 s then 30 s; after 3 receives SQS moves the message to the DLQ, whose consumer marks still-active jobs FAILED.",
             "Idempotency: output key renders/<jobId>.mp4 (a re-render overwrites), RenderOutput.jobId unique with upsert, finished jobs and old generations discarded, manual retry bumps generation.",
-            "Known gaps: job insert and queue send are not one transaction (outbox would fix); no per-claim fencing token; worker autoscaling is CPU-based and off by default (KEDA on queue depth planned).",
+            "Transactional outbox (ADR 0010): the job row and its queue message are written in one Postgres transaction (OutboxMessage table). The web app sends right after the commit; a relay loop in every worker (every 5 s, SELECT ... FOR UPDATE SKIP LOCKED, backoff on failure) sends what is left. The relay can send twice, which the idempotent worker absorbs.",
+            "Known gaps: no per-claim fencing token; worker autoscaling is CPU-based and off by default (KEDA on queue depth planned).",
           ]
             .map((s) => x("fact", t(s)))
             .join(""),

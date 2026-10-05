@@ -45,6 +45,9 @@ export default function PracticePage() {
           <Link className="btn" href="/phrases/">
             Useful phrases
           </Link>
+          <Link className="btn" href="/game/">
+            Two-phone mock interview
+          </Link>
         </div>
       </section>
 

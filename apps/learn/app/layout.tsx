@@ -2,7 +2,6 @@ import type { Metadata, Viewport } from "next";
 import "@fontsource-variable/archivo/wdth.css";
 import "./globals.css";
 import { SettingsEffect } from "@/lib/settings";
-import { TabBar, TopBar } from "@/components/Chrome";
 
 const base = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 
@@ -26,9 +25,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" data-furigana="on" data-english="show">
       <body>
         <SettingsEffect />
-        <TopBar />
-        <main className="page">{children}</main>
-        <TabBar />
+        {children}
       </body>
     </html>
   );

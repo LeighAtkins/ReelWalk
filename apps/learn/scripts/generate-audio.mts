@@ -15,6 +15,7 @@ import { platformTopics } from "../content/topics-platform.ts";
 import { company, generalQA, phraseSets, scripts } from "../content/interview.ts";
 import { ROUTES } from "../content/map.ts";
 import { OPENER, VOICE_TEST } from "../content/misc.ts";
+import { OPENING, REPEAT_PHRASE } from "../content/game.ts";
 import { parseRuby } from "../lib/ruby.ts";
 import { audioKey } from "../lib/audio-key.ts";
 
@@ -40,7 +41,7 @@ function collect(): string[] {
       }
     }
   };
-  walk([topics, company, generalQA, phraseSets, scripts, ROUTES, OPENER, VOICE_TEST]);
+  walk([topics, company, generalQA, phraseSets, scripts, ROUTES, OPENER, VOICE_TEST, OPENING, REPEAT_PHRASE]);
   return [...out];
 }
 

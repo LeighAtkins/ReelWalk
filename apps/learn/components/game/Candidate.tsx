@@ -4,7 +4,7 @@ import { useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { COSTS, RATINGS, REPEAT_PHRASE, STAMPS } from "@/content/game";
 import { OPENER } from "@/content/misc";
-import { keywords, question, titleFor, type GameState, type RoundScore } from "@/lib/game/model";
+import { cues, keywords, question, titleFor, type GameQuestion, type GameState, type Notes, type RoundScore } from "@/lib/game/model";
 import { normaliseCode } from "@/lib/game/relay";
 import { useLocal } from "@/lib/store";
 import { Ja } from "../Ja";
@@ -69,6 +69,12 @@ function CandidateGame({ room, onLeave }: { room: string; onLeave: () => void })
   const { state, scores, stamps, status, error, act } = useCandidateGame(room);
   const prev = useRef<string>("");
   const [repeatShown, setRepeatShown] = useState(false);
+  const [notes, setNotes] = useLocal<Notes>("game-notes", "full");
+
+  // The interviewer's phone shows which notes are on; keep it in step with ours.
+  useEffect(() => {
+    if (state && state.notes !== notes) act(`notes-${notes}`);
+  }, [state, notes, act]);
 
   // Chime when the turn comes to us, and when a score arrives.
   useEffect(() => {
@@ -92,6 +98,8 @@ function CandidateGame({ room, onLeave }: { room: string; onLeave: () => void })
       {error && <p className="game-error">{error}</p>}
       <StampLayer stamps={stamps} />
 
+      {state && state.phase !== "final" && <NotesSwitch notes={notes} onChange={setNotes} />}
+
       {!state ? (
         <section className="stack">
           <p className="lede">Connecting to the interviewer's phone… If this stays, check the code with them.</p>
@@ -104,7 +112,7 @@ function CandidateGame({ room, onLeave }: { room: string; onLeave: () => void })
       ) : state.phase === "final" ? (
         <Final scores={Object.values(scores)} />
       ) : (
-        <Round state={state} score={scores[state.round]} act={act} repeatShown={repeatShown} onRepeat={() => setRepeatShown(true)} />
+        <Round state={state} notes={notes} score={scores[state.round]} act={act} repeatShown={repeatShown} onRepeat={() => setRepeatShown(true)} />
       )}
     </div>
   );
@@ -132,14 +140,72 @@ function Lobby() {
   );
 }
 
+function NotesSwitch({ notes, onChange }: { notes: Notes; onChange: (n: Notes) => void }) {
+  return (
+    <div className="notes-switch" role="group" aria-label="Notes on your screen">
+      <span className="note">My notes</span>
+      <div className="seg">
+        {(
+          [
+            ["full", "Full answer"],
+            ["cue", "Cue words"],
+            ["off", "None (real)"],
+          ] as const
+        ).map(([id, label]) => (
+          <button key={id} type="button" aria-pressed={notes === id} onClick={() => onChange(id)}>
+            {label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** The talking points for this question, as full lines or just cue words. */
+function TalkingPoints({ q, notes }: { q: GameQuestion; notes: Exclude<Notes, "off"> }) {
+  // The learner's own words for the 【】 blanks, typed in the coach.
+  const [fills] = useLocal<Record<string, string>>("coach-fills", {});
+  const mine = (ja: string) => ja.replace(/【[^】]+】/g, (b) => (fills[b]?.trim() ? `【${fills[b].trim()}】` : b));
+  return (
+    <div className="notes-card">
+      <p className="checklist-head">{notes === "full" ? "Your talking points: say them slowly, one at a time" : "Cue words for each point"}</p>
+      <ol className="notes-list">
+        {q.a.map((l, i) => (
+          <li key={i}>
+            {notes === "full" ? (
+              <>
+                <Speak text={l.ja} size="sm" />
+                <span className="ja-line">
+                  <Ja text={mine(l.ja)} />
+                </span>
+              </>
+            ) : (
+              <span className="keywords">
+                {cues(l).map((k) => (
+                  <span key={k} className="keyword">
+                    <Ja text={k} />
+                  </span>
+                ))}
+                {cues(l).length === 0 && <span className="note">{l.en}</span>}
+              </span>
+            )}
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
 function Round({
   state,
+  notes,
   score,
   act,
   repeatShown,
   onRepeat,
 }: {
   state: GameState;
+  notes: Notes;
   score?: RoundScore;
   act: ReturnType<typeof useCandidateGame>["act"];
   repeatShown: boolean;
@@ -169,7 +235,7 @@ function Round({
         </div>
       )}
 
-      {(state.lifelines.text || reveal) && (
+      {(state.lifelines.text || reveal || (notes !== "off" && live)) && (
         <div className="question-card">
           <div className="row" style={{ alignItems: "flex-start" }}>
             <Speak text={q.q.ja} size="sm" />
@@ -181,7 +247,9 @@ function Round({
         </div>
       )}
 
-      {state.lifelines.hint && !reveal && (
+      {notes !== "off" && live && <TalkingPoints q={q} notes={notes} />}
+
+      {state.lifelines.hint && notes === "off" && !reveal && (
         <div className="hint-card">
           <p className="checklist-head">Keywords to work in</p>
           <div className="keywords">
@@ -215,12 +283,16 @@ function Round({
           >
             🔁 Ask to repeat
           </button>
-          <button type="button" className="btn" disabled={state.lifelines.hint} onClick={() => act("hint")}>
-            🔑 Keywords −{COSTS.hint}
-          </button>
-          <button type="button" className="btn" disabled={state.lifelines.text} onClick={() => act("text")}>
-            📄 Read question −{COSTS.text}
-          </button>
+          {notes === "off" && (
+            <>
+              <button type="button" className="btn" disabled={state.lifelines.hint} onClick={() => act("hint")}>
+                🔑 Keywords −{COSTS.hint}
+              </button>
+              <button type="button" className="btn" disabled={state.lifelines.text} onClick={() => act("text")}>
+                📄 Read question −{COSTS.text}
+              </button>
+            </>
+          )}
         </div>
       )}
 
@@ -300,6 +372,7 @@ function ScoreCard({ q, score }: { q: NonNullable<ReturnType<typeof question>>; 
 }
 
 function Final({ scores }: { scores: RoundScore[] }) {
+  const base = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
   const sorted = [...scores].sort((a, b) => a.round - b.round);
   const points = sorted.reduce((n, s) => n + s.points, 0);
   const max = sorted.reduce((n, s) => n + s.max, 0);
@@ -315,6 +388,9 @@ function Final({ scores }: { scores: RoundScore[] }) {
         {points}
         <span> / {max}</span>
       </p>
+      <a className="btn btn-ink big" href={`${base}/coach/`}>
+        Practise these answers in the coach
+      </a>
       <div className="stack" style={{ gap: 8 }}>
         {sorted.map((s) => {
           const q = question(s.qid);

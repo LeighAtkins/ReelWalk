@@ -19,7 +19,8 @@ async function keepAwake(): Promise<WakeLockSentinel | null> {
 }
 
 /** Plays a list of lines one after another; "shadow" leaves a gap to repeat each line. */
-export function usePlaylist(texts: string[]) {
+/** `rate` overrides the speed setting, e.g. to play slowly for a first listen. */
+export function usePlaylist(texts: string[], rate?: number) {
   const [s] = useSettings();
   const [index, setIndex] = useState(-1);
   const [mode, setMode] = useState<Mode | null>(null);
@@ -36,9 +37,9 @@ export function usePlaylist(texts: string[]) {
     setMode(m);
     for (let i = from; i < texts.length; i++) {
       setIndex(i);
-      const ok = await speakNext(texts[i], { rate: s.rate, voiceURI: s.voiceURI }, gen);
+      const ok = await speakNext(texts[i], { rate: rate ?? s.rate, voiceURI: s.voiceURI }, gen);
       if (!ok) break;
-      const gap = m === "shadow" ? shadowGap(texts[i], s.rate) : 650;
+      const gap = m === "shadow" ? shadowGap(texts[i], rate ?? s.rate) : 650;
       if (!(await wait(gap, gen))) break;
     }
     lock.then((l) => l?.release()).catch(() => {});

@@ -10,7 +10,7 @@ import { company, scripts } from "./interview.ts";
 const script = (id: string): Line[] => scripts.find((s) => s.id === id)?.lines ?? [];
 
 /** Interview questions that use the memorised scripts as their model answers. */
-export const OPENING: { id: string; q: Line; a: Line[]; note: string }[] = [
+export const OPENING: { id: string; q: Line; a: Line[]; note: string; short?: Line[] }[] = [
   {
     id: "intro",
     q: { ja: "では、まず自己紹介をお願いします。", en: "First, please introduce yourself." },
@@ -21,6 +21,7 @@ export const OPENING: { id: string; q: Line; a: Line[]; note: string }[] = [
     id: "reelwalk",
     q: { ja: "ポートフォリオのReelWalkについて、説明していただけますか。", en: "Could you explain ReelWalk, your portfolio project?" },
     a: script("reelwalk-90"),
+    short: script("reelwalk-30"),
     note: "何を作ったか、構成、工夫した点の順に話せているか。",
   },
   {

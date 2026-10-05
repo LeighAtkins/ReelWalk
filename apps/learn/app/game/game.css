@@ -727,3 +727,64 @@
     animation: none;
   }
 }
+
+.notes-switch {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--surface);
+}
+
+.notes-switch .seg button {
+  flex: 1;
+}
+
+.notes-switch .seg {
+  flex-wrap: nowrap;
+}
+
+.notes-card {
+  border-radius: 16px;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 2px solid var(--upload);
+}
+
+.notes-list {
+  margin: 0;
+  padding: 0 0 0 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.notes-list li {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--soft);
+}
+
+.notes-list li:last-child {
+  border-bottom: 0;
+}
+
+.notes-list li > .speak {
+  float: right;
+  margin: 4px 0 0 8px;
+}
+
+.notes-list .ja-line {
+  font-size: 18px;
+  line-height: 2;
+}
+
+.notes-flag {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--upload);
+}
+
+.notes-flag[data-notes='off'] {
+  color: var(--muted);
+}

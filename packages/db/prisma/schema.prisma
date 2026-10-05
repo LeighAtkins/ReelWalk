@@ -195,6 +195,24 @@ model RenderJob {
   @@index([reelId, createdAt])
 }
 
+// Transactional outbox: a queue message that still has to be sent. The row is
+// written in the same transaction as the job change it announces, and deleted
+// once the queue has accepted the message (packages/db/src/outbox.ts).
+model OutboxMessage {
+  id          String   @id @default(cuid())
+  // Which queue the body is for.
+  topic       String
+  body        String
+  // Failed sends so far, and the reason for the last one.
+  attempts    Int      @default(0)
+  lastError   String?
+  // Not sent before this time; pushed back after every failed send.
+  availableAt DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  @@index([topic, availableAt])
+}
+
 model RenderOutput {
   id          String    @id @default(cuid())
   // One output per job: a retried render replaces the row instead of adding one.

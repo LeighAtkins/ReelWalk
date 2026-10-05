@@ -4,6 +4,7 @@ import type { RenderJobStatus } from "./job-status";
 /**
  * The queue message only points at the job row. Everything else lives in
  * Postgres, so a message stays tiny and can never disagree with the database.
+ * It is written to the outbox table together with the job row, then sent.
  * `generation` is bumped on every manual retry so that messages left over
  * from an earlier run of the same job can be recognised and thrown away.
  */

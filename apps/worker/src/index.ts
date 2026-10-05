@@ -1,13 +1,15 @@
 import http from "node:http";
+import { setTimeout as sleep } from "node:timers/promises";
 import { S3Client } from "@aws-sdk/client-s3";
 import {
   ChangeMessageVisibilityCommand,
   DeleteMessageCommand,
   ReceiveMessageCommand,
+  SendMessageCommand,
   SQSClient,
   type Message,
 } from "@aws-sdk/client-sqs";
-import { prisma } from "@reelwalk/db";
+import { prisma, relayOutbox, RENDER_JOBS_TOPIC } from "@reelwalk/db";
 import { getConfig } from "./config";
 import { handleDeadLetter, handleDelivery, type Delivery } from "./handler";
 import { renderJob } from "./render";
@@ -85,6 +87,34 @@ async function pollLoop(name: string, queueUrl: string, handle: (delivery: Deliv
   console.log(`${name}: stopped`);
 }
 
+/**
+ * Outbox relay. The web app writes each queue message to the database in the
+ * same transaction as its job row and normally sends it straight away. This
+ * loop sends whatever is left: messages whose first send failed, or whose web
+ * process died between the commit and the send.
+ */
+async function outboxLoop() {
+  console.log(`outbox: relaying to ${config.queueUrl}`);
+  while (!stopping) {
+    try {
+      const { sent, failed } = await relayOutbox(prisma, {
+        topic: RENDER_JOBS_TOPIC,
+        send: async (body) => {
+          await sqs.send(new SendMessageCommand({ QueueUrl: config.queueUrl, MessageBody: body }), {
+            abortSignal: AbortSignal.timeout(10_000),
+          });
+        },
+      });
+      if (sent > 0 || failed > 0) console.log(`outbox: sent ${sent}, failed ${failed}`);
+    } catch (error) {
+      if (stopping) break;
+      console.error("outbox: relay error", error);
+    }
+    await sleep(config.outboxPollSeconds * 1000, undefined, { signal: shutdown.signal }).catch(() => {});
+  }
+  console.log("outbox: stopped");
+}
+
 // Liveness for Kubernetes: healthy while the loop (or a render heartbeat) keeps ticking.
 const health = http.createServer((_request, response) => {
   const alive = Date.now() - lastTickAt < (config.visibilitySeconds + 30) * 1000;
@@ -104,6 +134,7 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
 }
 
 const loops = [
+  outboxLoop(),
   pollLoop("render-queue", config.queueUrl, (delivery) =>
     handleDelivery(
       { store, config, render: (job, onProgress) => renderJob(job, s3, config.s3Bucket, onProgress, config.renderConcurrency) },

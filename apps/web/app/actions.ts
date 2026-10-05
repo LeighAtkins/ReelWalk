@@ -26,7 +26,7 @@ import {
 } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
 import { toLibraryAsset, type LibraryAsset } from "@/lib/library";
-import { enqueueOrFail } from "@/lib/render-jobs";
+import { flushOutbox, queueRenderJob } from "@/lib/render-jobs";
 import { headObject, presignUpload } from "@/lib/storage";
 import { getCurrentUser } from "@/lib/workspace";
 
@@ -164,7 +164,8 @@ export type ExportResult = { ok: false; issues: Issue[]; message?: string };
 
 /**
  * Freezes the current timeline into a render job and queues it. The checks
- * run again here, on the server, whatever the browser showed.
+ * run again here, on the server, whatever the browser showed. The job row and
+ * its queue message are written in one transaction (the outbox).
  */
 export async function exportReel(input: { id: string }): Promise<ExportResult> {
   const user = await getCurrentUser();
@@ -186,17 +187,20 @@ export async function exportReel(input: { id: string }): Promise<ExportResult> {
     return { ok: false, issues: [], message: error instanceof Error ? error.message : "Could not export." };
   }
 
-  const job = await prisma.renderJob.create({
-    data: {
-      workspaceId: user.workspaceId,
-      createdById: user.id,
-      reelId: reel.id,
-      kind: "REEL",
-      payload,
-      caption: reel.title,
-    },
+  await prisma.$transaction(async (tx) => {
+    const job = await tx.renderJob.create({
+      data: {
+        workspaceId: user.workspaceId,
+        createdById: user.id,
+        reelId: reel.id,
+        kind: "REEL",
+        payload,
+        caption: reel.title,
+      },
+    });
+    await queueRenderJob(tx, job);
   });
-  await enqueueOrFail(job);
+  await flushOutbox();
   revalidatePath("/exports");
   redirect(`/reels/${reel.id}/export`);
 }
@@ -207,21 +211,24 @@ export async function retryRenderJob(formData: FormData): Promise<void> {
 
   // FAILED -> QUEUED as a single conditional write: two taps (or two tabs)
   // can only ever produce one new generation and one new message.
-  const retried = await prisma.renderJob.updateManyAndReturn({
-    where: { id: jobId, workspaceId: user.workspaceId, status: "FAILED" },
-    data: {
-      status: "QUEUED",
-      generation: { increment: 1 },
-      attempt: 0,
-      progress: 0,
-      error: null,
-      heartbeatAt: null,
-      startedAt: null,
-      finishedAt: null,
-    },
+  const job = await prisma.$transaction(async (tx) => {
+    const retried = await tx.renderJob.updateManyAndReturn({
+      where: { id: jobId, workspaceId: user.workspaceId, status: "FAILED" },
+      data: {
+        status: "QUEUED",
+        generation: { increment: 1 },
+        attempt: 0,
+        progress: 0,
+        error: null,
+        heartbeatAt: null,
+        startedAt: null,
+        finishedAt: null,
+      },
+    });
+    if (retried[0]) await queueRenderJob(tx, retried[0]);
+    return retried[0];
   });
-  const job = retried[0];
-  if (job) await enqueueOrFail(job);
+  if (job) await flushOutbox();
 
   if (job?.reelId) revalidatePath(`/reels/${job.reelId}/export`);
   revalidatePath("/exports");

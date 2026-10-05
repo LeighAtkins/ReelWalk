@@ -41,6 +41,6 @@ Use SQS (ElasticMQ locally, same API) with a dead-letter queue.
 - SQS delivers at least once, so the worker must be idempotent (ADR 0003).
 - `RENDER_MAX_ATTEMPTS` in the worker and `maxReceiveCount` on the queue must
   be the same number. They are set in two places.
-- A job row is committed before its message is sent. If the send fails, the
-  action marks the job `FAILED` so the user can retry it. A transactional
-  outbox would close the remaining gap (the process dying between the two).
+- The job row and the message live in two systems. They are kept consistent
+  with a transactional outbox (ADR 0010); before that, the row was committed
+  first and a failed send marked the job `FAILED`.

@@ -19,6 +19,23 @@ jobs:
   verify:
     name: Lint, typecheck, unit tests
     runs-on: ubuntu-latest
+    # The outbox tests (packages/db) check row locking, so they need a real Postgres.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: reelwalk
+          POSTGRES_PASSWORD: reelwalk
+          POSTGRES_DB: reelwalk
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U reelwalk"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://reelwalk:reelwalk@localhost:5432/reelwalk
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v4
@@ -29,6 +46,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
       - run: pnpm typecheck
+      - run: pnpm db:migrate
       - run: pnpm test
       - name: Lint Helm chart
         run: |

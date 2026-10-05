@@ -38,3 +38,6 @@ test-results/
 
 # Local datasets (licensed for local testing only; never commit)
 data/
+
+# Static export of the learning site
+apps/learn/out/

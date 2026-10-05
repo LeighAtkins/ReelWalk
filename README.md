@@ -1,8 +1,26 @@
 # ReelWalk
 
-Turn real-estate walkthrough video + a floorplan into a polished, shareable social Reel (TikTok / Instagram Reels / YouTube Shorts) with a moving floorplan marker and captions.
+A phone-first editor for Instagram Reels of property listings. Pick photos and walkthrough video, trim, split, reorder, add text and music, then export a 1080×1920 MP4 and share it to Instagram from the phone.
 
-> MVP, not the whole company. See `docs/MVP_SPEC.md` for the scoped Phase 1 build and `docs/TASK_01.md` for the first task.
+**What the editor does**
+
+- Clips: trim, split at the playhead, reorder, duplicate, delete, speed (0.5× to 3×), clip volume, fill or fit the 9:16 frame
+- Photos: on-screen length and slow zoom or pan
+- 360 photos: recognised automatically and shown as a camera sweep through the room; set start, turn, tilt and zoom
+- Floor plan: media from a home tour carries its position, and the reel shows the plan with a marker that moves from room to room and turns with the camera
+- Looks (colour filters) per clip or for the whole reel, fade-through-black transitions
+- Text: four styles, six colours, size, drag to place, start and end times; Japanese renders correctly
+- Music: upload a song or pick one from the library, set volume and where it starts; the tempo is detected and one tap snaps every cut to the beat
+- Listing details: price, beds, baths, area, address and contact as a card at the start or end, placed clear of Instagram's caption
+- Walk between rooms: with a home tour, the camera travels from one 360 photo to the next through the doorways in one continuous move, with no cuts (`docs/adr/0008`)
+- Auto-build: a home tour becomes a finished reel in one tap (the shortest walk through every room, each sweep ending on the window, plan, room names)
+- Vibes: the same tour cut five ways for five kinds of buyer (first home, investment, working from home, hosting, renovating), each with its own song, look, pace, rooms, opening line and caption
+- 3D flythroughs (experimental): Gaussian splats rendered offline on a GPU arrive as video clips, either one room from 100+ photos (`docs/adr/0007`) or a whole home from its tour's 360 photos (`docs/adr/0009`)
+- Instagram rules built in: 3 s to 3 min, caption and hashtag limits, guides for the areas Instagram covers with its own buttons and caption
+- Undo and redo, autosave, and protection against two tabs overwriting each other
+- Export renders on a worker and keeps going if you leave; the export screen opens the phone's share sheet with the video and copies the caption
+
+> The product strategy (floorplan overlay, AI room labels) is in `docs/PLAN.md` and `docs/MVP_SPEC.md`.
 
 ## Why this exists (one paragraph)
 
@@ -19,10 +37,10 @@ Real-estate agents and listing photographers spend $150–400 per listing on vid
 
 | Layer | Technology |
 | --- | --- |
-| Web | TypeScript, React 19, Next.js 16 App Router, Server Components, Server Actions |
+| Web | TypeScript, React 19, Next.js 16 App Router, Server Components, Server Actions, Remotion Player |
 | Data | PostgreSQL, Prisma 7 |
 | Queue and storage | SQS with a dead-letter queue, S3 (ElasticMQ and MinIO locally) |
-| Rendering | Separate TypeScript worker, Remotion, headless Chrome, ffmpeg |
+| Rendering | Separate TypeScript worker; the same Remotion composition as the preview, headless Chrome, WebCodecs |
 | Monorepo | pnpm workspaces, Turborepo |
 | Runtime | Docker, Kubernetes, Helm, kind for local clusters |
 | CI/CD | GitHub Actions, Trivy, Argo CD (optional) |
@@ -55,9 +73,21 @@ Needs Docker only.
 docker compose up --build
 ```
 
-Open http://localhost:8080. Create a property, upload a photo or video, pick a
-template and render. The job card shows progress, and the finished 9:16 MP4
-plays inline.
+Open http://localhost:8080 (on a desktop, the browser's phone emulation
+shows it as intended). Tap New reel, pick photos and videos, edit, then
+Export. The export screen shows progress and plays the finished 9:16 MP4.
+
+Load sample content, so there is something to edit straight away: 22 real 360
+room photos, 8 home videos and three ready-made reels, all openly licensed
+(details and sources in [`docs/MEDIA_LIBRARY.md`](docs/MEDIA_LIBRARY.md)):
+
+```bash
+docker compose run --rm import-library
+```
+
+To try it on a real phone on the same network, open `http://<pc-ip>:8080` and
+set `S3_PUBLIC_ENDPOINT_URL=http://<pc-ip>:9000` in `.env` so the phone can
+reach uploaded media.
 
 - MinIO console: http://localhost:9001 (`minioadmin` / `minioadmin`)
 - The timeline editor is at http://localhost:8080/editor/

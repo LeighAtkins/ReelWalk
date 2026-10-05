@@ -80,6 +80,52 @@ services:
       postgres:
         condition: service_healthy
 
+  # Loads openly licensed 360 photos and home videos into the media library
+  # and creates sample reels. Run on demand; safe to run again:
+  #   docker compose run --rm import-library
+  import-library:
+    image: reelwalk-worker
+    profiles: ["tools"]
+    command: ["node_modules/.bin/tsx", "src/import-library.ts"]
+    environment: *app-env
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      minio-init:
+        condition: service_completed_successfully
+
+  # Imports home tours in the Zillow Indoor Dataset format from ./data/zind
+  # (not in the repository): 360 photos located on a floor plan.
+  #   docker compose run --rm import-zind
+  import-zind:
+    image: reelwalk-worker
+    profiles: ["tools"]
+    command: ["node_modules/.bin/tsx", "src/import-zind.ts"]
+    environment: *app-env
+    volumes:
+      - ./data/zind:/data/zind:ro
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      minio-init:
+        condition: service_completed_successfully
+
+  # Adds flythrough videos rendered from Gaussian splats to the media library
+  # (see infra/splat/reconstruct.sh).
+  #   docker compose run --rm import-flythrough
+  import-flythrough:
+    image: reelwalk-worker
+    profiles: ["tools"]
+    command: ["node_modules/.bin/tsx", "src/import-flythrough.ts"]
+    environment: *app-env
+    volumes:
+      - ./data/splat:/data/splat:ro
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      minio-init:
+        condition: service_completed_successfully
+
   worker:
     build:
       context: .

@@ -10,11 +10,15 @@ datasource db {
 enum MediaKind {
   VIDEO
   IMAGE
+  AUDIO
 }
 
 enum RenderJobKind {
   TEMPLATE
   EDITOR
+  // Export of a Reel from the mobile editor. payload holds a frozen copy of
+  // the timeline and the object keys of every asset it uses.
+  REEL
 }
 
 // Legal transitions live in @reelwalk/core (job-status.ts).
@@ -32,6 +36,9 @@ model Workspace {
   createdAt  DateTime    @default(now())
   users      User[]
   properties Property[]
+  reels      Reel[]
+  media      MediaAsset[]
+  tours      Tour[]
   renderJobs RenderJob[]
 }
 
@@ -60,19 +67,80 @@ model Property {
   @@index([workspaceId, createdAt])
 }
 
+// The workspace's media library. Reels refer to assets by id from their timeline.
 model MediaAsset {
   id          String      @id @default(cuid())
-  propertyId  String
-  property    Property    @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  workspaceId String
+  workspace   Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  // Set for media uploaded through the older per-property flow.
+  propertyId  String?
+  property    Property?   @relation(fields: [propertyId], references: [id], onDelete: Cascade)
   kind        MediaKind
   objectKey   String      @unique
+  // Small JPEG made in the browser at upload time, for the filmstrip and library.
+  thumbKey    String?
   contentType String
   fileName    String
   sizeBytes   BigInt
+  // Measured in the browser before upload. Null for photos (no duration) or when unreadable.
+  durationMs  Int?
+  width       Int?
+  height      Int?
+  // Set for media imported from an open library, so the licence travels with the file.
+  sourceUrl   String?
+  license     String?
+  attribution String?
+  // Set when the shot belongs to a walkthrough of one home.
+  tourId      String?
+  tour        Tour?       @relation(fields: [tourId], references: [id], onDelete: SetNull)
+  // Where on the tour's floor plan the shot was taken: { x, y, heading } (spotSchema in @reelwalk/core).
+  spot        Json?
+  // Room name, e.g. "kitchen".
+  room        String?
+  // For music: tempo and the time of the first beat, detected at upload or import.
+  bpm          Float?
+  beatOffsetMs Int?
   createdAt   DateTime    @default(now())
   renderJobs  RenderJob[]
 
+  @@index([workspaceId, createdAt])
   @@index([propertyId, createdAt])
+}
+
+// A walkthrough of one home: its floor plan, and the shots located on it.
+model Tour {
+  id          String       @id @default(cuid())
+  workspaceId String
+  workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name        String
+  // Floor plan geometry (planSchema in @reelwalk/core).
+  plan        Json
+  sourceUrl   String?
+  license     String?
+  attribution String?
+  createdAt   DateTime     @default(now())
+  media       MediaAsset[]
+
+  @@index([workspaceId])
+}
+
+model Reel {
+  id          String      @id @default(cuid())
+  workspaceId String
+  workspace   Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  title       String
+  // The edit, validated by timelineSchema in @reelwalk/core.
+  timeline    Json
+  // Incremented on every save. A save carrying an older revision is rejected,
+  // so two open tabs cannot silently overwrite each other.
+  revision    Int         @default(0)
+  // Instagram post text, kept with the reel so it can be copied when posting.
+  caption     String      @default("")
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  renderJobs  RenderJob[]
+
+  @@index([workspaceId, updatedAt])
 }
 
 model Template {
@@ -92,9 +160,11 @@ model RenderJob {
   id           String          @id @default(cuid())
   workspaceId  String
   workspace    Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  // Null for renders submitted from the standalone timeline editor.
+  // Set only for renders from the older per-property flow.
   propertyId   String?
   property     Property?       @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  reelId       String?
+  reel         Reel?           @relation(fields: [reelId], references: [id], onDelete: Cascade)
   mediaAssetId String?
   mediaAsset   MediaAsset?     @relation(fields: [mediaAssetId], references: [id], onDelete: SetNull)
   templateId   String?
@@ -122,6 +192,7 @@ model RenderJob {
 
   @@index([workspaceId, createdAt])
   @@index([propertyId, createdAt])
+  @@index([reelId, createdAt])
 }
 
 model RenderOutput {

@@ -4,8 +4,11 @@ import os from "node:os";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import { GetObjectCommand, PutObjectCommand, type S3Client } from "@aws-sdk/client-s3";
-import { inputFilenameFor, outputKeyFor } from "@reelwalk/core";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { inputFilenameFor, outputKeyFor, parseReelExportPayload } from "@reelwalk/core";
+import type { ReelAsset } from "@reelwalk/render/reel-types";
 import { renderStubReel } from "@reelwalk/render/render-job";
+import { renderReel } from "@reelwalk/render/render-reel";
 import { renderTimelineProject } from "@reelwalk/render/render-timeline";
 import type { ClaimedJob, RenderResult } from "./handler";
 
@@ -24,13 +27,24 @@ export async function renderJob(
   s3: S3Client,
   bucket: string,
   onProgress: (percent: number) => void,
+  concurrency?: number,
 ): Promise<RenderResult> {
   const workdir = await mkdtemp(path.join(os.tmpdir(), `reelwalk-${job.id}-`));
   const outputPath = path.join(workdir, "output.mp4");
   const report = (fraction: number) => onProgress(Math.min(100, Math.round(fraction * 100)));
 
   try {
-    if (job.kind === "EDITOR") {
+    if (job.kind === "REEL") {
+      const payload = parseReelExportPayload(job.payload);
+      // Headless Chrome fetches the media straight from storage, so it gets
+      // short-lived signed URLs instead of the files being copied first.
+      const assets: Record<string, ReelAsset> = {};
+      for (const [id, asset] of Object.entries(payload.assets)) {
+        const src = await getSignedUrl(s3, new GetObjectCommand({ Bucket: bucket, Key: asset.objectKey }), { expiresIn: 3600 });
+        assets[id] = { src, kind: asset.kind };
+      }
+      await renderReel({ timeline: payload.timeline, assets, output: outputPath, concurrency }, report);
+    } else if (job.kind === "EDITOR") {
       const projectPath = path.join(workdir, "project.json");
       await writeFile(projectPath, JSON.stringify(job.payload), "utf-8");
       await renderTimelineProject({ project: projectPath, output: outputPath }, report);

@@ -76,12 +76,24 @@ importers:
       '@aws-sdk/s3-request-presigner':
         specifier: ^3.1146.0
         version: 3.1146.0
+      '@fontsource-variable/archivo':
+        specifier: ^5.3.0
+        version: 5.3.0
+      '@fontsource-variable/noto-sans-jp':
+        specifier: ^5.3.0
+        version: 5.3.0
       '@reelwalk/core':
         specifier: workspace:*
         version: link:../../packages/core
       '@reelwalk/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@reelwalk/render':
+        specifier: workspace:*
+        version: link:../../packages/render
+      '@remotion/player':
+        specifier: 4.0.481
+        version: 4.0.481(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       next:
         specifier: ^16.3.8
         version: 16.3.8(@playwright/test@1.63.0)(@types/node@22.19.21)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -91,6 +103,9 @@ importers:
       react-dom:
         specifier: ^19.0.0
         version: 19.2.7(react@19.2.7)
+      remotion:
+        specifier: 4.0.481
+        version: 4.0.481(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       zod:
         specifier: ^4.6.5
         version: 4.6.5
@@ -114,6 +129,9 @@ importers:
         specifier: ^3.1146.0
         version: 3.1146.0
       '@aws-sdk/client-sqs':
+        specifier: ^3.1146.0
+        version: 3.1146.0
+      '@aws-sdk/s3-request-presigner':
         specifier: ^3.1146.0
         version: 3.1146.0
       '@reelwalk/core':
@@ -191,9 +209,21 @@ importers:
 
   packages/render:
     dependencies:
+      '@fontsource-variable/archivo':
+        specifier: ^5.3.0
+        version: 5.3.0
+      '@fontsource-variable/noto-sans-jp':
+        specifier: ^5.3.0
+        version: 5.3.0
+      '@reelwalk/core':
+        specifier: workspace:*
+        version: link:../core
       '@remotion/bundler':
         specifier: ^4.0.263
         version: 4.0.481(@swc/helpers@0.5.23)(postcss@8.5.23)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+      '@remotion/media':
+        specifier: 4.0.481
+        version: 4.0.481(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       '@remotion/renderer':
         specifier: ^4.0.263
         version: 4.0.481(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -222,6 +252,9 @@ importers:
       '@types/react-dom':
         specifier: ^19.0.2
         version: 19.2.3(@types/react@19.2.17)
+      typescript:
+        specifier: ^5.8.3
+        version: 5.9.3
       vitest:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.19.21)(terser@5.48.0)
@@ -906,6 +939,12 @@ packages:
     resolution: {integrity: sha512-43/qtrDUokr7LJqoF2c3+RInu/t4zfrpYdoSDfYyhg52rwLV6TnOvdG4fXm7IkSB3wErkcmJS9iEhjVtOSEjjA==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
 
+  '@fontsource-variable/archivo@5.3.0':
+    resolution: {integrity: sha512-HogK8FJelrD1o7TlZlkIVtHgc20bO5PZRWE7mUeUTdMN055alznQV6/00J00IBeu8FQAH4s3zW9UJNvKExXf+g==}
+
+  '@fontsource-variable/noto-sans-jp@5.3.0':
+    resolution: {integrity: sha512-XVL9GfGBRjj523v9w3Bctu4mNq7E5rUa+AMZm8DK1EM3LAGlKC3DZMvuqkLn4DB4TwwoAjcsJUCiRpUTDzzOkw==}
+
   '@humanfs/core@0.19.2':
     resolution: {integrity: sha512-UhXNm+CFMWcbChXywFwkmhqjs3PRCmcSa/hfBgLIb7oQ5HNb1wS0icWsGtSAUNgefHeI+eBrA8I1fxmbHsGdvA==}
     engines: {node: '>=18.18.0'}
@@ -1375,6 +1414,12 @@ packages:
 
   '@remotion/media-utils@4.0.481':
     resolution: {integrity: sha512-uHO8WY7vIMfTK9qc/Q8cbkUCCDQSLWrBb0OA1QBLuV0yhmutcevEnrkI4YeGZ2EqXq6RyTbXFIbLG6kU+hzCTw==}
+    peerDependencies:
+      react: '>=16.8.0'
+      react-dom: '>=16.8.0'
+
+  '@remotion/media@4.0.481':
+    resolution: {integrity: sha512-wJyFEL4vAC8Z811o9AGTtUlhSnkBJUmI6OpJK/UDGQ56LpSwXtf/jSZx2H8zfulQouxBrMuS3iekkeXTrkfbdw==}
     peerDependencies:
       react: '>=16.8.0'
       react-dom: '>=16.8.0'
@@ -4067,6 +4112,10 @@ snapshots:
       '@eslint/core': 0.17.0
       levn: 0.4.1
 
+  '@fontsource-variable/archivo@5.3.0': {}
+
+  '@fontsource-variable/noto-sans-jp@5.3.0': {}
+
   '@humanfs/core@0.19.2':
     dependencies:
       '@humanfs/types': 0.15.0
@@ -4522,6 +4571,14 @@ snapshots:
       react: 19.2.7
       react-dom: 19.2.7(react@19.2.7)
       remotion: 4.0.481(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+
+  '@remotion/media@4.0.481(react-dom@19.2.7(react@19.2.7))(react@19.2.7)':
+    dependencies:
+      mediabunny: 1.47.0
+      react: 19.2.7
+      react-dom: 19.2.7(react@19.2.7)
+      remotion: 4.0.481(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+      zod: 4.3.6
 
   '@remotion/player@4.0.481(react-dom@19.2.7(react@19.2.7))(react@19.2.7)':
     dependencies:

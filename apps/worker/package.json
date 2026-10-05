@@ -15,7 +15,8 @@
     "@reelwalk/core": "workspace:*",
     "@reelwalk/db": "workspace:*",
     "@reelwalk/render": "workspace:*",
-    "tsx": "^4.19.2"
+    "tsx": "^4.19.2",
+    "@aws-sdk/s3-request-presigner": "^3.1146.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.5",

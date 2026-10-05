@@ -9,6 +9,7 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/web/package.json apps/web/package.json
 COPY packages/core/package.json packages/core/package.json
 COPY packages/db/package.json packages/db/package.json
+COPY packages/render/package.json packages/render/package.json
 RUN pnpm install --frozen-lockfile --filter @reelwalk/web...
 
 ## ── Stage 2: builder ──────────────────────────────────────────
@@ -19,6 +20,8 @@ ENV NEXT_TELEMETRY_DISABLED=1
 COPY apps/web apps/web
 COPY packages/core packages/core
 COPY packages/db packages/db
+# The editor's preview imports the same Remotion composition the worker renders.
+COPY packages/render packages/render
 
 RUN pnpm --filter @reelwalk/db db:generate \
   && pnpm --filter @reelwalk/web build

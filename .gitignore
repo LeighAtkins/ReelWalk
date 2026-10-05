@@ -32,3 +32,9 @@ packages/db/src/generated/
 playwright-report/
 test-results/
 .tools/
+
+# Local screenshots
+.shots/
+
+# Local datasets (licensed for local testing only; never commit)
+data/

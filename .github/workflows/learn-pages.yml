@@ -1,0 +1,41 @@
+name: Learning site
+
+on:
+  push:
+    branches: [main, feat/learn]
+    paths:
+      - "apps/learn/**"
+      - ".github/workflows/learn-pages.yml"
+  workflow_dispatch:
+
+# Publishes apps/learn as a static site to the gh-pages branch,
+# served at https://leighatkins.github.io/ReelWalk/.
+concurrency:
+  group: learn-pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Build and publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --filter @reelwalk/learn
+      - run: pnpm --filter @reelwalk/learn build
+        env:
+          BASE_PATH: /ReelWalk
+      - name: Push to gh-pages
+        working-directory: apps/learn/out
+        run: |
+          touch .nojekyll
+          git init -q -b gh-pages
+          git add -A
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -qm "deploy ${GITHUB_SHA::7}"
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" gh-pages

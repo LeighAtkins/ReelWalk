@@ -19,7 +19,7 @@ COPY apps/editor/ apps/editor/
 RUN cd apps/editor && pnpm build
 
 # Serve stage — lightweight nginx for static SPA
-FROM nginx:1.27-alpine
+FROM nginx:1.31-alpine
 
 # SPA fallback: serve index.html for all routes
 RUN echo 'server { \

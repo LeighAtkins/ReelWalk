@@ -15,47 +15,112 @@ Real-estate agents and listing photographers spend $150–400 per listing on vid
 3. **Draft + light edit, not full auto.** Output is ~80% right; the customer tweaks room names, marker positions, clip order, captions, branding, music, then re-renders.
 4. **No auto-posting.** MLS / brand compliance is a minefield. Export platform-optimized MP4s only.
 
-## Repo layout (target)
+## Stack
+
+| Layer | Technology |
+| --- | --- |
+| Web | TypeScript, React 19, Next.js 16 App Router, Server Components, Server Actions |
+| Data | PostgreSQL, Prisma 7 |
+| Queue and storage | SQS with a dead-letter queue, S3 (ElasticMQ and MinIO locally) |
+| Rendering | Separate TypeScript worker, Remotion, headless Chrome, ffmpeg |
+| Monorepo | pnpm workspaces, Turborepo |
+| Runtime | Docker, Kubernetes, Helm, kind for local clusters |
+| CI/CD | GitHub Actions, Trivy, Argo CD (optional) |
+| Tests | Vitest, Playwright |
+
+How the pieces fit, what each one does, the schema and the job lifecycle are in
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). The reasons behind the main
+choices are in [`docs/adr`](docs/adr).
+
+## Repo layout
 
 ```
-reelwalk/
-  apps/web/          # Next.js — upload, draft preview, light editor
-  apps/api/          # FastAPI — ingest, job orchestration, render trigger
-  packages/render/   # Remotion compositions (floorplan overlay + captions)
-  infra/             # IaC (S3, CloudFront, SQS, Fargate, RDS, ElastiCache)
+apps/web          Next.js app (Server Components, Server Actions)
+apps/worker       SQS consumer that renders jobs
+apps/editor       Standalone browser timeline editor (Vite)
+packages/core     Job state machine, queue delivery/retry decisions, upload rules
+packages/db       Prisma schema, migrations, client, seed
+packages/render   Remotion compositions and render functions
+e2e               Playwright tests
+infra/helm        Helm chart
+infra/kind        Local Kubernetes cluster
+infra/argocd      Argo CD Application
 ```
 
-## Docs
+## Run it with Docker Compose
 
-- `docs/PLAN.md` — full strategy & competitive evaluation (context, not a task list)
-- `docs/MVP_SPEC.md` — scoped Phase 1 MVP
-- `docs/TASK_01.md` — the first bounded engineering task
-
-## Task 01 local quickstart
+Needs Docker only.
 
 ```bash
-cp .env.example .env
 docker compose up --build
 ```
 
-Open http://localhost:8080, upload a walkthrough MP4, and wait for the inline 9:16 stub render.
+Open http://localhost:8080. Create a property, upload a photo or video, pick a
+template and render. The job card shows progress, and the finished 9:16 MP4
+plays inline.
 
-Local services:
-
-- Nginx public entrypoint: http://localhost:8080
-- Web direct debugging: http://localhost:3000 (frontend only; use Nginx for uploads)
-- API direct debugging: http://localhost:8000
 - MinIO console: http://localhost:9001 (`minioadmin` / `minioadmin`)
+- The timeline editor is at http://localhost:8080/editor/
+- Run more workers with `docker compose up -d --scale worker=3`
 
-The Task 01 slice uses Nginx as the single browser-facing origin, MinIO as S3, Redis as the local render queue, Postgres for listing/job state, and a local Node worker that calls the Remotion render package.
+## Run it on Kubernetes (kind)
 
-From another device on the same network, use `http://<vm-ip>:8080` and make sure the VM firewall allows inbound TCP 8080.
-
-Useful checks:
+Needs Docker, `kind`, `kubectl` and `helm`.
 
 ```bash
-python3 -m pytest apps/api/tests
-pnpm install
-pnpm test:render
-pnpm test:worker
+infra/kind/up.sh
 ```
+
+This creates the cluster, builds and loads both images, deploys Postgres,
+MinIO and ElasticMQ, and installs the Helm release. Open http://localhost:8081.
+
+```bash
+kubectl --context kind-reelwalk -n reelwalk get pods
+kubectl --context kind-reelwalk -n reelwalk logs deploy/reelwalk-worker -f
+kubectl --context kind-reelwalk -n reelwalk scale deploy/reelwalk-worker --replicas=4
+kind delete cluster --name reelwalk
+```
+
+To deploy through Argo CD instead of `helm upgrade`, see `infra/argocd/install.sh`.
+
+If `kubectl` fails with `x509: certificate signed by unknown authority`, an
+antivirus HTTPS scanner is intercepting the connection to the cluster on
+`127.0.0.1`. Exclude that address from HTTPS scanning.
+
+## Develop
+
+Needs Node 22+ and pnpm (`corepack enable`).
+
+```bash
+pnpm install
+pnpm lint
+pnpm typecheck
+pnpm test          # Vitest: core logic and the worker's message handler
+pnpm e2e           # Playwright, against the compose stack on :8080
+E2E_BASE_URL=http://localhost:8081 pnpm e2e   # against the kind cluster
+```
+
+To run the web app or worker on the host against the compose services, copy
+`.env.example` to `.env`.
+
+Database changes: edit `packages/db/prisma/schema.prisma`, then
+`pnpm --filter @reelwalk/db migrate:dev`. Migrations are applied by the
+`migrate` service in Compose and by a Job in Kubernetes.
+
+## CI
+
+`.github/workflows/ci.yml` runs on every pull request:
+
+1. Lint, typecheck, unit tests, Helm lint
+2. Trivy scan of the lockfile, Dockerfiles and manifests
+3. Build both images and scan them with Trivy
+4. Start the Compose stack and run the Playwright suite
+
+On `main`, images are pushed to ECR once the repository variables
+`AWS_ROLE_ARN` and `AWS_REGION` are set (GitHub OIDC, no stored keys).
+
+## Product docs
+
+- `docs/PLAN.md` — strategy and competitive evaluation
+- `docs/MVP_SPEC.md` — scoped Phase 1 MVP
+- `docs/TASK_01.md`, `README_TASK01.md` — the first engineering task (describes the earlier FastAPI + Redis slice)

@@ -1,0 +1,86 @@
+# Defaults target a real cluster with AWS S3 and SQS.
+# values-kind.yaml overrides them for the local kind cluster.
+
+web:
+  image:
+    repository: reelwalk-web
+    tag: dev
+    pullPolicy: IfNotPresent
+  replicas: 2
+  service:
+    type: ClusterIP
+    port: 80
+    # Only used when type is NodePort.
+    nodePort: null
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 512Mi
+
+worker:
+  image:
+    repository: reelwalk-worker
+    tag: dev
+    pullPolicy: IfNotPresent
+  replicas: 1
+  # A render holds its pod until it finishes; give it time before SIGKILL.
+  terminationGracePeriodSeconds: 300
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      memory: 2Gi
+  # CPU-based HorizontalPodAutoscaler. Needs metrics-server in the cluster.
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 4
+    targetCPUUtilizationPercentage: 70
+
+# Runs `prisma migrate deploy` and the idempotent seed, using the worker image.
+migrate:
+  enabled: true
+
+ingress:
+  enabled: false
+  className: ""
+  host: reelwalk.example.com
+  annotations: {}
+
+serviceAccount:
+  # On EKS, annotate with eks.amazonaws.com/role-arn so pods get AWS access
+  # through IRSA instead of static keys.
+  annotations: {}
+
+# Non-secret settings, rendered into a ConfigMap and injected as env vars.
+config:
+  AWS_REGION: us-east-1
+  S3_REGION: us-east-1
+  S3_BUCKET: reelwalk-media
+  S3_FORCE_PATH_STYLE: "false"
+  # Empty means the real AWS endpoints.
+  S3_ENDPOINT_URL: ""
+  S3_PUBLIC_ENDPOINT_URL: ""
+  SQS_ENDPOINT_URL: ""
+  SQS_QUEUE_URL: ""
+  SQS_DLQ_URL: ""
+  CLOUDFRONT_BASE_URL: ""
+  # Must equal the queue's redrive maxReceiveCount.
+  RENDER_MAX_ATTEMPTS: "3"
+  RENDER_VISIBILITY_SECONDS: "120"
+  RENDER_HEARTBEAT_SECONDS: "20"
+  RENDER_STALE_SECONDS: "60"
+  RENDER_RETRY_BACKOFF_SECONDS: "15"
+
+secret:
+  # true: the chart creates the Secret from `values` (local development only).
+  # false: reference a Secret managed elsewhere (External Secrets, Sealed Secrets).
+  create: false
+  existingSecret: reelwalk-secrets
+  values: {}
+  #  DATABASE_URL: postgresql://user:password@host:5432/reelwalk
+  #  S3_ACCESS_KEY_ID: ""
+  #  S3_SECRET_ACCESS_KEY: ""

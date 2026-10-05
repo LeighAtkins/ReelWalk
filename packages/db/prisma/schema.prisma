@@ -1,0 +1,136 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum MediaKind {
+  VIDEO
+  IMAGE
+}
+
+enum RenderJobKind {
+  TEMPLATE
+  EDITOR
+}
+
+// Legal transitions live in @reelwalk/core (job-status.ts).
+enum RenderJobStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+}
+
+model Workspace {
+  id         String      @id @default(cuid())
+  slug       String      @unique
+  name       String
+  createdAt  DateTime    @default(now())
+  users      User[]
+  properties Property[]
+  renderJobs RenderJob[]
+}
+
+model User {
+  id          String      @id @default(cuid())
+  email       String      @unique
+  name        String
+  workspaceId String
+  workspace   Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdAt   DateTime    @default(now())
+  renderJobs  RenderJob[]
+}
+
+model Property {
+  id          String       @id @default(cuid())
+  workspaceId String
+  workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  title       String
+  address     String?
+  description String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  media       MediaAsset[]
+  renderJobs  RenderJob[]
+
+  @@index([workspaceId, createdAt])
+}
+
+model MediaAsset {
+  id          String      @id @default(cuid())
+  propertyId  String
+  property    Property    @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  kind        MediaKind
+  objectKey   String      @unique
+  contentType String
+  fileName    String
+  sizeBytes   BigInt
+  createdAt   DateTime    @default(now())
+  renderJobs  RenderJob[]
+
+  @@index([propertyId, createdAt])
+}
+
+model Template {
+  id             String      @id @default(cuid())
+  slug           String      @unique
+  name           String
+  description    String
+  // Remotion composition id in packages/render.
+  compositionId  String
+  defaultCaption String
+  brand          String
+  createdAt      DateTime    @default(now())
+  renderJobs     RenderJob[]
+}
+
+model RenderJob {
+  id           String          @id @default(cuid())
+  workspaceId  String
+  workspace    Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  // Null for renders submitted from the standalone timeline editor.
+  propertyId   String?
+  property     Property?       @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  mediaAssetId String?
+  mediaAsset   MediaAsset?     @relation(fields: [mediaAssetId], references: [id], onDelete: SetNull)
+  templateId   String?
+  template     Template?       @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  createdById  String?
+  createdBy    User?           @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  kind         RenderJobKind   @default(TEMPLATE)
+  status       RenderJobStatus @default(QUEUED)
+  // 0-100, written by the worker while rendering.
+  progress     Int             @default(0)
+  // Delivery attempt within the current generation (SQS ApproximateReceiveCount).
+  attempt      Int             @default(0)
+  // Bumped on every manual retry; messages from older generations are ignored.
+  generation   Int             @default(1)
+  caption      String?
+  // Timeline project JSON for EDITOR jobs.
+  payload      Json?
+  error        String?
+  heartbeatAt  DateTime?
+  startedAt    DateTime?
+  finishedAt   DateTime?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  output       RenderOutput?
+
+  @@index([workspaceId, createdAt])
+  @@index([propertyId, createdAt])
+}
+
+model RenderOutput {
+  id          String    @id @default(cuid())
+  // One output per job: a retried render replaces the row instead of adding one.
+  jobId       String    @unique
+  job         RenderJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  objectKey   String
+  contentType String
+  sizeBytes   BigInt
+  createdAt   DateTime  @default(now())
+}

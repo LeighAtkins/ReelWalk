@@ -20,7 +20,10 @@ function parseArgs(argv: string[]) {
   return argsSchema.parse(raw);
 }
 
-export async function renderTimelineProject(params: z.infer<typeof argsSchema>): Promise<string> {
+export async function renderTimelineProject(
+  params: z.infer<typeof argsSchema>,
+  onProgress?: (fraction: number) => void,
+): Promise<string> {
   const currentFile = fileURLToPath(import.meta.url);
   const entryPoint = path.join(path.dirname(currentFile), "index.ts");
 
@@ -49,6 +52,7 @@ export async function renderTimelineProject(params: z.infer<typeof argsSchema>):
     codec: "h264",
     inputProps: { project },
     outputLocation: outputPath,
+    onProgress: ({ progress }) => onProgress?.(progress),
   });
 
   console.log(`[render-timeline] done!`);

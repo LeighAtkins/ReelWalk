@@ -1,0 +1,141 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  TRIVY_IMAGE: ghcr.io/aquasecurity/trivy:0.75.0
+
+jobs:
+  verify:
+    name: Lint, typecheck, unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - name: Lint Helm chart
+        run: |
+          helm lint infra/helm/reelwalk
+          helm lint infra/helm/reelwalk -f infra/helm/reelwalk/values-kind.yaml
+
+  dependency-scan:
+    name: Dependency and config scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Trivy runs from its own image instead of a third-party action, so the
+      # scanner version is pinned in one place (TRIVY_IMAGE).
+      - name: Scan lockfile for known vulnerabilities
+        run: >
+          docker run --rm -v "$PWD:/src" "$TRIVY_IMAGE" fs /src
+          --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1
+      # Skipped: local-only stand-ins for AWS services, and the Terraform
+      # sketch that is not applied anywhere yet. Accepted findings are listed
+      # with reasons in .trivyignore.yaml.
+      - name: Scan Dockerfiles and the Helm chart for misconfiguration
+        run: >
+          docker run --rm -v "$PWD:/src" -w /src "$TRIVY_IMAGE" config .
+          --severity HIGH,CRITICAL --exit-code 1
+          --skip-dirs infra/k8s/local --skip-dirs infra/terraform
+          --ignorefile .trivyignore.yaml
+
+  images:
+    name: Build and scan ${{ matrix.app }} image
+    runs-on: ubuntu-latest
+    needs: verify
+    permissions:
+      contents: read
+      # Lets the job request a short-lived AWS token through OIDC.
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [web, worker]
+    env:
+      IMAGE: reelwalk-${{ matrix.app }}:${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/${{ matrix.app }}/Dockerfile
+          tags: ${{ env.IMAGE }}
+          load: true
+          cache-from: type=gha,scope=${{ matrix.app }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.app }}
+
+      - name: Scan image with Trivy
+        run: >
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock "$TRIVY_IMAGE" image "$IMAGE"
+          --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1
+
+      # Pushing needs an AWS role. Until the repository variables AWS_ROLE_ARN
+      # and AWS_REGION are set, the pipeline stops after the scan.
+      - name: Configure AWS credentials
+        if: github.ref == 'refs/heads/main' && vars.AWS_ROLE_ARN != ''
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Log in to ECR
+        id: ecr
+        if: github.ref == 'refs/heads/main' && vars.AWS_ROLE_ARN != ''
+        uses: aws-actions/amazon-ecr-login@v2
+      - name: Push image to ECR
+        if: github.ref == 'refs/heads/main' && vars.AWS_ROLE_ARN != ''
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          docker tag "$IMAGE" "$REGISTRY/$IMAGE"
+          docker push "$REGISTRY/$IMAGE"
+
+  e2e:
+    name: End-to-end tests
+    runs-on: ubuntu-latest
+    needs: verify
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @reelwalk/e2e exec playwright install --with-deps chromium
+      - name: Start the stack
+        run: |
+          docker compose up -d --build
+          curl --fail --silent --retry 60 --retry-delay 2 --retry-all-errors http://localhost:8080/api/ready
+      - run: pnpm e2e
+        env:
+          CI: "true"
+      - name: Collect logs
+        if: failure()
+        run: docker compose logs --no-color > compose-logs.txt
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-failure
+          path: |
+            compose-logs.txt
+            e2e/playwright-report
+            e2e/test-results

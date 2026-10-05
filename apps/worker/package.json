@@ -5,23 +5,21 @@
   "type": "module",
   "scripts": {
     "dev": "tsx src/index.ts",
+    "start": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.731.1",
-    "@remotion/bundler": "^4.0.263",
-    "@remotion/renderer": "^4.0.263",
-    "ioredis": "^5.4.2",
-    "pg": "^8.13.1",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
-    "remotion": "^4.0.263",
-    "tsx": "^4.19.2",
-    "zod": "^3.24.1"
+    "@aws-sdk/client-s3": "^3.1146.0",
+    "@aws-sdk/client-sqs": "^3.1146.0",
+    "@reelwalk/core": "workspace:*",
+    "@reelwalk/db": "workspace:*",
+    "@reelwalk/render": "workspace:*",
+    "tsx": "^4.19.2"
   },
   "devDependencies": {
     "@types/node": "^22.10.5",
-    "@types/pg": "^8.11.10",
-    "vitest": "^2.1.8"
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4"
   }
 }

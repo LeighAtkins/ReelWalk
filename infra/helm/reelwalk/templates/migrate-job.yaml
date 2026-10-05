@@ -1,0 +1,54 @@
+{{- if .Values.migrate.enabled }}
+# A Job's pod template is immutable, so the name carries a hash of the image
+# tag and chart version: a new release creates a new Job and the old one is
+# removed. Bump the chart version when this template changes.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "reelwalk.fullname" . }}-migrate-{{ printf "%v-%s" .Values.worker.image.tag .Chart.Version | sha256sum | trunc 8 }}
+  labels:
+    {{- include "reelwalk.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migrate
+  annotations:
+    # Argo CD waits for this Job to complete before syncing the Deployments.
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  backoffLimit: 4
+  template:
+    metadata:
+      labels:
+        {{- include "reelwalk.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: migrate
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: {{ include "reelwalk.fullname" . }}
+      securityContext:
+        {{- include "reelwalk.podSecurityContext" . | nindent 8 }}
+      containers:
+        - name: migrate
+          image: "{{ .Values.worker.image.repository }}:{{ .Values.worker.image.tag }}"
+          imagePullPolicy: {{ .Values.worker.image.pullPolicy }}
+          workingDir: /workspace/packages/db
+          # `migrate deploy` only applies committed migrations and takes an
+          # advisory lock, so it is safe to run on every release. The seed is
+          # written as upserts.
+          command: ["sh", "-c", "node_modules/.bin/prisma migrate deploy && node_modules/.bin/tsx prisma/seed.ts"]
+          env:
+            {{- include "reelwalk.homeEnv" . | nindent 12 }}
+          envFrom:
+            {{- include "reelwalk.envFrom" . | nindent 12 }}
+          securityContext:
+            {{- include "reelwalk.containerSecurityContext" . | nindent 12 }}
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 512Mi
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+{{- end }}

@@ -22,7 +22,13 @@ function parseArgs(argv: string[]) {
   return argsSchema.parse(raw);
 }
 
-export async function renderStubReel(params: z.infer<typeof argsSchema>): Promise<string> {
+export type RenderProgress = (fraction: number) => void;
+
+export async function renderStubReel(
+  input: z.input<typeof argsSchema>,
+  onProgress?: RenderProgress,
+): Promise<string> {
+  const params = argsSchema.parse(input);
   const currentFile = fileURLToPath(import.meta.url);
   const entryPoint = path.join(path.dirname(currentFile), "index.ts");
   const resolvedInput = path.resolve(params.input);
@@ -48,6 +54,7 @@ export async function renderStubReel(params: z.infer<typeof argsSchema>): Promis
     codec: "h264",
     inputProps,
     outputLocation: path.resolve(params.output),
+    onProgress: ({ progress }) => onProgress?.(progress),
   });
 
   return path.resolve(params.output);

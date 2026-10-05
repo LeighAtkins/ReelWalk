@@ -1,5 +1,3 @@
 services:
   web:
     ports: !override []
-  api:
-    ports: !override []

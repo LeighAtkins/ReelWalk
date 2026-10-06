@@ -30,6 +30,11 @@ export async function presignUpload(objectKey: string, contentType: string): Pro
   });
 }
 
+/** Server-side write, for files the app fetches itself (stock imports). Browser uploads use presigned URLs instead. */
+export async function putObject(objectKey: string, body: Buffer, contentType: string): Promise<void> {
+  await s3.send(new PutObjectCommand({ Bucket: bucket, Key: objectKey, Body: body, ContentType: contentType }));
+}
+
 export async function headObject(objectKey: string): Promise<{ sizeBytes: number; contentType: string } | null> {
   try {
     const head = await s3.send(new HeadObjectCommand({ Bucket: bucket, Key: objectKey }));

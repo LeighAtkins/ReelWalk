@@ -74,8 +74,15 @@ docker compose up --build
 ```
 
 Open http://localhost:8080 (on a desktop, the browser's phone emulation
-shows it as intended). Tap New reel, pick photos and videos, edit, then
-Export. The export screen shows progress and plays the finished 9:16 MP4.
+shows it as intended). Create a studio, or tap **Look around the demo studio**
+(the seeded account; `DEMO_PASSWORD` in Compose, default `reelwalk-demo`).
+Tap New reel, pick photos and videos, edit, then Export. The export screen
+shows progress, plays the finished 9:16 MP4, and gives you a share link that
+opens on any phone.
+
+For a restaurant or café, tap **Restaurant or café reel**: name, dishes with
+prices, a vibe, and clips from your library, your phone or free stock footage
+(set `PEXELS_API_KEY` for stock search; a key is free at pexels.com/api).
 
 Load sample content, so there is something to edit straight away: 22 real 360
 room photos, 8 home videos and three ready-made reels, all openly licensed

@@ -36,3 +36,4 @@ secret:
     DATABASE_URL: postgresql://reelwalk:reelwalk@postgres:5432/reelwalk
     S3_ACCESS_KEY_ID: minioadmin
     S3_SECRET_ACCESS_KEY: minioadmin
+    DEMO_PASSWORD: reelwalk-demo

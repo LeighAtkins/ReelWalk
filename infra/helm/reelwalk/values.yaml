@@ -73,6 +73,9 @@ config:
   SQS_QUEUE_URL: https://sqs.us-east-2.amazonaws.com/734329326838/reelwalk-render-jobs
   SQS_DLQ_URL: https://sqs.us-east-2.amazonaws.com/734329326838/reelwalk-render-jobs-dlq
   CLOUDFRONT_BASE_URL: https://dh5xvp6apljoh.cloudfront.net
+  # Public address of the web app (share links, OAuth callbacks). Cookies are
+  # secure when it starts with https.
+  APP_URL: ""
   # Must equal the queue's redrive maxReceiveCount.
   RENDER_MAX_ATTEMPTS: "3"
   RENDER_VISIBILITY_SECONDS: "120"
@@ -92,4 +95,8 @@ secret:
   values: {}
   #  DATABASE_URL: postgresql://user:password@host:5432/reelwalk
   #  S3_ACCESS_KEY_ID: ""
+  #  PEXELS_API_KEY: ""      # stock footage search, optional
+  #  META_APP_ID: ""         # one-tap Instagram posting, optional
+  #  META_APP_SECRET: ""
+  #  DEMO_PASSWORD: ""       # only for a demo deployment
   #  S3_SECRET_ACCESS_KEY: ""

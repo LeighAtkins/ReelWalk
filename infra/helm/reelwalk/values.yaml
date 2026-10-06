@@ -78,6 +78,8 @@ config:
   RENDER_HEARTBEAT_SECONDS: "20"
   RENDER_STALE_SECONDS: "60"
   RENDER_RETRY_BACKOFF_SECONDS: "15"
+  # How often a worker sends outbox messages the web app could not send itself.
+  OUTBOX_POLL_SECONDS: "5"
   # Browser tabs per render. Keep requests.cpu in step when raising it.
   RENDER_CONCURRENCY: "4"
 

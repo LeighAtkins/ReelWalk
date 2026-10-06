@@ -6,7 +6,7 @@ export type RenderJobStatus = (typeof RENDER_JOB_STATUSES)[number];
  * bug, and the worker / server actions refuse to write it.
  *
  * QUEUED  -> RUNNING    a worker claimed the job
- * QUEUED  -> FAILED     enqueue failed, or the message was dead-lettered before any claim
+ * QUEUED  -> FAILED     the message was dead-lettered before any claim
  * RUNNING -> SUCCEEDED  output uploaded
  * RUNNING -> QUEUED     attempt failed, automatic retry scheduled
  * RUNNING -> FAILED     attempts exhausted

@@ -69,6 +69,7 @@ export const asyncTopics: Topic[] = [
       "The code uses the real AWS SDK SQS client, but it has only ever run against ElasticMQ (Docker Compose and kind); the Terraform queue is an early sketch with no dead-letter queue and was never applied.",
     inRepo: [
       { path: "apps/web/lib/queue.ts", what: "SendMessage with a body of only { jobId, generation }." },
+      { path: "packages/db/src/outbox.ts", what: "The outbox: the message is written with the job in one transaction, then relayed to SQS (FOR UPDATE SKIP LOCKED)." },
       {
         path: "apps/worker/src/index.ts",
         what: "ReceiveMessage with WaitTimeSeconds 10, MaxNumberOfMessages 1 and the visibility timeout.",
@@ -475,7 +476,7 @@ export const asyncTopics: Topic[] = [
     ],
     status: "built",
     statusNote:
-      "Built and covered by Vitest handler tests (duplicate delivery, stale generation, take-over of a dead worker's job); exercised locally with ElasticMQ, never under production load. Per-claim fencing tokens and a transactional outbox are not implemented.",
+      "Built and covered by Vitest handler tests (duplicate delivery, stale generation, take-over of a dead worker's job); exercised locally with ElasticMQ, never under production load. Per-claim fencing tokens are not implemented. The transactional outbox is built (ADR 0010) and tested against a real Postgres.",
     inRepo: [
       { path: "packages/core/src/queue.ts", what: "decideDelivery: claim, discard or defer, from the job row and the message generation." },
       { path: "apps/worker/src/store.ts", what: "RenderOutput upsert and status writes conditional on generation." },
@@ -540,11 +541,11 @@ export const asyncTopics: Topic[] = [
             en: "To improve it, I'd issue a token per claim and fence writes with it.",
           },
           {
-            ja: "あと、DB書き込みと送信の間は、アウトボックスで埋めたいです。",
-            en: "I'd also close the gap between the DB write and the send with an outbox.",
+            ja: "DB書き込みと送信の間も弱点でしたが、アウトボックスで埋めました。",
+            en: "The gap between the DB write and the send was a weak spot too, but I closed it with an outbox.",
           },
         ],
-        tip: "Naming a real gap plus a concrete fix beats claiming perfection. Be clear these are improvements, not built.",
+        tip: "Naming a real gap plus a concrete fix beats claiming perfection. Be clear the fencing token is an improvement, not built; the outbox is built (ADR 0010).",
       },
     ],
     videoSearch: ["冪等性 とは 解説", "At-least-once 冪等性 メッセージキュー", "分散システム 重複排除 設計"],

@@ -13,7 +13,8 @@
       "dependsOn": ["db:generate", "^db:generate"]
     },
     "test": {
-      "dependsOn": ["db:generate", "^db:generate"]
+      "dependsOn": ["db:generate", "^db:generate"],
+      "env": ["DATABASE_URL"]
     }
   }
 }

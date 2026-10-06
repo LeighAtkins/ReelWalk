@@ -20,7 +20,9 @@ flowchart LR
   browser -- pages, Server Actions --> web
   browser -- presigned PUT / GET --> s3
   web -- Prisma --> pg
-  web -- SendMessage --> sqs
+  web -- job + outbox row, one transaction --> pg
+  web -- SendMessage, after commit --> sqs
+  worker -- SendMessage, outbox leftovers --> sqs
   sqs -- ReceiveMessage --> worker
   sqs -. after 3 receives .-> dlq
   dlq -- fail stuck jobs --> worker
@@ -54,7 +56,7 @@ SDK in both cases and only the endpoint settings differ.
 | **GitHub Actions** | Lint, typecheck, unit tests, Helm lint, image builds, Trivy scans, end-to-end tests. On `main`, pushes the scanned images to GHCR and commits the new tag for Argo CD. Also pushes to ECR once an AWS role is configured. |
 | **Trivy** | Scans the lockfile, the Dockerfiles and manifests, and the built images for known vulnerabilities and misconfiguration. |
 | **Argo CD** | GitOps deploy: the cluster pulls the chart and the image tag from Git and keeps itself in sync, so a merge to `main` is a deploy and a revert is a rollback (`infra/argocd`). |
-| **Vitest** | Unit tests for the state machine, queue decisions, upload rules and the worker's message handler. |
+| **Vitest** | Unit tests for the state machine, queue decisions, upload rules and the worker's message handler, plus outbox tests against a real Postgres. |
 | **Playwright** | End-to-end tests through a real browser against the running stack, including a real render. |
 
 ## Repository layout
@@ -86,6 +88,7 @@ docs/adr          Architecture decision records
 | `Tour` | A walkthrough of one home: its floor plan (`plan`, validated by `planSchema`). Media that belongs to it stores `tourId`, the `room` name and a `spot` (position and camera direction on the plan). |
 | `Property`, `Template` | From the first, per-listing flow. Kept in the schema; the mobile editor does not use them. |
 | `RenderJob` | One request to render. Holds `status`, `progress`, `attempt`, `generation`, `heartbeatAt` and the last `error`. For a reel export (`kind = REEL`), `payload` is a frozen copy of the timeline and the storage keys of its media. |
+| `OutboxMessage` | A queue message that still has to be sent. Written in the same transaction as the job it announces, deleted once SQS has it ([ADR 0010](adr/0010-transactional-outbox-for-render-messages.md)). |
 | `RenderOutput` | The finished MP4. `jobId` is unique: one output per job, however many times it was rendered. |
 
 ## Render job lifecycle
@@ -97,10 +100,15 @@ stateDiagram-v2
   RUNNING --> SUCCEEDED: output uploaded
   RUNNING --> QUEUED: attempt failed, retry with backoff
   RUNNING --> FAILED: attempts exhausted
-  QUEUED --> FAILED: enqueue failed / dead-lettered
+  QUEUED --> FAILED: dead-lettered
   FAILED --> QUEUED: manual retry (generation + 1)
   SUCCEEDED --> [*]
 ```
+
+A job becomes `QUEUED` in the same transaction that writes its queue message
+to the `OutboxMessage` table. The web app sends the message right after the
+commit; if that fails, or the process dies first, a relay loop in every worker
+sends it later. A `QUEUED` job therefore always has a message on its way.
 
 The transition table is `packages/core/src/job-status.ts`. What a worker does
 with each delivery is `decideDelivery` in `packages/core/src/queue.ts`:
@@ -211,5 +219,7 @@ has no business in the web server's memory anyway.
 - Signed media URLs last an hour; a longer editing session needs a reload.
 - Worker autoscaling is CPU-based and off by default; KEDA on queue depth is planned.
 - EKS, RDS and CloudFront are designed for but not deployed (ADR 0005).
-- The enqueue is not transactional with the job insert (ADR 0001).
+- No per-claim fencing token: after a stale-heartbeat takeover two workers can
+  render the same job. The output is the same file, so the result is not
+  corrupted (ADR 0003).
 - `apps/editor` (the older desktop pano editor) is outside the lint and typecheck gate.

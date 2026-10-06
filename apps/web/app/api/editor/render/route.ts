@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { prisma } from "@reelwalk/db";
-import { enqueueOrFail } from "@/lib/render-jobs";
+import { flushOutbox, queueRenderJob } from "@/lib/render-jobs";
 import { getCurrentUser } from "@/lib/workspace";
 
 // Called by the standalone timeline editor, not by this app's own UI, so it
@@ -19,16 +19,20 @@ export async function POST(request: Request) {
   if (!parsed.success) return Response.json({ detail: "Invalid editor project" }, { status: 400 });
 
   const user = await getCurrentUser();
-  const job = await prisma.renderJob.create({
-    data: {
-      workspaceId: user.workspaceId,
-      createdById: user.id,
-      kind: "EDITOR",
-      payload: parsed.data as object,
-      caption: parsed.data.name,
-    },
+  const job = await prisma.$transaction(async (tx) => {
+    const created = await tx.renderJob.create({
+      data: {
+        workspaceId: user.workspaceId,
+        createdById: user.id,
+        kind: "EDITOR",
+        payload: parsed.data as object,
+        caption: parsed.data.name,
+      },
+    });
+    await queueRenderJob(tx, created);
+    return created;
   });
-  const enqueued = await enqueueOrFail(job);
+  await flushOutbox();
 
-  return Response.json({ job_id: job.id, status: enqueued ? "queued" : "failed" }, { status: enqueued ? 200 : 503 });
+  return Response.json({ job_id: job.id, status: "queued" });
 }

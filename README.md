@@ -127,7 +127,7 @@ Needs Node 22+ and pnpm (`corepack enable`).
 pnpm install
 pnpm lint
 pnpm typecheck
-pnpm test          # Vitest: core logic and the worker's message handler
+pnpm test          # Vitest: core logic and the worker's message handler (outbox tests run when DATABASE_URL is set)
 pnpm e2e           # Playwright, against the compose stack on :8080
 E2E_BASE_URL=http://localhost:8081 pnpm e2e   # against the kind cluster
 ```

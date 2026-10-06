@@ -41,7 +41,7 @@ export const DECISIONS: Decision[] = [
     costs: [
       "At-least-once delivery, so the worker must be idempotent (ADR 0003).",
       "Max attempts in the worker and maxReceiveCount on the queue must match, and are set in two places.",
-      "The job row is committed before the message is sent. If the send fails the job is marked FAILED for a retry; a transactional outbox would close the last gap (the process dying between the two).",
+      "The job row and the message live in two systems; they are kept consistent with a transactional outbox (ADR 0010).",
     ],
     oneLine:
       "I used SQS because renders are long and can crash, and SQS gives me a lease, retries and a dead-letter queue for free; the cost is at-least-once delivery, so the worker is idempotent.",
@@ -201,5 +201,32 @@ export const DECISIONS: Decision[] = [
     rejected: [{ option: "Training a splat freely", reason: "It fills the unseen space between photos with floating blobs." }],
     costs: ["Smears at doorways and softer than the 360 walk; experimental research tooling, not production."],
     oneLine: "An experiment: I supply depth from a model and the floor plan so a splat can be trained from very few photos.",
+  },
+  {
+    adr: "0010",
+    title: "Transactional outbox for render queue messages",
+    problem:
+      "Queuing a render writes to two systems, a job row in Postgres and a message in SQS, and they cannot share a transaction. If the web process died between the commit and the send, the job stayed QUEUED with no message.",
+    decision: [
+      "The message is written to an OutboxMessage table in the same transaction as the job (new job or manual retry), so they commit together or not at all.",
+      "A relay sends pending rows: lock one with SELECT ... FOR UPDATE SKIP LOCKED, send it to SQS, delete it. A failed send leaves the row and retries with backoff (1 s, 2 s, 4 s, up to 60 s).",
+      "The web app runs the relay right after the commit, so renders start as fast as before; every worker also runs it every 5 s to send what the web app could not.",
+    ],
+    why: [
+      "A committed job always gets its message, even if the web process dies or the queue is down.",
+      "SKIP LOCKED lets every web and worker process relay at once without sending the same row twice.",
+    ],
+    rejected: [
+      { option: "Send first, then insert the job", reason: "A worker could receive a message for a job that does not exist yet, or never will." },
+      { option: "Change data capture (Debezium)", reason: "The standard answer at scale, but a whole extra system for a few messages a minute." },
+      { option: "A separate relay deployment", reason: "One more thing to deploy and monitor; the worker already has both connections." },
+    ],
+    costs: [
+      "The relay can send a message twice (crash after the send, before the delete commits). The worker is already idempotent, so that is harmless.",
+      "While the queue is down a job waits in QUEUED instead of failing straight away.",
+      "A row lock is held during the SQS call, so the call is limited to 10 s.",
+    ],
+    oneLine:
+      "The job and its queue message are written in one database transaction and the message is sent afterwards, so a job can never be saved without its message; duplicates are fine because the worker is idempotent.",
   },
 ];

@@ -2,6 +2,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "./generated/prisma/client";
 
 export * from "./generated/prisma/client";
+export * from "./outbox";
 
 export const DEFAULT_WORKSPACE_SLUG = "demo";
 export const DEFAULT_USER_EMAIL = "demo@reelwalk.local";

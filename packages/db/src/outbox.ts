@@ -71,7 +71,10 @@ export async function relayOutbox(
         return "sent";
       },
       // The row lock is held across the send, so allow for a slow queue call.
-      { timeout: 30_000 },
+      // The relay is a background loop, so it can also wait longer than the
+      // default 2 s for a pooled connection: on a worker that is rendering,
+      // the pool is busy with heartbeats and the default timed out under load.
+      { maxWait: 10_000, timeout: 30_000 },
     );
     if (outcome === "empty") break;
     result[outcome] += 1;

@@ -143,7 +143,7 @@ const loops = [
   ),
 ];
 if (config.deadLetterQueueUrl) {
-  loops.push(pollLoop("dead-letter-queue", config.deadLetterQueueUrl, (delivery) => handleDeadLetter({ store }, delivery)));
+  loops.push(pollLoop("dead-letter-queue", config.deadLetterQueueUrl, (delivery) => handleDeadLetter({ store, config }, delivery)));
 }
 
 Promise.all(loops)

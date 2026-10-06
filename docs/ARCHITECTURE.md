@@ -57,7 +57,7 @@ SDK in both cases and only the endpoint settings differ.
 | **Trivy** | Scans the lockfile, the Dockerfiles and manifests, and the built images for known vulnerabilities and misconfiguration. |
 | **Argo CD** | GitOps deploy: the cluster pulls the chart and the image tag from Git and keeps itself in sync, so a merge to `main` is a deploy and a revert is a rollback (`infra/argocd`). |
 | **Vitest** | Unit tests for the state machine, queue decisions, upload rules and the worker's message handler, plus outbox tests against a real Postgres. |
-| **Playwright** | End-to-end tests through a real browser against the running stack, including a real render. |
+| **Playwright** | End-to-end tests through a real browser against the running stack, including a real render. Also drives the [load test](LOAD_TEST.md). |
 
 ## Repository layout
 
@@ -222,4 +222,8 @@ has no business in the web server's memory anyway.
 - No per-claim fencing token: after a stale-heartbeat takeover two workers can
   render the same job. The output is the same file, so the result is not
   corrupted (ADR 0003).
+- No sweeper for jobs whose queue message is lost: SQS does not lose messages,
+  but a job left `QUEUED` with no message would wait forever ([load test](LOAD_TEST.md)).
+- The worker re-bundles the Remotion composition on every render because
+  webpack's cache directory is not writable in the image.
 - `apps/editor` (the older desktop pano editor) is outside the lint and typecheck gate.

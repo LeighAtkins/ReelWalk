@@ -132,6 +132,10 @@ pnpm e2e           # Playwright, against the compose stack on :8080
 E2E_BASE_URL=http://localhost:8081 pnpm e2e   # against the kind cluster
 ```
 
+A load test that pushes a compressed day of real exports through the UI and
+checks every output is `e2e/load/day.mts`; results and findings from the
+100-export run are in [docs/LOAD_TEST.md](docs/LOAD_TEST.md).
+
 To run the web app or worker on the host against the compose services, copy
 `.env.example` to `.env`.
 

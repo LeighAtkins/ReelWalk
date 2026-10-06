@@ -87,7 +87,11 @@ export async function handleDelivery(deps: HandlerDeps, delivery: Delivery): Pro
     return "discarded";
   }
   if (decision === "defer") {
+    // A duplicate of a message another worker holds. Hide it for a full
+    // visibility period so it is not received (and its receive count spent)
+    // again before that worker's heartbeat could possibly have gone stale.
     log(`[${message.jobId}] another worker is rendering, leaving the message`);
+    await delivery.extend(config.visibilitySeconds).catch((error) => log(`[${message.jobId}] could not extend visibility`, error));
     return "deferred";
   }
 
@@ -142,10 +146,11 @@ export async function handleDelivery(deps: HandlerDeps, delivery: Delivery): Pro
  * loss), nothing ever wrote FAILED, so it is done here.
  */
 export async function handleDeadLetter(
-  deps: Pick<HandlerDeps, "store" | "log">,
+  deps: Pick<HandlerDeps, "store" | "log" | "now"> & { config: Pick<HandlerDeps["config"], "staleSeconds"> },
   delivery: Pick<Delivery, "body" | "delete">,
 ): Promise<"failed" | "ignored" | "poison"> {
   const log = deps.log ?? ((message, error) => (error ? console.error(message, error) : console.log(message)));
+  const now = deps.now ?? (() => new Date());
 
   let message: RenderJobMessage;
   try {
@@ -156,7 +161,12 @@ export async function handleDeadLetter(
     return "poison";
   }
 
-  const shouldFail = shouldFailFromDeadLetter(await deps.store.snapshot(message.jobId), message);
+  const shouldFail = shouldFailFromDeadLetter({
+    job: await deps.store.snapshot(message.jobId),
+    message,
+    now: now(),
+    staleAfterMs: deps.config.staleSeconds * 1000,
+  });
   if (shouldFail) {
     log(`[${message.jobId}] dead-lettered while still active, marking failed`);
     await deps.store.fail(message, "Render attempts were exhausted (the worker stopped before reporting an error).");

@@ -17,8 +17,11 @@ x-app-env: &app-env
   SQS_DLQ_URL: http://elasticmq:9324/000000000000/render-jobs-dlq
 
 services:
+  # The stateful services restart with Docker (a Docker Desktop or WSL restart
+  # takes every container down); web and worker already did.
   postgres:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_USER: reelwalk
       POSTGRES_PASSWORD: reelwalk
@@ -37,6 +40,7 @@ services:
   minio:
     # MinIO no longer publishes images on Docker Hub; Chainguard builds it from source.
     image: cgr.dev/chainguard/minio:latest
+    restart: unless-stopped
     # The image runs as a non-root user, but the volume may have been created by a root one.
     user: "0:0"
     command: server /data --console-address ":9001"
@@ -61,11 +65,14 @@ services:
 
   elasticmq:
     image: softwaremill/elasticmq-native:1.6.12
+    restart: unless-stopped
     ports:
       - "9324:9324"
     configs:
       - source: elasticmq
         target: /opt/elasticmq.conf
+    volumes:
+      - elasticmq-data:/data
 
   # One-shot: applies Prisma migrations and the idempotent seed, then exits.
   migrate:
@@ -197,6 +204,13 @@ configs:
         bind-hostname = "0.0.0.0"
         sqs-limits = strict
       }
+      # Messages survive a restart of the emulator, as they would on SQS. Without
+      # this a Docker restart silently dropped every queued render (load test,
+      # 2026-10-06), leaving the jobs QUEUED with nothing to deliver them.
+      messages-storage {
+        enabled = true
+        uri = "jdbc:h2:/data/elasticmq"
+      }
       queues {
         render-jobs {
           defaultVisibilityTimeout = 120 seconds
@@ -213,3 +227,4 @@ configs:
 volumes:
   postgres-data-v2:
   minio-data:
+  elasticmq-data:

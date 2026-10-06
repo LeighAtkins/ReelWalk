@@ -20,3 +20,18 @@ misconfigurations:
       root and writes its outputs to bind mounts. It is run by hand on a
       workstation and is not part of the Compose stack or the Kubernetes
       deployment.
+
+vulnerabilities:
+  # tinypool 1.1.1 is vendored (pre-compiled) into @rspack/core, which
+  # @remotion/bundler depends on, so it cannot be bumped with a pnpm override.
+  # The gadget needs attacker-controlled worker/run() options; rspack passes
+  # its own fixed options and no user input reaches it. Drop this when
+  # Remotion ships an @rspack/core with tinypool >= 2.1.2.
+  - id: CVE-2026-104848
+    paths:
+      - "**/@rspack/core/compiled/tinypool/package.json"
+    statement: Vendored copy inside @rspack/core; options are not user-controlled.
+  - id: CVE-2026-104849
+    paths:
+      - "**/@rspack/core/compiled/tinypool/package.json"
+    statement: Vendored copy inside @rspack/core; options are not user-controlled.

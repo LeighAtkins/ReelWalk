@@ -40,16 +40,49 @@ model Workspace {
   media      MediaAsset[]
   tours      Tour[]
   renderJobs RenderJob[]
+  socialAccounts SocialAccount[]
 }
 
 model User {
   id          String      @id @default(cuid())
   email       String      @unique
   name        String
+  // scrypt hash, "scrypt$<salt>$<hash>" (apps/web/lib/auth.ts). Null for accounts that cannot sign in.
+  passwordHash String?
   workspaceId String
   workspace   Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   createdAt   DateTime    @default(now())
   renderJobs  RenderJob[]
+  sessions    Session[]
+}
+
+// A signed-in browser. The cookie carries a random token; only its SHA-256 is stored.
+model Session {
+  id        String   @id
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  userAgent String?
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+// A connected publishing account, e.g. an Instagram professional account.
+model SocialAccount {
+  id          String    @id @default(cuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  provider    String // "instagram"
+  externalId  String
+  username    String
+  accessToken String
+  expiresAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([workspaceId, provider])
 }
 
 model Property {
@@ -86,6 +119,8 @@ model MediaAsset {
   durationMs  Int?
   width       Int?
   height      Int?
+  // Open-library media every workspace may use (the starter library). Owned by the demo workspace.
+  shared      Boolean     @default(false)
   // Set for media imported from an open library, so the licence travels with the file.
   sourceUrl   String?
   license     String?
@@ -105,6 +140,7 @@ model MediaAsset {
 
   @@index([workspaceId, createdAt])
   @@index([propertyId, createdAt])
+  @@index([shared])
 }
 
 // A walkthrough of one home: its floor plan, and the shots located on it.
@@ -136,6 +172,8 @@ model Reel {
   revision    Int         @default(0)
   // Instagram post text, kept with the reel so it can be copied when posting.
   caption     String      @default("")
+  // Random token in the public link /r/<token>. Null until sharing is switched on.
+  shareToken  String?     @unique
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
   renderJobs  RenderJob[]

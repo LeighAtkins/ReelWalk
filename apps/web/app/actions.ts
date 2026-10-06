@@ -1,6 +1,6 @@
 "use server";
 
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
@@ -28,7 +28,8 @@ import { prisma } from "@reelwalk/db";
 import { toLibraryAsset, type LibraryAsset } from "@/lib/library";
 import { flushOutbox, queueRenderJob } from "@/lib/render-jobs";
 import { headObject, presignUpload } from "@/lib/storage";
-import { getCurrentUser } from "@/lib/workspace";
+import { getCurrentUser, mediaScope } from "@/lib/workspace";
+import { appUrl } from "@/lib/app-url";
 
 // ── Reels ───────────────────────────────────────────────────────
 
@@ -57,10 +58,10 @@ export async function createReelFromTour(input: { tourId: string; vibeId?: strin
   // The vibe's own song when the library has it, otherwise any song with a known tempo.
   const song =
     (vibe
-      ? await prisma.mediaAsset.findFirst({ where: { workspaceId: user.workspaceId, kind: "AUDIO", objectKey: `library/music/${vibe.song}.mp3` } })
+      ? await prisma.mediaAsset.findFirst({ where: { ...mediaScope(user.workspaceId), kind: "AUDIO", objectKey: `library/music/${vibe.song}.mp3` } })
       : null) ??
     (await prisma.mediaAsset.findFirst({
-      where: { workspaceId: user.workspaceId, kind: "AUDIO", bpm: { not: null } },
+      where: { ...mediaScope(user.workspaceId), kind: "AUDIO", bpm: { not: null } },
       orderBy: { fileName: "asc" },
     }));
   const timeline = buildTourReel({
@@ -160,6 +161,22 @@ export async function deleteReel(formData: FormData): Promise<void> {
   redirect("/");
 }
 
+/**
+ * Switches the public link for a reel on or off. The token is random and
+ * long; turning the link off makes every copy of it dead.
+ */
+export async function setShareLink(input: { id: string; enabled: boolean }): Promise<{ url: string | null }> {
+  const user = await getCurrentUser();
+  const reel = await prisma.reel.findFirst({ where: { id: input.id, workspaceId: user.workspaceId }, select: { shareToken: true } });
+  if (!reel) return { url: null };
+  const shareToken = input.enabled ? (reel.shareToken ?? randomBytes(12).toString("base64url")) : null;
+  if (shareToken !== reel.shareToken) {
+    await prisma.reel.updateMany({ where: { id: input.id, workspaceId: user.workspaceId }, data: { shareToken } });
+  }
+  revalidatePath(`/reels/${input.id}/export`);
+  return { url: shareToken ? `${await appUrl()}/r/${shareToken}` : null };
+}
+
 export type ExportResult = { ok: false; issues: Issue[]; message?: string };
 
 /**
@@ -177,7 +194,7 @@ export async function exportReel(input: { id: string }): Promise<ExportResult> {
   if (!canExport(issues)) return { ok: false, issues };
 
   const library = await prisma.mediaAsset.findMany({
-    where: { id: { in: referencedAssetIds(timeline) }, workspaceId: user.workspaceId },
+    where: { id: { in: referencedAssetIds(timeline) }, ...mediaScope(user.workspaceId) },
     select: { id: true, objectKey: true, kind: true },
   });
   let payload;

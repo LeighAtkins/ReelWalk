@@ -50,3 +50,6 @@ apps/learn/.audio-wav/
 infra/terraform/.terraform/
 infra/terraform/*.tfstate*
 infra/terraform/terraform.tfvars
+
+# Playwright: saved sign-in state
+e2e/.auth/

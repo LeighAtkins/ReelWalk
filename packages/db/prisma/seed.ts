@@ -1,4 +1,4 @@
-import { DEFAULT_USER_EMAIL, DEFAULT_WORKSPACE_SLUG, prisma } from "../src/index";
+import { DEFAULT_USER_EMAIL, DEFAULT_WORKSPACE_SLUG, hashPassword, prisma } from "../src/index";
 
 // Idempotent: safe to run on every deploy.
 async function main() {
@@ -8,10 +8,13 @@ async function main() {
     create: { slug: DEFAULT_WORKSPACE_SLUG, name: "Demo Realty" },
   });
 
+  // The demo studio can be signed into when DEMO_PASSWORD is set (local
+  // Compose sets one; a public deployment leaves it unset).
+  const passwordHash = process.env.DEMO_PASSWORD ? await hashPassword(process.env.DEMO_PASSWORD) : undefined;
   await prisma.user.upsert({
     where: { email: DEFAULT_USER_EMAIL },
-    update: {},
-    create: { email: DEFAULT_USER_EMAIL, name: "Demo Agent", workspaceId: workspace.id },
+    update: passwordHash ? { passwordHash } : {},
+    create: { email: DEFAULT_USER_EMAIL, name: "Demo Agent", workspaceId: workspace.id, passwordHash },
   });
 
   const templates = [

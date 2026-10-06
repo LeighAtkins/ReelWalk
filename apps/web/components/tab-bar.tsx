@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ExportsIcon, ReelsIcon } from "./icons";
+import { AccountIcon, ExportsIcon, ReelsIcon } from "./icons";
 
 const TABS = [
   { href: "/", label: "Reels", Icon: ReelsIcon, match: (path: string) => path === "/" },
   { href: "/exports", label: "Exports", Icon: ExportsIcon, match: (path: string) => path.startsWith("/exports") },
+  { href: "/account", label: "Account", Icon: AccountIcon, match: (path: string) => path.startsWith("/account") },
 ];
 
 export function TabBar() {

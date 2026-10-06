@@ -15,6 +15,11 @@ x-app-env: &app-env
   SQS_ENDPOINT_URL: http://elasticmq:9324
   SQS_QUEUE_URL: http://elasticmq:9324/000000000000/render-jobs
   SQS_DLQ_URL: http://elasticmq:9324/000000000000/render-jobs-dlq
+  # Lets the login page offer the seeded demo studio. Leave unset on a public deployment.
+  DEMO_PASSWORD: ${DEMO_PASSWORD:-reelwalk-demo}
+  # Public address of the web app, for share links and OAuth callbacks. Unset,
+  # links use the address the browser came in on (so phones on the LAN work).
+  APP_URL: ${APP_URL:-}
 
 services:
   # The stateful services restart with Docker (a Docker Desktop or WSL restart

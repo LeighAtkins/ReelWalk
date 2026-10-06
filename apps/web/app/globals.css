@@ -1360,3 +1360,175 @@ input[type="range"] {
     box-shadow: 0 0 0 1px var(--line-strong), 0 30px 80px rgb(0 0 0 / 0.5);
   }
 }
+
+/* ── Accounts: sign in, sign up, account ───────────────────────── */
+
+.auth {
+  min-height: 100dvh;
+  max-width: 440px;
+  margin: 0 auto;
+  padding: calc(var(--safe-top) + 48px) 20px calc(var(--safe-bottom) + 32px);
+  display: grid;
+  align-content: start;
+  gap: 24px;
+}
+
+.auth-brand {
+  display: grid;
+  gap: 12px;
+}
+
+.auth-brand h1 {
+  font-size: 32px;
+  line-height: 1.1;
+  font-weight: 800;
+  font-stretch: 110%;
+  letter-spacing: -0.01em;
+  margin: 8px 0 0;
+}
+
+.auth-card,
+.card {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  background: var(--ink-deep);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-l);
+}
+
+.card h2 {
+  font-size: 17px;
+  margin: 0;
+}
+
+.card + .card,
+.card + form,
+form + .card {
+  margin-top: 14px;
+}
+
+.auth-demo {
+  display: grid;
+  gap: 8px;
+  text-align: center;
+}
+
+.link {
+  color: var(--paper);
+  text-decoration: underline;
+  text-decoration-color: var(--rule);
+  text-underline-offset: 3px;
+}
+
+.stat-row {
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+.stat-row li {
+  display: grid;
+  gap: 2px;
+  padding: 12px 8px;
+  text-align: center;
+  background: var(--ink-deep);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-m);
+}
+
+.stat-row strong {
+  font-size: 22px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.stat-row span {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* ── Share link and the public share page ──────────────────────── */
+
+.share-link {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-m);
+}
+
+.share-link-url {
+  color: var(--muted);
+  word-break: break-all;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.share {
+  min-height: 100dvh;
+  max-width: 520px;
+  margin: 0 auto;
+  padding: calc(var(--safe-top) + 16px) 16px calc(var(--safe-bottom) + 32px);
+  display: grid;
+  gap: 16px;
+  align-content: start;
+}
+
+.share-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  min-height: var(--tap);
+}
+
+/* ── Venue reel builder ─────────────────────────────────────────── */
+
+.steps {
+  display: grid;
+  gap: 14px;
+  padding-bottom: 24px;
+}
+
+.dish-row {
+  display: grid;
+  grid-template-columns: 1fr 88px;
+  gap: 8px;
+}
+
+.vibe-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.vibe-chip {
+  min-height: var(--tap);
+  padding: 0 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--paper);
+  font-weight: 600;
+}
+
+.vibe-chip[aria-checked="true"] {
+  background: var(--signal);
+  border-color: var(--signal);
+  color: #fff;
+}
+
+.stock {
+  display: grid;
+  gap: 10px;
+}
+
+.stock code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9em;
+  color: var(--paper);
+}

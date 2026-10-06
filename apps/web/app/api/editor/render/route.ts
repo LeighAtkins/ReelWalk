@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { prisma } from "@reelwalk/db";
 import { flushOutbox, queueRenderJob } from "@/lib/render-jobs";
-import { getCurrentUser } from "@/lib/workspace";
+import { getApiUser } from "@/lib/workspace";
 
 // Called by the standalone timeline editor, not by this app's own UI, so it
 // is a Route Handler with a stable JSON contract rather than a Server Action.
@@ -18,7 +18,7 @@ export async function POST(request: Request) {
   const parsed = projectSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return Response.json({ detail: "Invalid editor project" }, { status: 400 });
 
-  const user = await getCurrentUser();
+  const user = await getApiUser();
   const job = await prisma.$transaction(async (tx) => {
     const created = await tx.renderJob.create({
       data: {

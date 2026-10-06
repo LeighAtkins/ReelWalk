@@ -1,13 +1,13 @@
 import { prisma } from "@reelwalk/db";
 import { outputUrls } from "@/lib/render-jobs";
-import { getCurrentUser } from "@/lib/workspace";
+import { getApiUser } from "@/lib/workspace";
 
 // Status names the editor already understands.
 const LEGACY_STATUS = { QUEUED: "queued", RUNNING: "running", SUCCEEDED: "done", FAILED: "failed" } as const;
 
 export async function GET(_request: Request, { params }: { params: Promise<{ jobId: string }> }) {
   const { jobId } = await params;
-  const user = await getCurrentUser();
+  const user = await getApiUser();
   const job = await prisma.renderJob.findFirst({ where: { id: jobId, workspaceId: user.workspaceId }, include: { output: true } });
   if (!job) return Response.json({ detail: "Render job not found" }, { status: 404 });
 

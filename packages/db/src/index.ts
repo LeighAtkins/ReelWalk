@@ -3,6 +3,7 @@ import { PrismaClient } from "./generated/prisma/client";
 
 export * from "./generated/prisma/client";
 export * from "./outbox";
+export * from "./password";
 
 export const DEFAULT_WORKSPACE_SLUG = "demo";
 export const DEFAULT_USER_EMAIL = "demo@reelwalk.local";

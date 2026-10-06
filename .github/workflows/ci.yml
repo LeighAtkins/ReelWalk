@@ -103,10 +103,12 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.app }}
           cache-to: type=gha,mode=max,scope=${{ matrix.app }}
 
+      # Accepted findings (with reasons) are listed in .trivyignore.yaml.
       - name: Scan image with Trivy
         run: >
-          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock "$TRIVY_IMAGE" image "$IMAGE"
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD:/src" "$TRIVY_IMAGE" image "$IMAGE"
           --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1
+          --ignorefile /src/.trivyignore.yaml
 
       # Only scanned images are pushed. GHCR needs no setup: the job's own
       # token is the credential. The tag is the commit SHA, so a tag never

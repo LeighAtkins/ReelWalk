@@ -39,8 +39,8 @@ export function ShareButton({ url, fileName, caption }: { url: string; fileName:
       {state === "copied" ? <p className="toast" role="status">Caption copied. Paste it in Instagram.</p> : null}
       {state === "unsupported" ? (
         <p className="muted small" role="status" style={{ gridColumn: "1 / -1" }}>
-          This browser cannot share files here (sharing needs HTTPS). Download the video and post it from your
-          phone&apos;s gallery.
+          This browser cannot attach a video to the share sheet here (that needs HTTPS). Use <strong>Share a link</strong>: the
+          link opens on any phone with a Save button, or download the video and post it from your gallery.
         </p>
       ) : null}
       {state === "error" ? (

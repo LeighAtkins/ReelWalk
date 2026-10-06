@@ -19,7 +19,7 @@ async function waitForSaved(page: Page) {
 
 const total = (page: Page) => page.getByLabel("Playhead position");
 
-test("make a reel from photos and a video, edit it, and export it for Instagram", async ({ page }) => {
+test("make a reel from photos and a video, edit it, and export it for Instagram", async ({ page, browser }) => {
   const url = await newReel(page, ["exterior.jpg", "walkthrough.mp4", "living-room.jpg"]);
 
   // Clips arrive in the order they were picked: 3 s photo, 2 s video, 3 s photo.
@@ -68,6 +68,17 @@ test("make a reel from photos and a video, edit it, and export it for Instagram"
   expect((await response.body()).byteLength).toBeGreaterThan(50_000);
   await expect(page.getByRole("button", { name: "Share to Instagram" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Download" })).toBeVisible();
+
+  // A share link opens for anyone, signed in or not, with the video and the caption.
+  await page.getByTestId("share-link").click();
+  const shareUrl = await page.getByTestId("share-link-url").getAttribute("href");
+  expect(shareUrl).toMatch(/\/r\/[A-Za-z0-9_-]{8,}$/);
+  const guest = await browser.newContext({ storageState: { cookies: [], origins: [] } });
+  const guestPage = await guest.newPage();
+  await guestPage.goto(shareUrl!);
+  await expect(guestPage.getByTestId("shared-video")).toBeVisible();
+  await expect(guestPage.getByRole("link", { name: "Save video" })).toBeVisible();
+  await guest.close();
 
   // The export is listed, and the reel shows on the home screen.
   await page.getByRole("link", { name: "Edit", exact: true }).click();

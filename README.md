@@ -154,8 +154,23 @@ A final `release` job then writes that SHA into
 `infra/helm/reelwalk/values-gitops.yaml` and commits it. CI never talks to the
 cluster: Argo CD sees the commit and rolls the new images out.
 
-Images are also pushed to ECR once the repository variables `AWS_ROLE_ARN` and
-`AWS_REGION` are set (GitHub OIDC, no stored keys).
+The same images are also pushed to ECR in the AWS account, using a GitHub
+OIDC role (no stored keys) created by `infra/terraform`.
+
+## AWS
+
+`infra/terraform` owns everything ReelWalk uses on AWS: the media bucket and
+CloudFront distribution, the render queue and its dead-letter queue, the ECR
+repositories, the CI role, the application's IAM policy and a monthly budget
+([ADR 0011](docs/adr/0011-terraform-for-the-aws-account.md)). There is no
+compute on AWS yet. To run the local web app and worker against the real
+bucket and queue:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.aws.yml --env-file .env.aws up -d web worker
+```
+
+`.env.aws` is gitignored; `infra/terraform/README.md` says what goes in it.
 
 ## Product docs
 

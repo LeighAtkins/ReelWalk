@@ -1,0 +1,34 @@
+# Run the local web app and worker against the real AWS account (S3, SQS and
+# CloudFront created by infra/terraform) while Postgres stays local.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.aws.yml \
+#     --env-file .env.aws up -d web worker
+#
+# .env.aws (gitignored) holds the reelwalk-app access key and the bucket and
+# queue URLs; see infra/terraform/README.md. Return to MinIO and ElasticMQ
+# with a plain `docker compose up -d web worker`.
+
+x-aws-env: &aws-env
+  AWS_REGION: ${AWS_REGION:-us-east-2}
+  S3_REGION: ${S3_REGION:-us-east-2}
+  S3_ENDPOINT_URL: ""
+  S3_PUBLIC_ENDPOINT_URL: ""
+  S3_FORCE_PATH_STYLE: "false"
+  S3_BUCKET: ${S3_BUCKET}
+  S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID}
+  S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY}
+  AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+  AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+  SQS_ENDPOINT_URL: ""
+  SQS_QUEUE_URL: ${SQS_QUEUE_URL}
+  SQS_DLQ_URL: ${SQS_DLQ_URL}
+
+services:
+  web:
+    environment:
+      <<: *aws-env
+      CLOUDFRONT_BASE_URL: ${CLOUDFRONT_BASE_URL:-}
+
+  worker:
+    environment:
+      <<: *aws-env

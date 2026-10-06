@@ -61,17 +61,18 @@ serviceAccount:
 
 # Non-secret settings, rendered into a ConfigMap and injected as env vars.
 config:
-  AWS_REGION: us-east-1
-  S3_REGION: us-east-1
-  S3_BUCKET: reelwalk-media
+  # Values from `terraform output` in infra/terraform.
+  AWS_REGION: us-east-2
+  S3_REGION: us-east-2
+  S3_BUCKET: reelwalk-media-prod-734329326838-us-east-2-an
   S3_FORCE_PATH_STYLE: "false"
   # Empty means the real AWS endpoints.
   S3_ENDPOINT_URL: ""
   S3_PUBLIC_ENDPOINT_URL: ""
   SQS_ENDPOINT_URL: ""
-  SQS_QUEUE_URL: ""
-  SQS_DLQ_URL: ""
-  CLOUDFRONT_BASE_URL: ""
+  SQS_QUEUE_URL: https://sqs.us-east-2.amazonaws.com/734329326838/reelwalk-render-jobs
+  SQS_DLQ_URL: https://sqs.us-east-2.amazonaws.com/734329326838/reelwalk-render-jobs-dlq
+  CLOUDFRONT_BASE_URL: https://dh5xvp6apljoh.cloudfront.net
   # Must equal the queue's redrive maxReceiveCount.
   RENDER_MAX_ATTEMPTS: "3"
   RENDER_VISIBILITY_SECONDS: "120"

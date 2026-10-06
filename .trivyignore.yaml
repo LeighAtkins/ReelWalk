@@ -21,6 +21,26 @@ misconfigurations:
       workstation and is not part of the Compose stack or the Kubernetes
       deployment.
 
+  # infra/terraform: both findings are cost decisions for a portfolio
+  # deployment, not oversights.
+  - id: AWS-0011
+    paths:
+      - "infra/terraform/media.tf"
+      - "media.tf"
+    statement: >-
+      The CloudFront distribution serves finished videos (GET/HEAD only) from
+      a bucket that CloudFront alone may read. A WAF adds a fixed monthly fee
+      for no exposed application logic; revisit when the web app itself sits
+      behind CloudFront.
+  - id: AWS-0132
+    paths:
+      - "infra/terraform/media.tf"
+      - "media.tf"
+    statement: >-
+      SSE-S3 (AES256) is enabled. A customer-managed KMS key would add a key
+      fee plus a request fee on every upload and render; the media is not
+      sensitive enough to justify it.
+
 vulnerabilities:
   # tinypool 1.1.1 is vendored (pre-compiled) into @rspack/core, which
   # @remotion/bundler depends on, so it cannot be bumped with a pnpm override.

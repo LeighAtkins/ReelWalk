@@ -53,7 +53,7 @@ SDK in both cases and only the endpoint settings differ.
 | **Kubernetes** | Runs web and worker as separate Deployments with probes, resource limits and rolling updates; runs migrations as a Job. |
 | **Helm** | Packages the Kubernetes manifests. `values.yaml` targets AWS, `values-kind.yaml` the local cluster. |
 | **kind** | A Kubernetes cluster inside Docker, for running the chart locally. |
-| **GitHub Actions** | Lint, typecheck, unit tests, Helm lint, image builds, Trivy scans, end-to-end tests. On `main`, pushes the scanned images to GHCR and commits the new tag for Argo CD. Also pushes to ECR once an AWS role is configured. |
+| **GitHub Actions** | Lint, typecheck, unit tests, Helm lint, image builds, Trivy scans, end-to-end tests. On `main`, pushes the scanned images to GHCR and commits the new tag for Argo CD. Also pushes them to ECR through a GitHub OIDC role. |
 | **Trivy** | Scans the lockfile, the Dockerfiles and manifests, and the built images for known vulnerabilities and misconfiguration. |
 | **Argo CD** | GitOps deploy: the cluster pulls the chart and the image tag from Git and keeps itself in sync, so a merge to `main` is a deploy and a revert is a rollback (`infra/argocd`). |
 | **Vitest** | Unit tests for the state machine, queue decisions, upload rules and the worker's message handler, plus outbox tests against a real Postgres. |
@@ -73,7 +73,7 @@ infra/helm        Helm chart for web, worker and the migration Job
 infra/kind        Local cluster config and bootstrap script
 infra/k8s/local   Postgres, MinIO and ElasticMQ for the local cluster
 infra/argocd      Argo CD install script and Application
-infra/terraform   Early AWS resource sketch (S3, CloudFront, SQS, RDS)
+infra/terraform   AWS account: S3 + CloudFront, SQS, ECR, CI role, budget (ADR 0011)
 docs/adr          Architecture decision records
 ```
 
@@ -218,7 +218,8 @@ has no business in the web server's memory anyway.
   drag-to-reorder; clips move with Earlier/Later.
 - Signed media URLs last an hour; a longer editing session needs a reload.
 - Worker autoscaling is CPU-based and off by default; KEDA on queue depth is planned.
-- EKS, RDS and CloudFront are designed for but not deployed (ADR 0005).
+- S3, SQS, ECR and CloudFront are real (ADR 0011); EKS and RDS are designed
+  for but not deployed (ADR 0005). Workers run locally or on kind.
 - No per-claim fencing token: after a stale-heartbeat takeover two workers can
   render the same job. The output is the same file, so the result is not
   corrupted (ADR 0003).

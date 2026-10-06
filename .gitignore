@@ -45,3 +45,8 @@ apps/learn/out/
 
 # Intermediate audio from scripts/generate-audio.mts
 apps/learn/.audio-wav/
+
+# Terraform: local provider cache and the tfvars with the alert address
+infra/terraform/.terraform/
+infra/terraform/*.tfstate*
+infra/terraform/terraform.tfvars

@@ -29,6 +29,12 @@ These need a real EKS cluster and are not claimed as done:
 - RDS networking and backups
 - CloudFront in front of the media bucket
 
+## Update 2026-10-06
+
+The AWS side that does not bill by the hour now exists and is managed by
+Terraform (ADR 0011): bucket, CloudFront, queues, ECR, CI role, budget. The
+list above still describes what EKS would add.
+
 ## Consequences
 
 - The whole stack can be created and destroyed in minutes at no cost.

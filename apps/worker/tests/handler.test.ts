@@ -81,6 +81,8 @@ describe("handleDelivery", () => {
     expect(await handleDelivery(deps(store, render), delivery)).toBe("deferred");
     expect(render).not.toHaveBeenCalled();
     expect(delivery.delete).not.toHaveBeenCalled();
+    // Hidden for a full visibility period so it does not burn receives while the other worker renders.
+    expect(delivery.extend).toHaveBeenCalledWith(config.visibilitySeconds);
   });
 
   it("takes over a job whose worker stopped heartbeating", async () => {
@@ -138,11 +140,20 @@ describe("handleDelivery", () => {
 
 describe("handleDeadLetter", () => {
   it("fails a job that crashed its worker on every attempt", async () => {
+    const { store, state } = fakeStore({ status: "RUNNING", generation: 1, heartbeatAt: new Date(Date.now() - 5 * 60_000) });
+    const delivery = fakeDelivery(4);
+
+    expect(await handleDeadLetter({ store, config, log: () => {} }, delivery)).toBe("failed");
+    expect(state.job?.status).toBe("FAILED");
+    expect(delivery.delete).toHaveBeenCalledOnce();
+  });
+
+  it("spares a job that another worker is still rendering", async () => {
     const { store, state } = fakeStore({ status: "RUNNING", generation: 1, heartbeatAt: new Date() });
     const delivery = fakeDelivery(4);
 
-    expect(await handleDeadLetter({ store, log: () => {} }, delivery)).toBe("failed");
-    expect(state.job?.status).toBe("FAILED");
+    expect(await handleDeadLetter({ store, config, log: () => {} }, delivery)).toBe("ignored");
+    expect(state.job?.status).toBe("RUNNING");
     expect(delivery.delete).toHaveBeenCalledOnce();
   });
 
@@ -150,7 +161,7 @@ describe("handleDeadLetter", () => {
     const { store, state } = fakeStore({ ...queued, generation: 2 });
     const delivery = fakeDelivery(4);
 
-    expect(await handleDeadLetter({ store, log: () => {} }, delivery)).toBe("ignored");
+    expect(await handleDeadLetter({ store, config, log: () => {} }, delivery)).toBe("ignored");
     expect(state.job?.status).toBe("QUEUED");
     expect(delivery.delete).toHaveBeenCalledOnce();
   });

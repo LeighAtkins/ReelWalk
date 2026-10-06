@@ -6,6 +6,7 @@ import {
   retryDelaySeconds,
   serializeRenderJobMessage,
   shouldFailFromDeadLetter,
+  type JobSnapshot,
 } from "../src";
 
 const now = new Date("2026-10-04T12:00:00Z");
@@ -77,13 +78,22 @@ describe("decideFailure", () => {
 });
 
 describe("shouldFailFromDeadLetter", () => {
-  it("fails a job that is still marked running", () => {
-    expect(shouldFailFromDeadLetter({ status: "RUNNING", generation: 1, heartbeatAt: null }, message)).toBe(true);
+  const decide = (job: JobSnapshot | null) => shouldFailFromDeadLetter({ job, message, now, staleAfterMs });
+
+  it("fails a job whose worker died without reporting", () => {
+    expect(decide({ status: "RUNNING", generation: 1, heartbeatAt: null })).toBe(true);
+    expect(decide({ status: "RUNNING", generation: 1, heartbeatAt: new Date(now.getTime() - 5 * 60_000) })).toBe(true);
+    expect(decide({ status: "QUEUED", generation: 1, heartbeatAt: null })).toBe(true);
+  });
+
+  it("spares a job that another worker is still rendering", () => {
+    // A duplicate message deferred three times lands in the DLQ while the real render is fine.
+    expect(decide({ status: "RUNNING", generation: 1, heartbeatAt: new Date(now.getTime() - 10_000) })).toBe(false);
   });
 
   it("leaves finished jobs and newer generations alone", () => {
-    expect(shouldFailFromDeadLetter({ status: "FAILED", generation: 1, heartbeatAt: null }, message)).toBe(false);
-    expect(shouldFailFromDeadLetter({ status: "QUEUED", generation: 2, heartbeatAt: null }, message)).toBe(false);
-    expect(shouldFailFromDeadLetter(null, message)).toBe(false);
+    expect(decide({ status: "FAILED", generation: 1, heartbeatAt: null })).toBe(false);
+    expect(decide({ status: "QUEUED", generation: 2, heartbeatAt: null })).toBe(false);
+    expect(decide(null)).toBe(false);
   });
 });

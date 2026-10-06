@@ -31,6 +31,9 @@ worker is built so that this is harmless:
   left alone.
 - A manual retry increments `generation`. Messages from an older generation
   are discarded, so a late message cannot affect the retried run.
+- A dead-lettered message only fails a `RUNNING` job whose heartbeat is
+  stale. A duplicate message that was deferred three times while another
+  worker rendered must not cut that render off.
 
 ## Consequences
 

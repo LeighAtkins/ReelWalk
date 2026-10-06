@@ -82,9 +82,25 @@ export function decideFailure(input: {
  * A message in the dead-letter queue means no worker finished it. If the job
  * row still looks alive (a worker crashed on every attempt and never wrote
  * FAILED), the row has to be failed here or it would stay RUNNING forever.
+ *
+ * A RUNNING job with a fresh heartbeat is the exception: a worker still has
+ * it, and the dead letter is a duplicate message that used up its receives
+ * being deferred while the render ran. Failing the job then would cut off a
+ * render that is about to succeed.
  */
-export function shouldFailFromDeadLetter(job: JobSnapshot | null, message: RenderJobMessage): boolean {
+export function shouldFailFromDeadLetter(input: {
+  job: JobSnapshot | null;
+  message: RenderJobMessage;
+  now: Date;
+  staleAfterMs: number;
+}): boolean {
+  const { job, message, now, staleAfterMs } = input;
   if (!job) return false;
   if (job.generation !== message.generation) return false;
-  return job.status === "QUEUED" || job.status === "RUNNING";
+  if (job.status === "QUEUED") return true;
+  if (job.status === "RUNNING") {
+    const heartbeatAge = job.heartbeatAt ? now.getTime() - job.heartbeatAt.getTime() : Infinity;
+    return heartbeatAge > staleAfterMs;
+  }
+  return false;
 }

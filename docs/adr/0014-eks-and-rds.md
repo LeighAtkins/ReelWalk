@@ -1,6 +1,6 @@
 # ADR 0014: Production on EKS and RDS, kept small
 
-Status: accepted (2026-10-07)
+Status: superseded by ADR 0015 (2026-10-07); the cluster ran for one day
 
 ## Context
 

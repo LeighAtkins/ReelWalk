@@ -188,8 +188,7 @@ render workers as Fargate tasks the web app starts on demand, Postgres on
 Neon, all from `infra/terraform` ([ADR 0015](docs/adr/0015-serverless-under-thirty-dollars.md)).
 Deploy by pushing an image tag and running `terraform apply` with
 `image_tag` set. It costs about $10-15 a month and nothing renders while
-nobody exports. (An EKS version exists in `infra/eks/`, ADR 0014; it was
-retired for cost.)
+nobody exports. (An EKS version ran for a day, ADR 0014, and was retired for cost.)
 
 ## Product docs
 

@@ -45,6 +45,6 @@ nobody is exporting.
   that gap; it has not been needed.
 - Deploys: push an image tag, set `image_tag`, `terraform apply`. App
   Runner rolls the web app; the next worker task uses the new image.
-- The Helm chart and kind remain the Kubernetes demonstration (ADR 0005);
-  `infra/eks/` is kept for reference and can be deleted once ADR 0014's
-  cluster is gone.
+- The Helm chart and kind remain the Kubernetes demonstration (ADR 0005).
+  The EKS cluster, RDS and `infra/eks/` were removed the same day; ADR 0014
+  stays as the record of why.

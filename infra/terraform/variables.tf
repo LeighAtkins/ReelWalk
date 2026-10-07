@@ -26,26 +26,6 @@ variable "app_domain" {
   default = "reelwalking.com"
 }
 
-variable "kubernetes_version" {
-  type    = string
-  default = "1.34"
-}
-
-variable "node_instance_type" {
-  type    = string
-  default = "t3.xlarge"
-}
-
-variable "node_count" {
-  type    = number
-  default = 1
-}
-
-variable "db_instance_class" {
-  type    = string
-  default = "db.t4g.micro"
-}
-
 variable "github_repository" {
   type        = string
   description = "owner/name of the GitHub repository whose main branch may push images"

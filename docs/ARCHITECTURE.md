@@ -242,8 +242,9 @@ Clips come from the library, the phone, or Pixabay stock search when
   drag-to-reorder; clips move with Earlier/Later.
 - Signed media URLs last an hour; a longer editing session needs a reload.
 - Worker autoscaling is CPU-based and off by default; KEDA on queue depth is planned.
-- S3, SQS, ECR and CloudFront are real (ADR 0011); EKS and RDS are designed
-  for but not deployed (ADR 0005). Workers run locally or on kind.
+- Production runs on EKS and RDS (ADR 0014) at https://reelwalking.com,
+  deployed with `infra/eks/deploy.sh`; Argo CD on that cluster is not set up
+  yet (it still runs on kind).
 - No per-claim fencing token: after a stale-heartbeat takeover two workers can
   render the same job. The output is the same file, so the result is not
   corrupted (ADR 0003).

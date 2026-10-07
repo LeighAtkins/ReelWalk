@@ -183,6 +183,11 @@ docker compose -f docker-compose.yml -f docker-compose.aws.yml --env-file .env.a
 
 `.env.aws` is gitignored; `infra/terraform/README.md` says what goes in it.
 
+Production is an EKS cluster with RDS, also from `infra/terraform`
+([ADR 0014](docs/adr/0014-eks-and-rds.md)). `infra/eks/deploy.sh <sha>`
+installs ingress-nginx, cert-manager and the chart with `values-aws.yaml`;
+the site is https://reelwalking.com.
+
 ## Product docs
 
 - `docs/PLAN.md` — strategy and competitive evaluation

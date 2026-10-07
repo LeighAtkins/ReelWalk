@@ -14,8 +14,11 @@ there is no apply step in CI.
 | `budget.tf` | A monthly cost budget with alerts at 80 % and on the forecast |
 | `imports.tf` | Import blocks for the bucket and distribution that existed before Terraform |
 
-Not here on purpose: EKS, RDS and anything else that bills by the hour.
-ADR 0005 and ADR 0011 explain why.
+| `network.tf` | VPC in two zones: public subnets for nodes (no NAT gateway), private subnets for the database |
+| `eks.tf` | The EKS cluster, one managed node group, and the Pod Identity role pods use for S3 and SQS |
+| `rds.tf` | Postgres 16 on the smallest Graviton class, reachable only from the nodes |
+
+EKS and RDS bill by the hour (ADR 0014); `terraform destroy -target module.eks -target aws_db_instance.postgres` stops that.
 
 ## State
 

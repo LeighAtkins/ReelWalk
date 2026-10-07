@@ -26,3 +26,21 @@ output "github_ci_role_arn" {
 output "app_user_name" {
   value = aws_iam_user.app.name
 }
+
+output "eks_cluster_name" {
+  value = module.eks.cluster_name
+}
+
+output "database_host" {
+  value = aws_db_instance.postgres.address
+}
+
+output "database_url" {
+  description = "Connection string for the cluster Secret (contains the password)"
+  value       = "postgresql://${aws_db_instance.postgres.username}:${random_password.db.result}@${aws_db_instance.postgres.address}:5432/${aws_db_instance.postgres.db_name}"
+  sensitive   = true
+}
+
+output "app_pods_role_arn" {
+  value = aws_iam_role.app_pods.arn
+}

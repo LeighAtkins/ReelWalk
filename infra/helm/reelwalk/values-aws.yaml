@@ -1,0 +1,39 @@
+# The production release on EKS (infra/terraform, infra/eks/deploy.sh).
+# Layered over values.yaml; the image tags come from values-gitops.yaml.
+
+web:
+  image:
+    repository: 734329326838.dkr.ecr.us-east-2.amazonaws.com/reelwalk-web
+  replicas: 1
+
+worker:
+  image:
+    repository: 734329326838.dkr.ecr.us-east-2.amazonaws.com/reelwalk-worker
+  replicas: 1
+  resources:
+    requests:
+      cpu: "1"
+      memory: 2Gi
+    limits:
+      memory: 4Gi
+
+ingress:
+  enabled: true
+  className: nginx
+  host: reelwalking.com
+  tls: true
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+    # Uploads go straight to S3, so the app itself only ever sees small bodies.
+    nginx.ingress.kubernetes.io/proxy-body-size: 16m
+
+# Pods get AWS credentials through EKS Pod Identity (association in eks.tf),
+# so the Secret carries no S3 keys.
+config:
+  APP_URL: https://reelwalking.com
+  RENDER_CONCURRENCY: "4"
+
+secret:
+  create: false
+  # Created by infra/eks/deploy.sh: DATABASE_URL, META_*, PIXABAY_API_KEY.
+  existingSecret: reelwalk-secrets

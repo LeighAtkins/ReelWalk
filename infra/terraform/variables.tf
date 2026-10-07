@@ -18,7 +18,32 @@ variable "media_bucket_name" {
 # presigned URLs. Add the public web origin when there is one.
 variable "media_cors_origins" {
   type    = list(string)
-  default = ["http://localhost:8080", "http://localhost:3000"]
+  default = ["https://reelwalking.com", "http://localhost:8080", "http://localhost:3000"]
+}
+
+variable "app_domain" {
+  type    = string
+  default = "reelwalking.com"
+}
+
+variable "kubernetes_version" {
+  type    = string
+  default = "1.34"
+}
+
+variable "node_instance_type" {
+  type    = string
+  default = "t3.xlarge"
+}
+
+variable "node_count" {
+  type    = number
+  default = 1
+}
+
+variable "db_instance_class" {
+  type    = string
+  default = "db.t4g.micro"
 }
 
 variable "github_repository" {
@@ -27,9 +52,11 @@ variable "github_repository" {
   default     = "LeighAtkins/ReelWalk"
 }
 
+# EKS control plane, one node, the load balancer and RDS come to roughly
+# $250 a month; the alert sits above that.
 variable "budget_monthly_usd" {
   type    = number
-  default = 20
+  default = 300
 }
 
 variable "budget_email" {

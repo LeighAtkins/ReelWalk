@@ -1,0 +1,16 @@
+# Let's Encrypt through cert-manager. HTTP-01 answers on the public ingress,
+# so the DNS record must point at the load balancer before the first issue.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: leigh.atkins1@gmail.com
+    privateKeySecretRef:
+      name: letsencrypt-account
+    solvers:
+      - http01:
+          ingress:
+            ingressClassName: nginx

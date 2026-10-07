@@ -69,13 +69,15 @@ variable "worker_cpu" {
 }
 
 variable "worker_memory" {
+  # 4 GB was killed (OOM) rendering a reel of four phone clips. Fargate bills
+  # only while a task runs, so the bigger box costs cents per render.
   type    = string
-  default = "4096"
+  default = "8192"
 }
 
 variable "worker_render_concurrency" {
   type    = number
-  default = 2
+  default = 1
 }
 
 variable "max_workers" {

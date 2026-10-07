@@ -3,11 +3,48 @@ import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
-import { GetObjectCommand, PutObjectCommand, type S3Client } from "@aws-sdk/client-s3";
+import { GetObjectCommand, HeadObjectCommand, PutObjectCommand, type S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { inputFilenameFor, outputKeyFor, parseReelExportPayload } from "@reelwalk/core";
+import { inputFilenameFor, outputKeyFor, parseReelExportPayload, renderSourceKeyFor } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
-import { run } from "./library/tools";
+import { probe, run } from "./library/tools";
+
+/** Longest side of a clip the renderer is handed. Output is 1080x1920, so nothing is lost. */
+const MAX_RENDER_SIDE = 1920;
+
+/**
+ * Which object the renderer should read for a video: the original when it is
+ * 1080p or smaller, otherwise a 1080p copy that is made once and kept.
+ */
+async function renderSourceKey(s3: S3Client, bucket: string, workdir: string, assetId: string, objectKey: string, log: (line: string) => void): Promise<string> {
+  const key = renderSourceKeyFor(assetId);
+  try {
+    await s3.send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
+    return key;
+  } catch {
+    // Not made yet.
+  }
+  const inputPath = path.join(workdir, `src-${inputFilenameFor(objectKey)}`);
+  await downloadObject(s3, bucket, objectKey, inputPath);
+  const { width, height } = await probe(inputPath);
+  if (Math.max(width, height) <= MAX_RENDER_SIDE) {
+    await rm(inputPath, { force: true });
+    return objectKey;
+  }
+  log(`downscale ${width}x${height} ${objectKey} -> ${key}`);
+  const outPath = path.join(workdir, `render-${assetId}.mp4`);
+  await run("ffmpeg", [
+    "-v", "error", "-y", "-i", inputPath,
+    "-vf", `scale='if(gt(iw,ih),min(${MAX_RENDER_SIDE},iw),-2)':'if(gt(iw,ih),-2,min(${MAX_RENDER_SIDE},ih))'`,
+    "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p",
+    "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", outPath,
+  ]);
+  const { size } = await stat(outPath);
+  await s3.send(new PutObjectCommand({ Bucket: bucket, Key: key, Body: createReadStream(outPath), ContentLength: size, ContentType: "video/mp4" }));
+  await rm(inputPath, { force: true });
+  await rm(outPath, { force: true });
+  return key;
+}
 import type { ReelAsset } from "@reelwalk/render/reel-types";
 import { renderStubReel } from "@reelwalk/render/render-job";
 import { renderReel } from "@reelwalk/render/render-reel";
@@ -62,9 +99,13 @@ export async function renderJob(
       // Headless Chrome fetches the media straight from storage, so it gets
       // short-lived signed URLs instead of the files being copied first.
       const assets: Record<string, ReelAsset> = {};
-      for (const [id, asset] of Object.entries(payload.assets)) {
-        const src = await getSignedUrl(s3, new GetObjectCommand({ Bucket: bucket, Key: asset.objectKey }), { expiresIn: 3600 });
+      const entries = Object.entries(payload.assets);
+      for (const [index, [id, asset]] of entries.entries()) {
+        const key = asset.kind === "VIDEO" ? await renderSourceKey(s3, bucket, workdir, id, asset.objectKey, (line) => console.log(`[${job.id}] ${line}`)) : asset.objectKey;
+        const src = await getSignedUrl(s3, new GetObjectCommand({ Bucket: bucket, Key: key }), { expiresIn: 3600 });
         assets[id] = { src, kind: asset.kind };
+        // Preparing sources is the first fifth of the bar; Remotion reports the rest.
+        report(((index + 1) / entries.length) * 0.2);
       }
       await renderReel({ timeline: payload.timeline, assets, output: outputPath, concurrency }, report);
     } else if (job.kind === "EDITOR") {

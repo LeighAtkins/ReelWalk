@@ -39,11 +39,11 @@ export default function PracticePage() {
         <h2>Learn it in English first</h2>
         <p className="note">A full English guide with every diagram, decision and trade-off, and a briefing file for a voice agent that will grill you on it.</p>
         <div className="row wrap">
-          <a className="btn btn-ink" href={`${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/guide/reelwalk-talking-points.pdf`}>
-            Short things to say (3 pages)
+          <a className="btn btn-ink" href={`${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/guide/reelwalk-cheat-sheet.pdf`}>
+            Cheat sheet (5 pages)
           </a>
           <a className="btn" href={`${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/guide/reelwalk-study-guide.pdf`}>
-            Study guide (PDF)
+            Full reference guide (PDF)
           </a>
           <a className="btn" href={`${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/guide/reelwalk-interview-agent.xml`} download>
             Agent briefing (XML)

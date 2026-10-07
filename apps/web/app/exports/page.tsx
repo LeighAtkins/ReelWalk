@@ -1,11 +1,11 @@
 import Link from "next/link";
+import { LocalTime } from "@/components/local-time";
 import { isActive } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
 import { retryRenderJob } from "@/app/actions";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { StatusBadge } from "@/components/status-badge";
 import { TabBar } from "@/components/tab-bar";
-import { formatDateTime } from "@/lib/format";
 import { coverUrls, readTimeline } from "@/lib/reels";
 import { getCurrentUser } from "@/lib/workspace";
 
@@ -47,7 +47,7 @@ export default async function ExportsPage() {
                     <span>{job.caption ?? "Earlier render"}</span>
                   )}
                   <span className="muted small">
-                    {formatDateTime(job.createdAt)}
+                    <LocalTime date={job.createdAt} />
                     {job.status === "RUNNING" ? `, ${job.progress}%` : ""}
                     {job.attempt > 1 ? `, attempt ${job.attempt}` : ""}
                   </span>

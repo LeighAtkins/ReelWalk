@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
+import { LocalTime } from "@/components/local-time";
 import { prisma } from "@reelwalk/db";
 import { changePassword, signOut, updateProfile } from "@/app/auth-actions";
 import { disconnectInstagram } from "@/app/instagram-actions";
 import { isInstagramConfigured } from "@/lib/instagram";
 import { SubmitButton } from "@/components/submit-button";
 import { TabBar } from "@/components/tab-bar";
-import { formatDateTime } from "@/lib/format";
 import { getCurrentUser, mediaScope } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
@@ -28,7 +28,7 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
       <main className="shell">
         <h1 style={{ marginBottom: 4 }}>{user.workspace.name}</h1>
         <p className="muted small" style={{ marginBottom: 20 }}>
-          Studio since {formatDateTime(user.workspace.createdAt)}
+          Studio since <LocalTime date={user.workspace.createdAt} />
         </p>
 
         <ul className="stat-row">

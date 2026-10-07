@@ -122,10 +122,10 @@ export async function saveReel(input: z.input<typeof saveSchema>): Promise<SaveR
   }
 
   const user = await getCurrentUser();
-  // Every asset in the timeline must belong to this workspace.
+  // Every asset in the timeline must be this workspace's or the shared library's (as export allows).
   const assetIds = referencedAssetIds(timeline);
   if (assetIds.length > 0) {
-    const owned = await prisma.mediaAsset.count({ where: { id: { in: assetIds }, workspaceId: user.workspaceId } });
+    const owned = await prisma.mediaAsset.count({ where: { id: { in: assetIds }, ...mediaScope(user.workspaceId) } });
     if (owned !== assetIds.length) return { ok: false, reason: "invalid", message: "The edit uses media from another workspace." };
   }
 

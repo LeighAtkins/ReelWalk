@@ -14,6 +14,7 @@ import {
   setPlan,
   snapCutsToBeats,
   addText,
+  clipDurationMs,
   clipStartsMs,
   DEFAULT_IMAGE_MS,
   DEFAULT_PANO,
@@ -482,8 +483,17 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         const visibleFrom = text ? Math.min(text.startMs + 300, text.endMs - 1) : 0;
         if (text && (clock.get() < visibleFrom || clock.get() >= text.endMs)) seek(visibleFrom);
       }
+      if (next?.kind === "clip") {
+        // Show the clip being edited, so its look and motion changes are visible.
+        const index = timeline.clips.findIndex((clip) => clip.id === next.id);
+        const start = clipStartsMs(timeline)[index];
+        if (index >= 0 && (clock.get() < start || clock.get() >= start + clipDurationMs(timeline.clips[index]))) {
+          playerRef.current?.pause();
+          seek(start);
+        }
+      }
     },
-    [clock, seek, timeline.texts],
+    [clock, seek, timeline],
   );
 
   // ── Export ──────────────────────────────────────────────────

@@ -1627,6 +1627,14 @@ input[type="range"] {
   }
 }
 
+@media (min-width: 1100px) {
+  /* A wide screen gets a wide editor: the preview keeps its 9:16 frame and
+     the timeline and toolbar use the room, so more of the reel is in view. */
+  .editor {
+    width: min(calc(100% - 64px), 1000px);
+  }
+}
+
 /* ── Accounts: sign in, sign up, account ───────────────────────── */
 
 .auth {

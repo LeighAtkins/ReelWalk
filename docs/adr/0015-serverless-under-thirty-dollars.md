@@ -24,9 +24,11 @@ nobody is exporting.
   exits after `WORKER_IDLE_EXIT_SECONDS` (four minutes) without a message.
   A render costs a few cents; nothing bills in between. The queue, the
   outbox, the heartbeat lease and the dead-letter handling are unchanged.
-- **Postgres on Neon's free tier**, which scales to zero and does not pause
-  the project. RDS goes. The connection string is the one secret that is
-  not in Terraform's own state.
+- **Postgres on Supabase's free tier.** RDS goes. Free projects pause after
+  a week without requests, so App Runner's health check hits `/api/ready`,
+  which runs a query every 20 seconds. The connection string (the session
+  pooler, reachable over IPv4) is the one secret not in Terraform's own
+  state.
 - **Settings in SSM Parameter Store** (free), read by App Runner and ECS at
   start; both runtimes get AWS access through their task or instance role,
   no keys anywhere.

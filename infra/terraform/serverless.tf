@@ -275,10 +275,12 @@ resource "aws_apprunner_service" "web" {
     instance_role_arn = aws_iam_role.web_instance.arn
   }
 
+  # /api/ready touches the database on every check, which also keeps a free
+  # Supabase project from being paused for inactivity.
   health_check_configuration {
     protocol            = "HTTP"
-    path                = "/api/health"
-    interval            = 10
+    path                = "/api/ready"
+    interval            = 20
     timeout             = 5
     healthy_threshold   = 1
     unhealthy_threshold = 5

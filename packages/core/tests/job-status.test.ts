@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assertTransition, canTransition, isActive, isTerminal, RENDER_JOB_STATUSES, sourcesFor } from "../src";
+import { assertTransition, canTransition, exportProgressText, isActive, isTerminal, RENDER_JOB_STATUSES, sourcesFor } from "../src";
 
 describe("render job status transitions", () => {
   it("allows the happy path", () => {
@@ -36,5 +36,28 @@ describe("render job status transitions", () => {
     expect(isTerminal("FAILED")).toBe(true);
     expect(isActive("QUEUED")).toBe(true);
     expect(isActive("RUNNING")).toBe(true);
+  });
+});
+
+describe("exportProgressText", () => {
+  const start = new Date("2026-10-08T00:00:00Z");
+  const at = (s: number) => new Date(start.getTime() + s * 1000);
+  it("explains the cold start, then a real queue", () => {
+    expect(exportProgressText({ status: "QUEUED", progress: 0, createdAt: start, startedAt: null }, at(20)).phase).toBe("Starting a render machine");
+    expect(exportProgressText({ status: "QUEUED", progress: 0, createdAt: start, startedAt: null }, at(300))).toEqual({
+      phase: "Waiting for a render slot",
+      detail: "Queued 5 min ago",
+    });
+  });
+  it("names the preparation phase and estimates the rest once rendering is under way", () => {
+    expect(exportProgressText({ status: "RUNNING", progress: 10, createdAt: start, startedAt: start }, at(120))).toEqual({
+      phase: "Preparing your clips",
+      detail: "2 min so far",
+    });
+    expect(exportProgressText({ status: "RUNNING", progress: 50, createdAt: start, startedAt: start }, at(600))).toEqual({
+      phase: "Rendering 1080×1920",
+      detail: "About 10 min left",
+    });
+    expect(exportProgressText({ status: "RUNNING", progress: 95, createdAt: start, startedAt: start }, at(600)).detail).toBe("Under a minute left");
   });
 });

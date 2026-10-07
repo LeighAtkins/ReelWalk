@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { isActive } from "@reelwalk/core";
+import { exportProgressText, isActive } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
 import { retryRenderJob } from "@/app/actions";
 import { AutoRefresh } from "@/components/auto-refresh";
@@ -34,6 +34,7 @@ export default async function ExportPage({ params }: { params: Promise<{ id: str
     prisma.socialAccount.findUnique({ where: { workspaceId_provider: { workspaceId: user.workspaceId, provider: "instagram" } }, select: { username: true } }),
   ]);
   const active = isActive(job.status);
+  const progress = exportProgressText(job, new Date());
 
   return (
     <main className="shell">
@@ -58,7 +59,8 @@ export default async function ExportPage({ params }: { params: Promise<{ id: str
                 {active ? (
                   <>
                     <strong className="timecode">{job.progress}%</strong>
-                    <span>{job.status === "QUEUED" ? "Waiting for a render slot" : "Rendering 1080×1920"}</span>
+                    <span>{progress.phase}</span>
+                    {progress.detail ? <span className="small muted">{progress.detail}</span> : null}
                   </>
                 ) : (
                   <>

@@ -147,6 +147,21 @@ export async function saveReel(input: z.input<typeof saveSchema>): Promise<SaveR
  * The Instagram post text. Saved on its own, outside the timeline revision,
  * so typing a caption never conflicts with the editor's autosave.
  */
+/**
+ * Preview URLs for videos whose preview has been made since the editor
+ * loaded, so it can switch from the heavy original without a reload.
+ */
+export async function readyPreviews(input: { ids: string[] }): Promise<{ id: string; url: string }[]> {
+  const ids = z.array(z.string().min(1).max(64)).max(200).safeParse(input.ids);
+  if (!ids.success || ids.data.length === 0) return [];
+  const user = await getCurrentUser();
+  const assets = await prisma.mediaAsset.findMany({
+    where: { id: { in: ids.data }, previewKey: { not: null }, ...mediaScope(user.workspaceId) },
+    select: { id: true, kind: true, fileName: true, objectKey: true, thumbKey: true, previewKey: true, durationMs: true, width: true, height: true },
+  });
+  return Promise.all(assets.map(async (asset) => ({ id: asset.id, url: (await toLibraryAsset(asset)).url })));
+}
+
 export async function saveCaption(input: { id: string; caption: string }): Promise<{ ok: boolean }> {
   const caption = z.string().max(5000).safeParse(input.caption);
   if (!caption.success) return { ok: false };

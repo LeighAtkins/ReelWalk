@@ -37,7 +37,7 @@ import {
   type Timeline,
 } from "@reelwalk/core";
 import type { ReelAsset } from "@reelwalk/render/reel";
-import { deleteReel, exportReel } from "@/app/actions";
+import { deleteReel, exportReel, readyPreviews } from "@/app/actions";
 import { formatDuration } from "@/lib/format";
 import type { LibraryAsset } from "@/lib/library";
 import { takePendingFiles } from "@/lib/pending-files";
@@ -385,6 +385,52 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
     },
     [apply, showToast],
   );
+
+  // ── Preview renditions ──────────────────────────────────────
+  // A video uploaded in this session plays from the original (often 4K
+  // HEVC) until a worker has made its 720p preview, a minute or two later.
+  // Check now and then and switch to it, but never mid-playback.
+  const playingRef = useRef(playing);
+  playingRef.current = playing;
+  const pendingIds = useMemo(
+    () =>
+      Object.values(library)
+        .filter((asset) => asset.previewPending)
+        .map((asset) => asset.id)
+        .sort()
+        .join(","),
+    [library],
+  );
+  useEffect(() => {
+    if (!pendingIds) return;
+    const ids = pendingIds.split(",");
+    const started = Date.now();
+    let timer: ReturnType<typeof setTimeout>;
+    let found: { id: string; url: string }[] = [];
+    const check = async () => {
+      if (found.length === 0) {
+        try {
+          found = await readyPreviews({ ids });
+        } catch {
+          found = [];
+        }
+      }
+      if (found.length > 0 && !playingRef.current) {
+        const ready = found;
+        found = [];
+        setLibrary((current) => {
+          const next = { ...current };
+          for (const { id, url } of ready) if (next[id]) next[id] = { ...next[id], url, previewPending: false };
+          return next;
+        });
+        return;
+      }
+      // Give up after 20 minutes; the next page load picks it up anyway.
+      if (Date.now() - started < 20 * 60_000) timer = setTimeout(check, found.length > 0 ? 1500 : 12_000);
+    };
+    timer = setTimeout(check, 8000);
+    return () => clearTimeout(timer);
+  }, [pendingIds]);
 
   // ── Clip, text and music actions ────────────────────────────
   const split = useCallback(() => {

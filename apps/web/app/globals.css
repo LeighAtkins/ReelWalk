@@ -1073,6 +1073,30 @@ p {
   animation: sheet-up 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
+.sheet[data-expanded] {
+  max-height: calc(100dvh - 12px);
+  min-height: calc(100dvh - 12px);
+  align-content: start;
+}
+
+.sheet-handle {
+  display: grid;
+  gap: 10px;
+  margin: -10px -18px 0;
+  padding: 10px 18px 0;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+/* A button that stays reachable at the bottom of a long sheet. */
+.sheet-sticky {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  box-shadow: 0 0 0 8px var(--ink-deep);
+}
+
 .sheet-grip {
   justify-self: center;
   width: 40px;

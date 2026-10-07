@@ -394,6 +394,32 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
     [apply, showToast],
   );
 
+  // ── New version ─────────────────────────────────────────────
+  // After a deploy, this page's uploads and exports (server actions) stop
+  // working until it reloads. Saving does not depend on them, so once the
+  // reel is saved a reload loses nothing: offer one.
+  const [updated, setUpdated] = useState(false);
+  useEffect(() => {
+    let first: string | null = null;
+    const check = async () => {
+      try {
+        const { build } = (await (await fetch("/api/version", { cache: "no-store" })).json()) as { build: string };
+        if (first === null) first = build;
+        else if (build !== first) setUpdated(true);
+      } catch {
+        // Offline or restarting; try later.
+      }
+    };
+    void check();
+    const timer = setInterval(check, 3 * 60_000);
+    const onVisible = () => document.visibilityState === "visible" && void check();
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, []);
+
   // ── Preview renditions ──────────────────────────────────────
   // A video uploaded in this session plays from the original (often 4K
   // HEVC) until a worker has made its 720p preview, a minute or two later.
@@ -869,6 +895,21 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
       <nav className="toolbar" aria-label="Editing tools" ref={toolbarRef} onScroll={markToolbar}>
         {tools}
       </nav>
+
+      {updated && !sheet ? (
+        <div className="update-notice" role="status">
+          <span>ReelWalk was updated.</span>
+          <button
+            type="button"
+            className="btn"
+            onClick={async () => {
+              if (await autosave.flush()) window.location.reload();
+            }}
+          >
+            Reload
+          </button>
+        </div>
+      ) : null}
 
       {toast ? (
         <p className="toast" role="status">

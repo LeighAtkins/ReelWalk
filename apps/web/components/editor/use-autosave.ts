@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Timeline } from "@reelwalk/core";
-import { saveReel } from "@/app/actions";
+import type { SaveResult } from "@/lib/save-reel";
 
 export type SaveStatus = "saved" | "unsaved" | "saving" | "error" | "conflict";
 
@@ -18,6 +18,7 @@ export function useAutosave(reelId: string, initialRevision: number, timeline: T
   const inFlight = useRef<Promise<void> | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const blocked = useRef(false);
+  const flushRef = useRef<() => Promise<boolean>>(async () => false);
 
   const flush = useCallback(async (): Promise<boolean> => {
     clearTimeout(timer.current);
@@ -30,7 +31,19 @@ export function useAutosave(reelId: string, initialRevision: number, timeline: T
     let ok = false;
     inFlight.current = (async () => {
       try {
-        const result = await saveReel({ id: reelId, revision: revision.current, timeline: next.timeline, title: next.title });
+        const response = await fetch(`/api/reels/${encodeURIComponent(reelId)}/save`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ revision: revision.current, timeline: next.timeline, title: next.title }),
+        });
+        if (response.status === 401) {
+          blocked.current = true;
+          setStatus("conflict");
+          setMessage("You were signed out. Sign in again in another tab, then reload; your changes stay on this screen until then.");
+          return;
+        }
+        if (!response.ok && response.status !== 400 && response.status !== 403) throw new Error(`save failed: ${response.status}`);
+        const result = (await response.json()) as SaveResult;
         if (result.ok) {
           revision.current = result.revision;
           saved.current = next;
@@ -47,9 +60,12 @@ export function useAutosave(reelId: string, initialRevision: number, timeline: T
         setStatus("error");
         setMessage(
           navigator.onLine
-            ? "ReelWalk was updated while you were editing. Reload this page to keep saving; your changes stay on this screen until then."
+            ? "Could not save just now; trying again. Your changes stay on this screen."
             : "Could not save. Check your connection; changes are kept on this screen.",
         );
+        // Try again by itself; a dropped connection or a server restart is usually brief.
+        clearTimeout(timer.current);
+        timer.current = setTimeout(() => void flushRef.current(), 5000);
       }
     })();
     await inFlight.current;
@@ -60,6 +76,10 @@ export function useAutosave(reelId: string, initialRevision: number, timeline: T
     }
     return ok;
   }, [reelId]);
+
+  useEffect(() => {
+    flushRef.current = flush;
+  }, [flush]);
 
   useEffect(() => {
     latest.current = { timeline, title };

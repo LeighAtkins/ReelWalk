@@ -1469,6 +1469,40 @@ input[type="range"] {
   font-weight: 600;
 }
 
+/* In the editor the banner floats under the header: as a grid item it would
+   take the preview's stretching row. */
+.editor > .banner {
+  position: absolute;
+  top: calc(60px + var(--safe-top));
+  left: 0;
+  right: 0;
+  z-index: 30;
+}
+
+/* Floats over the preview so the editor's grid stays as it is. */
+.update-notice {
+  position: fixed;
+  left: 50%;
+  top: calc(64px + var(--safe-top));
+  z-index: 55;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 6px 6px 14px;
+  border-radius: 999px;
+  background: var(--ink-deep);
+  box-shadow: 0 0 0 1px var(--line-strong), 0 10px 30px rgb(0 0 0 / 0.4);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  transform: translateX(-50%);
+}
+
+.update-notice .btn {
+  min-height: 32px;
+  padding: 0 14px;
+}
+
 .banner .btn {
   min-height: 32px;
   padding: 0 12px;

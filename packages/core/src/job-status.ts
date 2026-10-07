@@ -41,3 +41,28 @@ export function isTerminal(status: RenderJobStatus): boolean {
 export function isActive(status: RenderJobStatus): boolean {
   return !isTerminal(status);
 }
+
+/**
+ * What an export screen says while a render is in flight: the phase, and
+ * how long it has taken and probably has left. The estimate assumes the rest
+ * goes at the pace so far, so it only appears once there is a pace to go on.
+ */
+export function exportProgressText(
+  job: { status: RenderJobStatus; progress: number; createdAt: Date; startedAt: Date | null },
+  now: Date,
+): { phase: string; detail: string | null } {
+  const minutes = (ms: number) => Math.max(1, Math.round(ms / 60_000));
+  if (job.status === "QUEUED") {
+    const waited = now.getTime() - job.createdAt.getTime();
+    return waited < 120_000
+      ? { phase: "Starting a render machine", detail: "Usually under a minute" }
+      : { phase: "Waiting for a render slot", detail: `Queued ${minutes(waited)} min ago` };
+  }
+  if (job.status !== "RUNNING") return { phase: "", detail: null };
+  const elapsed = now.getTime() - (job.startedAt ?? job.createdAt).getTime();
+  // The worker reports the first fifth while it prepares the clips.
+  const phase = job.progress < 20 ? "Preparing your clips" : "Rendering 1080×1920";
+  if (job.progress < 25 || elapsed < 30_000) return { phase, detail: elapsed >= 60_000 ? `${minutes(elapsed)} min so far` : null };
+  const left = (elapsed * (100 - job.progress)) / job.progress;
+  return { phase, detail: left < 60_000 ? "Under a minute left" : `About ${minutes(left)} min left` };
+}

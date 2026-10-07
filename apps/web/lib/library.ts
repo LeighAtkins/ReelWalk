@@ -22,6 +22,8 @@ export type LibraryAsset = {
   /** For music: tempo and first beat, when detected. */
   bpm: number | null;
   beatOffsetMs: number | null;
+  /** A video whose light preview is still being made; url is the original until then. */
+  previewPending: boolean;
 };
 
 export async function toLibraryAsset(asset: {
@@ -63,5 +65,6 @@ export async function toLibraryAsset(asset: {
     room: asset.room ?? null,
     bpm: asset.bpm ?? null,
     beatOffsetMs: asset.beatOffsetMs ?? null,
+    previewPending: asset.kind === "VIDEO" && asset.previewKey === null,
   };
 }

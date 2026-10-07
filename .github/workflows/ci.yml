@@ -182,6 +182,8 @@ jobs:
     name: End-to-end tests
     runs-on: ubuntu-latest
     needs: verify
+    # A normal run takes 4 minutes; a stuck runner should not hold the PR for 6 hours.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v4
@@ -190,7 +192,9 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # Once hung for 37 minutes downloading on the runner.
       - run: pnpm --filter @reelwalk/e2e exec playwright install --with-deps chromium
+        timeout-minutes: 8
       - name: Start the stack
         run: |
           docker compose up -d --build

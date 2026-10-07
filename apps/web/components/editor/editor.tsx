@@ -14,6 +14,7 @@ import {
   setPlan,
   snapCutsToBeats,
   addText,
+  clipDurationMs,
   clipStartsMs,
   DEFAULT_IMAGE_MS,
   DEFAULT_PANO,
@@ -37,7 +38,7 @@ import {
   type Timeline,
 } from "@reelwalk/core";
 import type { ReelAsset } from "@reelwalk/render/reel";
-import { deleteReel, exportReel } from "@/app/actions";
+import { deleteReel, exportReel, readyPreviews } from "@/app/actions";
 import { formatDuration } from "@/lib/format";
 import type { LibraryAsset } from "@/lib/library";
 import { takePendingFiles } from "@/lib/pending-files";
@@ -222,10 +223,31 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
   const totalMs = timelineDurationMs(timeline);
   const apply = useCallback((update: (timeline: Timeline) => Timeline, key?: string) => dispatch({ type: "apply", update, key }), []);
 
-  const showToast = useCallback((message: string) => {
+  const showToast = useCallback((message: string, ms = 2600) => {
     setToast(message);
-    setTimeout(() => setToast((current) => (current === message ? null : current)), 2600);
+    setTimeout(() => setToast((current) => (current === message ? null : current)), ms);
   }, []);
+
+  /** A hint shown the first time something comes up on this device, never again. */
+  const tipShown = useRef<string | null>(null);
+  const tipOnce = useCallback(
+    (key: string, message: string) => {
+      try {
+        if (localStorage.getItem(`reelwalk.tip.${key}`)) return;
+        localStorage.setItem(`reelwalk.tip.${key}`, "1");
+      } catch {
+        return;
+      }
+      tipShown.current = message;
+      showToast(message, 5500);
+    },
+    [showToast],
+  );
+
+  // A tip is about the editor behind it; opening a sheet puts it away.
+  useEffect(() => {
+    if (sheet && tipShown.current) setToast((current) => (current === tipShown.current ? null : current));
+  }, [sheet]);
 
   // ── Selection (stays valid across undo) ─────────────────────
   const selectedClipIndex = selection?.kind === "clip" ? timeline.clips.findIndex((clip) => clip.id === selection.id) : -1;
@@ -233,6 +255,14 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
   const selectedText = selection?.kind === "text" ? (timeline.texts.find((text) => text.id === selection.id) ?? null) : null;
   const musicSelected = selection?.kind === "music" && timeline.music !== null;
   const activeSelection: Selection = selectedClip ? selection : selectedText ? selection : musicSelected ? selection : null;
+
+  // First-time hints for the gestures that have no button.
+  const selectedKind = activeSelection?.kind;
+  useEffect(() => {
+    const mouse = window.matchMedia("(pointer: fine)").matches;
+    if (selectedKind === "text") tipOnce("text", "Drag the ends of the text bar to set when it shows. Drag the words in the picture to move them.");
+    if (selectedKind === "clip") tipOnce("clip", `Drag the clip's red ends to trim it. ${mouse ? "Ctrl + scroll" : "Pinch the timeline"} to zoom in.`);
+  }, [selectedKind, tipOnce]);
 
   // ── Player and playhead ─────────────────────────────────────
   const seek = useCallback(
@@ -364,6 +394,78 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
     [apply, showToast],
   );
 
+  // ── New version ─────────────────────────────────────────────
+  // After a deploy, this page's uploads and exports (server actions) stop
+  // working until it reloads. Saving does not depend on them, so once the
+  // reel is saved a reload loses nothing: offer one.
+  const [updated, setUpdated] = useState(false);
+  useEffect(() => {
+    let first: string | null = null;
+    const check = async () => {
+      try {
+        const { build } = (await (await fetch("/api/version", { cache: "no-store" })).json()) as { build: string };
+        if (first === null) first = build;
+        else if (build !== first) setUpdated(true);
+      } catch {
+        // Offline or restarting; try later.
+      }
+    };
+    void check();
+    const timer = setInterval(check, 3 * 60_000);
+    const onVisible = () => document.visibilityState === "visible" && void check();
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, []);
+
+  // ── Preview renditions ──────────────────────────────────────
+  // A video uploaded in this session plays from the original (often 4K
+  // HEVC) until a worker has made its 720p preview, a minute or two later.
+  // Check now and then and switch to it, but never mid-playback.
+  const playingRef = useRef(playing);
+  playingRef.current = playing;
+  const pendingIds = useMemo(
+    () =>
+      Object.values(library)
+        .filter((asset) => asset.previewPending)
+        .map((asset) => asset.id)
+        .sort()
+        .join(","),
+    [library],
+  );
+  useEffect(() => {
+    if (!pendingIds) return;
+    const ids = pendingIds.split(",");
+    const started = Date.now();
+    let timer: ReturnType<typeof setTimeout>;
+    let found: { id: string; url: string }[] = [];
+    const check = async () => {
+      if (found.length === 0) {
+        try {
+          found = await readyPreviews({ ids });
+        } catch {
+          found = [];
+        }
+      }
+      if (found.length > 0 && !playingRef.current) {
+        const ready = found;
+        found = [];
+        setLibrary((current) => {
+          const next = { ...current };
+          for (const { id, url } of ready) if (next[id]) next[id] = { ...next[id], url, previewPending: false };
+          return next;
+        });
+        return;
+      }
+      // Give up after 20 minutes; the next page load picks it up anyway.
+      if (Date.now() - started < 20 * 60_000) timer = setTimeout(check, found.length > 0 ? 1500 : 12_000);
+    };
+    timer = setTimeout(check, 8000);
+    return () => clearTimeout(timer);
+  }, [pendingIds]);
+
   // ── Clip, text and music actions ────────────────────────────
   const split = useCallback(() => {
     const at = clock.get();
@@ -418,6 +520,20 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
     [clock, seek, timeline.texts],
   );
 
+  // A clip tool shows the clip it changes: opening one moves the playhead onto
+  // the clip when it was elsewhere. (Not on a plain tap: that would scroll the
+  // strip out from under the finger.)
+  const selectedClipId = selectedClip?.id;
+  useEffect(() => {
+    if (!sheet || !selectedClipId || !["trim", "speed", "volume", "look", "motion", "pano", "transition"].includes(sheet)) return;
+    const index = timeline.clips.findIndex((clip) => clip.id === selectedClipId);
+    const start = clipStartsMs(timeline)[index];
+    if (index < 0 || (clock.get() >= start && clock.get() < start + clipDurationMs(timeline.clips[index]))) return;
+    playerRef.current?.pause();
+    seek(start);
+    // Only when the sheet opens, not on every edit made in it.
+  }, [sheet, selectedClipId]);
+
   // ── Export ──────────────────────────────────────────────────
   const openExport = useCallback(async () => {
     playerRef.current?.pause();
@@ -459,11 +575,22 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         deleteSelection();
       } else if (event.key.toLowerCase() === "s" && !mod) {
         split();
+      } else if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+        // A frame at a time, or a second with Shift.
+        event.preventDefault();
+        playerRef.current?.pause();
+        const step = event.shiftKey ? 1000 : 1000 / REEL_FORMAT.fps;
+        seek(clock.get() + (event.key === "ArrowLeft" ? -step : step));
+      } else if (event.key === "Home" || event.key === "End") {
+        event.preventDefault();
+        seek(event.key === "Home" ? 0 : totalMs);
+      } else if (event.key === "Escape" && activeSelection) {
+        setSelection(null);
       }
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [deleteSelection, sheet, split, togglePlay]);
+  }, [activeSelection, clock, deleteSelection, seek, sheet, split, togglePlay, totalMs]);
 
   const assets = useMemo<Record<string, ReelAsset>>(
     () => Object.fromEntries(Object.values(library).map((asset) => [asset.id, { src: asset.url, kind: asset.kind }])),
@@ -635,6 +762,24 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
 
   const closeSheet = () => setSheet(null);
 
+  // When the tools run past the edge, a fade on that side says there are more.
+  const toolbarRef = useRef<HTMLElement>(null);
+  const markToolbar = useCallback(() => {
+    const element = toolbarRef.current;
+    if (!element) return;
+    element.dataset.moreRight = String(element.scrollLeft + element.clientWidth < element.scrollWidth - 4);
+    element.dataset.moreLeft = String(element.scrollLeft > 4);
+  }, []);
+  useEffect(() => {
+    const element = toolbarRef.current;
+    if (!element) return;
+    element.scrollLeft = 0;
+    markToolbar();
+    const observer = new ResizeObserver(markToolbar);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [selectedKind, selectedClip?.kind, markToolbar]);
+
   return (
     <div className="editor" data-testid="editor">
       <header className="editor-top">
@@ -676,7 +821,14 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         guides={guides}
         selectedText={selectedText}
         onTogglePlay={togglePlay}
-        onMoveText={(id, x, y) => apply((current) => updateText(current, id, { x, y }), `move-${id}`)}
+        clock={clock}
+        onMoveText={(id, x, y, gesture) => apply((current) => updateText(current, id, { x, y }), gesture)}
+        onResizeText={(id, size, gesture) => apply((current) => updateText(current, id, { size }), gesture)}
+        onSelectText={(id) => setSelection({ kind: "text", id })}
+        onEditText={(id) => {
+          setSelection({ kind: "text", id });
+          setSheet("text-edit");
+        }}
         empty={
           uploads.length > 0 ? (
             <p>Uploading {uploads.length === 1 ? "1 file" : `${uploads.length} files`}…</p>
@@ -716,15 +868,48 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         selection={activeSelection}
         clock={clock}
         onSelect={selectAndShow}
+        onOpen={(next) => {
+          selectAndShow(next);
+          if (next?.kind === "text") setSheet("text-edit");
+          if (next?.kind === "clip") setSheet("trim");
+        }}
+        onSeek={(ms) => {
+          playerRef.current?.pause();
+          seek(ms);
+        }}
+        onGrab={setSelection}
         onScrub={scrub}
+        onTextTiming={(id, timing, gesture) => apply((current) => updateText(current, id, timing), gesture)}
+        onMoveClip={(id, toIndex) => apply((current) => moveClip(current, id, toIndex))}
+        onClipTrim={(id, window, gesture) =>
+          apply((current) => {
+            const clip = current.clips.find((item) => item.id === id);
+            return clip ? trimClip(current, id, window, library[clip.assetId]?.durationMs ?? undefined) : current;
+          }, gesture)
+        }
         onAddMedia={() => setSheet("media")}
         onAddText={() => setSheet("text-new")}
         onAddMusic={() => setSheet("music")}
       />
 
-      <nav className="toolbar" aria-label="Editing tools">
+      <nav className="toolbar" aria-label="Editing tools" ref={toolbarRef} onScroll={markToolbar}>
         {tools}
       </nav>
+
+      {updated && !sheet ? (
+        <div className="update-notice" role="status">
+          <span>ReelWalk was updated.</span>
+          <button
+            type="button"
+            className="btn"
+            onClick={async () => {
+              if (await autosave.flush()) window.location.reload();
+            }}
+          >
+            Reload
+          </button>
+        </div>
+      ) : null}
 
       {toast ? (
         <p className="toast" role="status">

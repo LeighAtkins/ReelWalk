@@ -639,6 +639,46 @@ p {
   cursor: grabbing;
 }
 
+/* Corner grip on the selected text: drag to resize. */
+.text-resize {
+  position: absolute;
+  right: -9px;
+  bottom: -9px;
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--ink);
+  border-radius: 50%;
+  background: #fff;
+  cursor: nwse-resize;
+  touch-action: none;
+}
+
+@media (pointer: coarse) {
+  .text-resize {
+    right: -13px;
+    bottom: -13px;
+    width: 26px;
+    height: 26px;
+  }
+}
+
+/* Texts on screen while paused: tap one to select it. */
+.text-hit {
+  position: absolute;
+  min-width: 44px;
+  min-height: 44px;
+  transform: translate(-50%, -50%);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-s);
+  background: transparent;
+  cursor: pointer;
+}
+
+.text-hit:hover {
+  outline: 1.5px dashed rgb(255 255 255 / 0.6);
+}
+
 .transport {
   display: grid;
   grid-template-columns: auto 1fr auto auto auto;
@@ -677,6 +717,8 @@ p {
 .timeline-scroll {
   display: block;
   cursor: grab;
+  /* Sideways swipes scroll; two-finger pinches zoom the timeline, not the page. */
+  touch-action: pan-x;
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
@@ -706,6 +748,40 @@ p {
   background-size: var(--pps) 12px, calc(var(--pps) / 4) 6px;
   background-repeat: repeat-x;
   background-position: 0 bottom, 0 bottom;
+}
+
+.ruler {
+  cursor: pointer;
+}
+
+.timeline-zoom {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 4;
+  display: flex;
+  gap: 2px;
+  padding: 2px 6px 2px 4px;
+  /* Covers the ruler labels underneath instead of overlapping them. */
+  background: var(--ink-deep);
+  box-shadow: -12px 0 10px var(--ink-deep);
+}
+
+.timeline-zoom button {
+  width: 26px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: rgb(11 32 54 / 0.85);
+  color: var(--paper);
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.timeline-zoom button:disabled {
+  opacity: 0.35;
 }
 
 .ruler span {
@@ -747,6 +823,30 @@ p {
   position: absolute;
   inset: 0;
   border-radius: inherit;
+  pointer-events: none;
+}
+
+.clip-block[aria-pressed="true"] {
+  cursor: grab;
+  touch-action: none;
+}
+
+.clip-block[data-lifted] {
+  z-index: 5;
+  opacity: 0.85;
+  cursor: grabbing;
+  box-shadow: 0 8px 20px rgb(0 0 0 / 0.5);
+}
+
+.drop-marker {
+  position: absolute;
+  top: -4px;
+  bottom: -4px;
+  z-index: 6;
+  width: 4px;
+  border-radius: 2px;
+  background: var(--paper);
+  box-shadow: 0 0 0 2px var(--signal);
   pointer-events: none;
 }
 
@@ -831,6 +931,118 @@ p {
   box-shadow: 0 0 0 2.5px var(--signal);
 }
 
+/* Drag handles on the edges of texts and the selected clip. */
+.bar-text {
+  padding: 0 14px;
+}
+
+.bar-text[aria-pressed="true"] {
+  cursor: grab;
+  touch-action: none;
+}
+
+.bar-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bar-time {
+  margin-left: auto;
+  padding-left: 4px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.7;
+}
+
+.grip {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 1;
+  width: 12px;
+  display: grid;
+  place-items: center;
+  cursor: ew-resize;
+  touch-action: none;
+}
+
+.grip::before {
+  content: "";
+  width: 2px;
+  height: 45%;
+  border-radius: 1px;
+  background: currentColor;
+  opacity: 0.35;
+}
+
+.grip-start {
+  left: 0;
+}
+
+.grip-end {
+  right: 0;
+}
+
+[aria-pressed="true"] > .grip {
+  background: var(--signal);
+  color: #fff;
+}
+
+[aria-pressed="true"] > .grip::before {
+  opacity: 1;
+}
+
+.clip-block > .grip {
+  width: 14px;
+}
+
+.clip-block > .grip-start {
+  border-radius: var(--radius-s) 0 0 var(--radius-s);
+}
+
+.clip-block > .grip-end {
+  border-radius: 0 var(--radius-s) var(--radius-s) 0;
+}
+
+[data-dragging] {
+  cursor: ew-resize;
+}
+
+.clip-block[aria-pressed="true"] .clip-meta {
+  left: 18px;
+}
+
+.drag-badge {
+  position: absolute;
+  z-index: 3;
+  transform: translateX(-50%);
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.35);
+}
+
+@media (pointer: coarse) {
+  .grip,
+  .clip-block > .grip {
+    width: 18px;
+  }
+
+  .bar-text {
+    padding: 0 20px;
+  }
+
+  .clip-block[aria-pressed="true"] .clip-meta {
+    left: 22px;
+  }
+}
+
 .lane-hint {
   position: absolute;
   top: 2px;
@@ -883,6 +1095,27 @@ p {
 
 .toolbar::-webkit-scrollbar {
   display: none;
+}
+
+.toolbar[data-more-right="true"] {
+  mask-image: linear-gradient(to right, #000 calc(100% - 48px), transparent);
+}
+
+.toolbar[data-more-left="true"] {
+  mask-image: linear-gradient(to right, transparent, #000 48px);
+}
+
+.toolbar[data-more-left="true"][data-more-right="true"] {
+  mask-image: linear-gradient(to right, transparent, #000 48px, #000 calc(100% - 48px), transparent);
+}
+
+/* With a mouse there is no swipe, so show where the toolbar and looks continue. */
+@media (pointer: fine) {
+  .toolbar,
+  .look-strip {
+    scrollbar-width: thin;
+    scrollbar-color: var(--line-strong) transparent;
+  }
 }
 
 .tool {
@@ -942,7 +1175,7 @@ p {
   display: grid;
   gap: 16px;
   width: min(100%, 520px);
-  max-height: 82dvh;
+  max-height: min(82dvh, calc(100% - 12px));
   overflow-y: auto;
   padding: 10px 18px calc(18px + var(--safe-bottom));
   border-radius: var(--radius-l) var(--radius-l) 0 0;
@@ -950,6 +1183,32 @@ p {
   box-shadow: 0 -1px 0 var(--line-strong), 0 -20px 50px rgb(0 0 0 / 0.4);
   transform: translateX(-50%);
   animation: sheet-up 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.sheet[data-expanded] {
+  /* Of the containing block: the screen on a phone, the editor panel on a desktop. */
+  max-height: calc(100% - 12px);
+  min-height: calc(100% - 12px);
+  align-content: start;
+}
+
+.sheet-handle {
+  display: grid;
+  gap: 10px;
+  /* Full width for an easy grab; not above the sheet, where it would be clipped. */
+  margin: 0 -18px;
+  padding: 0 18px;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+/* A button that stays reachable at the bottom of a long sheet. */
+.sheet-sticky {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  box-shadow: 0 0 0 8px var(--ink-deep);
 }
 
 .sheet-grip {
@@ -1210,6 +1469,40 @@ input[type="range"] {
   font-weight: 600;
 }
 
+/* In the editor the banner floats under the header: as a grid item it would
+   take the preview's stretching row. */
+.editor > .banner {
+  position: absolute;
+  top: calc(60px + var(--safe-top));
+  left: 0;
+  right: 0;
+  z-index: 30;
+}
+
+/* Floats over the preview so the editor's grid stays as it is. */
+.update-notice {
+  position: fixed;
+  left: 50%;
+  top: calc(64px + var(--safe-top));
+  z-index: 55;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 6px 6px 14px;
+  border-radius: 999px;
+  background: var(--ink-deep);
+  box-shadow: 0 0 0 1px var(--line-strong), 0 10px 30px rgb(0 0 0 / 0.4);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  transform: translateX(-50%);
+}
+
+.update-notice .btn {
+  min-height: 32px;
+  padding: 0 14px;
+}
+
 .banner .btn {
   min-height: 32px;
   padding: 0 12px;
@@ -1339,10 +1632,16 @@ input[type="range"] {
 .toast {
   position: fixed;
   left: 50%;
-  bottom: calc(96px + var(--safe-bottom));
+  /* Over the top of the preview, clear of the timeline and toolbar it talks about. */
+  top: calc(72px + var(--safe-top));
   z-index: 60;
+  width: max-content;
+  max-width: min(92vw, 420px);
   padding: 10px 16px;
-  border-radius: 999px;
+  border-radius: 20px;
+  text-align: center;
+  /* Never in the way of the tool underneath it. */
+  pointer-events: none;
   background: var(--paper);
   color: var(--ink);
   font-size: 14px;
@@ -1359,6 +1658,14 @@ input[type="range"] {
     border-radius: var(--radius-l);
     overflow: hidden;
     box-shadow: 0 0 0 1px var(--line-strong), 0 30px 80px rgb(0 0 0 / 0.5);
+  }
+}
+
+@media (min-width: 1100px) {
+  /* A wide screen gets a wide editor: the preview keeps its 9:16 frame and
+     the timeline and toolbar use the room, so more of the reel is in view. */
+  .editor {
+    width: min(calc(100% - 64px), 1000px);
   }
 }
 

@@ -22,10 +22,10 @@ import {
   thumbKeyFor,
   uploadKeyFor,
   type Issue,
-  type Timeline,
 } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
 import { toLibraryAsset, type LibraryAsset } from "@/lib/library";
+import { saveReelFor, type SaveResult } from "@/lib/save-reel";
 import { ensureWorkerRunning } from "@/lib/render-capacity";
 import { flushOutbox, queueRenderJob } from "@/lib/render-jobs";
 import { headObject, presignUpload } from "@/lib/storage";
@@ -96,57 +96,33 @@ export async function createReelFromTour(input: { tourId: string; vibeId?: strin
   return { id: reel.id };
 }
 
-const saveSchema = z.object({
-  id: z.string().min(1),
-  revision: z.number().int().min(0),
-  timeline: z.unknown(),
-  title: z.string().trim().min(1).max(80).optional(),
-});
+export type { SaveResult } from "@/lib/save-reel";
 
-export type SaveResult = { ok: true; revision: number } | { ok: false; reason: "conflict" | "invalid" | "missing"; message: string };
-
-/**
- * Autosave. The write only happens if the reel is still at the revision the
- * browser last saw; otherwise another tab saved in between and this tab is
- * told to reload rather than overwriting that work.
- */
-export async function saveReel(input: z.input<typeof saveSchema>): Promise<SaveResult> {
-  const parsed = saveSchema.safeParse(input);
-  if (!parsed.success) return { ok: false, reason: "invalid", message: "Could not read the changes." };
-
-  let timeline: Timeline;
-  try {
-    timeline = parseTimeline(parsed.data.timeline);
-  } catch {
-    return { ok: false, reason: "invalid", message: "The edit is not valid and was not saved." };
-  }
-
+/** Autosave as a server action. The editor saves through /api/reels/[id]/save, which survives deploys. */
+export async function saveReel(input: { id: string; revision: number; timeline: unknown; title?: string }): Promise<SaveResult> {
   const user = await getCurrentUser();
-  // Every asset in the timeline must belong to this workspace.
-  const assetIds = referencedAssetIds(timeline);
-  if (assetIds.length > 0) {
-    const owned = await prisma.mediaAsset.count({ where: { id: { in: assetIds }, workspaceId: user.workspaceId } });
-    if (owned !== assetIds.length) return { ok: false, reason: "invalid", message: "The edit uses media from another workspace." };
-  }
-
-  const { id, revision, title } = parsed.data;
-  const updated = await prisma.reel.updateMany({
-    where: { id, workspaceId: user.workspaceId, revision },
-    data: { timeline, revision: { increment: 1 }, ...(title ? { title } : {}) },
-  });
-  if (updated.count === 0) {
-    const exists = await prisma.reel.count({ where: { id, workspaceId: user.workspaceId } });
-    return exists
-      ? { ok: false, reason: "conflict", message: "This reel was changed in another tab. Reload to see the latest version." }
-      : { ok: false, reason: "missing", message: "This reel was deleted." };
-  }
-  return { ok: true, revision: revision + 1 };
+  return saveReelFor(user, input);
 }
 
 /**
  * The Instagram post text. Saved on its own, outside the timeline revision,
  * so typing a caption never conflicts with the editor's autosave.
  */
+/**
+ * Preview URLs for videos whose preview has been made since the editor
+ * loaded, so it can switch from the heavy original without a reload.
+ */
+export async function readyPreviews(input: { ids: string[] }): Promise<{ id: string; url: string }[]> {
+  const ids = z.array(z.string().min(1).max(64)).max(200).safeParse(input.ids);
+  if (!ids.success || ids.data.length === 0) return [];
+  const user = await getCurrentUser();
+  const assets = await prisma.mediaAsset.findMany({
+    where: { id: { in: ids.data }, previewKey: { not: null }, ...mediaScope(user.workspaceId) },
+    select: { id: true, kind: true, fileName: true, objectKey: true, thumbKey: true, previewKey: true, durationMs: true, width: true, height: true },
+  });
+  return Promise.all(assets.map(async (asset) => ({ id: asset.id, url: (await toLibraryAsset(asset)).url })));
+}
+
 export async function saveCaption(input: { id: string; caption: string }): Promise<{ ok: boolean }> {
   const caption = z.string().max(5000).safeParse(input.caption);
   if (!caption.success) return { ok: false };

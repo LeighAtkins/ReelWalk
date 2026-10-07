@@ -8,7 +8,11 @@ export type History = {
   past: Timeline[];
   present: Timeline;
   future: Timeline[];
-  /** Edits with the same key in quick succession (a slider drag) collapse into one undo step. */
+  /**
+   * Edits with the same key in quick succession (a slider drag) collapse into
+   * one undo step. Keys starting "drag:" name one pointer gesture and collapse
+   * however long the finger rests.
+   */
   lastKey: string | null;
   lastAt: number;
 };
@@ -40,7 +44,8 @@ export function historyReducer(state: History, action: HistoryAction): History {
       }
       if (next === state.present) return state;
       const now = Date.now();
-      const coalesce = action.key !== undefined && action.key === state.lastKey && now - state.lastAt < COALESCE_MS;
+      const coalesce =
+        action.key !== undefined && action.key === state.lastKey && (action.key.startsWith("drag:") || now - state.lastAt < COALESCE_MS);
       return {
         past: coalesce ? state.past : [...state.past, state.present].slice(-LIMIT),
         present: next,

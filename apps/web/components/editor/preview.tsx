@@ -211,29 +211,41 @@ export function Preview({
     return () => observer.disconnect();
   }, []);
 
-  // Keep one in-memory copy per source: new ones are fetched, removed ones freed.
-  const prefetched = useRef(new Map<string, () => void>());
+  // Keep one in-memory copy per source. A source that drops out (a deleted
+  // clip, a swapped preview) is freed a minute later, not at once: a <video>
+  // may still be showing it, and undo often brings it straight back.
+  const prefetched = useRef(new Map<string, { free: () => void; expiry: ReturnType<typeof setTimeout> | null }>());
   const prefetchKey = JSON.stringify(prefetchSrcs);
   useEffect(() => {
     const map = prefetched.current;
     const wanted = new Set(JSON.parse(prefetchKey) as string[]);
     for (const src of wanted) {
-      if (map.has(src)) continue;
+      const held = map.get(src);
+      if (held) {
+        if (held.expiry) clearTimeout(held.expiry);
+        held.expiry = null;
+        continue;
+      }
       const { free, waitUntilDone } = prefetch(src, { method: "blob-url" });
       // A failed prefetch only means the clip streams as before.
       waitUntilDone().catch(() => undefined);
-      map.set(src, free);
+      map.set(src, { free, expiry: null });
     }
-    for (const [src, free] of map) {
-      if (wanted.has(src)) continue;
-      free();
-      map.delete(src);
+    for (const [src, held] of map) {
+      if (wanted.has(src) || held.expiry) continue;
+      held.expiry = setTimeout(() => {
+        held.free();
+        map.delete(src);
+      }, 60_000);
     }
   }, [prefetchKey]);
   useEffect(() => {
     const map = prefetched.current;
     return () => {
-      for (const free of map.values()) free();
+      for (const held of map.values()) {
+        if (held.expiry) clearTimeout(held.expiry);
+        held.free();
+      }
       map.clear();
     };
   }, []);

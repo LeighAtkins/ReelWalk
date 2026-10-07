@@ -67,3 +67,16 @@ would exist.
 Trivy flags the missing WAF on the distribution and the lack of a
 customer-managed KMS key on the bucket. Both are cost decisions and are
 listed with reasons in `.trivyignore.yaml`.
+
+## Building images
+
+Build from a clean checkout of the commit the tag names, for example a
+`git worktree` of that commit, not from a working tree someone else may be
+switching. ECR tags are immutable, and a build whose context drifted from the
+tag is hard to spot: the image says one SHA and contains another.
+
+```sh
+SHA=$(git rev-parse HEAD)
+docker build -f apps/web/Dockerfile -t "$ECR/reelwalk-web:$SHA" .
+docker build -f apps/worker/Dockerfile -t "$ECR/reelwalk-worker:$SHA" .
+```

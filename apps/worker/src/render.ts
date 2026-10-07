@@ -102,7 +102,17 @@ export async function renderJob(
       report(0.9);
       const { size: previewSize } = await stat(outputPath);
       console.log(`[${job.id}] upload ${previewSize} bytes to s3://${bucket}/${job.previewKey}`);
-      await s3.send(new PutObjectCommand({ Bucket: bucket, Key: job.previewKey, Body: createReadStream(outputPath), ContentLength: previewSize, ContentType: "video/mp4" }));
+      // The key never gets new content, so browsers may keep it for a year.
+      await s3.send(
+        new PutObjectCommand({
+          Bucket: bucket,
+          Key: job.previewKey,
+          Body: createReadStream(outputPath),
+          ContentLength: previewSize,
+          ContentType: "video/mp4",
+          CacheControl: "public, max-age=31536000, immutable",
+        }),
+      );
       await prisma.mediaAsset.update({ where: { id: job.mediaAssetId }, data: { previewKey: job.previewKey } });
       // While the original is here, make the copy an export will need, so the
       // first export of phone footage does not spend minutes re-encoding.

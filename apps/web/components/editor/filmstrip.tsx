@@ -134,7 +134,8 @@ export function Filmstrip({
     const onWheel = (event: WheelEvent) => {
       if (!event.ctrlKey && !event.metaKey) return;
       event.preventDefault();
-      zoom(Math.exp(-event.deltaY * 0.01));
+      // About 1.3x per mouse-wheel notch; trackpad pinches send small deltas and stay smooth.
+      zoom(Math.exp(-Math.max(-100, Math.min(100, event.deltaY)) * 0.0025));
     };
     let pinch: { distance: number; pps: number } | null = null;
     const spread = (touches: TouchList) => Math.hypot(touches[0].clientX - touches[1].clientX, touches[0].clientY - touches[1].clientY);

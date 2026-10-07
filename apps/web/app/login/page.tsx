@@ -3,6 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { signIn, signInDemo } from "@/app/auth-actions";
 import { BrandMark } from "@/components/icons";
+import { SubmitButton } from "@/components/submit-button";
 import { getSessionUser } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
@@ -44,9 +45,9 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
             The demo studio is not available right now.
           </p>
         ) : null}
-        <button className="btn btn-signal btn-block" type="submit">
+        <SubmitButton className="btn btn-signal btn-block" pendingLabel="Signing in…">
           Sign in
-        </button>
+        </SubmitButton>
         <p className="muted small" style={{ textAlign: "center" }}>
           New here?{" "}
           <Link href="/signup" className="link">
@@ -57,9 +58,9 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
 
       {demo ? (
         <form action={signInDemo} className="auth-demo">
-          <button className="btn btn-quiet btn-block" type="submit" data-testid="demo-login">
+          <SubmitButton className="btn btn-quiet btn-block" pendingLabel="Opening the demo…" testId="demo-login">
             Look around the demo studio
-          </button>
+          </SubmitButton>
           <p className="muted small">A furnished home tour, music and sample reels, ready to remix.</p>
         </form>
       ) : null}

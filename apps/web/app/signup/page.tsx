@@ -3,6 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { signUp } from "@/app/auth-actions";
 import { BrandMark } from "@/components/icons";
+import { SubmitButton } from "@/components/submit-button";
 import { getSessionUser } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
@@ -45,9 +46,9 @@ export default async function SignupPage({ searchParams }: { searchParams: Promi
             {error}
           </p>
         ) : null}
-        <button className="btn btn-signal btn-block" type="submit">
+        <SubmitButton className="btn btn-signal btn-block" pendingLabel="Creating your studio…">
           Create studio
-        </button>
+        </SubmitButton>
         <p className="muted small" style={{ textAlign: "center" }}>
           Already have one?{" "}
           <Link href="/login" className="link">

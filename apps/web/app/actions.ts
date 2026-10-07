@@ -26,6 +26,7 @@ import {
 } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
 import { toLibraryAsset, type LibraryAsset } from "@/lib/library";
+import { ensureWorkerRunning } from "@/lib/render-capacity";
 import { flushOutbox, queueRenderJob } from "@/lib/render-jobs";
 import { headObject, presignUpload } from "@/lib/storage";
 import { getCurrentUser, mediaScope } from "@/lib/workspace";
@@ -218,6 +219,7 @@ export async function exportReel(input: { id: string }): Promise<ExportResult> {
     await queueRenderJob(tx, job);
   });
   await flushOutbox();
+  await ensureWorkerRunning();
   revalidatePath("/exports");
   redirect(`/reels/${reel.id}/export`);
 }
@@ -245,7 +247,10 @@ export async function retryRenderJob(formData: FormData): Promise<void> {
     if (retried[0]) await queueRenderJob(tx, retried[0]);
     return retried[0];
   });
-  if (job) await flushOutbox();
+  if (job) {
+    await flushOutbox();
+    await ensureWorkerRunning();
+  }
 
   if (job?.reelId) revalidatePath(`/reels/${job.reelId}/export`);
   revalidatePath("/exports");

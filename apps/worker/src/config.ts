@@ -22,6 +22,12 @@ export type WorkerConfig = {
   /** Browser tabs per render. */
   renderConcurrency: number;
   healthPort: number;
+  /**
+   * Exit after this long without a message. 0 keeps the worker running
+   * forever (Kubernetes, Compose). An on-demand task (ECS run by the web app
+   * when an export is queued) sets it so the task stops costing money.
+   */
+  idleExitSeconds: number;
 };
 
 function valueOrUndefined(env: NodeJS.ProcessEnv, key: string): string | undefined {
@@ -53,6 +59,7 @@ export function getConfig(env = process.env): WorkerConfig {
     outboxPollSeconds: numberFrom(env, "OUTBOX_POLL_SECONDS", 5),
     renderConcurrency: numberFrom(env, "RENDER_CONCURRENCY", 4),
     healthPort: numberFrom(env, "HEALTH_PORT", 8081),
+    idleExitSeconds: numberFrom(env, "WORKER_IDLE_EXIT_SECONDS", 0),
   };
 
   // A crashed worker's message reappears after `visibilitySeconds`. By then

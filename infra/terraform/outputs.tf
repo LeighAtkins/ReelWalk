@@ -44,3 +44,21 @@ output "database_url" {
 output "app_pods_role_arn" {
   value = aws_iam_role.app_pods.arn
 }
+
+output "apprunner_url" {
+  value = "https://${aws_apprunner_service.web.service_url}"
+}
+
+output "apprunner_dns_target" {
+  description = "CNAME target for the custom domain"
+  value       = aws_apprunner_custom_domain_association.web.dns_target
+}
+
+output "apprunner_certificate_validation_records" {
+  description = "CNAME records Cloudflare must carry before App Runner issues the certificate"
+  value       = aws_apprunner_custom_domain_association.web.certificate_validation_records
+}
+
+output "worker_task_definition" {
+  value = aws_ecs_task_definition.worker.arn_without_revision
+}

@@ -120,7 +120,7 @@ export const appTopics: Topic[] = [
       { ja: "キャッシュの動きも、バージョンによってよく変わります。", en: "Caching behaviour also changes often between versions." },
     ],
     status: "built",
-    statusNote: "Built with Next.js 16 and runs locally (dev server, Docker Compose, kind); it has never been deployed to AWS.",
+    statusNote: "Built with Next.js 16; runs locally (dev server, Docker Compose, kind) and in production on AWS App Runner at reelwalking.com (ADR 0015).",
     inRepo: [
       { path: "apps/web/app/page.tsx", what: "The reels grid: an async Server Component that queries Prisma directly." },
       { path: "apps/web/app/api/health", what: "Route Handlers kept only for Kubernetes probes (health, ready) and the timeline editor." },
@@ -208,7 +208,7 @@ export const appTopics: Topic[] = [
       { ja: "渡せるpropsは、シリアライズできる値だけです。", en: "Only serializable values can be passed as props." },
     ],
     status: "built",
-    statusNote: "Built: the reels grid, editor page, export screen and exports list are async Server Components reading Postgres through Prisma; runs locally only.",
+    statusNote: "Built: the reels grid, editor page, export screen and exports list are async Server Components reading Postgres through Prisma; running locally and in production.",
     inRepo: [
       { path: "apps/web/app/reels/[id]/page.tsx", what: "Server Component loads the reel, library and floor plans, then renders the client Editor." },
       { path: "apps/web/components/editor/editor.tsx", what: "The \"use client\" boundary: the interactive editor." },
@@ -473,7 +473,7 @@ export const appTopics: Topic[] = [
       { ja: "Prisma 7では、ドライバーアダプターも必要になりました。", en: "Prisma 7 also requires a driver adapter." },
     ],
     status: "built",
-    statusNote: "Built: Prisma 7 with @prisma/adapter-pg, five committed migrations, and a migrate Job in the Helm chart that has run on kind; never run against RDS.",
+    statusNote: "Built: Prisma 7 with @prisma/adapter-pg, seven committed migrations, a migrate Job in the Helm chart (kind, and EKS for a day), and a one-off Fargate task that applies them in production.",
     inRepo: [
       { path: "packages/db/prisma/schema.prisma", what: "All models: Workspace, User, Reel, MediaAsset, Tour, RenderJob, RenderOutput." },
       { path: "packages/db/prisma/migrations", what: "Committed SQL migrations applied with migrate deploy." },
@@ -552,12 +552,12 @@ export const appTopics: Topic[] = [
       { ja: "トレードオフは、接続数{せつぞくすう}やスケールを自分で考える必要があることです。", en: "The trade-off is having to think about connection counts and scaling yourself." },
     ],
     status: "built",
-    statusNote: "Built: PostgreSQL 16 runs locally in Docker Compose and kind, and the conditional updates are real and tested; RDS exists only as a Terraform sketch that was never applied.",
+    statusNote: "Built: PostgreSQL 16 runs locally in Docker Compose and kind; production used RDS for a day (ADR 0014) and now uses the free Postgres tier at Supabase (ADR 0015). The conditional updates are real and tested.",
     inRepo: [
       { path: "apps/worker/src/store.ts", what: "Every job status change as one conditional updateMany; succeed() wraps upsert + update in a transaction." },
       { path: "packages/core/src/job-status.ts", what: "The legal state transitions as a pure function, covered by Vitest." },
       { path: "docs/adr/0002-postgresql-and-prisma.md", what: "Why PostgreSQL + Prisma, and why not DynamoDB or raw SQL." },
-      { path: "infra/terraform/main.tf", what: "The aws_db_instance sketch (postgres 16, db.t4g.micro), never applied." },
+      { path: "docs/adr/0014-eks-and-rds.md", what: "RDS Postgres 16 (db.t4g.micro, private subnets, TLS required) ran for one day; the Terraform is in git history." },
     ],
     terms: [
       { ja: "リレーショナルデータベース", en: "relational database", note: "Often RDB (アールディービー). PostgreSQL itself is nicknamed ポスグレ." },
@@ -595,14 +595,14 @@ export const appTopics: Topic[] = [
         tip: "Know the why: the DB and the queue can't share a transaction, so the message goes into the DB first (ADR 0010). The relay can send twice, which the idempotent worker already handles.",
       },
       {
-        q: { ja: "本番{ほんばん}では、どう運用する予定でしたか？", en: "How did you plan to run it in production?" },
+        q: { ja: "本番{ほんばん}のデータベースは、どうしていますか？", en: "What do you do for the database in production?" },
         a: [
-          { ja: "AWSでは、RDSのPostgreSQLを使う設計にしました。", en: "On AWS, I designed it to use RDS for PostgreSQL." },
-          { ja: "Terraformで、プライベートサブネットに置く形で書いてあります。", en: "It's written in Terraform, placed in private subnets." },
-          { ja: "ただ、AWSアカウントの審査{しんさ}が終わらず、まだデプロイしていません。", en: "But my AWS account verification never finished, so it isn't deployed." },
+          { ja: "最初は、TerraformでRDSのPostgreSQLをプライベートサブネットに作りました。", en: "At first I created RDS PostgreSQL in private subnets with Terraform." },
+          { ja: "一日動かして、EKSごとコストの判断でやめました。", en: "It ran for a day, and I retired it along with EKS over cost." },
+          { ja: "今は、AWSの外の無料枠{むりょうわく}のPostgreSQLを使っています。", en: "Now I use a free PostgreSQL tier outside AWS." },
           { ja: "ローカルでは、同じPostgreSQL 16で動かしています。", en: "Locally it runs on the same PostgreSQL 16." },
         ],
-        tip: "Be honest and brief about the AWS block. Never imply RDS was running in production.",
+        tip: "RDS was real for one day (ADR 0014). Say why it went: $15 a month for an idle database when a free tier does the job (ADR 0015). Mention the one surprise: RDS 16 forces TLS, so the connection string needs sslmode.",
       },
     ],
     videoSearch: ["PostgreSQL 入門 解説", "楽観的ロック 悲観的ロック 違い", "Amazon RDS PostgreSQL 入門"],
@@ -686,10 +686,10 @@ export const appTopics: Topic[] = [
       {
         q: { ja: "AWSのS3は、実際{じっさい}に使いましたか？", en: "Did you actually use AWS S3?" },
         a: [
-          { ja: "ReelWalkでは、まだ本物のS3にはデプロイしていません。", en: "For ReelWalk, I haven't deployed to real S3 yet." },
-          { ja: "AWSアカウントの審査{しんさ}が終わらなかったためです。", en: "Because my AWS account verification didn't finish." },
-          { ja: "ローカルではMinIOを使って、同じAWS SDKで動かしました。", en: "Locally I used MinIO, with the same AWS SDK." },
-          { ja: "本番{ほんばん}では、環境変数{かんきょうへんすう}を変えるだけで切り替わる設計です。", en: "In production it's designed to switch by changing environment variables only." },
+          { ja: "はい、本番は本物のS3とCloudFrontで動いています。", en: "Yes, production runs on real S3 and CloudFront." },
+          { ja: "バケットはTerraformにインポートして、CORSと暗号化{あんごうか}を追加しました。", en: "I imported the bucket into Terraform and added CORS and encryption." },
+          { ja: "ローカルではMinIOを使って、同じAWS SDKで動かしています。", en: "Locally I use MinIO, with the same AWS SDK." },
+          { ja: "切り替えは、環境変数{かんきょうへんすう}を変えるだけです。", en: "Switching is just a change of environment variables." },
         ],
         tip: "Honesty is the point here. Then pivot to what you did verify locally.",
       },

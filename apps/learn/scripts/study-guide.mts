@@ -30,7 +30,7 @@ const GROUPS: Record<Group, { en: string; color: string }> = {
   platform: { en: "Platform", color: "#00A3D9" },
   delivery: { en: "CI/CD", color: "#00994C" },
   quality: { en: "Testing and security", color: "#EE8A00" },
-  aws: { en: "AWS design", color: "#9A7B2F" },
+  aws: { en: "AWS", color: "#9A7B2F" },
 };
 const STATUS = {
   built: "Built and running",
@@ -178,7 +178,7 @@ function k8sSvg(): string {
     ${box(16, 36, 200, 120, "web Deployment", ["2 replicas, rolling update", "maxUnavailable: 0", "readiness: DB + migrations", "liveness: process answers", "Service in front"], "#0079C2")}
     ${box(224, 36, 200, 120, "worker Deployment", ["no Service (pulls from SQS)", "one render per pod", "/dev/shm for Chrome", "long grace period on SIGTERM", "liveness fed by poll loop"], "#E2407F")}
     ${box(432, 36, 196, 120, "migrate Job", ["prisma migrate deploy + seed", "runs before rollout", "name includes a hash", "(pod template is immutable)"], "#8F5BB5")}
-    ${box(16, 168, 300, 116, "ConfigMap + Secret", ["settings and credentials via envFrom", "checksum annotation rolls pods on change", "production: Secret from outside the chart", "AWS access through IRSA (designed)"], "#00A3D9")}
+    ${box(16, 168, 300, 116, "ConfigMap + Secret", ["settings and credentials via envFrom", "checksum annotation rolls pods on change", "production: Secret from outside the chart", "AWS access through Pod Identity (EKS, one day)"], "#00A3D9")}
     ${box(324, 168, 304, 116, "Every container", ["requests and limits", "non-root, read-only root filesystem", "no privilege escalation, capabilities dropped", "Postgres, MinIO, ElasticMQ live outside the chart"], "#EE8A00")}
   </svg>`;
 }
@@ -363,9 +363,9 @@ th { font-size: 9pt; color: #5a6472; }
     ${systemSvg()}
     <div>
       <h4>Read the map in one breath</h4>
-      <p>Phone → entry point → Next.js. Next.js reads and writes Postgres and sends jobs to SQS. Workers pull from SQS, read media from S3, render, write the MP4 back to S3 and the status to Postgres. Messages that fail three times go to the dead-letter queue. CloudFront would deliver videos on AWS.</p>
+      <p>Phone → entry point → Next.js. Next.js reads and writes Postgres and sends jobs to SQS. Workers pull from SQS, read media from S3, render, write the MP4 back to S3 and the status to Postgres. Messages that fail three times go to the dead-letter queue. In production CloudFront delivers the finished videos.</p>
       <h4>Local stand-ins (same code, different endpoints)</h4>
-      <table><tr><th>AWS design</th><th>Runs locally as</th></tr>
+      <table><tr><th>In production (AWS)</th><th>Runs locally as</th></tr>
       ${NODES.filter((n) => n.name.local !== n.name.aws).map((n) => `<tr><td>${esc(n.name.aws)}</td><td>${esc(n.name.local)}</td></tr>`).join("")}
       </table>
       <h4>The bottom row is delivery</h4>
@@ -408,7 +408,33 @@ ${ROUTES.map(routeSection).join("")}
   ${k8sSvg()}
   <h3>From a commit to a running pod</h3>
   ${pipelineSvg()}
-  <p>CI never touches the cluster. It records the new image tag in Git; Argo CD notices the commit and rolls it out, so a merge to main is a deploy and a revert is a rollback. Locally this runs on a kind cluster; ECR and EKS are designed but not used because the AWS account isn't available.</p>
+  <p>CI never touches the cluster. It records the new image tag in Git; Argo CD notices the commit and rolls it out, so a merge to main is a deploy and a revert is a rollback. That GitOps loop runs on the local kind cluster. On main, CI also pushes the same images to ECR through a GitHub OIDC role (no stored keys), and production pulls from there.</p>
+</div>
+
+<div class="page">
+  <h2>5b. Production on AWS, and the cost decision</h2>
+  <p class="lede">Learn this page cold. It is the most likely follow-up question and the best story in the project: you built it the expensive way, measured it, and rebuilt it the cheap way, with the records to prove both.</p>
+  <h3>What runs today (ADR 0015), about $10-15 a month</h3>
+  <table>
+    <tr><th>Piece</th><th>Runs on</th><th>Notes</th></tr>
+    <tr><td>Web app</td><td>AWS App Runner, 0.5 vCPU / 1 GB, from the ECR image</td><td>HTTPS, custom domain and certificate are part of the service; no load balancer or ingress. Idle cost about $5.</td></tr>
+    <tr><td>Render workers</td><td>ECS Fargate tasks started on demand</td><td>When an export is queued the web app calls ecs:RunTask; the task drains the queue and exits after four idle minutes. A few cents per render, nothing in between.</td></tr>
+    <tr><td>Queue</td><td>SQS + dead-letter queue</td><td>Unchanged: lease, heartbeat, retries, outbox.</td></tr>
+    <tr><td>Media</td><td>S3 + CloudFront</td><td>Presigned uploads from the phone; CloudFront serves finished videos.</td></tr>
+    <tr><td>Images</td><td>ECR, pushed by GitHub Actions via OIDC</td><td>Tag = commit SHA, immutable, scanned on push.</td></tr>
+    <tr><td>Config and secrets</td><td>SSM Parameter Store; IAM task and instance roles</td><td>No access keys anywhere in the runtime.</td></tr>
+    <tr><td>Database</td><td>Free Postgres tier outside AWS (Supabase)</td><td>The one non-AWS piece; chosen because RDS alone is $15 a month.</td></tr>
+    <tr><td>Everything</td><td>Terraform, state in S3</td><td>Existing bucket and CloudFront were imported, not recreated.</td></tr>
+  </table>
+  <h3>What ran for one day (ADR 0014), about $250 a month</h3>
+  <p>EKS 1.34 with one t3.xlarge node, RDS Postgres 16, ingress-nginx behind a network load balancer, cert-manager with Let's Encrypt, Pod Identity for AWS access. It worked: a real render was verified end to end at reelwalking.com. The bill was $73 control plane + $120 node + $17 load balancer + $15 database, nearly all of it idle. It was destroyed the same evening.</p>
+  <h3>How to tell it</h3>
+  <ul>
+    <li>"I did run it on EKS. It proved the Helm chart, IAM, TLS and DNS on a real cluster. Then I looked at the bill and the workload and moved to App Runner plus on-demand Fargate, same images, same queue, about twenty times cheaper."</li>
+    <li>Why not Remotion Lambda? Near-zero idle cost and the real long-term answer, but it replaces the worker and needs the WebGL transitions tested under Lambda. Deliberately a separate project.</li>
+    <li>What is the trade-off? A cold start of one to two minutes for the first render after a quiet spell, and a small race where a worker exits as a message arrives (the next export picks it up).</li>
+    <li>Kubernetes is not gone: the chart and Argo CD run on kind, and the EKS Terraform is in git history, 20 minutes from a rebuild.</li>
+  </ul>
 </div>
 
 <div class="page"><h2>6. Architecture decisions</h2><p class="lede">Each decision record answers: what was the problem, what did you choose, why, what did you reject, and what does it cost. Learn the one-liner first.</p>
@@ -449,7 +475,7 @@ function xml(): string {
     "Start each session by asking which section to practise (pitch, big picture, flows, reliability, platform, decisions, a component, or a mixed mock interview). Default to a mixed mock interview.",
     "After each answer, ask at least one follow-up that digs into WHY, a trade-off, a failure case, or an alternative that was rejected. Use the follow-ups in the knowledge where they fit.",
     "Judge answers only against the facts in this briefing. If the candidate says something that contradicts it, say so gently and give the correct fact.",
-    "Treat overclaiming as a serious mistake. Anything with status 'designed' was never deployed: the candidate must say 'designed' or 'verified locally', never imply production AWS experience. Praise honest scoping.",
+    "Treat overclaiming as a serious mistake. Statuses: 'built' runs (locally and, where the note says so, in production on AWS); 'local' uses a stand-in locally and the real AWS service in production; 'designed' was never deployed. The candidate must not describe EKS as current production: it ran for one day and was retired for cost (ADR 0014, 0015). Praise honest scoping and correct numbers.",
     "Do not invent features, numbers or history that are not in this briefing. If asked something the briefing doesn't cover, say it's outside what you know about the project.",
     "After the candidate answers, give brief feedback in this order: one thing that was clear, one thing to add or fix, and a better phrasing in one or two sentences (use the oneLine or model answer when it helps).",
     "If the candidate is stuck for a while or asks for help, give a hint first (a keyword or the first step), then the model answer if they're still stuck.",
@@ -497,7 +523,7 @@ function xml(): string {
         x(
           "summary",
           t(
-            "ReelWalk is a phone-first editor for Instagram Reels of property listings: 360 photos, walkthrough transitions, a floor-plan overlay, music with beat snapping, and exports rendered by separate workers. The web app (Next.js App Router, Server Components, Server Actions) saves an export as a job in PostgreSQL (via Prisma) and sends only the job id to SQS; workers long-poll SQS, render the MP4 with Remotion in headless Chrome, store it in S3 and update the job. It runs locally with Docker Compose and on a local kind Kubernetes cluster via a Helm chart; CI on GitHub Actions lints, typechecks, unit-tests, scans with Trivy, builds images, runs Playwright end-to-end tests with a real render, pushes images to GHCR on main and records the tag in Git for Argo CD to sync. AWS (EKS, RDS, S3, SQS, CloudFront, IAM) is designed but not deployed because the AWS account is unavailable; locally MinIO stands in for S3 and ElasticMQ for SQS, using the same AWS SDK code.",
+            "ReelWalk is a phone-first editor for Instagram Reels of property listings: 360 photos, walkthrough transitions, a floor-plan overlay, music with beat snapping, and exports rendered by separate workers. The web app (Next.js App Router, Server Components, Server Actions) saves an export as a job in PostgreSQL (via Prisma) and sends only the job id to SQS; workers long-poll SQS, render the MP4 with Remotion in headless Chrome, store it in S3 and update the job. It runs locally with Docker Compose and on a local kind Kubernetes cluster via a Helm chart; CI on GitHub Actions lints, typechecks, unit-tests, scans with Trivy, builds images, runs Playwright end-to-end tests with a real render, pushes images to GHCR on main and records the tag in Git for Argo CD to sync. Production is on AWS at reelwalking.com: the web app on App Runner, render workers as Fargate tasks the web app starts on demand, S3 + CloudFront, SQS, ECR (pushed via GitHub OIDC), SSM Parameter Store, all managed by Terraform, with Postgres on a free tier outside AWS; about $10-15 a month. Before that, production ran on EKS with RDS for exactly one day (ADR 0014): it worked, cost about $250 a month mostly idle, and was replaced the same day (ADR 0015). Locally MinIO stands in for S3 and ElasticMQ for SQS, using the same AWS SDK code. Users sign up with email and password (ADR 0012); reels have public share links and a restaurant/cafe builder with stock footage (ADR 0013); one-tap Instagram posting through the Graph API is wired behind a Meta app in development mode.",
           ),
         ),
         x(

@@ -110,10 +110,10 @@ export const DECISIONS: Decision[] = [
     costs: [
       "Readiness vs liveness split: a database outage takes pods out of rotation instead of restarting them.",
       "Worker autoscaling is CPU-based and off by default; KEDA on queue depth is the planned improvement.",
-      "In production the Secret comes from outside the chart and pods get AWS access through IRSA (designed, not done).",
+      "In production the Secret comes from outside the chart; on EKS pods got AWS access through Pod Identity, which ran for one day (ADR 0014).",
     ],
     oneLine:
-      "Kubernetes gives me rolling updates, probes and separate scaling for web and worker, and Helm lets the same chart run on kind locally and on EKS later.",
+      "Kubernetes gives me rolling updates, probes and separate scaling for web and worker, and Helm lets the same chart run on kind locally and, as it turned out, on EKS with one values file.",
   },
   {
     adr: "0005",
@@ -126,11 +126,10 @@ export const DECISIONS: Decision[] = [
     why: ["The whole stack can be created and destroyed in minutes for free.", "Moving to EKS should be a new values file plus Terraform, with no app changes."],
     rejected: [{ option: "Going straight to EKS", reason: "Cost and setup before learning anything about the app on Kubernetes." }],
     costs: [
-      "Not covered by kind, and not claimed: IRSA and real IAM, load balancer/TLS/DNS, node autoscaling, RDS networking and backups, CloudFront.",
-      "The 'only a values file' claim is untested until EKS is actually used.",
+      "kind could not prove IAM, the load balancer, TLS or DNS. Those were proven on 2026-10-07 when the same chart went to EKS with one values file (ADR 0014), and the cluster was retired the same day for cost (ADR 0015).",
     ],
     oneLine:
-      "I verified everything on a local kind cluster with the same chart; AWS-only pieces like IAM roles and load balancers are designed but honestly not done yet.",
+      "I verified everything on a local kind cluster first; the same chart later ran on EKS for a day, which proved the AWS-only pieces, and kind stays the free daily demo.",
   },
   {
     adr: "0006",
@@ -228,5 +227,96 @@ export const DECISIONS: Decision[] = [
     ],
     oneLine:
       "The job and its queue message are written in one database transaction and the message is sent afterwards, so a job can never be saved without its message; duplicates are fine because the worker is idempotent.",
+  },
+  {
+    adr: "0011",
+    title: "Terraform owns the AWS account",
+    problem:
+      "When the AWS account came back from a suspension it had a hand-made media bucket and a disabled CloudFront distribution, and nothing else the app needed: no queue, no image registry, no CI identity, no runtime identity, no spending limit.",
+    decision: [
+      "Every AWS resource ReelWalk uses is in infra/terraform, with state in a versioned S3 bucket and S3 lock files (no DynamoDB table).",
+      "The two resources that already existed were imported, not recreated, so the CloudFront domain stayed the same.",
+      "A GitHub OIDC provider and a role that only the main branch of the repository can assume, limited to pushing two ECR repositories. CI holds no AWS keys.",
+      "An application IAM policy (objects in the bucket, the two queues) that every runtime reuses: an IAM user locally, Pod Identity on EKS, task and instance roles on Fargate and App Runner.",
+      "A monthly budget with email alerts; scanner findings about a WAF and customer-managed keys accepted as cost decisions, with reasons in .trivyignore.yaml.",
+    ],
+    why: ["terraform plan is the drift check; nothing is changed in the console.", "Importing kept the domain and avoided re-uploading media."],
+    rejected: [
+      { option: "Click it together in the console", reason: "No history, no review, no way to rebuild it." },
+      { option: "Stored access keys in GitHub secrets", reason: "OIDC gives short-lived credentials scoped to one branch and two repositories." },
+    ],
+    costs: ["Imported resources need their exact settings written down before plan is clean.", "The IAM user is a stop-gap for local runs against real AWS."],
+    oneLine: "I put the whole AWS account under Terraform, importing what already existed, and gave CI an OIDC role instead of keys.",
+  },
+  {
+    adr: "0012",
+    title: "Accounts with passwords and database sessions",
+    problem: "Every request acted as one seeded demo user. To hand the app to anyone else it needed sign-up, sign-in and separation between studios, without an email provider or OAuth app existing yet.",
+    decision: [
+      "Email and password, hashed with scrypt from Node's crypto (no native dependency), parameters stored with the hash.",
+      "Sessions in Postgres: the browser holds a random token in an httpOnly cookie; the table stores only its SHA-256.",
+      "One gate: getCurrentUser() resolves the session or redirects to /login, and a proxy does a cheap cookie check first. Every query is scoped to the user's workspace.",
+      "The open starter library is flagged shared and visible to every workspace; uploads stay private.",
+    ],
+    why: ["Works over plain HTTP on a phone on the home network.", "Adding magic links or Google sign-in later is another way to call createSession(), not a new model."],
+    rejected: [
+      { option: "A hosted auth provider", reason: "Another account and callback to set up before anyone could log in; fine later, not for the first version." },
+      { option: "JWTs in the cookie", reason: "Cannot be revoked; a database row can." },
+    ],
+    costs: ["No password reset until there is an email provider.", "One user per workspace: no teams yet."],
+    oneLine: "Email and password with scrypt, sessions as database rows behind an httpOnly cookie, and one function that scopes every query to the signed-in workspace.",
+  },
+  {
+    adr: "0013",
+    title: "Venue reels, stock footage and share links",
+    problem: "The editor and the tour auto-build were built for listings. A restaurant's menu is already a shot list, but most venues have no footage, and sharing a file from the share sheet only works over HTTPS.",
+    decision: [
+      "Venue vibes: a complete treatment (song, look, cut length, hook, label style, call to action, caption). buildVenueReel() turns tapped clips, dishes and prices into a timeline cut on the beat, one dish label per clip, the details card closing with price, address and handle.",
+      "Free stock footage from Pixabay, searched server-side; imports keep the source, licence and creator credit, and the credit joins the caption.",
+      "A public share page per reel, /r/<token>, with the latest export, the caption and a Save button. No sign-in; turning the link off deletes the token.",
+    ],
+    why: ["The render composition is reused unchanged: the details card shows 'from $12' where a listing shows the price.", "A link works from any phone and messenger, HTTPS or not."],
+    rejected: [{ option: "A separate restaurant product", reason: "Same timeline, same renderer, same queue; only the builder differs." }],
+    costs: ["A share link exposes the export to anyone holding it; links are long, random and revocable.", "Stock clips are stored per workspace."],
+    oneLine: "I generalised the tour builder into venue reels with dish labels and stock footage, and added a public share link because the share sheet needs HTTPS.",
+  },
+  {
+    adr: "0014",
+    title: "Production on EKS and RDS (superseded the same day)",
+    problem: "Share links, the Instagram OAuth callback and the videos Instagram fetches all need a public HTTPS address; the chart had only run on kind.",
+    decision: [
+      "A VPC in two zones with nodes in public subnets and no NAT gateway (it costs more than the database), the database in private subnets.",
+      "EKS 1.34 with one t3.xlarge node group; pods get AWS access through EKS Pod Identity, so the cluster Secret holds no keys.",
+      "RDS Postgres 16 on the smallest Graviton class, reachable only from the node security group.",
+      "ingress-nginx behind a network load balancer, cert-manager with Let's Encrypt, Cloudflare DNS at the apex.",
+    ],
+    why: ["It proved the chart on a real cluster: IAM, load balancer, TLS and DNS, with a real render verified end to end at reelwalking.com."],
+    rejected: [{ option: "A single VM with Compose", reason: "Would have been cheaper; the user chose EKS to exercise Kubernetes on AWS." }],
+    costs: [
+      "About $250 a month: $73 control plane, $120 node, $17 load balancer, $15 database, almost all of it idle. Retired after one day (ADR 0015).",
+      "Three small surprises worth remembering: RDS 16 forces TLS (sslmode), Terraform output on Windows carries a carriage return, and a changed external Secret does not roll pods by itself.",
+    ],
+    oneLine: "I ran production on EKS and RDS for a day, which proved the chart end to end, and took it down because the bill was for idle hardware.",
+  },
+  {
+    adr: "0015",
+    title: "Production for under $30 a month",
+    problem: "EKS was the wrong shape for an app with one studio and a render every now and then: a quarter of the bill was the control plane and half was an idle node.",
+    decision: [
+      "Web app on AWS App Runner (0.5 vCPU, 1 GB) from the same ECR image; HTTPS, custom domain and certificate come with the service, so no load balancer, ingress or cert-manager.",
+      "Render workers as Fargate tasks started on demand: when an export is queued the web app calls ecs:RunTask (capped by ECS_MAX_WORKERS), the task drains the queue and exits after four idle minutes. Nothing bills between renders.",
+      "Postgres on a free tier outside AWS; settings and credentials in SSM Parameter Store; task and instance roles instead of keys.",
+      "The VPC stays for the tasks; EKS, the node group, RDS and the pod-identity role are removed.",
+    ],
+    why: ["Expected run rate $10-15 a month, idle cost about $5.", "The queue, outbox, heartbeat lease and dead-letter handling are unchanged; only who starts the worker changed."],
+    rejected: [
+      { option: "Keep EKS on a smaller or spot node", reason: "The $73 control plane and $17 load balancer are the floor; still over $100." },
+      { option: "Remotion Lambda", reason: "Near-zero idle cost and the real long-term answer, but it replaces the worker and needs the WebGL transitions tested under Lambda; a separate project." },
+    ],
+    costs: [
+      "The first export after a quiet spell waits one to two minutes for a cold task (image pull, Chrome start).",
+      "If a worker exits at the same moment a message arrives, that message waits for the next export; a scheduled check could close the gap.",
+    ],
+    oneLine: "I moved the web app to App Runner and made the render worker a Fargate task the web app starts on demand, cutting the bill from about $250 to about $15 a month with the same images and queue.",
   },
 ];

@@ -19,7 +19,16 @@ const MAX_RENDER_SIDE = 1920;
  * Remotion then falls back to software decoding in its compositor, which is
  * slow and was what ran the worker out of memory.
  */
-async function renderSourceKey(s3: S3Client, bucket: string, workdir: string, assetId: string, objectKey: string, log: (line: string) => void): Promise<string> {
+async function renderSourceKey(
+  s3: S3Client,
+  bucket: string,
+  workdir: string,
+  assetId: string,
+  objectKey: string,
+  log: (line: string) => void,
+  /** The original, when it is already on disk. */
+  localPath?: string,
+): Promise<string> {
   const key = renderSourceKeyFor(assetId);
   try {
     await s3.send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
@@ -27,11 +36,11 @@ async function renderSourceKey(s3: S3Client, bucket: string, workdir: string, as
   } catch {
     // Not made yet.
   }
-  const inputPath = path.join(workdir, `src-${inputFilenameFor(objectKey)}`);
-  await downloadObject(s3, bucket, objectKey, inputPath);
+  const inputPath = localPath ?? path.join(workdir, `src-${inputFilenameFor(objectKey)}`);
+  if (!localPath) await downloadObject(s3, bucket, objectKey, inputPath);
   const { width, height, codec } = await probe(inputPath);
   if (codec === "h264" && Math.max(width, height) <= MAX_RENDER_SIDE) {
-    await rm(inputPath, { force: true });
+    if (!localPath) await rm(inputPath, { force: true });
     return objectKey;
   }
   log(`re-encode ${codec} ${width}x${height} ${objectKey} -> ${key}`);
@@ -44,7 +53,7 @@ async function renderSourceKey(s3: S3Client, bucket: string, workdir: string, as
   ]);
   const { size } = await stat(outPath);
   await s3.send(new PutObjectCommand({ Bucket: bucket, Key: key, Body: createReadStream(outPath), ContentLength: size, ContentType: "video/mp4" }));
-  await rm(inputPath, { force: true });
+  if (!localPath) await rm(inputPath, { force: true });
   await rm(outPath, { force: true });
   return key;
 }
@@ -95,6 +104,14 @@ export async function renderJob(
       console.log(`[${job.id}] upload ${previewSize} bytes to s3://${bucket}/${job.previewKey}`);
       await s3.send(new PutObjectCommand({ Bucket: bucket, Key: job.previewKey, Body: createReadStream(outputPath), ContentLength: previewSize, ContentType: "video/mp4" }));
       await prisma.mediaAsset.update({ where: { id: job.mediaAssetId }, data: { previewKey: job.previewKey } });
+      // While the original is here, make the copy an export will need, so the
+      // first export of phone footage does not spend minutes re-encoding.
+      // An export makes it itself if this fails.
+      try {
+        await renderSourceKey(s3, bucket, workdir, job.mediaAssetId, job.inputKey, (line) => console.log(`[${job.id}] ${line}`), inputPath);
+      } catch (error) {
+        console.warn(`[${job.id}] render source not made ahead: ${error instanceof Error ? error.message : error}`);
+      }
       return { objectKey: job.previewKey, contentType: "video/mp4", sizeBytes: previewSize };
     }
     if (job.kind === "REEL") {

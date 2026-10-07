@@ -222,10 +222,24 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
   const totalMs = timelineDurationMs(timeline);
   const apply = useCallback((update: (timeline: Timeline) => Timeline, key?: string) => dispatch({ type: "apply", update, key }), []);
 
-  const showToast = useCallback((message: string) => {
+  const showToast = useCallback((message: string, ms = 2600) => {
     setToast(message);
-    setTimeout(() => setToast((current) => (current === message ? null : current)), 2600);
+    setTimeout(() => setToast((current) => (current === message ? null : current)), ms);
   }, []);
+
+  /** A hint shown the first time something comes up on this device, never again. */
+  const tipOnce = useCallback(
+    (key: string, message: string) => {
+      try {
+        if (localStorage.getItem(`reelwalk.tip.${key}`)) return;
+        localStorage.setItem(`reelwalk.tip.${key}`, "1");
+      } catch {
+        return;
+      }
+      showToast(message, 5500);
+    },
+    [showToast],
+  );
 
   // ── Selection (stays valid across undo) ─────────────────────
   const selectedClipIndex = selection?.kind === "clip" ? timeline.clips.findIndex((clip) => clip.id === selection.id) : -1;
@@ -233,6 +247,14 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
   const selectedText = selection?.kind === "text" ? (timeline.texts.find((text) => text.id === selection.id) ?? null) : null;
   const musicSelected = selection?.kind === "music" && timeline.music !== null;
   const activeSelection: Selection = selectedClip ? selection : selectedText ? selection : musicSelected ? selection : null;
+
+  // First-time hints for the gestures that have no button.
+  const selectedKind = activeSelection?.kind;
+  useEffect(() => {
+    const mouse = window.matchMedia("(pointer: fine)").matches;
+    if (selectedKind === "text") tipOnce("text", "Drag the ends of the text bar to set when it shows. Drag the words in the picture to move them.");
+    if (selectedKind === "clip") tipOnce("clip", `Drag the clip's red ends to trim it. ${mouse ? "Ctrl + scroll" : "Pinch the timeline"} to zoom in.`);
+  }, [selectedKind, tipOnce]);
 
   // ── Player and playhead ─────────────────────────────────────
   const seek = useCallback(

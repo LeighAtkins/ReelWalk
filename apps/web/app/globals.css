@@ -1519,8 +1519,13 @@ input[type="range"] {
   left: 50%;
   bottom: calc(96px + var(--safe-bottom));
   z-index: 60;
+  width: max-content;
+  max-width: min(92vw, 420px);
   padding: 10px 16px;
-  border-radius: 999px;
+  border-radius: 20px;
+  text-align: center;
+  /* Never in the way of the tool underneath it. */
+  pointer-events: none;
   background: var(--paper);
   color: var(--ink);
   font-size: 14px;

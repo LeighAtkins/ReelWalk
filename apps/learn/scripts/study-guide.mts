@@ -14,7 +14,8 @@ import { platformTopics } from "../content/topics-platform.ts";
 import { company, generalQA, scripts } from "../content/interview.ts";
 import { EDGES, NODES, ROUTES, type Route } from "../content/map.ts";
 import { DECISIONS } from "../content/decisions.ts";
-import { toPlain } from "../lib/ruby.ts";
+import { TALKING_POINTS } from "../content/talking-points.ts";
+import { parseRuby, toPlain } from "../lib/ruby.ts";
 import type { Group, Topic } from "../lib/types.ts";
 
 const outDir = fileURLToPath(new URL("../public/guide/", import.meta.url));
@@ -198,6 +199,32 @@ function packagesSvg(): string {
   </svg>`;
 }
 
+// ---------------------------------------------------------------- talking points
+
+/** Japanese with furigana as HTML ruby. */
+function rubyHtml(ja: string): string {
+  return parseRuby(ja)
+    .map((tok) => (tok.kind === "text" ? esc(tok.text) : `<ruby>${esc(tok.base)}<rt>${esc(tok.reading)}</rt></ruby>`))
+    .join("");
+}
+
+function talkingPointsHtml(): string {
+  let n = 0;
+  return TALKING_POINTS.map(
+    (g) => `<section class="tp-group">
+      <div class="tp-head"><h3>${esc(g.title.en)} <span class="tp-ja">${rubyHtml(g.title.ja)}</span></h3><p class="tp-hook">${esc(g.hook)}</p></div>
+      <ol class="tp-list" start="${n + 1}">${g.points
+        .map((pt) => {
+          n++;
+          return `<li><p class="tp-en">${esc(pt.en)}</p><p class="tp-jp" lang="ja">${rubyHtml(pt.ja)}</p></li>`;
+        })
+        .join("")}</ol>
+    </section>`,
+  ).join("");
+}
+
+const TP_INTRO = `<p class="lede">One idea per line. Say the English until it's automatic, then the Japanese. If you get stuck in the interview, reach for the picture on each group's right: it brings the lines back. Furigana only on words above N2.</p>`;
+
 // ---------------------------------------------------------------- the PDF
 
 function topicSection(t: Topic): string {
@@ -315,6 +342,20 @@ code { font-family: Consolas, monospace; font-size: 8.5pt; background: #eef1f4; 
 table { border-collapse: collapse; width: 100%; font-size: 9.5pt; margin: 6px 0 10px; }
 th, td { text-align: left; border-bottom: 1px solid #d6dce3; padding: 4px 6px; vertical-align: top; }
 th { font-size: 9pt; color: #5a6472; }
+.tp-group { break-inside: avoid; margin: 0 0 12px; }
+.tp-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; border-bottom: 2px solid #18202b; padding-bottom: 3px; margin-bottom: 6px; }
+.tp-head h3 { margin: 0; }
+.tp-ja { font-family: "Yu Gothic UI", "Yu Gothic", Meiryo, sans-serif; font-weight: 700; font-size: 11pt; color: #5a6472; margin-left: 6px; }
+.tp-hook { margin: 0; font-style: italic; color: #00994c; font-weight: 600; text-align: right; }
+.tp-list { padding-left: 22px; margin: 0; }
+.tp-list li { margin-bottom: 7px; break-inside: avoid; }
+.tp-list li::marker { font-weight: 800; color: #8a94a1; }
+.tp-en { font-size: 10.5pt; font-weight: 650; margin: 0; }
+.tp-jp { font-family: "Yu Gothic UI", "Yu Gothic", Meiryo, sans-serif; font-size: 12pt; line-height: 1.9; margin: 0; }
+rt { font-size: 0.5em; color: #5a6472; }
+.cheat .tp-en { font-size: 12pt; }
+.cheat .tp-jp { font-size: 14pt; }
+.cheat .tp-list li { margin-bottom: 9px; }
 </style></head><body>
 
 <div class="cover">
@@ -333,8 +374,15 @@ th { font-size: 9pt; color: #5a6472; }
 </div>
 
 <div class="page">
+  <h2>Start here: short things to say</h2>
+  ${TP_INTRO}
+  ${talkingPointsHtml()}
+</div>
+
+<div class="page">
   <h2>Contents</h2>
   <ol class="toc">
+    <li value="0">Start here: short things to say</li>
     <li>Your pitch: 30 seconds, 90 seconds, 3 minutes</li>
     <li>The big picture: system map and code layout</li>
     <li>Four request flows, step by step</li>
@@ -480,6 +528,7 @@ function xml(): string {
     "After the candidate answers, give brief feedback in this order: one thing that was clear, one thing to add or fix, and a better phrasing in one or two sentences (use the oneLine or model answer when it helps).",
     "If the candidate is stuck for a while or asks for help, give a hint first (a keyword or the first step), then the model answer if they're still stuck.",
     "Keep your turns short (under 60 words) except when giving a model answer.",
+    "When an answer is long or tangled, offer the matching line from <talkingPoints> as a shorter, more memorable way to say it, and ask the candidate to say it back.",
     "Encourage clear, slow, structured speech: conclusion first, then two or three reasons, then a trade-off. Point out filler and rambling kindly.",
     "Every 5 questions, or when asked, summarise: strengths, the 3 weakest areas, and what to practise next.",
     "Raise difficulty as answers get stronger: move from 'what does X do' to 'why X and not Y', then to failure scenarios ('the worker dies mid-render: walk me through what happens').",
@@ -580,6 +629,12 @@ function xml(): string {
       ].join(""),
     ),
     x(
+      "talkingPoints",
+      TALKING_POINTS.map((g) =>
+        x("group", g.points.map((pt) => x("point", t(pt.en), ` ja="${t(toPlain(pt.ja))}"`)).join(""), ` title="${t(g.title.en)}" hook="${t(g.hook)}"`),
+      ).join(""),
+    ),
+    x(
       "generalQuestions",
       generalQA.map((qa) => x("question", x("ask", t(qa.q.en)) + x("modelAnswer", t(en(qa.a))) + (qa.tip ? x("whatTheyCheck", t(qa.tip)) : ""))).join(""),
     ),
@@ -625,10 +680,29 @@ async function main() {
       '<div style="font-size:8px;color:#8a94a1;width:100%;padding:0 13mm;display:flex;justify-content:space-between;font-family:Arial"><span>ReelWalk: the stack, explained</span><span><span class="pageNumber"></span> / <span class="totalPages"></span></span></div>',
     margin: { top: "14mm", bottom: "16mm", left: "13mm", right: "13mm" },
   });
+  const head = page.slice(0, page.indexOf("<body>"));
+  const cheat = `${head}<body class="cheat">
+<h1 style="font-size:24pt">ReelWalk: short things to say</h1>
+${TP_INTRO}
+${talkingPointsHtml()}
+</body></html>`;
+  writeFileSync(`${outDir}reelwalk-talking-points.html`, cheat);
+  await tab.goto(pathToFileURL(`${outDir}reelwalk-talking-points.html`).href, { waitUntil: "networkidle" });
+  await tab.pdf({
+    path: `${outDir}reelwalk-talking-points.pdf`,
+    format: "A4",
+    printBackground: true,
+    displayHeaderFooter: true,
+    headerTemplate: "<span></span>",
+    footerTemplate:
+      '<div style="font-size:8px;color:#8a94a1;width:100%;padding:0 13mm;display:flex;justify-content:space-between;font-family:Arial"><span>ReelWalk: short things to say</span><span><span class="pageNumber"></span> / <span class="totalPages"></span></span></div>',
+    margin: { top: "14mm", bottom: "16mm", left: "13mm", right: "13mm" },
+  });
   await browser.close();
-  // The HTML is only the print source.
+  // The HTML files are only print sources.
   rmSync(`${outDir}reelwalk-study-guide.html`);
-  console.log(`wrote ${outDir}reelwalk-study-guide.pdf and reelwalk-interview-agent.xml (${Math.round(agent.length / 1024)} KB)`);
+  rmSync(`${outDir}reelwalk-talking-points.html`);
+  console.log(`wrote ${outDir}reelwalk-study-guide.pdf, reelwalk-talking-points.pdf and reelwalk-interview-agent.xml (${Math.round(agent.length / 1024)} KB)`);
 }
 
 main().catch((e) => {

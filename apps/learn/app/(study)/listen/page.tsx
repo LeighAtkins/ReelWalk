@@ -1,5 +1,6 @@
 import { generalQA, phraseSets, scripts, topics, videos } from "@/lib/content";
 import { toPlain } from "@/lib/ruby";
+import { TALKING_POINTS } from "@/content/talking-points";
 import { Listen, type Playlist } from "@/components/Listen";
 import { VideoList } from "@/components/Bits";
 
@@ -7,6 +8,8 @@ export const metadata = { title: "聞く: listen and watch" };
 
 export default function ListenPage() {
   const playlists: Playlist[] = [
+    { id: "talking-all", group: "Talking points", title: "All short things to say", lines: TALKING_POINTS.flatMap((g) => g.points) },
+    ...TALKING_POINTS.map((g) => ({ id: `talking-${g.id}`, group: "Talking points", title: g.title.en, lines: g.points })),
     ...scripts.map((s) => ({ id: `script-${s.id}`, group: "Interview scripts", title: s.title.en, lines: s.lines })),
     {
       id: "general-qa",

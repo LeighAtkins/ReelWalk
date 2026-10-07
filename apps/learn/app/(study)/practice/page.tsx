@@ -37,9 +37,12 @@ export default function PracticePage() {
 
       <section className="block stack" style={{ gap: 10 }}>
         <h2>Learn it in English first</h2>
-        <p className="note">A 55-page English guide with every diagram, decision and trade-off, and a briefing file for a voice agent that will grill you on it.</p>
+        <p className="note">A full English guide with every diagram, decision and trade-off, and a briefing file for a voice agent that will grill you on it.</p>
         <div className="row wrap">
-          <a className="btn btn-ink" href={`${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/guide/reelwalk-study-guide.pdf`}>
+          <a className="btn btn-ink" href={`${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/guide/reelwalk-talking-points.pdf`}>
+            Short things to say (3 pages)
+          </a>
+          <a className="btn" href={`${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/guide/reelwalk-study-guide.pdf`}>
             Study guide (PDF)
           </a>
           <a className="btn" href={`${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/guide/reelwalk-interview-agent.xml`} download>

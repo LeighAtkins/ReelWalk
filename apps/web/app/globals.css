@@ -756,11 +756,15 @@ p {
 
 .timeline-zoom {
   position: absolute;
-  top: 2px;
-  right: 6px;
+  top: 0;
+  right: 0;
   z-index: 4;
   display: flex;
   gap: 2px;
+  padding: 2px 6px 2px 4px;
+  /* Covers the ruler labels underneath instead of overlapping them. */
+  background: var(--ink-deep);
+  box-shadow: -12px 0 10px var(--ink-deep);
 }
 
 .timeline-zoom button {
@@ -1091,6 +1095,18 @@ p {
 
 .toolbar::-webkit-scrollbar {
   display: none;
+}
+
+.toolbar[data-more-right="true"] {
+  mask-image: linear-gradient(to right, #000 calc(100% - 48px), transparent);
+}
+
+.toolbar[data-more-left="true"] {
+  mask-image: linear-gradient(to right, transparent, #000 48px);
+}
+
+.toolbar[data-more-left="true"][data-more-right="true"] {
+  mask-image: linear-gradient(to right, transparent, #000 48px, #000 calc(100% - 48px), transparent);
 }
 
 /* With a mouse there is no swipe, so show where the toolbar and looks continue. */

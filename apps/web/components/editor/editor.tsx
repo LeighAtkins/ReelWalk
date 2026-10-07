@@ -714,6 +714,24 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
 
   const closeSheet = () => setSheet(null);
 
+  // When the tools run past the edge, a fade on that side says there are more.
+  const toolbarRef = useRef<HTMLElement>(null);
+  const markToolbar = useCallback(() => {
+    const element = toolbarRef.current;
+    if (!element) return;
+    element.dataset.moreRight = String(element.scrollLeft + element.clientWidth < element.scrollWidth - 4);
+    element.dataset.moreLeft = String(element.scrollLeft > 4);
+  }, []);
+  useEffect(() => {
+    const element = toolbarRef.current;
+    if (!element) return;
+    element.scrollLeft = 0;
+    markToolbar();
+    const observer = new ResizeObserver(markToolbar);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [selectedKind, selectedClip?.kind, markToolbar]);
+
   return (
     <div className="editor" data-testid="editor">
       <header className="editor-top">
@@ -826,7 +844,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         onAddMusic={() => setSheet("music")}
       />
 
-      <nav className="toolbar" aria-label="Editing tools">
+      <nav className="toolbar" aria-label="Editing tools" ref={toolbarRef} onScroll={markToolbar}>
         {tools}
       </nav>
 

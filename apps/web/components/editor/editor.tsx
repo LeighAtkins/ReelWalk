@@ -483,18 +483,23 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         const visibleFrom = text ? Math.min(text.startMs + 300, text.endMs - 1) : 0;
         if (text && (clock.get() < visibleFrom || clock.get() >= text.endMs)) seek(visibleFrom);
       }
-      if (next?.kind === "clip") {
-        // Show the clip being edited, so its look and motion changes are visible.
-        const index = timeline.clips.findIndex((clip) => clip.id === next.id);
-        const start = clipStartsMs(timeline)[index];
-        if (index >= 0 && (clock.get() < start || clock.get() >= start + clipDurationMs(timeline.clips[index]))) {
-          playerRef.current?.pause();
-          seek(start);
-        }
-      }
     },
-    [clock, seek, timeline],
+    [clock, seek, timeline.texts],
   );
+
+  // A clip tool shows the clip it changes: opening one moves the playhead onto
+  // the clip when it was elsewhere. (Not on a plain tap: that would scroll the
+  // strip out from under the finger.)
+  const selectedClipId = selectedClip?.id;
+  useEffect(() => {
+    if (!sheet || !selectedClipId || !["trim", "speed", "volume", "look", "motion", "pano", "transition"].includes(sheet)) return;
+    const index = timeline.clips.findIndex((clip) => clip.id === selectedClipId);
+    const start = clipStartsMs(timeline)[index];
+    if (index < 0 || (clock.get() >= start && clock.get() < start + clipDurationMs(timeline.clips[index]))) return;
+    playerRef.current?.pause();
+    seek(start);
+    // Only when the sheet opens, not on every edit made in it.
+  }, [sheet, selectedClipId]);
 
   // ── Export ──────────────────────────────────────────────────
   const openExport = useCallback(async () => {

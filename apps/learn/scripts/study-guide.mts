@@ -15,6 +15,7 @@ import { company, generalQA, scripts } from "../content/interview.ts";
 import { EDGES, NODES, ROUTES, type Route } from "../content/map.ts";
 import { DECISIONS } from "../content/decisions.ts";
 import { TALKING_POINTS } from "../content/talking-points.ts";
+import { FLOWS, LIFELINES, NUMBERS, TOP_QUESTIONS } from "../content/cheat-sheet.ts";
 import { parseRuby, toPlain } from "../lib/ruby.ts";
 import type { Group, Topic } from "../lib/types.ts";
 
@@ -208,9 +209,9 @@ function rubyHtml(ja: string): string {
     .join("");
 }
 
-function talkingPointsHtml(): string {
+function talkingPointsHtml(ids?: string[]): string {
   let n = 0;
-  return TALKING_POINTS.map(
+  return TALKING_POINTS.filter((g) => !ids || ids.includes(g.id)).map(
     (g) => `<section class="tp-group">
       <div class="tp-head"><h3>${esc(g.title.en)} <span class="tp-ja">${rubyHtml(g.title.ja)}</span></h3><p class="tp-hook">${esc(g.hook)}</p></div>
       <ol class="tp-list" start="${n + 1}">${g.points
@@ -224,6 +225,53 @@ function talkingPointsHtml(): string {
 }
 
 const TP_INTRO = `<p class="lede">One idea per line. Say the English until it's automatic, then the Japanese. If you get stuck in the interview, reach for the picture on each group's right: it brings the lines back. Furigana only on words above N2.</p>`;
+
+// ---------------------------------------------------------------- the cheat sheet
+
+const KEY_ADRS = ["0001", "0003", "0006", "0010", "0015"];
+
+function cheatSheetBody(): string {
+  const flows = FLOWS.map(
+    (f) => `<div class="flow"><b>${esc(f.name)}</b><p>${f.chain.map((c) => `<span>${esc(c)}</span>`).join('<i>→</i>')}</p></div>`,
+  ).join("");
+  const numbers = NUMBERS.map((n) => `<tr><td>${esc(n.what)}</td><td><b>${esc(n.value)}</b></td></tr>`).join("");
+  const questions = TOP_QUESTIONS.map(
+    (qa, i) => `<li><p class="cq">${i + 1}. ${esc(qa.q.en)} <span class="cq-ja">${rubyHtml(qa.q.ja)}</span></p>
+      <p class="ca">${esc(qa.a.en)}</p><p class="ca-ja" lang="ja">${rubyHtml(qa.a.ja)}</p></li>`,
+  ).join("");
+  const decisions = DECISIONS.filter((d) => KEY_ADRS.includes(d.adr))
+    .map((d) => `<li><b>${esc(d.title)}.</b> ${esc(d.oneLine)}</li>`)
+    .join("");
+  const lifelines = LIFELINES.map((l) => `<li><span lang="ja">${rubyHtml(l.ja)}</span> <em>${esc(l.en)}</em></li>`).join("");
+  return `
+<div class="sheet">
+  <h1>ReelWalk cheat sheet</h1>
+  <p class="lede">Five pages. Say the bold English line first, then the Japanese. If you blank, find the green picture: it brings the rest back.</p>
+  <div class="sheet-grid">
+    <div>${talkingPointsHtml(["app", "how"])}</div>
+    <div class="map-col">${systemSvg()}<p class="cap">Web takes the order, SQS holds the ticket, the worker cooks, S3 keeps the dish, Postgres keeps the books.</p></div>
+  </div>
+</div>
+<div class="sheet">
+  <h2>The four flows in one line each</h2>
+  ${flows}
+  <h2>Numbers to know</h2>
+  <table class="numbers">${numbers}</table>
+  <div class="box"><b>If you only remember one thing:</b> the web app never renders. It saves the job and its message in one transaction, sends only the job ID, and a worker that can crash safely does the heavy work. Everything else follows from that.</div>
+  <h2>When you need a second</h2>
+  <ul class="life">${lifelines}</ul>
+</div>
+<div class="sheet">${talkingPointsHtml(["break", "aws"])}</div>
+<div class="sheet">
+  <h2>If they ask… say</h2>
+  <ol class="cqs">${questions}</ol>
+</div>
+<div class="sheet">
+  ${talkingPointsHtml(["ship", "me"])}
+  <h2>Decisions in one line</h2>
+  <ul class="dec">${decisions}</ul>
+</div>`;
+}
 
 // ---------------------------------------------------------------- the PDF
 
@@ -353,9 +401,34 @@ th { font-size: 9pt; color: #5a6472; }
 .tp-en { font-size: 10.5pt; font-weight: 650; margin: 0; }
 .tp-jp { font-family: "Yu Gothic UI", "Yu Gothic", Meiryo, sans-serif; font-size: 12pt; line-height: 1.9; margin: 0; }
 rt { font-size: 0.5em; color: #5a6472; }
-.cheat .tp-en { font-size: 12pt; }
-.cheat .tp-jp { font-size: 14pt; }
-.cheat .tp-list li { margin-bottom: 9px; }
+.cheat { font-size: 9.5pt; }
+.cheat .sheet { break-after: page; }
+.cheat .sheet:last-child { break-after: auto; }
+.cheat h1 { font-size: 22pt; margin-bottom: 2px; }
+.cheat h2 { font-size: 14pt; margin: 10px 0 6px; padding-bottom: 3px; border-bottom-width: 2px; }
+.cheat .lede { font-size: 9.5pt; margin-bottom: 8px; }
+.cheat .tp-group { margin-bottom: 8px; }
+.cheat .tp-list li { margin-bottom: 4px; }
+.cheat .tp-en { font-size: 10pt; }
+.cheat .tp-jp { font-size: 11.5pt; line-height: 1.75; }
+.sheet-grid { display: grid; grid-template-columns: 1fr 62mm; gap: 12px; align-items: start; }
+.map-col .diagram.tall { max-height: 150mm; margin: 0; }
+.cap { font-size: 8.5pt; color: #5a6472; font-style: italic; }
+.flow { margin-bottom: 8px; break-inside: avoid; }
+.flow b { display: block; font-size: 11pt; margin-bottom: 2px; }
+.flow p { margin: 0; line-height: 1.9; }
+.flow span { display: inline-block; padding: 1px 7px; border: 1.5px solid #d6dce3; border-radius: 6px; background: #fff; }
+.flow i { font-style: normal; color: #00994c; font-weight: 800; margin: 0 4px; }
+.numbers td { padding: 3px 6px; }
+.cqs { list-style: none; padding: 0; margin: 0; }
+.cqs li { margin-bottom: 7px; break-inside: avoid; }
+.cq { font-weight: 750; margin: 0; }
+.cq-ja { font-family: "Yu Gothic UI", "Yu Gothic", Meiryo, sans-serif; font-weight: 600; color: #5a6472; margin-left: 4px; }
+.ca { margin: 0; }
+.ca-ja { font-family: "Yu Gothic UI", "Yu Gothic", Meiryo, sans-serif; font-size: 11pt; line-height: 1.75; margin: 0; }
+.dec li, .life li { margin-bottom: 3px; }
+.life span { font-family: "Yu Gothic UI", "Yu Gothic", Meiryo, sans-serif; font-size: 11pt; }
+.life em { color: #5a6472; }
 </style></head><body>
 
 <div class="cover">
@@ -681,28 +754,24 @@ async function main() {
     margin: { top: "14mm", bottom: "16mm", left: "13mm", right: "13mm" },
   });
   const head = page.slice(0, page.indexOf("<body>"));
-  const cheat = `${head}<body class="cheat">
-<h1 style="font-size:24pt">ReelWalk: short things to say</h1>
-${TP_INTRO}
-${talkingPointsHtml()}
-</body></html>`;
-  writeFileSync(`${outDir}reelwalk-talking-points.html`, cheat);
-  await tab.goto(pathToFileURL(`${outDir}reelwalk-talking-points.html`).href, { waitUntil: "networkidle" });
+  const cheat = `${head}<body class="cheat">${cheatSheetBody()}</body></html>`;
+  writeFileSync(`${outDir}reelwalk-cheat-sheet.html`, cheat);
+  await tab.goto(pathToFileURL(`${outDir}reelwalk-cheat-sheet.html`).href, { waitUntil: "networkidle" });
   await tab.pdf({
-    path: `${outDir}reelwalk-talking-points.pdf`,
+    path: `${outDir}reelwalk-cheat-sheet.pdf`,
     format: "A4",
     printBackground: true,
     displayHeaderFooter: true,
     headerTemplate: "<span></span>",
     footerTemplate:
-      '<div style="font-size:8px;color:#8a94a1;width:100%;padding:0 13mm;display:flex;justify-content:space-between;font-family:Arial"><span>ReelWalk: short things to say</span><span><span class="pageNumber"></span> / <span class="totalPages"></span></span></div>',
+      '<div style="font-size:8px;color:#8a94a1;width:100%;padding:0 13mm;display:flex;justify-content:space-between;font-family:Arial"><span>ReelWalk cheat sheet</span><span><span class="pageNumber"></span> / <span class="totalPages"></span></span></div>',
     margin: { top: "14mm", bottom: "16mm", left: "13mm", right: "13mm" },
   });
   await browser.close();
   // The HTML files are only print sources.
   rmSync(`${outDir}reelwalk-study-guide.html`);
-  rmSync(`${outDir}reelwalk-talking-points.html`);
-  console.log(`wrote ${outDir}reelwalk-study-guide.pdf, reelwalk-talking-points.pdf and reelwalk-interview-agent.xml (${Math.round(agent.length / 1024)} KB)`);
+  rmSync(`${outDir}reelwalk-cheat-sheet.html`);
+  console.log(`wrote ${outDir}reelwalk-study-guide.pdf, reelwalk-cheat-sheet.pdf and reelwalk-interview-agent.xml (${Math.round(agent.length / 1024)} KB)`);
 }
 
 main().catch((e) => {

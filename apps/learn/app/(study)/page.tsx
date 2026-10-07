@@ -25,6 +25,11 @@ export default function Home() {
         </div>
       </section>
 
+      <Link href="/say/" className="role" style={{ display: "flex", flexDirection: "column", gap: 4, padding: "16px 18px", borderRadius: 18, color: "#fff", textDecoration: "none", background: "var(--ink)" }}>
+        <strong style={{ fontSize: 20 }}>Everything to say</strong>
+        <span style={{ fontSize: 14.5 }}>All the Japanese from the cheat sheet on one page: read it, play it, shadow it.</span>
+      </Link>
+
       <Link href="/coach/" className="role" style={{ display: "flex", flexDirection: "column", gap: 4, padding: "16px 18px", borderRadius: 18, color: "#fff", textDecoration: "none", background: "var(--deploy)" }}>
         <strong style={{ fontSize: 20 }}>Talking-points coach</strong>
         <span style={{ fontSize: 14.5 }}>Build each interview answer up slowly: listen, repeat, recall, then solo.</span>

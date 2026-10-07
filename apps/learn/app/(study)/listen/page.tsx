@@ -3,6 +3,7 @@ import { toPlain } from "@/lib/ruby";
 import { TALKING_POINTS } from "@/content/talking-points";
 import { Listen, type Playlist } from "@/components/Listen";
 import { VideoList } from "@/components/Bits";
+import Link from "next/link";
 
 export const metadata = { title: "聞く: listen and watch" };
 
@@ -31,6 +32,9 @@ export default function ListenPage() {
           Play a script or lesson end to end, or shadow it: each line plays, then pauses long enough for you to say it back.
         </p>
       </div>
+      <Link className="btn btn-ink" href="/say/" style={{ alignSelf: "flex-start" }}>
+        Everything to say, on one page
+      </Link>
       <Listen playlists={playlists} />
       <section id="videos" className="block">
         <h2 style={{ marginBottom: 4 }}>Japanese interviews, by native speakers</h2>

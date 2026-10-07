@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
 export default async function ExportsPage() {
   const user = await getCurrentUser();
   const jobs = await prisma.renderJob.findMany({
-    where: { workspaceId: user.workspaceId },
+    where: { workspaceId: user.workspaceId, kind: { not: "PREVIEW" } },
     orderBy: { createdAt: "desc" },
     take: 50,
     include: { reel: { select: { id: true, title: true, timeline: true } } },

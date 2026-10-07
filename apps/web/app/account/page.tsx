@@ -16,7 +16,7 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
   const user = await getCurrentUser();
   const [reels, exports, own, shared, sessions, instagram] = await Promise.all([
     prisma.reel.count({ where: { workspaceId: user.workspaceId } }),
-    prisma.renderJob.count({ where: { workspaceId: user.workspaceId, status: "SUCCEEDED" } }),
+    prisma.renderJob.count({ where: { workspaceId: user.workspaceId, status: "SUCCEEDED", kind: { not: "PREVIEW" } } }),
     prisma.mediaAsset.count({ where: { workspaceId: user.workspaceId, shared: false } }),
     prisma.mediaAsset.count({ where: { ...mediaScope(user.workspaceId), shared: true } }),
     prisma.session.count({ where: { userId: user.id, expiresAt: { gt: new Date() } } }),

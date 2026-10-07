@@ -30,3 +30,8 @@ export function inputFilenameFor(objectKey: string): string {
   const ext = match ? match[1].toLowerCase() : "";
   return `input.${KNOWN_INPUT_EXTENSIONS.has(ext) ? ext : "mp4"}`;
 }
+
+/** The editor's preview rendition of an uploaded video. */
+export function previewKeyFor(ownerId: string, assetId: string): string {
+  return `previews/${ownerId}/${assetId}.mp4`;
+}

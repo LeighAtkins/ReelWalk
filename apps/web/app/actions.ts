@@ -339,5 +339,20 @@ export async function confirmUpload(input: z.input<typeof confirmSchema>): Promi
       beatOffsetMs: resolved.kind === "AUDIO" ? (data.beatOffsetMs ?? null) : null,
     },
   });
+
+  // A phone video can be 4K at 20+ Mbit/s, which stalls the editor's preview
+  // for seconds on every clip change. A worker makes a 720p rendition; the
+  // editor switches to it on the next load. The job goes through the same
+  // queue and outbox as an export.
+  if (asset.kind === "VIDEO" && !asset.previewKey) {
+    await prisma.$transaction(async (tx) => {
+      const job = await tx.renderJob.create({
+        data: { workspaceId: user.workspaceId, createdById: user.id, mediaAssetId: asset.id, kind: "PREVIEW", caption: data.fileName },
+      });
+      await queueRenderJob(tx, job);
+    });
+    await flushOutbox();
+    await ensureWorkerRunning();
+  }
   return { ok: true, asset: await toLibraryAsset(asset) };
 }

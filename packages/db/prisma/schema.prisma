@@ -16,6 +16,9 @@ enum MediaKind {
 enum RenderJobKind {
   TEMPLATE
   EDITOR
+  // Transcode of an uploaded video into a small preview rendition for the
+  // editor (mediaAssetId points at the upload; no reel, no output row needed).
+  PREVIEW
   // Export of a Reel from the mobile editor. payload holds a frozen copy of
   // the timeline and the object keys of every asset it uses.
   REEL
@@ -112,6 +115,10 @@ model MediaAsset {
   objectKey   String      @unique
   // Small JPEG made in the browser at upload time, for the filmstrip and library.
   thumbKey    String?
+  // 720p H.264 rendition made by a worker after upload, played in the editor
+  // instead of the phone's original (which can be 4K at 20+ Mbit/s). Exports
+  // still use objectKey.
+  previewKey  String?
   contentType String
   fileName    String
   sizeBytes   BigInt

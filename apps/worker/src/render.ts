@@ -6,6 +6,8 @@ import { pipeline } from "node:stream/promises";
 import { GetObjectCommand, PutObjectCommand, type S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { inputFilenameFor, outputKeyFor, parseReelExportPayload } from "@reelwalk/core";
+import { prisma } from "@reelwalk/db";
+import { run } from "./library/tools";
 import type { ReelAsset } from "@reelwalk/render/reel-types";
 import { renderStubReel } from "@reelwalk/render/render-job";
 import { renderReel } from "@reelwalk/render/render-reel";
@@ -34,6 +36,27 @@ export async function renderJob(
   const report = (fraction: number) => onProgress(Math.min(100, Math.round(fraction * 100)));
 
   try {
+    if (job.kind === "PREVIEW") {
+      if (!job.inputKey || !job.previewKey || !job.mediaAssetId) throw new Error("The uploaded video for this preview was deleted");
+      const inputPath = path.join(workdir, inputFilenameFor(job.inputKey));
+      console.log(`[${job.id}] download s3://${bucket}/${job.inputKey}`);
+      await downloadObject(s3, bucket, job.inputKey, inputPath);
+      report(0.2);
+      // 720 px on the short side, 30 fps, H.264 + AAC, moov atom first so the
+      // browser can start before the whole file arrives.
+      await run("ffmpeg", [
+        "-v", "error", "-y", "-i", inputPath,
+        "-vf", "scale='if(gt(iw,ih),-2,min(720,iw))':'if(gt(iw,ih),min(720,ih),-2)'",
+        "-r", "30", "-c:v", "libx264", "-preset", "veryfast", "-crf", "27", "-pix_fmt", "yuv420p",
+        "-c:a", "aac", "-b:a", "96k", "-ac", "2", "-movflags", "+faststart", outputPath,
+      ]);
+      report(0.9);
+      const { size: previewSize } = await stat(outputPath);
+      console.log(`[${job.id}] upload ${previewSize} bytes to s3://${bucket}/${job.previewKey}`);
+      await s3.send(new PutObjectCommand({ Bucket: bucket, Key: job.previewKey, Body: createReadStream(outputPath), ContentLength: previewSize, ContentType: "video/mp4" }));
+      await prisma.mediaAsset.update({ where: { id: job.mediaAssetId }, data: { previewKey: job.previewKey } });
+      return { objectKey: job.previewKey, contentType: "video/mp4", sizeBytes: previewSize };
+    }
     if (job.kind === "REEL") {
       const payload = parseReelExportPayload(job.payload);
       // Headless Chrome fetches the media straight from storage, so it gets

@@ -53,3 +53,4 @@ infra/terraform/terraform.tfvars
 
 # Playwright: saved sign-in state
 e2e/.auth/
+infra/terraform/tfplan

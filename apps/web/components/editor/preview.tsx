@@ -35,7 +35,8 @@ const clamp = (value: number, min: number, max: number) => Math.min(max, Math.ma
 function Ghost({ text, scale }: { text: TextOverlay; scale: number }) {
   const css = textCss(text.style, text.color, text.size);
   return (
-    <span style={{ display: "block", zoom: scale, width: REEL_FORMAT.width * 0.86, pointerEvents: "none" }}>
+    // As wide as the words, up to the width the reel wraps text at, so the box hugs the text.
+    <span style={{ display: "block", zoom: scale, width: "max-content", maxWidth: REEL_FORMAT.width * 0.86, pointerEvents: "none" }}>
       <span style={{ ...css, display: "inline-block", color: "transparent", background: "transparent", textShadow: "none", WebkitTextStroke: "0" }}>
         {text.text}
       </span>

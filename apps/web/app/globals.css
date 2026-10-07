@@ -1581,7 +1581,8 @@ input[type="range"] {
 .toast {
   position: fixed;
   left: 50%;
-  bottom: calc(96px + var(--safe-bottom));
+  /* Over the top of the preview, clear of the timeline and toolbar it talks about. */
+  top: calc(72px + var(--safe-top));
   z-index: 60;
   width: max-content;
   max-width: min(92vw, 420px);

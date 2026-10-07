@@ -10,11 +10,14 @@ import {
 export type ClaimedJob = {
   id: string;
   generation: number;
-  kind: "TEMPLATE" | "EDITOR" | "REEL";
+  kind: "TEMPLATE" | "EDITOR" | "REEL" | "PREVIEW";
   caption: string | null;
   payload: unknown;
   inputKey: string | null;
   brand: string | null;
+  /** For PREVIEW jobs: the upload being transcoded and where its rendition goes. */
+  mediaAssetId?: string | null;
+  previewKey?: string | null;
 };
 
 export type RenderResult = { objectKey: string; contentType: string; sizeBytes: number };

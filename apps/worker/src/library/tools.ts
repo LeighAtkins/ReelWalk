@@ -27,17 +27,18 @@ export async function upload(key: string, file: string, contentType: string): Pr
   return size;
 }
 
-export async function probe(file: string): Promise<{ width: number; height: number; durationMs: number | null }> {
+export async function probe(file: string): Promise<{ width: number; height: number; codec: string; durationMs: number | null }> {
   const { stdout } = await run("ffprobe", [
     "-v", "error", "-select_streams", "v:0",
-    "-show_entries", "stream=width,height:format=duration",
+    "-show_entries", "stream=width,height,codec_name:format=duration",
     "-of", "json", file,
   ]);
-  const data = JSON.parse(stdout) as { streams: { width: number; height: number }[]; format: { duration?: string } };
+  const data = JSON.parse(stdout) as { streams: { width: number; height: number; codec_name?: string }[]; format: { duration?: string } };
   const duration = Number(data.format.duration);
   return {
     width: data.streams[0].width,
     height: data.streams[0].height,
+    codec: data.streams[0].codec_name ?? "unknown",
     durationMs: Number.isFinite(duration) && duration > 0.2 ? Math.round(duration * 1000) : null,
   };
 }

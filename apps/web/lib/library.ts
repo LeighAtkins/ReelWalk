@@ -30,6 +30,8 @@ export async function toLibraryAsset(asset: {
   fileName: string;
   objectKey: string;
   thumbKey: string | null;
+  /** Set once a worker has made the 720p preview rendition. */
+  previewKey?: string | null;
   durationMs: number | null;
   width: number | null;
   height: number | null;
@@ -42,7 +44,8 @@ export async function toLibraryAsset(asset: {
   beatOffsetMs?: number | null;
 }): Promise<LibraryAsset> {
   const spot = spotSchema.safeParse(asset.spot);
-  const [url, thumbUrl] = await Promise.all([mediaUrl(asset.objectKey), asset.thumbKey ? mediaUrl(asset.thumbKey) : null]);
+  // The editor plays the light preview rendition when one exists; exports always use the original.
+  const [url, thumbUrl] = await Promise.all([mediaUrl(asset.previewKey ?? asset.objectKey), asset.thumbKey ? mediaUrl(asset.thumbKey) : null]);
   return {
     id: asset.id,
     kind: asset.kind,

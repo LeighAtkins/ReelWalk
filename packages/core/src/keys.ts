@@ -30,3 +30,17 @@ export function inputFilenameFor(objectKey: string): string {
   const ext = match ? match[1].toLowerCase() : "";
   return `input.${KNOWN_INPUT_EXTENSIONS.has(ext) ? ext : "mp4"}`;
 }
+
+/** The editor's preview rendition of an uploaded video. */
+export function previewKeyFor(ownerId: string, assetId: string): string {
+  return `previews/${ownerId}/${assetId}.mp4`;
+}
+
+/**
+ * A 1080p copy of an uploaded video that the renderer reads instead of the
+ * original. Phone footage is often 4K, and decoding four 4K clips at once
+ * is what pushed the worker past its memory limit.
+ */
+export function renderSourceKeyFor(assetId: string): string {
+  return `render-sources/${assetId}.mp4`;
+}

@@ -45,7 +45,11 @@ export function useAutosave(reelId: string, initialRevision: number, timeline: T
         }
       } catch {
         setStatus("error");
-        setMessage("Could not save. Check your connection; changes are kept on this screen.");
+        setMessage(
+          navigator.onLine
+            ? "ReelWalk was updated while you were editing. Reload this page to keep saving; your changes stay on this screen until then."
+            : "Could not save. Check your connection; changes are kept on this screen.",
+        );
       }
     })();
     await inFlight.current;

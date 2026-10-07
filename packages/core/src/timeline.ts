@@ -353,8 +353,8 @@ export function updateClip(timeline: Timeline, id: string, settings: ClipSetting
 
 export function addText(timeline: Timeline, text: Omit<TextOverlay, "endMs"> & { endMs?: number }): Timeline {
   const total = timelineDurationMs(timeline);
-  const startMs = Math.max(0, Math.min(text.startMs, Math.max(0, total - MIN_CLIP_MS)));
-  const endMs = Math.min(total, text.endMs ?? startMs + DEFAULT_TEXT_MS);
+  const startMs = Math.max(0, Math.min(Math.round(text.startMs), Math.max(0, total - MIN_CLIP_MS)));
+  const endMs = Math.min(total, Math.round(text.endMs ?? startMs + DEFAULT_TEXT_MS));
   if (endMs <= startMs) return timeline;
   return { ...timeline, texts: [...timeline.texts, textSchema.parse({ ...text, startMs, endMs })] };
 }
@@ -366,6 +366,8 @@ export function updateText(timeline: Timeline, id: string, patch: Partial<Omit<T
     texts: timeline.texts.map((text) => {
       if (text.id !== id) return text;
       const next = { ...text, ...patch };
+      next.x = Math.max(0, Math.min(1, next.x));
+      next.y = Math.max(0, Math.min(1, next.y));
       next.startMs = Math.max(0, Math.min(Math.round(next.startMs), total - 100));
       next.endMs = Math.max(next.startMs + 100, Math.min(Math.round(next.endMs), total));
       return textSchema.parse(next);

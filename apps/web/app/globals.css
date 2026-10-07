@@ -676,6 +676,7 @@ p {
 
 .timeline-scroll {
   display: block;
+  cursor: grab;
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;

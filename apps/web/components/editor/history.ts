@@ -29,7 +29,15 @@ export function initHistory(timeline: Timeline): History {
 export function historyReducer(state: History, action: HistoryAction): History {
   switch (action.type) {
     case "apply": {
-      const next = action.update(state.present);
+      let next: Timeline;
+      try {
+        next = action.update(state.present);
+      } catch (error) {
+        // A rejected edit (bad value, impossible trim) leaves the reel as it
+        // was. Throwing here would unmount the whole editor.
+        console.warn("edit rejected", error);
+        return state;
+      }
       if (next === state.present) return state;
       const now = Date.now();
       const coalesce = action.key !== undefined && action.key === state.lastKey && now - state.lastAt < COALESCE_MS;

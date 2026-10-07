@@ -49,6 +49,11 @@ export async function renderReel(
     inputProps,
     outputLocation,
     concurrency: renderConcurrency(input.concurrency, os.availableParallelism()),
+    // Inside a container Remotion sizes these caches from the host's memory,
+    // not the cgroup limit, and the compositor gets killed. Fixed, modest
+    // caches instead; 1080p sources do not need more.
+    offthreadVideoCacheSizeInBytes: 512 * 1024 * 1024,
+    mediaCacheSizeInBytes: 512 * 1024 * 1024,
     onProgress: ({ progress }) => onProgress?.(progress),
   });
   return outputLocation;

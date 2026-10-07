@@ -1,3 +1,4 @@
+import { previewKeyFor } from "@reelwalk/core";
 import type { RenderJobMessage } from "@reelwalk/core";
 import type { PrismaClient } from "@reelwalk/db";
 import type { ClaimedJob, JobStore, RenderResult } from "./handler";
@@ -43,6 +44,8 @@ export function createJobStore(prisma: PrismaClient): JobStore {
         payload: job.payload,
         inputKey: job.mediaAsset?.objectKey ?? null,
         brand: job.template?.brand ?? null,
+        mediaAssetId: job.mediaAsset?.id ?? null,
+        previewKey: job.mediaAsset ? previewKeyFor(job.mediaAsset.workspaceId, job.mediaAsset.id) : null,
       } satisfies ClaimedJob;
     },
 

@@ -98,7 +98,41 @@ export function Filmstrip({
 
   return (
     <div className="timeline">
-      <div className="timeline-scroll" ref={scroller} onScroll={onScroll} data-testid="timeline">
+      <div
+        className="timeline-scroll"
+        ref={scroller}
+        onScroll={onScroll}
+        data-testid="timeline"
+        // Phones scroll the strip by touch. On a desktop the mouse wheel moves
+        // it sideways and holding the button drags it, like a map.
+        onWheel={(event) => {
+          if (Math.abs(event.deltaY) > Math.abs(event.deltaX)) event.currentTarget.scrollLeft += event.deltaY;
+        }}
+        onPointerDown={(event) => {
+          if (event.pointerType !== "mouse" || event.button !== 0) return;
+          const el = event.currentTarget;
+          const startX = event.clientX;
+          const startLeft = el.scrollLeft;
+          let moved = false;
+          const move = (e: PointerEvent) => {
+            const dx = e.clientX - startX;
+            if (Math.abs(dx) > 4) moved = true;
+            if (moved) el.scrollLeft = startLeft - dx;
+          };
+          const up = () => {
+            window.removeEventListener("pointermove", move);
+            window.removeEventListener("pointerup", up);
+            if (moved) el.dataset.dragged = "1";
+            setTimeout(() => delete el.dataset.dragged, 0);
+          };
+          window.addEventListener("pointermove", move);
+          window.addEventListener("pointerup", up);
+        }}
+        onClickCapture={(event) => {
+          // A drag that ends on a clip must not count as a tap on it.
+          if (event.currentTarget.dataset.dragged) event.stopPropagation();
+        }}
+      >
         <div
           className="timeline-track"
           style={{ width: pad * 2 + totalPx + uploadsPx + 70, ["--pps" as string]: `${PPS}px`, ["--pad" as string]: `${pad}px` }}

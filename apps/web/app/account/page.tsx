@@ -3,6 +3,7 @@ import { prisma } from "@reelwalk/db";
 import { changePassword, signOut, updateProfile } from "@/app/auth-actions";
 import { disconnectInstagram } from "@/app/instagram-actions";
 import { isInstagramConfigured } from "@/lib/instagram";
+import { SubmitButton } from "@/components/submit-button";
 import { TabBar } from "@/components/tab-bar";
 import { formatDateTime } from "@/lib/format";
 import { getCurrentUser, mediaScope } from "@/lib/workspace";
@@ -15,7 +16,7 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
   const user = await getCurrentUser();
   const [reels, exports, own, shared, sessions, instagram] = await Promise.all([
     prisma.reel.count({ where: { workspaceId: user.workspaceId } }),
-    prisma.renderJob.count({ where: { workspaceId: user.workspaceId, status: "SUCCEEDED" } }),
+    prisma.renderJob.count({ where: { workspaceId: user.workspaceId, status: "SUCCEEDED", kind: { not: "PREVIEW" } } }),
     prisma.mediaAsset.count({ where: { workspaceId: user.workspaceId, shared: false } }),
     prisma.mediaAsset.count({ where: { ...mediaScope(user.workspaceId), shared: true } }),
     prisma.session.count({ where: { userId: user.id, expiresAt: { gt: new Date() } } }),
@@ -104,9 +105,7 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
           </label>
           <p className="muted small">Signed in as {user.email}</p>
           {saved === "1" ? <p className="toast" role="status">Saved.</p> : null}
-          <button className="btn btn-block" type="submit">
-            Save
-          </button>
+          <SubmitButton pendingLabel="Saving…">Save</SubmitButton>
         </form>
 
         <form action={changePassword} className="card">
@@ -125,18 +124,16 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
             </p>
           ) : null}
           {saved === "password" ? <p className="toast" role="status">Password changed.</p> : null}
-          <button className="btn btn-block" type="submit">
-            Change password
-          </button>
+          <SubmitButton pendingLabel="Changing…">Change password</SubmitButton>
         </form>
 
         <form action={signOut} className="card">
           <p className="muted small">
             {sessions === 1 ? "Signed in on this device only." : `Signed in on ${sessions} devices.`}
           </p>
-          <button className="btn btn-quiet btn-block" type="submit" data-testid="sign-out">
+          <SubmitButton className="btn btn-quiet btn-block" pendingLabel="Signing out…" testId="sign-out">
             Sign out
-          </button>
+          </SubmitButton>
         </form>
       </main>
       <TabBar />

@@ -831,6 +831,90 @@ p {
   box-shadow: 0 0 0 2.5px var(--signal);
 }
 
+/* Drag handles on the edges of texts and the selected clip. */
+.bar-text {
+  padding: 0 14px;
+}
+
+.bar-text[aria-pressed="true"] {
+  cursor: grab;
+  touch-action: none;
+}
+
+.bar-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bar-time {
+  margin-left: auto;
+  padding-left: 4px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.7;
+}
+
+.grip {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 1;
+  width: 12px;
+  display: grid;
+  place-items: center;
+  cursor: ew-resize;
+  touch-action: none;
+}
+
+.grip::before {
+  content: "";
+  width: 2px;
+  height: 45%;
+  border-radius: 1px;
+  background: currentColor;
+  opacity: 0.35;
+}
+
+.grip-start {
+  left: 0;
+}
+
+.grip-end {
+  right: 0;
+}
+
+[aria-pressed="true"] > .grip {
+  background: var(--signal);
+  color: #fff;
+}
+
+[aria-pressed="true"] > .grip::before {
+  opacity: 1;
+}
+
+.clip-block > .grip {
+  width: 14px;
+}
+
+.clip-block > .grip-start {
+  border-radius: var(--radius-s) 0 0 var(--radius-s);
+}
+
+.clip-block > .grip-end {
+  border-radius: 0 var(--radius-s) var(--radius-s) 0;
+}
+
+[data-dragging] {
+  cursor: ew-resize;
+}
+
+@media (pointer: coarse) {
+  .grip,
+  .clip-block > .grip {
+    width: 18px;
+  }
+}
+
 .lane-hint {
   position: absolute;
   top: 2px;

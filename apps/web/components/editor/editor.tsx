@@ -716,7 +716,15 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         selection={activeSelection}
         clock={clock}
         onSelect={selectAndShow}
+        onGrab={setSelection}
         onScrub={scrub}
+        onTextTiming={(id, timing, gesture) => apply((current) => updateText(current, id, timing), gesture)}
+        onClipTrim={(id, window, gesture) =>
+          apply((current) => {
+            const clip = current.clips.find((item) => item.id === id);
+            return clip ? trimClip(current, id, window, library[clip.assetId]?.durationMs ?? undefined) : current;
+          }, gesture)
+        }
         onAddMedia={() => setSheet("media")}
         onAddText={() => setSheet("text-new")}
         onAddMusic={() => setSheet("music")}

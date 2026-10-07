@@ -677,6 +677,8 @@ p {
 .timeline-scroll {
   display: block;
   cursor: grab;
+  /* Sideways swipes scroll; two-finger pinches zoom the timeline, not the page. */
+  touch-action: pan-x;
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
@@ -706,6 +708,36 @@ p {
   background-size: var(--pps) 12px, calc(var(--pps) / 4) 6px;
   background-repeat: repeat-x;
   background-position: 0 bottom, 0 bottom;
+}
+
+.ruler {
+  cursor: pointer;
+}
+
+.timeline-zoom {
+  position: absolute;
+  top: 2px;
+  right: 6px;
+  z-index: 4;
+  display: flex;
+  gap: 2px;
+}
+
+.timeline-zoom button {
+  width: 26px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: rgb(11 32 54 / 0.85);
+  color: var(--paper);
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.timeline-zoom button:disabled {
+  opacity: 0.35;
 }
 
 .ruler span {
@@ -1082,8 +1114,9 @@ p {
 .sheet-handle {
   display: grid;
   gap: 10px;
-  margin: -10px -18px 0;
-  padding: 10px 18px 0;
+  /* Full width for an easy grab; not above the sheet, where it would be clipped. */
+  margin: 0 -18px;
+  padding: 0 18px;
   cursor: grab;
   touch-action: none;
   user-select: none;

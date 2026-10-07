@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   clipDurationMs,
   clipEdgeWindow,
@@ -23,8 +23,11 @@ export type Selection = { kind: "clip"; id: string } | { kind: "text"; id: strin
 
 export type PendingUpload = { key: string; name: string; progress: number; thumbUrl: string | null; error?: string };
 
-/** Pixels per second of reel. */
+/** Pixels per second of reel at the default zoom, and the zoom range. */
 export const PPS = 56;
+const MIN_PPS = 12;
+const MAX_PPS = 280;
+const clampPps = (value: number) => Math.min(MAX_PPS, Math.max(MIN_PPS, value));
 const UPLOAD_WIDTH = 72;
 /** How close, in pixels, a dragged edge has to come to a cut or the playhead to stick to it. */
 const SNAP_PX = 8;
@@ -38,6 +41,9 @@ type FilmstripProps = {
   selection: Selection;
   clock: Clock;
   onSelect(selection: Selection): void;
+  /** Double-click or double-tap: select and open the item's main sheet. */
+  onOpen(selection: Selection): void;
+  onSeek(ms: number): void;
   /** Select without moving the playhead, for a drag that starts on an unselected item. */
   onGrab(selection: Selection): void;
   onScrub(ms: number): void;
@@ -61,6 +67,8 @@ export function Filmstrip({
   selection,
   clock,
   onSelect,
+  onOpen,
+  onSeek,
   onGrab,
   onScrub,
   onTextTiming,
@@ -72,10 +80,14 @@ export function Filmstrip({
   const scroller = useRef<HTMLDivElement>(null);
   const [pad, setPad] = useState(180);
   const programmatic = useRef<number | null>(null);
+  // Zoom: pixels per second. Pinch on a phone, Ctrl + wheel or a trackpad pinch on a computer, or the +/- buttons.
+  const [pps, setPps] = useState(PPS);
+  const ppsRef = useRef(pps);
+  ppsRef.current = pps;
 
   const total = timelineDurationMs(timeline);
   const starts = clipStartsMs(timeline);
-  const px = (ms: number) => (ms * PPS) / 1000;
+  const px = (ms: number) => (ms * pps) / 1000;
   const totalPx = px(total);
   const uploadsPx = uploads.length * (UPLOAD_WIDTH + 4);
 
@@ -93,7 +105,7 @@ export function Filmstrip({
     const element = scroller.current;
     if (!element) return;
     const apply = (ms: number) => {
-      const left = Math.round(px(ms));
+      const left = Math.round((ms * ppsRef.current) / 1000);
       if (Math.abs(element.scrollLeft - left) < 1) return;
       programmatic.current = left;
       element.scrollLeft = left;
@@ -104,6 +116,51 @@ export function Filmstrip({
     });
   }, [clock]);
 
+  // A new zoom keeps the playhead where it was.
+  useLayoutEffect(() => {
+    const element = scroller.current;
+    if (!element) return;
+    const left = Math.round((clock.get() * pps) / 1000);
+    programmatic.current = left;
+    element.scrollLeft = left;
+  }, [pps, clock]);
+
+  const zoom = useCallback((factor: number) => setPps((current) => clampPps(current * factor)), []);
+  useEffect(() => {
+    const element = scroller.current;
+    if (!element) return;
+    const onWheel = (event: WheelEvent) => {
+      if (!event.ctrlKey && !event.metaKey) return;
+      event.preventDefault();
+      zoom(Math.exp(-event.deltaY * 0.01));
+    };
+    let pinch: { distance: number; pps: number } | null = null;
+    const spread = (touches: TouchList) => Math.hypot(touches[0].clientX - touches[1].clientX, touches[0].clientY - touches[1].clientY);
+    const onTouchStart = (event: TouchEvent) => {
+      if (event.touches.length === 2) pinch = { distance: spread(event.touches), pps: ppsRef.current };
+    };
+    const onTouchMove = (event: TouchEvent) => {
+      if (!pinch || event.touches.length !== 2) return;
+      event.preventDefault();
+      setPps(clampPps((pinch.pps * spread(event.touches)) / pinch.distance));
+    };
+    const onTouchEnd = (event: TouchEvent) => {
+      if (event.touches.length < 2) pinch = null;
+    };
+    element.addEventListener("wheel", onWheel, { passive: false });
+    element.addEventListener("touchstart", onTouchStart, { passive: true });
+    element.addEventListener("touchmove", onTouchMove, { passive: false });
+    element.addEventListener("touchend", onTouchEnd);
+    element.addEventListener("touchcancel", onTouchEnd);
+    return () => {
+      element.removeEventListener("wheel", onWheel);
+      element.removeEventListener("touchstart", onTouchStart);
+      element.removeEventListener("touchmove", onTouchMove);
+      element.removeEventListener("touchend", onTouchEnd);
+      element.removeEventListener("touchcancel", onTouchEnd);
+    };
+  }, [zoom]);
+
   // Scroll position -> playhead, when the user drags the strip.
   function onScroll() {
     const element = scroller.current;
@@ -113,13 +170,13 @@ export function Filmstrip({
       return;
     }
     programmatic.current = null;
-    onScrub(Math.min(total, Math.max(0, (element.scrollLeft * 1000) / PPS)));
+    onScrub(Math.min(total, Math.max(0, (element.scrollLeft * 1000) / pps)));
   }
 
   // ── Dragging edges ──────────────────────────────────────────
   const [dragging, setDragging] = useState<string | null>(null);
   const suppressClick = useRef(false);
-  const snapMs = (SNAP_PX * 1000) / PPS;
+  const snapMs = (SNAP_PX * 1000) / pps;
 
   /**
    * Follow a pointer from a grip until it is released. onMove gets the
@@ -140,7 +197,7 @@ export function Filmstrip({
     let pointerX = startX;
     let moved = false;
     let frame = 0;
-    const update = () => onMove(((pointerX - startX + (follow ? element.scrollLeft - startLeft : 0)) * 1000) / PPS);
+    const update = () => onMove(((pointerX - startX + (follow ? element.scrollLeft - startLeft : 0)) * 1000) / ppsRef.current);
     const edgeScroll = () => {
       // Only once the pointer has travelled into a side zone: on a phone an
       // edge often starts there, and scrolling straight away would run it off.
@@ -245,6 +302,8 @@ export function Filmstrip({
   const textLaneRows = Math.max(1, rowSpans.length);
 
   const seconds = Math.ceil(total / 1000);
+  // Label every second when there is room, otherwise every 5 or 10.
+  const labelEvery = seconds <= 12 && pps >= 40 ? 1 : pps >= 90 ? 1 : pps >= 30 ? 5 : 10;
   const selectedId = selection && selection.kind !== "music" ? selection.id : null;
   const musicAsset = timeline.music ? library[timeline.music.assetId] : undefined;
 
@@ -284,15 +343,21 @@ export function Filmstrip({
       >
         <div
           className="timeline-track"
-          style={{ width: pad * 2 + totalPx + uploadsPx + 70, ["--pps" as string]: `${PPS}px`, ["--pad" as string]: `${pad}px` }}
+          style={{ width: pad * 2 + totalPx + uploadsPx + 70, ["--pps" as string]: `${pps}px`, ["--pad" as string]: `${pad}px` }}
           onClick={(event) => {
             if (event.target === event.currentTarget) onSelect(null);
           }}
         >
-          <div className="ruler" aria-hidden="true" style={{ marginLeft: pad, width: totalPx + 1 }}>
+          <div
+            className="ruler"
+            aria-hidden="true"
+            style={{ marginLeft: pad, width: totalPx + 1 }}
+            // Click the ruler to put the playhead there.
+            onClick={(event) => onSeek(((event.clientX - event.currentTarget.getBoundingClientRect().left) * 1000) / pps)}
+          >
             {Array.from({ length: seconds + 1 }, (_, second) => (
               <span key={second} style={{ left: px(second * 1000) }}>
-                {second % 5 === 0 || seconds <= 12 ? `${second}s` : ""}
+                {second % labelEvery === 0 ? `${second}s` : ""}
               </span>
             ))}
           </div>
@@ -318,6 +383,7 @@ export function Filmstrip({
                   }}
                   data-dragging={dragging === clip.id || undefined}
                   onClick={() => !suppressClick.current && onSelect(selected ? null : { kind: "clip", id: clip.id })}
+                  onDoubleClick={() => onOpen({ kind: "clip", id: clip.id })}
                 >
                   {selected ? (
                     <>
@@ -389,6 +455,7 @@ export function Filmstrip({
                   }}
                   onPointerDown={(event) => grabText(event, text, "move")}
                   onClick={() => !suppressClick.current && onSelect(selected ? null : { kind: "text", id: text.id })}
+                  onDoubleClick={() => onOpen({ kind: "text", id: text.id })}
                 >
                   <span className="grip grip-start" aria-hidden="true" onPointerDown={(event) => grabText(event, text, "start")} />
                   <TextIcon size={14} />
@@ -436,6 +503,14 @@ export function Filmstrip({
         </div>
       </div>
       <span className="playhead" aria-hidden="true" />
+      <div className="timeline-zoom" role="group" aria-label="Timeline zoom">
+        <button type="button" aria-label="Zoom out" disabled={pps <= MIN_PPS} onClick={() => zoom(1 / 1.6)}>
+          −
+        </button>
+        <button type="button" aria-label="Zoom in" disabled={pps >= MAX_PPS} onClick={() => zoom(1.6)}>
+          +
+        </button>
+      </div>
     </div>
   );
 }

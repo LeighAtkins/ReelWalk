@@ -459,11 +459,22 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         deleteSelection();
       } else if (event.key.toLowerCase() === "s" && !mod) {
         split();
+      } else if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+        // A frame at a time, or a second with Shift.
+        event.preventDefault();
+        playerRef.current?.pause();
+        const step = event.shiftKey ? 1000 : 1000 / REEL_FORMAT.fps;
+        seek(clock.get() + (event.key === "ArrowLeft" ? -step : step));
+      } else if (event.key === "Home" || event.key === "End") {
+        event.preventDefault();
+        seek(event.key === "Home" ? 0 : totalMs);
+      } else if (event.key === "Escape" && activeSelection) {
+        setSelection(null);
       }
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [deleteSelection, sheet, split, togglePlay]);
+  }, [activeSelection, clock, deleteSelection, seek, sheet, split, togglePlay, totalMs]);
 
   const assets = useMemo<Record<string, ReelAsset>>(
     () => Object.fromEntries(Object.values(library).map((asset) => [asset.id, { src: asset.url, kind: asset.kind }])),
@@ -716,6 +727,15 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         selection={activeSelection}
         clock={clock}
         onSelect={selectAndShow}
+        onOpen={(next) => {
+          selectAndShow(next);
+          if (next?.kind === "text") setSheet("text-edit");
+          if (next?.kind === "clip") setSheet("trim");
+        }}
+        onSeek={(ms) => {
+          playerRef.current?.pause();
+          seek(ms);
+        }}
         onGrab={setSelection}
         onScrub={scrub}
         onTextTiming={(id, timing, gesture) => apply((current) => updateText(current, id, timing), gesture)}

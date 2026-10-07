@@ -38,6 +38,7 @@ const store = createJobStore(prisma);
 
 let stopping = false;
 let lastTickAt = Date.now();
+let lastWorkAt = Date.now();
 const shutdown = new AbortController();
 
 function toDelivery(queueUrl: string, message: Message): Delivery {
@@ -71,13 +72,21 @@ async function receive(queueUrl: string): Promise<Message | undefined> {
   return result.Messages?.[0];
 }
 
-async function pollLoop(name: string, queueUrl: string, handle: (delivery: Delivery) => Promise<unknown>) {
+async function pollLoop(name: string, queueUrl: string, handle: (delivery: Delivery) => Promise<unknown>, idleExit = false) {
   console.log(`${name}: polling ${queueUrl}`);
   while (!stopping) {
     lastTickAt = Date.now();
     try {
       const message = await receive(queueUrl);
-      if (message) await handle(toDelivery(queueUrl, message));
+      if (message) {
+        lastWorkAt = Date.now();
+        await handle(toDelivery(queueUrl, message));
+        lastWorkAt = Date.now();
+      } else if (idleExit && config.idleExitSeconds > 0 && Date.now() - lastWorkAt > config.idleExitSeconds * 1000) {
+        console.log(`${name}: idle for ${config.idleExitSeconds}s, exiting`);
+        stopping = true;
+        shutdown.abort();
+      }
     } catch (error) {
       if (stopping) break;
       console.error(`${name}: loop error, backing off`, error);
@@ -135,11 +144,16 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
 
 const loops = [
   outboxLoop(),
-  pollLoop("render-queue", config.queueUrl, (delivery) =>
-    handleDelivery(
-      { store, config, render: (job, onProgress) => renderJob(job, s3, config.s3Bucket, onProgress, config.renderConcurrency) },
-      delivery,
-    ),
+  pollLoop(
+    "render-queue",
+    config.queueUrl,
+    (delivery) =>
+      handleDelivery(
+        { store, config, render: (job, onProgress) => renderJob(job, s3, config.s3Bucket, onProgress, config.renderConcurrency) },
+        delivery,
+      ),
+    // Only the render loop decides the task is idle; the outbox loop never has work of its own.
+    true,
   ),
 ];
 if (config.deadLetterQueueUrl) {

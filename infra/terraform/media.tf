@@ -34,7 +34,8 @@ resource "aws_s3_bucket_cors_configuration" "media" {
 
   cors_rule {
     allowed_methods = ["GET", "HEAD", "PUT"]
-    allowed_origins = var.media_cors_origins
+    # The custom domain plus App Runner's own address, which the smoke test uses.
+    allowed_origins = concat(var.media_cors_origins, ["https://${aws_apprunner_service.web.service_url}"])
     allowed_headers = ["*"]
     expose_headers  = ["ETag"]
     max_age_seconds = 3600

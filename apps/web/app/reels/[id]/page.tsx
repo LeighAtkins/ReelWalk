@@ -5,7 +5,7 @@ import { prisma } from "@reelwalk/db";
 import { Editor } from "@/components/editor/editor";
 import { toLibraryAsset } from "@/lib/library";
 import { readTimeline } from "@/lib/reels";
-import { getCurrentUser } from "@/lib/workspace";
+import { getCurrentUser, mediaScope } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
 
@@ -27,8 +27,8 @@ export default async function EditReelPage({
   const timeline = readTimeline(reel.timeline);
   // Everything this reel uses, plus recent uploads to reuse.
   const [used, recent] = await Promise.all([
-    prisma.mediaAsset.findMany({ where: { workspaceId: user.workspaceId, id: { in: referencedAssetIds(timeline) } } }),
-    prisma.mediaAsset.findMany({ where: { workspaceId: user.workspaceId }, orderBy: { createdAt: "desc" }, take: 120 }),
+    prisma.mediaAsset.findMany({ where: { ...mediaScope(user.workspaceId), id: { in: referencedAssetIds(timeline) } } }),
+    prisma.mediaAsset.findMany({ where: mediaScope(user.workspaceId), orderBy: { createdAt: "desc" }, take: 120 }),
   ]);
   const unique = new Map([...recent, ...used].map((asset) => [asset.id, asset]));
   const library = await Promise.all([...unique.values()].map(toLibraryAsset));

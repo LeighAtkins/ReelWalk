@@ -40,6 +40,25 @@ misconfigurations:
       SSE-S3 (AES256) is enabled. A customer-managed KMS key would add a key
       fee plus a request fee on every upload and render; the media is not
       sensitive enough to justify it.
+  # infra/terraform EKS (ADR 0014): deliberate shape of a small, cheap cluster.
+  - id: AWS-0040
+    statement: >-
+      The Kubernetes API endpoint is public so the cluster can be managed from
+      a laptop without a bastion or VPN. Access still needs IAM credentials.
+  - id: AWS-0041
+    statement: >-
+      Same as AWS-0040: the public endpoint is not restricted to fixed source
+      addresses because the operator has none.
+  - id: AWS-0104
+    statement: >-
+      Nodes and pods need outbound internet access (image pulls, S3, SQS,
+      Instagram, Let's Encrypt). There is no NAT gateway, so this is the
+      node security group's egress rule from the EKS module.
+  - id: AWS-0164
+    statement: >-
+      Nodes get public addresses on purpose: it replaces a NAT gateway, which
+      costs more than the database. The node security group admits only
+      cluster traffic and the load balancer's node ports.
 
 vulnerabilities:
   # tinypool 1.1.1 is vendored (pre-compiled) into @rspack/core, which

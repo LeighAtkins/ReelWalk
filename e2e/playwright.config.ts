@@ -1,4 +1,8 @@
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { defineConfig, devices } from "@playwright/test";
+
+const here = path.dirname(fileURLToPath(import.meta.url));
 
 // Runs against an already running stack: docker compose (default) or the
 // kind cluster with E2E_BASE_URL=http://localhost:8081.
@@ -19,5 +23,14 @@ export default defineConfig({
     trace: "retain-on-failure",
   },
   // The editor is built for phones, so the suite runs on a phone-sized viewport.
-  projects: [{ name: "mobile", use: { ...devices["Pixel 7"] } }],
+  // "setup" signs in to the demo studio once; the tests reuse that session.
+  projects: [
+    { name: "setup", testMatch: /auth\.setup\.ts/ },
+    {
+      name: "mobile",
+      use: { ...devices["Pixel 7"], storageState: path.join(here, ".auth", "demo.json") },
+      dependencies: ["setup"],
+      testIgnore: /auth\.setup\.ts/,
+    },
+  ],
 });

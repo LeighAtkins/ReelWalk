@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { acceptFor, vibeById, VIBES } from "@reelwalk/core";
 import { createReel, createReelFromTour } from "@/app/actions";
@@ -82,6 +83,9 @@ export function NewReelPicker({ librarySize = 0, tours = [] }: { librarySize?: n
           Use library media
         </button>
       ) : null}
+      <Link href="/new/venue" className="btn btn-quiet btn-block" prefetch={false} data-testid="new-venue-reel">
+        Restaurant or café reel
+      </Link>
       {tours.length > 0 ? (
         <label className="field">
           Vibe for an auto-built tour

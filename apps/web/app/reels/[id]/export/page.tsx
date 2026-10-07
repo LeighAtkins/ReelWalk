@@ -7,6 +7,9 @@ import { AutoRefresh } from "@/components/auto-refresh";
 import { CaptionEditor } from "@/components/caption-editor";
 import { BackIcon, DownloadIcon } from "@/components/icons";
 import { ShareButton } from "@/components/share-button";
+import { ShareLink } from "@/components/share-link";
+import { PostToInstagram } from "@/components/post-to-instagram";
+import { appUrl } from "@/lib/app-url";
 import { outputUrls } from "@/lib/render-jobs";
 import { coverUrls, readTimeline } from "@/lib/reels";
 import { getCurrentUser } from "@/lib/workspace";
@@ -24,7 +27,12 @@ export default async function ExportPage({ params }: { params: Promise<{ id: str
   const job = reel.renderJobs[0];
   if (!job) redirect(`/reels/${reel.id}`);
 
-  const [urls, [cover]] = await Promise.all([outputUrls(job), coverUrls([readTimeline(reel.timeline)])]);
+  const [urls, [cover], base, instagram] = await Promise.all([
+    outputUrls(job),
+    coverUrls([readTimeline(reel.timeline)]),
+    appUrl(),
+    prisma.socialAccount.findUnique({ where: { workspaceId_provider: { workspaceId: user.workspaceId, provider: "instagram" } }, select: { username: true } }),
+  ]);
   const active = isActive(job.status);
 
   return (
@@ -68,15 +76,17 @@ export default async function ExportPage({ params }: { params: Promise<{ id: str
             <div>
               <h1>Ready for Instagram</h1>
               <p className="muted" style={{ marginTop: 6 }}>
-                1080×1920 MP4, 30 fps. Share it to Instagram from your phone, or download it.
+                1080×1920 MP4, 30 fps. Share it to Instagram from your phone, download it, or send a link anyone can open.
               </p>
             </div>
             <div className="export-actions">
+              {instagram ? <PostToInstagram jobId={job.id} username={instagram.username} /> : null}
               <ShareButton url={urls.playUrl} fileName={`${reel.title}.mp4`} caption={reel.caption} />
               <a className="btn btn-quiet" href={urls.downloadUrl} download>
                 <DownloadIcon size={18} />
                 Download
               </a>
+              <ShareLink reelId={reel.id} initialUrl={reel.shareToken ? `${base}/r/${reel.shareToken}` : null} />
               <Link className="btn btn-quiet" href={`/reels/${reel.id}`} prefetch={false}>
                 Keep editing
               </Link>

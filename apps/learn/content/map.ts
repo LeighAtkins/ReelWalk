@@ -237,7 +237,7 @@ export const ROUTES: Route[] = [
     id: "deploy",
     color: "#00994C",
     title: { ja: "コードから本番{ほんばん}まで", en: "From code to production" },
-    summary: "The CI pipeline that runs today, and the deploy steps that are designed but waiting on AWS.",
+    summary: "The CI pipeline that runs today, the GitOps loop on kind, and how production on AWS is deployed (ADR 0015).",
     stops: [
       {
         at: "actions",

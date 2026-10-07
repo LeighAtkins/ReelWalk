@@ -14,8 +14,11 @@ there is no apply step in CI.
 | `budget.tf` | A monthly cost budget with alerts at 80 % and on the forecast |
 | `imports.tf` | Import blocks for the bucket and distribution that existed before Terraform |
 
-Not here on purpose: EKS, RDS and anything else that bills by the hour.
-ADR 0005 and ADR 0011 explain why.
+| `network.tf` | VPC in two zones with public subnets (no NAT gateway) for the Fargate render tasks |
+| `serverless.tf` | App Runner service for the web app, the ECS cluster and worker task definition started on demand, the roles, and the SSM parameters holding credentials (ADR 0015) |
+
+Secrets (`database_url`, `meta_*`, `pixabay_api_key`) and `image_tag` come
+from `terraform.tfvars`, which is gitignored.
 
 ## State
 

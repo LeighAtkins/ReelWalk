@@ -82,9 +82,11 @@ docs/adr          Architecture decision records
 | Model | Purpose |
 | --- | --- |
 | `Workspace` | Tenant boundary. Every query is scoped to the current user's workspace. |
-| `User` | Belongs to one workspace. There is no login yet: requests act as a seeded demo user, resolved in one function (`apps/web/lib/workspace.ts`). |
-| `Reel` | One reel being edited. `timeline` is the edit as JSON (validated by `timelineSchema`), `revision` guards autosave against a second tab, `caption` is the Instagram post text. |
-| `MediaAsset` | The workspace's media library: photos, videos and songs. `objectKey` is the S3 key; `thumbKey` a JPEG made in the browser; `durationMs`, `width`, `height` measured in the browser before upload. |
+| `User` | Belongs to one workspace. `passwordHash` is scrypt; the signed-in user is resolved in one function (`apps/web/lib/workspace.ts`, [ADR 0012](adr/0012-accounts-and-sessions.md)). |
+| `Session` | A signed-in browser: the SHA-256 of the cookie token, the user and an expiry. |
+| `SocialAccount` | A connected publishing account per workspace (Instagram), for direct posting once a Meta app exists. |
+| `Reel` | One reel being edited. `timeline` is the edit as JSON (validated by `timelineSchema`), `revision` guards autosave against a second tab, `caption` is the Instagram post text, `shareToken` the random part of its public link. |
+| `MediaAsset` | The workspace's media library: photos, videos and songs. `objectKey` is the S3 key; `thumbKey` a JPEG made in the browser; `durationMs`, `width`, `height` measured in the browser before upload. `shared` marks the open starter library every workspace can use; `sourceUrl`, `license` and `attribution` travel with imported and stock clips. |
 | `Tour` | A walkthrough of one home: its floor plan (`plan`, validated by `planSchema`). Media that belongs to it stores `tourId`, the `room` name and a `spot` (position and camera direction on the plan). |
 | `Property`, `Template` | From the first, per-listing flow. Kept in the schema; the mobile editor does not use them. |
 | `RenderJob` | One request to render. Holds `status`, `progress`, `attempt`, `generation`, `heartbeatAt` and the last `error`. For a reel export (`kind = REEL`), `payload` is a frozen copy of the timeline and the storage keys of its media. |
@@ -210,16 +212,39 @@ stale after 60 s, 3 attempts, backoff 15 s then 30 s.
 Server Actions have a small request body limit by default, and a 2 GB video
 has no business in the web server's memory anyway.
 
+## Accounts and sharing
+
+Sign-up creates a workspace; sign-in writes a `Session` row and an httpOnly
+cookie ([ADR 0012](adr/0012-accounts-and-sessions.md)). `proxy.ts` sends
+cookie-less requests to `/login`; `getCurrentUser()` validates the session and
+scopes every query. Media queries use `mediaScope()`, which adds the shared
+starter library to the workspace's own uploads.
+
+Each reel can have one public link, `/r/<token>`, showing the latest export,
+the caption and a Save button to anyone, with no sign-in
+([ADR 0013](adr/0013-venue-reels-stock-footage-and-share-links.md)).
+
+## Venue reels
+
+`/new/venue` builds a restaurant or café reel from the menu, a vibe and the
+clips tapped in order (`buildVenueReel` in `packages/core/src/venue.ts`).
+Clips come from the library, the phone, or Pixabay stock search when
+`PIXABAY_API_KEY` is set; imports keep their licence and credit.
+
 ## Known gaps
 
-- No authentication. One seeded user and workspace.
+- One user per workspace: no teams, invitations or password reset (needs an
+  email provider).
+- Direct posting to Instagram needs a Meta app; today sharing is the share
+  sheet or the public link.
 - No AI features yet (Bedrock captions are planned).
 - No pinch-to-zoom on the timeline (fixed 56 px per second) and no
   drag-to-reorder; clips move with Earlier/Later.
 - Signed media URLs last an hour; a longer editing session needs a reload.
 - Worker autoscaling is CPU-based and off by default; KEDA on queue depth is planned.
-- S3, SQS, ECR and CloudFront are real (ADR 0011); EKS and RDS are designed
-  for but not deployed (ADR 0005). Workers run locally or on kind.
+- Production is https://reelwalking.com on App Runner with on-demand Fargate
+  render tasks and Neon Postgres (ADR 0015), under $30 a month. EKS was tried
+  first (ADR 0014) and retired for cost. Kubernetes stays the local kind demo.
 - No per-claim fencing token: after a stale-heartbeat takeover two workers can
   render the same job. The output is the same file, so the result is not
   corrupted (ADR 0003).

@@ -6,11 +6,12 @@ import { StatusBadge } from "@/components/status-badge";
 import { TabBar } from "@/components/tab-bar";
 import { formatDuration } from "@/lib/format";
 import { coverUrls, durationOf, readTimeline } from "@/lib/reels";
-import { getCurrentUser } from "@/lib/workspace";
+import { getCurrentUser, mediaScope } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
 
-export default async function ReelsPage() {
+export default async function ReelsPage({ searchParams }: { searchParams: Promise<{ welcome?: string }> }) {
+  const { welcome } = await searchParams;
   const user = await getCurrentUser();
   const reels = await prisma.reel.findMany({
     where: { workspaceId: user.workspaceId },
@@ -18,7 +19,7 @@ export default async function ReelsPage() {
     take: 60,
     include: { renderJobs: { orderBy: { createdAt: "desc" }, take: 1, select: { status: true } } },
   });
-  const librarySize = await prisma.mediaAsset.count({ where: { workspaceId: user.workspaceId, kind: { not: "AUDIO" } } });
+  const librarySize = await prisma.mediaAsset.count({ where: { ...mediaScope(user.workspaceId), kind: { not: "AUDIO" } } });
   const tours = await prisma.tour.findMany({
     where: { workspaceId: user.workspaceId },
     select: { id: true, name: true, _count: { select: { media: true } } },
@@ -38,6 +39,12 @@ export default async function ReelsPage() {
           <span className="muted small">{user.workspace.name}</span>
         </header>
         <h1 style={{ marginBottom: 16 }}>Reels</h1>
+        {welcome === "1" ? (
+          <p className="banner" role="status" data-testid="welcome">
+            Welcome to {user.workspace.name}. Your library already has {librarySize} clips and photos plus the music, so you can
+            start a reel right now.
+          </p>
+        ) : null}
 
         <ul className="reel-grid">
           <li>

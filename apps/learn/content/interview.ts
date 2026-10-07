@@ -3,8 +3,9 @@
  *
  * Company facts were checked against the company's own pages and its job post
  * on HERP (fetched 2026-10-05). 【】 marks a personal fact to fill in before
- * practising. Scripts are honest about scope: AWS is designed, not deployed;
- * everything runs locally (Docker Compose, kind) and in CI.
+ * practising. Scripts are honest about scope: production runs on AWS (App
+ * Runner + on-demand Fargate, ADR 0015); EKS ran for one day and was retired
+ * for cost (ADR 0014); Kubernetes is demonstrated on a local kind cluster.
  */
 import type { Line, PhraseSet, QA, Script } from "../lib/types";
 
@@ -185,7 +186,7 @@ export const scripts: Script[] = [
     title: { ja: "ReelWalkを90秒で", en: "ReelWalk in 90 seconds" },
     seconds: 90,
     intro:
-      "Four parts in a fixed order: product, architecture, reliability, delivery. Pause briefly between parts. The last line states the AWS scope up front, so nobody is surprised later.",
+      "Four parts in a fixed order: product, architecture, reliability, delivery. Pause briefly between parts. The last line states where it runs and what it costs, so nobody has to ask.",
     lines: [
       {
         ja: "[ReelWalk]{リールウォーク}は、物件紹介のリール動画をスマホで作るアプリです。",
@@ -232,16 +233,16 @@ export const scripts: Script[] = [
         en: "Status changes are conditional updates, so a job can never complete twice.",
       },
       {
-        ja: "デプロイは[Helm]{ヘルム}チャートで、ローカルの[kind]{カインド}クラスタに行っています。",
-        en: "It's deployed with a Helm chart to a local kind cluster.",
+        ja: "ローカルは[Helm]{ヘルム}と[kind]{カインド}、本番はTerraformでAWSにデプロイしています。",
+        en: "Locally it runs with Helm on kind; production is deployed to AWS with Terraform.",
       },
       {
         ja: "GitHub Actionsで、テストと脆弱性{ぜいじゃくせい}スキャン、E2Eテストを回しています。",
         en: "GitHub Actions runs the tests, vulnerability scans and end-to-end tests.",
       },
       {
-        ja: "AWSは設計までで、本番環境にはまだデプロイしていません。",
-        en: "AWS is designed for, but nothing has been deployed to production yet.",
+        ja: "本番は[App Runner]{アップランナー}と、必要なときだけ動く[Fargate]{ファーゲート}で、月十ドル台で運用しています。",
+        en: "Production runs on App Runner and Fargate tasks that only run when needed, for ten-something dollars a month.",
       },
     ],
   },
@@ -376,56 +377,55 @@ export const scripts: Script[] = [
   },
   {
     id: "honest-scope",
-    title: { ja: "AWSの範囲を正直に伝える", en: "Being honest about AWS scope" },
-    seconds: 60,
+    title: { ja: "AWSの構成と、EKSをやめた理由", en: "The AWS setup, and why EKS was retired" },
+    seconds: 75,
     intro:
-      "Say this before they find it in the repo. Calm and factual, no apology spiral: what is designed, what was verified locally and how, what kind cannot prove, and what you want to learn on the job. ADR 0005 is the written source.",
+      "The story they will ask about: you did put it on EKS, it worked, and you took it down the same day because the bill was wrong for the workload. Calm and factual, numbers included. ADR 0014 and ADR 0015 are the written sources. Kubernetes is still demonstrated on kind, so never say you have no Kubernetes experience.",
     lines: [
-      { ja: "一点、先にお伝えしておきたいことがあります。", en: "There's one thing I'd like to mention up front." },
-      { ja: "AWSへのデプロイは、まだ行っていません。", en: "I haven't deployed to AWS yet." },
+      { ja: "本番環境は、AWSで動いています。", en: "Production runs on AWS." },
       {
-        ja: "アカウントの本人確認が終わらず、間に合わなかったためです。",
-        en: "My account's identity verification didn't finish in time.",
+        ja: "構成はTerraformで管理し、S3、CloudFront、SQS、ECR、IAMをコードで作りました。",
+        en: "The infrastructure is managed with Terraform: S3, CloudFront, SQS, ECR and IAM are all code.",
       },
       {
-        ja: "その代わり、ローカルで同じAPIを使って検証{けんしょう}しました。",
-        en: "Instead, I verified everything locally against the same APIs.",
+        ja: "最初はEKSとRDSで本番を立てて、実際に一日動かしました。",
+        en: "At first I stood production up on EKS and RDS, and ran it for a day.",
       },
       {
-        ja: "S3はMinIO、SQSはElasticMQ、EKSはkindで置き換えています。",
-        en: "MinIO stands in for S3, ElasticMQ for SQS, and kind for EKS.",
+        ja: "ただ、月に約250ドルかかり、ほとんどが待機{たいき}のコストでした。",
+        en: "But it came to about $250 a month, and most of that was idle cost.",
       },
       {
-        ja: "アプリはAWS SDKのままで、変わるのは接続先の設定だけです。",
-        en: "The app still uses the AWS SDK; only the endpoint settings change.",
+        ja: "そこで、同じイメージを[App Runner]{アップランナー}と、必要なときだけ起動する[Fargate]{ファーゲート}に移しました。",
+        en: "So I moved the same images to App Runner, and to Fargate tasks that start only when needed.",
       },
       {
-        ja: "環境の違いは、Helmのvaluesファイルにまとめました。",
-        en: "The differences between environments are kept in Helm values files.",
+        ja: "書き出しがキューに入ると、WebアプリがFargateのタスクを一つ起動し、終わると自動で止まります。",
+        en: "When an export is queued, the web app starts one Fargate task, and it stops by itself when it is done.",
       },
       {
-        ja: "Terraformも、S3やSQS、RDSなどの下書きまでは書いてあります。",
-        en: "I've also drafted Terraform for S3, SQS, RDS and so on.",
+        ja: "月のコストは、十ドル台まで下がりました。",
+        en: "The monthly cost dropped to ten-something dollars.",
       },
       {
-        ja: "CIはGitHub Actionsで、すべて通っています。",
-        en: "CI runs on GitHub Actions, and everything passes.",
+        ja: "データベースは、無料枠{むりょうわく}のSupabaseを使っています。AWSの外にある、唯一{ゆいいつ}の部品です。",
+        en: "The database is on Supabase's free tier, the only piece outside AWS.",
       },
       {
-        ja: "ただ、IAMの権限やロードバランサー、TLSは、実際のEKSでないと確かめられません。",
-        en: "But IAM permissions, the load balancer and TLS can only be proven on a real EKS cluster.",
+        ja: "Kubernetesは、ローカルのkindとHelmチャートで、今も検証{けんしょう}に使っています。",
+        en: "Kubernetes is still used for verification, with Helm on a local kind cluster.",
       },
       {
-        ja: "そこは「未検証{みけんしょう}」として、ADRに明記{めいき}しています。",
-        en: "I've stated clearly in an ADR that those are unverified.",
+        ja: "この判断は、理由とコストをADRに書いて残しています。",
+        en: "That decision is recorded in an ADR with the reasons and the numbers.",
       },
       {
-        ja: "動かしていないものを、動いたとは言わないようにしています。",
-        en: "I make a point of never claiming something works when I haven't run it.",
+        ja: "動いているものと、やめたものを、はっきり言えるようにしています。",
+        en: "I make a point of being clear about what runs and what I retired.",
       },
       {
-        ja: "入社後は、実際のAWS環境で、この差を埋める経験を積みたいです。",
-        en: "After joining, I want to gain experience closing that gap on real AWS.",
+        ja: "入社後は、もっと大きな規模{きぼ}のAWS運用を学びたいです。",
+        en: "After joining, I want to learn how AWS is run at a larger scale.",
       },
     ],
   },
@@ -484,7 +484,7 @@ export const scripts: Script[] = [
     title: { ja: "技術スタックが合う理由", en: "Why my stack matches the job" },
     seconds: 75,
     intro:
-      "Walk their stack in the order of the job post and give one concrete thing you did with each. Say plainly which parts you have run (Next.js, Prisma, Helm on kind, CI), which you have run only locally (Argo CD on kind) and which are only designed (EKS, RDS). That contrast reads as self-aware, not weak.",
+      "Walk their stack in the order of the job post and give one concrete thing you did with each. Be plain about scale: production on AWS is real but small (App Runner, on-demand Fargate, Terraform, ECR via OIDC), EKS ran for one day before you retired it for cost, and Argo CD is on local kind. That contrast reads as self-aware, not weak.",
     lines: [
       {
         ja: "求人の技術スタックは、ReelWalkとほぼ同じです。",
@@ -527,8 +527,8 @@ export const scripts: Script[] = [
         en: "For Argo CD, I installed it on local kind and confirmed that a merge to main deploys automatically.",
       },
       {
-        ja: "ただ、本番での運用経験はまだありません。",
-        en: "But I have no experience running it in production yet.",
+        ja: "本番のAWSは小さな規模{きぼ}ですが、コストを見て構成を変える判断までやりました。",
+        en: "Production on AWS is small, but I went as far as changing the architecture after looking at the cost.",
       },
       {
         ja: "すぐに手を動かせる部分と、これから学ぶ部分がはっきりしています。",
@@ -1085,8 +1085,8 @@ export const phraseSets: PhraseSet[] = [
         en: "These numbers were measured on my machine; treat them as a rough guide.",
       },
       {
-        ja: "ADRに「未検証{みけんしょう}」と明記{めいき}しています。",
-        en: "I've explicitly marked it as unverified in the ADR.",
+        ja: "測っていないことは、ADRに「未検証{みけんしょう}」と明記{めいき}しています。",
+        en: "Anything I have not measured is explicitly marked unverified in the ADR.",
       },
     ],
   },

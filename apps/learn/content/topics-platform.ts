@@ -76,7 +76,7 @@ export const platformTopics: Topic[] = [
     ],
     status: "built",
     statusNote:
-      "Real: the web and worker images build in CI on every push and run in Docker Compose and on the local kind cluster; they have never been pushed to a registry.",
+      "Real: the web and worker images build in CI on every push; on main they are pushed to GHCR and to ECR (GitHub OIDC role, no stored keys). App Runner and Fargate run the ECR images in production.",
     inRepo: [
       { path: "apps/web/Dockerfile", what: "Three stages: deps, builder, and a runner that copies only the standalone output and runs as node." },
       { path: "apps/worker/Dockerfile", what: "Chrome libraries and ffmpeg in the base, a --prod install, Chrome downloaded at build time, tsx started directly so SIGTERM arrives." },
@@ -174,7 +174,7 @@ export const platformTopics: Topic[] = [
     ],
     status: "built",
     statusNote:
-      "The Deployments, Service, probes, resources and migration Job are real and run on a local kind cluster; they have never run on a cloud cluster.",
+      "The Deployments, Service, probes, resources and migration Job are real: they run on a local kind cluster and ran on EKS for one day (ADR 0014) before production moved to App Runner and Fargate for cost (ADR 0015).",
     inRepo: [
       { path: "infra/helm/reelwalk/templates/web.yaml", what: "web Deployment with maxUnavailable: 0, readiness on /api/ready, liveness on /api/health, plus the Service." },
       { path: "infra/helm/reelwalk/templates/worker.yaml", what: "worker Deployment: no Service, liveness on /healthz, /dev/shm in memory for Chrome, 300 s grace period." },
@@ -215,7 +215,7 @@ export const platformTopics: Topic[] = [
           { ja: `ただ、同じチャートが${KIND}とEKSの両方で動きます。`, en: "But the same chart runs on both kind and EKS." },
           { ja: "今は、ローカルのkindで検証{けんしょう}しています。", en: "For now I have verified it on a local kind cluster." },
         ],
-        tip: "Naming the alternative you rejected (ECS/Fargate) and why shows judgment. Say kind, not production.",
+        tip: "Naming the alternative (ECS/Fargate) shows judgment, and the twist is that production ended up on Fargate after all: EKS ran for a day, cost about $250 a month, and was retired (ADR 0014, 0015). Kubernetes stays the local demo.",
       },
       {
         q: { ja: "ダウンタイムなしで、どうデプロイしますか？", en: "How do you deploy without downtime?" },
@@ -428,9 +428,9 @@ export const platformTopics: Topic[] = [
       { ja: `${EKS}は、Amazon Elastic Kubernetes Serviceの略です。`, en: "EKS stands for Amazon Elastic Kubernetes Service." },
       { ja: "コントロールプレーンは、AWSが運用と冗長化{じょうちょうか}をします。", en: "AWS runs the control plane and makes it redundant." },
       { ja: "私たちは、ノードとアプリに集中{しゅうちゅう}できます。", en: "We can focus on the nodes and the app." },
-      { ja: "ReelWalkでは、EKSは設計{せっけい}だけで、まだデプロイしていません。", en: "In ReelWalk, EKS is designed only and not deployed yet." },
-      { ja: "同じHelmチャートを、values.yamlでEKS向けに使う想定{そうてい}です。", en: "The plan is to use the same Helm chart, with values.yaml, on EKS." },
-      { ja: "ポッドには、IRSAでAWSの権限{けんげん}を渡{わた}す設計です。", en: "Pods would get AWS permissions through IRSA." },
+      { ja: "ReelWalkでは、同じHelmチャートをEKSで一日動かしました。", en: "In ReelWalk, I ran the same Helm chart on EKS for a day." },
+      { ja: "ポッドには、Pod IdentityでAWSの権限{けんげん}を渡{わた}しました。", en: "Pods got AWS permissions through Pod Identity." },
+      { ja: "ただ、月250ドルの大半{たいはん}が待機{たいき}コストだったので、やめました。", en: "But most of the $250 a month was idle cost, so I retired it." },
       { ja: "静的{せいてき}なアクセスキーは使いません。", en: "No static access keys." },
     ],
     why: [
@@ -439,9 +439,9 @@ export const platformTopics: Topic[] = [
       { ja: "一方{いっぽう}で、コントロールプレーンだけでも費用がかかります。", en: "On the other hand, the control plane alone costs money." },
       { ja: "だから、まずkindで検証してから移{うつ}る順番にしました。", en: "So the order is: verify on kind first, then move." },
     ],
-    status: "designed",
+    status: "built",
     statusNote:
-      "Never deployed: the AWS account is stuck in verification. values.yaml targets a real cluster and IRSA is designed for, but the chart has only ever run on kind.",
+      "Built and retired: an EKS 1.34 cluster (Terraform, one t3.xlarge node, Pod Identity, RDS, ingress-nginx, cert-manager) ran reelwalking.com for one day on 2026-10-07 with a real render verified end to end, then was destroyed because it cost about $250 a month for an idle app (ADR 0014, superseded by ADR 0015).",
     inRepo: [
       { path: "docs/adr/0005-local-kubernetes-before-eks.md", what: "Why kind before EKS, and what only a real EKS cluster can prove." },
       { path: "infra/helm/reelwalk/values.yaml", what: "Defaults for a real cluster: empty AWS endpoints, external Secret, the serviceAccount annotation slot for IRSA." },
@@ -711,9 +711,9 @@ export const platformTopics: Topic[] = [
       { ja: "コードなら、プルリクエストで変更をレビューできます。", en: "As code, changes are reviewed in pull requests." },
       { ja: "一方で、stateファイルを安全に管理する必要があります。", en: "On the other hand, the state file must be managed safely." },
     ],
-    status: "designed",
+    status: "built",
     statusNote:
-      "Written, never applied: an early sketch (S3, SQS, CloudFront, plus ECS/RDS/ElastiCache placeholders) that predates the Kubernetes design, has no DLQ or EKS, no remote state, and is skipped by CI's config scan.",
+      "Applied and live: remote state in S3 with lock files; the media bucket and CloudFront (imported), SQS with a DLQ, ECR, the GitHub OIDC role, the app IAM policy, a budget, the VPC, App Runner, the Fargate task definition and SSM parameters. EKS and RDS were created and destroyed the same day. CI scans infra/terraform with Trivy.",
     inRepo: [
       { path: "infra/terraform/main.tf", what: "S3 bucket, SQS queue (no DLQ yet), CloudFront in front of S3, and ECS/RDS/Redis placeholders." },
       { path: "infra/terraform/variables.tf", what: "Region, project and bucket name variables." },
@@ -734,12 +734,12 @@ export const platformTopics: Topic[] = [
       {
         q: { ja: `${TF}で、何を管理していますか？`, en: "What do you manage with Terraform?" },
         a: [
-          { ja: "メディア用のS3バケットと、SQSのキューです。", en: "The S3 bucket for media and the SQS queue." },
-          { ja: "S3の前に置く、CloudFrontも書きました。", en: "I also wrote CloudFront in front of S3." },
-          { ja: "RDSやECSは、まだプレースホルダーです。", en: "RDS and ECS are still placeholders." },
-          { ja: "ただ、一度もapplyしていない、設計段階{せっけいだんかい}のコードです。", en: "But it is design-stage code that has never been applied." },
+          { ja: "メディア用のS3とCloudFront、SQSのキュー、ECR、GitHub用のIAMロールです。", en: "The S3 bucket and CloudFront for media, the SQS queues, ECR, and the IAM role for GitHub." },
+          { ja: "[App Runner]{アップランナー}と、[Fargate]{ファーゲート}のタスク定義{ていぎ}、SSMのパラメータも管理しています。", en: "Also the App Runner service, the Fargate task definition and the SSM parameters." },
+          { ja: "stateはS3に置き、planで差分{さぶん}を確認してからapplyしています。", en: "State lives in S3; I check the plan diff before every apply." },
+          { ja: "EKSとRDSも一度作りましたが、コストの判断で削除し、ADRに残しています。", en: "I also created EKS and RDS once, deleted them over cost, and recorded it in an ADR." },
         ],
-        tip: "Do not imply it is live. CI even skips infra/terraform in the Trivy config scan because it is not applied.",
+        tip: "It is live. Existing resources were imported, not recreated, so the CloudFront domain survived. The scanner findings (no WAF, no customer-managed key, public subnets) are accepted with reasons in .trivyignore.yaml.",
       },
       {
         q: { ja: "今のTerraformの課題は、何ですか？", en: "What are the problems with the current Terraform?" },

@@ -40,7 +40,7 @@ export const OPENING: { id: string; q: Line; a: Line[]; note: string; short?: Li
     id: "aws",
     q: { ja: "AWSでの本番運用{ほんばんうんよう}の経験はありますか。", en: "Do you have experience running production systems on AWS?" },
     a: script("honest-scope"),
-    note: "できていないことを正直に言い、代わりに何を検証したかを説明できるか。",
+    note: "本番のAWS構成と、EKSをやめた理由をコストの数字つきで説明できるか。",
   },
   {
     id: "ask",

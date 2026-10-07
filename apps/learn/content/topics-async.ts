@@ -4,7 +4,8 @@ import type { Topic } from "../lib/types";
  * Async rendering (SQS, the worker, job states, idempotency, retries) and the
  * AWS services around it. Every claim here was checked against the repo:
  * the worker really runs against ElasticMQ and MinIO locally; CloudFront,
- * CloudWatch, IAM roles and Bedrock are designed or planned, never deployed.
+ * S3, SQS, CloudFront and IAM are real in production (ADR 0011, 0015); CloudWatch
+ * alarms and Bedrock are still only planned.
  */
 export const asyncTopics: Topic[] = [
   // ── SQS ─────────────────────────────────────────────────────────
@@ -66,7 +67,7 @@ export const asyncTopics: Topic[] = [
     ],
     status: "local",
     statusNote:
-      "The code uses the real AWS SDK SQS client, but it has only ever run against ElasticMQ (Docker Compose and kind); the Terraform queue is an early sketch with no dead-letter queue and was never applied.",
+      "The code uses the real AWS SDK SQS client against ElasticMQ locally (Docker Compose and kind) and against SQS in production, where Terraform creates the queue and its dead-letter queue with the same lease and receive count (ADR 0011, 0015).",
     inRepo: [
       { path: "apps/web/lib/queue.ts", what: "SendMessage with a body of only { jobId, generation }." },
       { path: "packages/db/src/outbox.ts", what: "The outbox: the message is written with the job in one transaction, then relayed to SQS (FOR UPDATE SKIP LOCKED)." },
@@ -224,7 +225,7 @@ export const asyncTopics: Topic[] = [
     ],
     status: "local",
     statusNote:
-      "Built and tested (Vitest handler tests, a real render in Playwright); it runs in Docker Compose and as 2 pods on kind against ElasticMQ and MinIO, never on EKS.",
+      "Built and tested (Vitest handler tests, a real render in Playwright); it runs in Docker Compose and as 2 pods on kind against ElasticMQ and MinIO, never on EKS. In production the real AWS service is used (ADR 0011, 0015).",
     inRepo: [
       { path: "apps/worker/src/index.ts", what: "Poll loop, /healthz liveness endpoint and SIGTERM handling." },
       { path: "apps/worker/src/handler.ts", what: "handleDelivery: decide, claim, heartbeat, render, succeed or retry." },
@@ -606,7 +607,7 @@ export const asyncTopics: Topic[] = [
     ],
     status: "local",
     statusNote:
-      "Backoff retries, the 3-receive redrive and the DLQ consumer are built and tested, and run against ElasticMQ's dead-letter queue locally; the real SQS redrive policy is not in Terraform yet.",
+      "Backoff retries, the 3-receive redrive and the DLQ consumer are built and tested, and run against ElasticMQ's dead-letter queue locally; the real SQS redrive policy is not in Terraform yet. In production the real AWS service is used (ADR 0011, 0015).",
     inRepo: [
       { path: "packages/core/src/queue.ts", what: "retryDelaySeconds, decideFailure and shouldFailFromDeadLetter." },
       { path: "apps/worker/src/handler.ts", what: "Requeue with extend(delay), extend(0) on the last attempt, handleDeadLetter." },
@@ -713,7 +714,7 @@ export const asyncTopics: Topic[] = [
         ja: "見る人の制限は、署名付きURLか署名付きCookieでします。",
         en: "Who can watch is controlled with signed URLs or signed cookies.",
       },
-      { ja: "ただ、これは設計だけで、まだデプロイしていません。", en: "But this is only a design; it hasn't been deployed." },
+      { ja: "本番{ほんばん}では、OACまでは実装{じっそう}していて、署名付きURLはまだです。", en: "In production OAC is in place; signed URLs are not yet." },
     ],
     why: [
       {
@@ -729,9 +730,9 @@ export const asyncTopics: Topic[] = [
         en: "The trade-off is more setup: signing keys, OAC and so on.",
       },
     ],
-    status: "designed",
+    status: "built",
     statusNote:
-      "Designed only: Terraform has a bare CloudFront distribution (no OAC, no signed URLs) that was never applied, and the app serves S3/MinIO presigned GET URLs unless CLOUDFRONT_BASE_URL is set, in which case the URL is unsigned.",
+      "Built: the production distribution (imported into Terraform, origin access control so only CloudFront reads the bucket) serves finished MP4s at dh5xvp6apljoh.cloudfront.net; the app uses it when CLOUDFRONT_BASE_URL is set and presigned S3 URLs otherwise. No signed URLs: share links are the access control.",
     inRepo: [
       { path: "infra/terraform/main.tf", what: "Early aws_cloudfront_distribution sketch in front of the media bucket." },
       { path: "apps/web/lib/storage.ts", what: "mediaUrl: CloudFront when CLOUDFRONT_BASE_URL is set, otherwise a presigned GET." },
@@ -756,15 +757,15 @@ export const asyncTopics: Topic[] = [
           { ja: "今は、S3の署名付{しょめいつ}きURLを返しています。", en: "Right now the app returns an S3 presigned URL." },
           { ja: "ローカルでは、S3の代わりにMinIOです。", en: "Locally MinIO stands in for S3." },
           {
-            ja: "AWSでは、前にCloudFrontを置く設計にしました。",
-            en: "On AWS, I designed it with CloudFront in front.",
+            ja: "本番{ほんばん}では、CloudFrontが完成{かんせい}した動画を配信{はいしん}しています。",
+            en: "In production CloudFront delivers the finished videos.",
           },
           {
-            ja: "ただ、アカウントの都合で、まだデプロイはしていません。",
-            en: "But because of the AWS account, it hasn't been deployed yet.",
+            ja: "共有{きょうゆう}リンクのページも、そのURLを使っています。",
+            en: "The share-link page uses those URLs too.",
           },
         ],
-        tip: "Be upfront that CloudFront is designed, not run. 設計しました is honest; 運用しています would not be.",
+        tip: "CloudFront is real: the distribution was imported into Terraform with origin access control. What is not done is signed URLs; the share link is the access control today.",
       },
       {
         q: { ja: "OACと署名付きURLは、何が違いますか？", en: "How do OAC and signed URLs differ?" },
@@ -862,7 +863,7 @@ export const asyncTopics: Topic[] = [
         a: [
           { ja: "いいえ、まだ実装していません。", en: "No, not yet implemented." },
           { ja: "案としては、キャプションの下書きを考えています。", en: "The idea is caption drafts." },
-          { ja: "AWSのアカウントが使えないので、試せていません。", en: "I couldn't try it because the AWS account isn't usable." },
+          { ja: "優先度{ゆうせんど}を下げて、まだ試していません。", en: "I lowered its priority and have not tried it yet." },
         ],
         tip: "Answer 'no' cleanly first. An honest 未実装 followed by a sensible plan is far better than vagueness.",
       },
@@ -1055,9 +1056,9 @@ export const asyncTopics: Topic[] = [
         en: "Splitting it between web and worker is the next improvement.",
       },
     ],
-    status: "designed",
+    status: "built",
     statusNote:
-      "Designed, not deployed: the chart has a ServiceAccount annotation hook for IRSA and an existingSecret switch, and CI has an OIDC role step that is skipped because AWS_ROLE_ARN is not set; locally the Secret holds throwaway MinIO and Postgres credentials, and web, worker and migrate share one ServiceAccount.",
+      "Built: CI assumes an IAM role through GitHub OIDC to push to ECR (no stored keys); on EKS pods used Pod Identity; on App Runner and Fargate the instance and task roles carry the same scoped policy; credentials sit in SSM Parameter Store. Locally the Secret holds throwaway MinIO and Postgres credentials.",
     inRepo: [
       { path: "infra/helm/reelwalk/values.yaml", what: "serviceAccount annotations for IRSA and secret.create / existingSecret." },
       { path: "infra/helm/reelwalk/templates/config.yaml", what: "The ConfigMap, the optional Secret and the shared ServiceAccount." },
@@ -1085,7 +1086,7 @@ export const asyncTopics: Topic[] = [
           { ja: "リソースはARNで指定して、ワイルドカードは避けます。", en: "Resources are named by ARN; wildcards are avoided." },
           { ja: "Webには、送信と署名付きURLの発行だけを付けます。", en: "The web app gets only send and presigned-URL signing." },
         ],
-        tip: "Concrete actions (sqs:ReceiveMessage, sqs:DeleteMessage, sqs:ChangeMessageVisibility) show you've thought it through. Add that it's a design, not deployed.",
+        tip: "Concrete actions (sqs:ReceiveMessage, sqs:DeleteMessage, sqs:ChangeMessageVisibility) show you have thought it through. This policy is live: it is attached to the Fargate task role and the App Runner instance role.",
       },
       {
         q: { ja: "シークレットは、どう管理していますか？", en: "How do you manage secrets?" },

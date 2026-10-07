@@ -153,6 +153,25 @@ export const ShareIcon = ({ size }: IconProps) => (
     <path d="M6 11H5v9.5h14V11h-1" />
   </Icon>
 );
+export const InstagramIcon = ({ size }: IconProps) => (
+  <Icon size={size}>
+    <rect x="3.5" y="3.5" width="17" height="17" rx="4.5" />
+    <circle cx="12" cy="12" r="3.8" />
+    <circle cx="17.2" cy="6.8" r="0.9" fill="currentColor" stroke="none" />
+  </Icon>
+);
+export const LinkIcon = ({ size }: IconProps) => (
+  <Icon size={size}>
+    <path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1.2 1.2" />
+    <path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1.2-1.2" />
+  </Icon>
+);
+export const AccountIcon = ({ size }: IconProps) => (
+  <Icon size={size}>
+    <circle cx="12" cy="8.5" r="3.5" />
+    <path d="M4.5 20a7.5 7.5 0 0 1 15 0" />
+  </Icon>
+);
 export const CopyIcon = ({ size }: IconProps) => (
   <Icon size={size}>
     <rect x="8" y="8" width="12" height="12" rx="2" />

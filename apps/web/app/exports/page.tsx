@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { LocalTime } from "@/components/local-time";
-import { isActive } from "@reelwalk/core";
+import { exportProgressText, isActive } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
 import { retryRenderJob } from "@/app/actions";
 import { AutoRefresh } from "@/components/auto-refresh";
@@ -19,6 +19,7 @@ export default async function ExportsPage() {
     take: 50,
     include: { reel: { select: { id: true, title: true, timeline: true } } },
   });
+  const now = new Date();
   const covers = await coverUrls(jobs.map((job) => readTimeline(job.reel?.timeline)));
 
   return (
@@ -52,6 +53,14 @@ export default async function ExportsPage() {
                     {job.attempt > 1 ? `, attempt ${job.attempt}` : ""}
                   </span>
                   <StatusBadge status={job.status} />
+                  {isActive(job.status) ? (
+                    <span className="small muted">{[exportProgressText(job, now).phase, exportProgressText(job, now).detail].filter(Boolean).join(" · ")}</span>
+                  ) : null}
+                  {job.status === "FAILED" && job.error ? (
+                    <span className="small muted" title={job.error}>
+                      {friendlyError(job.error)}
+                    </span>
+                  ) : null}
                 </span>
                 {job.status === "FAILED" ? (
                   <form action={retryRenderJob}>
@@ -71,4 +80,12 @@ export default async function ExportsPage() {
       <TabBar />
     </>
   );
+}
+
+/** Worker errors in words a person can act on; the raw message stays in the tooltip. */
+function friendlyError(error: string): string {
+  if (/SIGKILL|out of memory|OOM/i.test(error)) return "The render machine ran out of memory. Retry; long reels of 4K video can need a second try.";
+  if (/deleted/i.test(error)) return error;
+  if (/timed? ?out/i.test(error)) return "The render took too long and was stopped. Retry, or shorten the reel.";
+  return error.length > 140 ? `${error.slice(0, 140)}…` : error;
 }

@@ -709,7 +709,14 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         guides={guides}
         selectedText={selectedText}
         onTogglePlay={togglePlay}
-        onMoveText={(id, x, y) => apply((current) => updateText(current, id, { x, y }), `move-${id}`)}
+        clock={clock}
+        onMoveText={(id, x, y, gesture) => apply((current) => updateText(current, id, { x, y }), gesture)}
+        onResizeText={(id, size, gesture) => apply((current) => updateText(current, id, { size }), gesture)}
+        onSelectText={(id) => setSelection({ kind: "text", id })}
+        onEditText={(id) => {
+          setSelection({ kind: "text", id });
+          setSheet("text-edit");
+        }}
         empty={
           uploads.length > 0 ? (
             <p>Uploading {uploads.length === 1 ? "1 file" : `${uploads.length} files`}…</p>

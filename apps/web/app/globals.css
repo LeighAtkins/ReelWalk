@@ -639,6 +639,46 @@ p {
   cursor: grabbing;
 }
 
+/* Corner grip on the selected text: drag to resize. */
+.text-resize {
+  position: absolute;
+  right: -9px;
+  bottom: -9px;
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--ink);
+  border-radius: 50%;
+  background: #fff;
+  cursor: nwse-resize;
+  touch-action: none;
+}
+
+@media (pointer: coarse) {
+  .text-resize {
+    right: -13px;
+    bottom: -13px;
+    width: 26px;
+    height: 26px;
+  }
+}
+
+/* Texts on screen while paused: tap one to select it. */
+.text-hit {
+  position: absolute;
+  min-width: 44px;
+  min-height: 44px;
+  transform: translate(-50%, -50%);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-s);
+  background: transparent;
+  cursor: pointer;
+}
+
+.text-hit:hover {
+  outline: 1.5px dashed rgb(255 255 255 / 0.6);
+}
+
 .transport {
   display: grid;
   grid-template-columns: auto 1fr auto auto auto;

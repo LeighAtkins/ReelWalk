@@ -29,6 +29,7 @@ const UPLOAD_WIDTH = 72;
 /** How close, in pixels, a dragged edge has to come to a cut or the playhead to stick to it. */
 const SNAP_PX = 8;
 const LANE_ROW = 28;
+const seconds1 = (ms: number) => `${(ms / 1000).toFixed(1)}s`;
 
 type FilmstripProps = {
   timeline: Timeline;
@@ -141,8 +142,17 @@ export function Filmstrip({
     let frame = 0;
     const update = () => onMove(((pointerX - startX + (follow ? element.scrollLeft - startLeft : 0)) * 1000) / PPS);
     const edgeScroll = () => {
+      // Only once the pointer has travelled into a side zone: on a phone an
+      // edge often starts there, and scrolling straight away would run it off.
+      // Speed grows with how deep into the zone it goes.
       const box = element.getBoundingClientRect();
-      const step = pointerX < box.left + 40 ? -6 : pointerX > box.right - 40 ? 6 : 0;
+      const zone = 44;
+      const step =
+        pointerX < box.left + zone && pointerX < startX - 8
+          ? -Math.ceil((8 * (box.left + zone - pointerX)) / zone)
+          : pointerX > box.right - zone && pointerX > startX + 8
+            ? Math.ceil((8 * (pointerX - box.right + zone)) / zone)
+            : 0;
       if (step) {
         element.scrollLeft += step;
         update();
@@ -246,10 +256,7 @@ export function Filmstrip({
         onScroll={onScroll}
         data-testid="timeline"
         // Phones scroll the strip by touch. On a desktop the mouse wheel moves
-        // it sideways and holding the button drags it, like a map.
-        onWheel={(event) => {
-          if (Math.abs(event.deltaY) > Math.abs(event.deltaX)) event.currentTarget.scrollLeft += event.deltaY;
-        }}
+        // it sideways (WheelScroll) and holding the button drags it, like a map.
         onPointerDown={(event) => {
           if (event.pointerType !== "mouse" || event.button !== 0) return;
           const el = event.currentTarget;
@@ -327,6 +334,13 @@ export function Filmstrip({
                 </button>
               );
             })}
+            {timeline.clips.map((clip, index) =>
+              dragging === clip.id ? (
+                <span key="badge" className="drag-badge" style={{ left: pad + px(starts[index] + clipDurationMs(clip) / 2), top: -24 }}>
+                  {seconds1(clipDurationMs(clip))}
+                </span>
+              ) : null,
+            )}
             {uploads.map((upload, index) => (
               <span
                 key={upload.key}
@@ -379,11 +393,19 @@ export function Filmstrip({
                   <span className="grip grip-start" aria-hidden="true" onPointerDown={(event) => grabText(event, text, "start")} />
                   <TextIcon size={14} />
                   <span className="bar-label">{text.text}</span>
-                  {selected ? <span className="bar-time">{((text.endMs - text.startMs) / 1000).toFixed(1)}s</span> : null}
+                  {selected && px(text.endMs - text.startMs) >= 110 ? <span className="bar-time">{seconds1(text.endMs - text.startMs)}</span> : null}
                   <span className="grip grip-end" aria-hidden="true" onPointerDown={(event) => grabText(event, text, "end")} />
                 </button>
               );
             })}
+            {timeline.texts.map((text, index) =>
+              // A finger covers the bar, so while dragging its times show above it.
+              dragging === text.id ? (
+                <span key="badge" className="drag-badge" style={{ left: pad + px((text.startMs + text.endMs) / 2), top: textRows[index] * LANE_ROW - 22 }}>
+                  {formatDuration(text.startMs, true)} · {seconds1(text.endMs - text.startMs)}
+                </span>
+              ) : null,
+            )}
             {timeline.texts.length === 0 && timeline.clips.length > 0 ? (
               <button type="button" className="lane-hint" style={{ left: pad }} onClick={onAddText}>
                 <TextIcon size={14} />

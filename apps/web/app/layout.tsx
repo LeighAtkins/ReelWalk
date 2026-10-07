@@ -4,6 +4,7 @@ import "@fontsource-variable/archivo/wdth.css";
 import "@fontsource-variable/noto-sans-jp/wght.css";
 import "./globals.css";
 import type { Metadata, Viewport } from "next";
+import { WheelScroll } from "@/components/wheel-scroll";
 
 export const metadata: Metadata = {
   title: "ReelWalk",
@@ -23,7 +24,10 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        {children}
+        <WheelScroll />
+      </body>
     </html>
   );
 }

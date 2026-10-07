@@ -908,10 +908,38 @@ p {
   cursor: ew-resize;
 }
 
+.clip-block[aria-pressed="true"] .clip-meta {
+  left: 18px;
+}
+
+.drag-badge {
+  position: absolute;
+  z-index: 3;
+  transform: translateX(-50%);
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.35);
+}
+
 @media (pointer: coarse) {
   .grip,
   .clip-block > .grip {
     width: 18px;
+  }
+
+  .bar-text {
+    padding: 0 20px;
+  }
+
+  .clip-block[aria-pressed="true"] .clip-meta {
+    left: 22px;
   }
 }
 
@@ -967,6 +995,15 @@ p {
 
 .toolbar::-webkit-scrollbar {
   display: none;
+}
+
+/* With a mouse there is no swipe, so show where the toolbar and looks continue. */
+@media (pointer: fine) {
+  .toolbar,
+  .look-strip {
+    scrollbar-width: thin;
+    scrollbar-color: var(--line-strong) transparent;
+  }
 }
 
 .tool {

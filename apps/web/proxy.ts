@@ -8,7 +8,15 @@ import { NextResponse, type NextRequest } from "next/server";
 
 const SESSION_COOKIE = "rw_session";
 
-const PUBLIC_PATHS = [/^\/login$/, /^\/signup$/, /^\/r\/[^/]+$/, /^\/api\//, /^\/icon\.svg$/, /^\/manifest\.webmanifest$/];
+const PUBLIC_PATHS = [
+  /^\/login$/,
+  /^\/signup$/,
+  /^\/r\/[^/]+$/,
+  /^\/(privacy|terms|data-deletion)$/,
+  /^\/api\//,
+  /^\/icon\.svg$/,
+  /^\/manifest\.webmanifest$/,
+];
 
 export function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl;

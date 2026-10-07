@@ -233,8 +233,8 @@ export function VenueBuilder({ library, stockConfigured }: { library: LibraryAss
           <div className="stock">
             {stockState === "unconfigured" ? (
               <p className="muted small">
-                Free stock footage comes from Pexels and needs a free API key. Add <code>PEXELS_API_KEY</code> to the web app and this tab
-                searches thousands of food, kitchen and café clips.
+                Free stock footage comes from Pixabay and needs a free API key. Add <code>PIXABAY_API_KEY</code> to the web app and this
+                tab searches thousands of food, kitchen and café clips.
               </p>
             ) : (
               <>
@@ -258,8 +258,8 @@ export function VenueBuilder({ library, stockConfigured }: { library: LibraryAss
                         key={video.id}
                         type="button"
                         className="library-item"
-                        title={`Video by ${video.photographer} on Pexels`}
-                        aria-label={`Use clip by ${video.photographer}`}
+                        title={`Video by ${video.creator} on Pixabay`}
+                        aria-label={`Use clip by ${video.creator}`}
                         disabled={busy}
                         onClick={() => void useStock(video)}
                       >
@@ -269,7 +269,7 @@ export function VenueBuilder({ library, stockConfigured }: { library: LibraryAss
                     );
                   })}
                 </div>
-                {stock.length > 0 ? <p className="muted small">Clips are free to use under the Pexels License; the photographer is credited in the caption.</p> : null}
+                {stock.length > 0 ? <p className="muted small">Clips are free to use under the Pixabay Content License; the creator is credited in the caption.</p> : null}
               </>
             )}
           </div>

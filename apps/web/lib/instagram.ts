@@ -17,13 +17,24 @@ export function isInstagramConfigured(): boolean {
   return Boolean(process.env.META_APP_ID && process.env.META_APP_SECRET);
 }
 
+/**
+ * Apps created with the Instagram use case get "Facebook Login for Business",
+ * which takes a configuration id (META_LOGIN_CONFIG_ID, from the app's
+ * Configurations page) instead of a scope list. Classic Facebook Login apps
+ * leave it unset and send scopes.
+ */
 export function instagramAuthUrl(redirectUri: string, state: string): string {
   const url = new URL(`https://www.facebook.com/${process.env.META_GRAPH_VERSION ?? "v21.0"}/dialog/oauth`);
   url.searchParams.set("client_id", process.env.META_APP_ID ?? "");
   url.searchParams.set("redirect_uri", redirectUri);
   url.searchParams.set("state", state);
   url.searchParams.set("response_type", "code");
-  url.searchParams.set("scope", INSTAGRAM_SCOPES.join(","));
+  if (process.env.META_LOGIN_CONFIG_ID) {
+    url.searchParams.set("config_id", process.env.META_LOGIN_CONFIG_ID);
+    url.searchParams.set("override_default_response_type", "true");
+  } else {
+    url.searchParams.set("scope", INSTAGRAM_SCOPES.join(","));
+  }
   return url.toString();
 }
 

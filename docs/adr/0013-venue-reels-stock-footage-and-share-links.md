@@ -21,8 +21,8 @@ order, cuts snapped to the song's beat, clip audio ducked under the music,
 and the existing details card closing with the price, address and handle.
 The builder lives at `/new/venue` and the result is an ordinary reel.
 
-**Stock footage** comes from Pexels, which is free and credits the creator.
-Search runs server-side with `PEXELS_API_KEY`; importing copies the MP4 and
+**Stock footage** comes from Pixabay, which is free and credits the creator.
+Search runs server-side with `PIXABAY_API_KEY`; importing copies the MP4 and
 poster into the workspace's own upload prefix and records the source URL,
 licence and credit on the `MediaAsset`. The credit joins the caption. Without
 a key the tab explains how to get one and the rest of the builder works.

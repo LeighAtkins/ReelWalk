@@ -6,7 +6,7 @@ import { z } from "zod";
 import { buildVenueReel, captionForVenue, thumbKeyFor, uploadKeyFor, venueDetailsSchema, venueVibeById } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
 import { toLibraryAsset, type LibraryAsset } from "@/lib/library";
-import { getStock, isStockConfigured, PEXELS_LICENSE, searchStock, stockCredit, type StockVideo } from "@/lib/stock";
+import { getStock, isStockConfigured, searchStock, STOCK_LICENSE, stockCredit, type StockVideo } from "@/lib/stock";
 import { putObject } from "@/lib/storage";
 import { getCurrentUser, mediaScope } from "@/lib/workspace";
 
@@ -56,7 +56,7 @@ export async function createVenueReel(input: VenueRequest): Promise<{ id: string
   if (!timeline) return { error: "Pick at least two clips or photos." };
 
   // Stock clips carry a credit; it joins the music credit in the caption.
-  const credits = [...new Set(assets.map((asset) => asset.attribution).filter((value): value is string => !!value && /Pexels/.test(value)))];
+  const credits = [...new Set(assets.map((asset) => asset.attribution).filter((value): value is string => !!value && /Pixabay/.test(value)))];
   const caption = [captionForVenue(vibe, details, song?.attribution), ...credits].join("\n");
 
   const reel = await prisma.reel.create({
@@ -72,7 +72,7 @@ export type StockSearchResult = { ok: true; videos: StockVideo[] } | { ok: false
 
 export async function searchStockVideos(query: string): Promise<StockSearchResult> {
   await getCurrentUser();
-  if (!isStockConfigured()) return { ok: false, unconfigured: true, error: "Stock search needs a free Pexels API key (PEXELS_API_KEY)." };
+  if (!isStockConfigured()) return { ok: false, unconfigured: true, error: "Stock search needs a free Pixabay API key (PIXABAY_API_KEY)." };
   const q = query.trim();
   if (q.length < 2) return { ok: true, videos: [] };
   try {
@@ -93,7 +93,7 @@ export async function importStockVideo(input: { id: number }): Promise<{ ok: tru
   const id = Number(input.id);
   if (!Number.isInteger(id) || id <= 0) return { ok: false, error: "Unknown clip." };
 
-  const sourceUrl = `https://www.pexels.com/video/${id}/`;
+  const sourceUrl = `https://pixabay.com/videos/${id}/`;
   const existing = await prisma.mediaAsset.findFirst({ where: { workspaceId: user.workspaceId, sourceUrl } });
   if (existing) return { ok: true, asset: await toLibraryAsset(existing) };
 
@@ -114,13 +114,13 @@ export async function importStockVideo(input: { id: number }): Promise<{ ok: tru
         objectKey,
         thumbKey,
         contentType: "video/mp4",
-        fileName: `pexels-${video.id}.mp4`,
+        fileName: `pixabay-${video.id}.mp4`,
         sizeBytes: media.byteLength,
         durationMs: video.durationMs,
         width: video.file.width,
         height: video.file.height,
         sourceUrl,
-        license: PEXELS_LICENSE,
+        license: STOCK_LICENSE,
         attribution: stockCredit(video),
       },
     });

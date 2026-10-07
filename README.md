@@ -82,7 +82,7 @@ opens on any phone.
 
 For a restaurant or café, tap **Restaurant or café reel**: name, dishes with
 prices, a vibe, and clips from your library, your phone or free stock footage
-(set `PEXELS_API_KEY` for stock search; a key is free at pexels.com/api).
+(set `PIXABAY_API_KEY` for stock search; a key is free at pixabay.com/api/docs).
 
 Load sample content, so there is something to edit straight away: 22 real 360
 room photos, 8 home videos and three ready-made reels, all openly licensed

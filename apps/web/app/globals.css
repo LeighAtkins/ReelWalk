@@ -1532,3 +1532,34 @@ form + .card {
   font-size: 0.9em;
   color: var(--paper);
 }
+
+/* ── Legal pages ───────────────────────────────────────────────── */
+
+.legal {
+  max-width: 680px;
+  margin: 0 auto;
+  padding: calc(var(--safe-top) + 16px) 20px calc(var(--safe-bottom) + 32px);
+}
+
+.prose h1 {
+  font-size: 30px;
+  margin: 16px 0 4px;
+}
+
+.prose h2 {
+  font-size: 18px;
+  margin: 24px 0 8px;
+}
+
+.prose p,
+.prose li {
+  color: var(--paper);
+  line-height: 1.55;
+}
+
+.prose a {
+  color: var(--paper);
+  text-decoration: underline;
+  text-decoration-color: var(--rule);
+  text-underline-offset: 3px;
+}

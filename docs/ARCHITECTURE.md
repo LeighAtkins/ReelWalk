@@ -228,8 +228,8 @@ the caption and a Save button to anyone, with no sign-in
 
 `/new/venue` builds a restaurant or café reel from the menu, a vibe and the
 clips tapped in order (`buildVenueReel` in `packages/core/src/venue.ts`).
-Clips come from the library, the phone, or Pexels stock search when
-`PEXELS_API_KEY` is set; imports keep their licence and credit.
+Clips come from the library, the phone, or Pixabay stock search when
+`PIXABAY_API_KEY` is set; imports keep their licence and credit.
 
 ## Known gaps
 

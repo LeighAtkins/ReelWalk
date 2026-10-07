@@ -761,6 +761,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         onGrab={setSelection}
         onScrub={scrub}
         onTextTiming={(id, timing, gesture) => apply((current) => updateText(current, id, timing), gesture)}
+        onMoveClip={(id, toIndex) => apply((current) => moveClip(current, id, toIndex))}
         onClipTrim={(id, window, gesture) =>
           apply((current) => {
             const clip = current.clips.find((item) => item.id === id);

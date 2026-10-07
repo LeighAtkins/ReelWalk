@@ -50,6 +50,7 @@ type FilmstripProps = {
   /** One call per pointer move; calls with the same gesture make one undo step. */
   onTextTiming(id: string, timing: { startMs: number; endMs: number }, gesture: string): void;
   onClipTrim(id: string, window: { sourceStartMs: number; sourceEndMs: number }, gesture: string): void;
+  onMoveClip(id: string, toIndex: number): void;
   onAddMedia(): void;
   onAddText(): void;
   onAddMusic(): void;
@@ -73,6 +74,7 @@ export function Filmstrip({
   onScrub,
   onTextTiming,
   onClipTrim,
+  onMoveClip,
   onAddMedia,
   onAddText,
   onAddMusic,
@@ -187,7 +189,7 @@ export function Filmstrip({
     event: React.PointerEvent<HTMLElement>,
     id: string,
     onMove: (deltaMs: number) => void,
-    { follow = true, onStart }: { follow?: boolean; onStart?: () => void } = {},
+    { follow = true, onStart, onEnd }: { follow?: boolean; onStart?: () => void; onEnd?: (moved: boolean) => void } = {},
   ) {
     const element = scroller.current;
     if (!element || event.button !== 0) return;
@@ -233,6 +235,7 @@ export function Filmstrip({
       window.removeEventListener("pointercancel", end);
       cancelAnimationFrame(frame);
       setDragging(null);
+      onEnd?.(moved);
       if (moved) {
         // The click that follows the release must not toggle the selection.
         suppressClick.current = true;
@@ -287,6 +290,32 @@ export function Filmstrip({
         }
       },
       { follow: edge === "end" },
+    );
+  }
+
+  // Dragging the body of the selected clip reorders it; a marker shows where it lands.
+  const [reorder, setReorder] = useState<{ id: string; dx: number; markerMs: number | null } | null>(null);
+  function grabClipBody(event: React.PointerEvent<HTMLElement>, clip: Clip, index: number) {
+    if (timeline.clips.length < 2) return;
+    // Midpoints of the other clips where they sit now; passing one swaps places with it.
+    const middles = timeline.clips.flatMap((other, i) => (i === index ? [] : [starts[i] + clipDurationMs(other) / 2]));
+    const centre = starts[index] + clipDurationMs(clip) / 2;
+    let target = index;
+    startDrag(
+      event,
+      clip.id,
+      (delta) => {
+        target = middles.filter((middle) => middle < centre + delta).length;
+        // The marker sits on the boundary in the current layout.
+        const markerMs = target === index ? null : target < index ? starts[target] : (starts[target + 1] ?? total);
+        setReorder({ id: clip.id, dx: px(delta), markerMs });
+      },
+      {
+        onEnd: (moved) => {
+          setReorder(null);
+          if (moved && target !== index) onMoveClip(clip.id, target);
+        },
+      },
     );
   }
 
@@ -380,8 +409,11 @@ export function Filmstrip({
                     left: pad + px(starts[index]) + 1,
                     width: Math.max(8, px(duration) - 2),
                     backgroundImage: asset?.thumbUrl ? `url("${asset.thumbUrl}")` : undefined,
+                    transform: reorder?.id === clip.id ? `translateX(${reorder.dx}px)` : undefined,
                   }}
                   data-dragging={dragging === clip.id || undefined}
+                  data-lifted={reorder?.id === clip.id || undefined}
+                  onPointerDown={(event) => selected && grabClipBody(event, clip, index)}
                   onClick={() => !suppressClick.current && onSelect(selected ? null : { kind: "clip", id: clip.id })}
                   onDoubleClick={() => onOpen({ kind: "clip", id: clip.id })}
                 >
@@ -400,8 +432,9 @@ export function Filmstrip({
                 </button>
               );
             })}
+            {reorder?.markerMs != null ? <span className="drop-marker" style={{ left: pad + px(reorder.markerMs) - 2 }} /> : null}
             {timeline.clips.map((clip, index) =>
-              dragging === clip.id ? (
+              dragging === clip.id && !reorder ? (
                 <span key="badge" className="drag-badge" style={{ left: pad + px(starts[index] + clipDurationMs(clip) / 2), top: -24 }}>
                   {seconds1(clipDurationMs(clip))}
                 </span>

@@ -14,7 +14,10 @@ const MAX_RENDER_SIDE = 1920;
 
 /**
  * Which object the renderer should read for a video: the original when it is
- * 1080p or smaller, otherwise a 1080p copy that is made once and kept.
+ * H.264 at 1080p or smaller, otherwise an H.264 1080p copy made once and kept.
+ * Phones record HEVC, which headless Chrome cannot decode with WebCodecs;
+ * Remotion then falls back to software decoding in its compositor, which is
+ * slow and was what ran the worker out of memory.
  */
 async function renderSourceKey(s3: S3Client, bucket: string, workdir: string, assetId: string, objectKey: string, log: (line: string) => void): Promise<string> {
   const key = renderSourceKeyFor(assetId);
@@ -26,12 +29,12 @@ async function renderSourceKey(s3: S3Client, bucket: string, workdir: string, as
   }
   const inputPath = path.join(workdir, `src-${inputFilenameFor(objectKey)}`);
   await downloadObject(s3, bucket, objectKey, inputPath);
-  const { width, height } = await probe(inputPath);
-  if (Math.max(width, height) <= MAX_RENDER_SIDE) {
+  const { width, height, codec } = await probe(inputPath);
+  if (codec === "h264" && Math.max(width, height) <= MAX_RENDER_SIDE) {
     await rm(inputPath, { force: true });
     return objectKey;
   }
-  log(`downscale ${width}x${height} ${objectKey} -> ${key}`);
+  log(`re-encode ${codec} ${width}x${height} ${objectKey} -> ${key}`);
   const outPath = path.join(workdir, `render-${assetId}.mp4`);
   await run("ffmpeg", [
     "-v", "error", "-y", "-i", inputPath,

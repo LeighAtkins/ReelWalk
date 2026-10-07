@@ -183,10 +183,13 @@ docker compose -f docker-compose.yml -f docker-compose.aws.yml --env-file .env.a
 
 `.env.aws` is gitignored; `infra/terraform/README.md` says what goes in it.
 
-Production is an EKS cluster with RDS, also from `infra/terraform`
-([ADR 0014](docs/adr/0014-eks-and-rds.md)). `infra/eks/deploy.sh <sha>`
-installs ingress-nginx, cert-manager and the chart with `values-aws.yaml`;
-the site is https://reelwalking.com.
+Production is https://reelwalking.com: the web image on AWS App Runner,
+render workers as Fargate tasks the web app starts on demand, Postgres on
+Neon, all from `infra/terraform` ([ADR 0015](docs/adr/0015-serverless-under-thirty-dollars.md)).
+Deploy by pushing an image tag and running `terraform apply` with
+`image_tag` set. It costs about $10-15 a month and nothing renders while
+nobody exports. (An EKS version exists in `infra/eks/`, ADR 0014; it was
+retired for cost.)
 
 ## Product docs
 

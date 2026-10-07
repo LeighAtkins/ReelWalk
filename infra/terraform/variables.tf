@@ -52,11 +52,11 @@ variable "github_repository" {
   default     = "LeighAtkins/ReelWalk"
 }
 
-# EKS control plane, one node, the load balancer and RDS come to roughly
-# $250 a month; the alert sits above that.
+# App Runner, on-demand renders and storage come to $10-15 a month (ADR 0015);
+# the alert sits above that.
 variable "budget_monthly_usd" {
   type    = number
-  default = 300
+  default = 30
 }
 
 variable "budget_email" {

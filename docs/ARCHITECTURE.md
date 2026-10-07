@@ -242,9 +242,9 @@ Clips come from the library, the phone, or Pixabay stock search when
   drag-to-reorder; clips move with Earlier/Later.
 - Signed media URLs last an hour; a longer editing session needs a reload.
 - Worker autoscaling is CPU-based and off by default; KEDA on queue depth is planned.
-- Production runs on EKS and RDS (ADR 0014) at https://reelwalking.com,
-  deployed with `infra/eks/deploy.sh`; Argo CD on that cluster is not set up
-  yet (it still runs on kind).
+- Production is https://reelwalking.com on App Runner with on-demand Fargate
+  render tasks and Neon Postgres (ADR 0015), under $30 a month. EKS was tried
+  first (ADR 0014) and retired for cost. Kubernetes stays the local kind demo.
 - No per-claim fencing token: after a stale-heartbeat takeover two workers can
   render the same job. The output is the same file, so the result is not
   corrupted (ADR 0003).

@@ -34,6 +34,8 @@ WORKDIR /workspace
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
+# Bind every interface whatever the platform sets HOSTNAME to (App Runner sets the instance name).
+ENV HOSTNAME=0.0.0.0
 ENV HOSTNAME=0.0.0.0
 
 # Nothing installs packages at runtime, so the package managers (and their

@@ -142,10 +142,6 @@ resource "aws_ecs_task_definition" "worker" {
         }) : { name = k, value = v }
       ]
       secrets = [for k, p in aws_ssm_parameter.app : { name = k, valueFrom = p.arn } if k == "DATABASE_URL"]
-      linuxParameters = {
-        # Chrome wants more shared memory than the 64 MB default.
-        sharedMemorySize = 512
-      }
       logConfiguration = {
         logDriver = "awslogs"
         options = {
@@ -260,6 +256,8 @@ resource "aws_apprunner_service" "web" {
       image_configuration {
         port = "3000"
         runtime_environment_variables = merge(local.app_env, {
+          # App Runner sets HOSTNAME to the instance name and Next's server binds to it; health checks use localhost.
+          HOSTNAME                   = "0.0.0.0"
           ECS_CLUSTER                = aws_ecs_cluster.renders.name
           ECS_WORKER_TASK_DEFINITION = aws_ecs_task_definition.worker.arn_without_revision
           ECS_SUBNETS                = join(",", module.vpc.public_subnets)

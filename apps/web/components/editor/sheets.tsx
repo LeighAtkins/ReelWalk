@@ -159,6 +159,15 @@ function Range({
   );
 }
 
+/**
+ * A rough render time for the export sheet: about a minute to start a
+ * machine, then roughly ten seconds of rendering per second of reel.
+ */
+function renderMinutes(durationMs: number): string {
+  const minutes = Math.max(2, Math.round(1 + (durationMs / 1000) * (10 / 60)));
+  return `${minutes} minutes`;
+}
+
 // ── Media ───────────────────────────────────────────────────────
 
 type LibraryFilter = "all" | "360" | "video" | "photo";
@@ -849,7 +858,8 @@ export function ExportSheet({
   return (
     <Sheet title={ready ? "Export for Instagram" : "Not ready to export"} onClose={onClose}>
       <p className="muted">
-        {formatDuration(durationMs, true)} reel, rendered as a 1080×1920 MP4 at 30 fps. You can keep editing while it renders.
+        {formatDuration(durationMs, true)} reel, rendered as a 1080×1920 MP4 at 30 fps. Usually ready in about {renderMinutes(durationMs)}; you can
+        keep editing while it renders.
       </p>
       {issues.length > 0 ? (
         <ul className="issue-list">

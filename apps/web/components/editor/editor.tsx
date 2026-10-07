@@ -229,6 +229,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
   }, []);
 
   /** A hint shown the first time something comes up on this device, never again. */
+  const tipShown = useRef<string | null>(null);
   const tipOnce = useCallback(
     (key: string, message: string) => {
       try {
@@ -237,10 +238,16 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
       } catch {
         return;
       }
+      tipShown.current = message;
       showToast(message, 5500);
     },
     [showToast],
   );
+
+  // A tip is about the editor behind it; opening a sheet puts it away.
+  useEffect(() => {
+    if (sheet && tipShown.current) setToast((current) => (current === tipShown.current ? null : current));
+  }, [sheet]);
 
   // ── Selection (stays valid across undo) ─────────────────────
   const selectedClipIndex = selection?.kind === "clip" ? timeline.clips.findIndex((clip) => clip.id === selection.id) : -1;

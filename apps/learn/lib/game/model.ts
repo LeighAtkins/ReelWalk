@@ -1,10 +1,11 @@
 import { generalQA, topicById, topics } from "@/lib/content";
 import { COSTS, OPENING, TITLES } from "@/content/game";
+import { MANAGER_ASK, MANAGER_QA } from "@/content/manager";
 import { parseRuby } from "@/lib/ruby";
 import type { Line } from "@/lib/types";
 
 export type Phase = "lobby" | "asking" | "answering" | "scoring" | "result" | "final";
-export type Mode = "full" | "tech" | "general";
+export type Mode = "full" | "tech" | "general" | "manager";
 
 /** Everything both phones need, published by the interviewer after each change. */
 export interface GameState {
@@ -82,6 +83,12 @@ export function question(id: string): GameQuestion | undefined {
     const qa = generalQA[Number(a)];
     return qa && { id, label: { ja: "人物・経験", en: "About you" }, q: qa.q, a: qa.a, tip: qa.tip };
   }
+  if (kind === "m") {
+    if (a === "ask")
+      return { id, label: { ja: "逆質問", en: "Your questions" }, q: { ja: "最後に、何かご質問はありますか。", en: "Finally, do you have any questions?" }, a: MANAGER_ASK, note: "応募者が質問する番です。POとして自由に答えてあげてください。" };
+    const qa = MANAGER_QA[Number(a)];
+    return qa && { id, label: { ja: "マネージャー面接", en: "Manager round" }, q: qa.q, a: qa.a, tip: qa.tip };
+  }
   if (kind === "t") {
     const t = topicById(a);
     const qa = t?.qa[Number(b)];
@@ -91,6 +98,7 @@ export function question(id: string): GameQuestion | undefined {
 }
 
 const techIds = () => topics.flatMap((t) => t.qa.map((_, i) => `t:${t.id}:${i}`));
+const managerIds = () => MANAGER_QA.map((_, i) => `m:${i}`);
 const generalIds = () => generalQA.map((_, i) => `g:${i}`);
 
 function shuffle<T>(list: T[], seed: number): T[] {
@@ -107,6 +115,7 @@ function shuffle<T>(list: T[], seed: number): T[] {
 
 /** Questions the interviewer can swap in for the current one. */
 export function swapPool(mode: Mode): string[] {
+  if (mode === "manager") return managerIds();
   if (mode === "tech") return techIds();
   if (mode === "general") return [...generalIds(), "o:stack"];
   return [...techIds(), ...generalIds(), "o:stack"];
@@ -114,6 +123,13 @@ export function swapPool(mode: Mode): string[] {
 
 /** The questions for a game. "full" runs like a real first interview. */
 export function buildOrder(mode: Mode, length: number, seed: number): string[] {
+  if (mode === "manager") {
+    // Current job and OMNOMS first, as a manager would open; motivation and questions last.
+    const [job, omnoms, ...rest] = managerIds();
+    const end = ["o:motivation", "m:ask", "o:closing"];
+    const middle = shuffle(rest, seed).slice(0, Math.max(0, length - 2 - end.length));
+    return [job, omnoms, ...middle, ...end].slice(0, Math.max(length, 1));
+  }
   if (mode === "tech") return shuffle(techIds(), seed).slice(0, length);
   if (mode === "general") return shuffle([...generalIds(), "o:stack", "o:motivation"], seed).slice(0, length);
   const start = ["o:intro", "o:reelwalk", "o:motivation"];

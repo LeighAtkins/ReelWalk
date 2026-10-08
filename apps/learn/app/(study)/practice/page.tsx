@@ -81,9 +81,13 @@ export default function PracticePage() {
           <ul className="refs" style={{ marginTop: 8 }}>
             {[...new Set(company.facts.map((f) => f.source))].map((u) => (
               <li key={u}>
-                <a href={u} target="_blank" rel="noreferrer">
-                  {u}
-                </a>
+                {u.startsWith("http") ? (
+                  <a href={u} target="_blank" rel="noreferrer">
+                    {u}
+                  </a>
+                ) : (
+                  u
+                )}
               </li>
             ))}
           </ul>

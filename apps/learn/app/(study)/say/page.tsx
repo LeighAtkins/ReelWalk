@@ -1,6 +1,8 @@
 import { LIFELINES, TOP_QUESTIONS } from "@/content/cheat-sheet";
 import { OPENER } from "@/content/misc";
 import { TALKING_POINTS } from "@/content/talking-points";
+import { AIZUCHI, MANAGER_ASK, MANAGER_QA } from "@/content/manager";
+import { scripts } from "@/content/interview";
 import { SayAll, type SaySection } from "@/components/SayAll";
 
 export const metadata = { title: "話す: everything to say" };
@@ -8,6 +10,20 @@ export const metadata = { title: "話す: everything to say" };
 export default function SayPage() {
   const sections: SaySection[] = [
     { id: "open", title: "First words", lines: [OPENER] },
+    {
+      id: "listen",
+      title: "Listening (相槌)",
+      hook: "While they talk, just nod. When they finish, pause, then speak.",
+      lines: AIZUCHI,
+    },
+    {
+      id: "manager",
+      title: "Manager round",
+      hook: "You use admin systems every day, so you know what their users need.",
+      lines: MANAGER_QA.flatMap((qa) => [{ ...qa.q, cue: true }, ...qa.a]),
+    },
+    { id: "why", title: "Why this company (志望動機)", lines: scripts.find((s) => s.id === "motivation")?.lines ?? [] },
+    { id: "ask-manager", title: "Ask the manager", lines: MANAGER_ASK },
     ...TALKING_POINTS.map((g) => ({ id: g.id, title: g.title.en, hook: g.hook, lines: g.points })),
     {
       id: "ask",

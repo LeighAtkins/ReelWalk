@@ -10,6 +10,7 @@ import { useHostGame } from "./useGame";
 import { Elapsed, RelayDot, TurnBanner } from "./Bits";
 
 const MODES: { id: Mode; ja: string; sub: string }[] = [
+  { id: "manager", ja: "マネージャー面接", sub: "POの方との面接：今の仕事、要望の整理、POへの道、チーム" },
   { id: "full", ja: "本番モード", sub: "自己紹介から逆質問まで、一次面接の流れ" },
   { id: "tech", ja: "技術の深掘り", sub: "ReelWalkの技術についての質問だけ" },
   { id: "general", ja: "人物・経験", sub: "強み、チーム、志望動機など" },

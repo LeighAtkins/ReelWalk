@@ -18,6 +18,7 @@ import { OPENER, VOICE_TEST } from "../content/misc.ts";
 import { OPENING, REPEAT_PHRASE } from "../content/game.ts";
 import { TALKING_POINTS } from "../content/talking-points.ts";
 import { LIFELINES, TOP_QUESTIONS } from "../content/cheat-sheet.ts";
+import { AIZUCHI, MANAGER_ASK, MANAGER_QA } from "../content/manager.ts";
 import { parseRuby } from "../lib/ruby.ts";
 import { audioKey } from "../lib/audio-key.ts";
 
@@ -43,7 +44,7 @@ function collect(): string[] {
       }
     }
   };
-  walk([topics, company, generalQA, phraseSets, scripts, ROUTES, OPENER, VOICE_TEST, OPENING, REPEAT_PHRASE, TALKING_POINTS, TOP_QUESTIONS, LIFELINES]);
+  walk([topics, company, generalQA, phraseSets, scripts, ROUTES, OPENER, VOICE_TEST, OPENING, REPEAT_PHRASE, TALKING_POINTS, TOP_QUESTIONS, LIFELINES, MANAGER_QA, MANAGER_ASK, AIZUCHI]);
   return [...out];
 }
 

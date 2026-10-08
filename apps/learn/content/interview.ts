@@ -12,9 +12,9 @@ import type { Line, PhraseSet, QA, Script } from "../lib/types";
 const SITE = "https://craftsman-software.com/";
 const COMPANY = "https://craftsman-software.com/company";
 const RECRUIT = "https://craftsman-software.com/recruit";
-const APPTHRUST_POST = "https://craftsman-software.com/posts/88";
-const PE_KAIGI_POST = "https://craftsman-software.com/posts/93";
 const JOB = "https://herp.careers/v1/c16e/8UrRreC16bXp";
+/** What the interviewers said in the second interview (2026-10-08), from the candidate's notes. */
+const NOTES = "Second interview notes, 2026-10-08";
 
 export const company: { facts: { line: Line; source: string }[]; askThem: Line[] } = {
   facts: [
@@ -41,24 +41,52 @@ export const company: { facts: { line: Line; source: string }[]; askThem: Line[]
     },
     {
       line: {
-        ja: "自社プロダクトの[AppThrust]{アップスラスト}は、お客様自身のAWSに、[Kubernetes]{クバネティス}ベースのアプリ基盤を作るサービスです。GitHubにpushするとビルドされ、新しい版に通信を1%から少しずつ流してリリースできます。",
-        en: "Their own product, AppThrust, builds a Kubernetes-based application platform in the customer's own AWS account. A push to GitHub triggers a build, and a new revision can be released gradually, starting with 1% of traffic.",
+        ja: "中心は受託開発{じゅたくかいはつ}です。国内大手の自動車メーカーなど、大企業のシステム開発やインフラ運用をしています。",
+        en: "Their core business is contract development: building systems and running infrastructure for large companies, including a major Japanese car maker.",
       },
-      source: APPTHRUST_POST,
+      source: NOTES,
     },
     {
       line: {
-        ja: "2026年9月に、Platform Engineering Kaigi 2026と東京ゲームショウ2026でAppThrustを出展しました。次はCEATEC 2026（10月13日〜16日）に出展予定です。",
-        en: "In September 2026 they exhibited AppThrust at Platform Engineering Kaigi 2026 and Tokyo Game Show 2026, and they are exhibiting next at CEATEC 2026 (13-16 October).",
+        ja: "募集しているチームは、出荷管理と社内Webシステムを作っています。PO兼マネージャーが1名、開発者が2名です。",
+        en: "The team that's hiring builds the shipping-management and internal web systems: one PO who is also the manager, and two developers.",
       },
-      source: PE_KAIGI_POST,
+      source: NOTES,
     },
     {
       line: {
-        ja: "募集中のチームは、[Next.js]{ネクストジェイエス}のServer ComponentsとServer Actionsで作った出荷管理系ツールを保守開発しています。2024年4月に最小限の機能でリリースし、PO1名と開発者3名で、アジャイルに進めています。",
-        en: "The team you would join maintains and extends a shipping-management tool built with Next.js Server Components and Server Actions. It launched with a minimal feature set in April 2024; the team is one product owner and three developers, working in an agile way.",
+        ja: "最初は開発者として入り、その後、社内試験を受けてPOになる人を探しています。",
+        en: "They're looking for someone who joins as a developer and later becomes a PO, after an internal exam.",
       },
-      source: JOB,
+      source: NOTES,
+    },
+    {
+      line: {
+        ja: "創業者は、TypeScriptの専門家のsuinさん（野澤{のざわ}さん）と、Kubernetesやインフラの専門家のreoringさん（森{もり}さん）です。",
+        en: "The founders are suin (Nozawa), a TypeScript expert, and reoring (Mori), a Kubernetes and infrastructure expert.",
+      },
+      source: NOTES,
+    },
+    {
+      line: {
+        ja: "契約社員のジョブ型雇用です。最初は3か月、その後は6か月ごとに更新で、回数の制限はありません。希望すれば正社員の面接も受けられます。",
+        en: "It's a job-based contract: three months first, then six-month renewals with no limit. You can ask for an interview for a full-time position.",
+      },
+      source: NOTES,
+    },
+    {
+      line: {
+        ja: "勤務は神田のオフィスだけで、リモートはできません。",
+        en: "Work is at the Kanda office only; no remote.",
+      },
+      source: NOTES,
+    },
+    {
+      line: {
+        ja: "自己学習や社内勉強会を大切にしています。書籍購入手当が6万円あり、Kubernetesの資格には10万円の手当もあります。",
+        en: "They value self-study and internal study sessions. There's a ¥60,000 book allowance, and a ¥100,000 bonus for Kubernetes certifications.",
+      },
+      source: NOTES,
     },
     {
       line: {
@@ -89,8 +117,8 @@ export const company: { facts: { line: Line; source: string }[]; askThem: Line[]
       en: "I'd like to hear about anything that was hard once you ran Server Actions and Prisma in production.",
     },
     {
-      ja: "AppThrustで得られた知見は、受託のプロジェクトにも生かされていますか。",
-      en: "Does what you learn building AppThrust feed back into client projects?",
+      ja: "POになるための社内試験では、どんなことが求められますか。",
+      en: "What does the internal exam for becoming a PO require?",
     },
     {
       ja: "入社して最初の3か月で、どのような状態になっていることを期待されますか。",
@@ -432,50 +460,33 @@ export const scripts: Script[] = [
   {
     id: "motivation",
     title: { ja: "志望{しぼう}動機", en: "Why this company" },
-    seconds: 75,
+    seconds: 45,
     intro:
-      "Two reasons, each tied to something they wrote themselves (the company message and the job post), then what you would do first. Replace the 【】 with a real experience; one concrete sentence beats three general ones.",
+      "Written with your wife after the second interview: they do contract development for large clients, and the team wants a developer who later becomes a PO. Customer support plus tools you built is exactly that path.",
     lines: [
-      { ja: "御社{おんしゃ}を志望{しぼう}した理由は、大きく二つあります。", en: "There are two main reasons I applied to your company." },
       {
-        ja: "一つ目は、「つくることに、もっと集中できる世界へ」という考え方です。",
-        en: "The first is your idea of \"a world where we can focus more on creating.\"",
+        ja: "御社{おんしゃ}は、お客様の課題{かだい}を、KubernetesやTypeScriptなどの技術で解決している会社だと聞きました。",
+        en: "I heard that your company solves customers' problems with technology like Kubernetes and TypeScript.",
       },
       {
-        ja: "私も【前職での経験】で、手作業の多さに困った経験があります。",
-        en: "At 【previous job / experience】, I also struggled with too much manual work.",
+        ja: "私は今、カスタマーサポートとして、お客様や社内の人の困りごとを毎日聞いています。",
+        en: "In customer support, I hear about the problems of customers and colleagues every day.",
       },
       {
-        ja: "その経験から、自動化やCI/CDの改善に強い関心を持っています。",
-        en: "Since then I've been very interested in automation and improving CI/CD.",
+        ja: "そして、その困りごとを、自分でツールを作って解決してきました。",
+        en: "And I've solved those problems by building tools myself.",
       },
       {
-        ja: "二つ目は、アプリとインフラの両方に携{たずさ}われる点です。",
-        en: "The second is the chance to work on both the application and the infrastructure.",
+        ja: "出荷管理や社内システムの仕事は、私の経験を一番うまく生{い}かせると思います。",
+        en: "I think shipping management and internal systems are where my experience fits best.",
       },
       {
-        ja: "求人を拝見{はいけん}して、Next.jsのアプリをKubernetesで動かしていると知りました。",
-        en: "From the job post, I learned that you run a Next.js app on Kubernetes.",
+        ja: "最初は開発者として、Next.jsやKubernetesの技術を学びながら貢献{こうけん}したいです。",
+        en: "At first I want to contribute as a developer while learning Next.js and Kubernetes.",
       },
       {
-        ja: "それはまさに、私がReelWalkで一番力を入れて学んだ組み合わせです。",
-        en: "That is exactly the combination I put the most effort into learning with ReelWalk.",
-      },
-      {
-        ja: "また、AppThrustのように、自社で開発者向けの基盤を作っている点にも惹{ひ}かれました。",
-        en: "I'm also drawn to the fact that you build a platform for developers yourselves, like AppThrust.",
-      },
-      {
-        ja: "【ほかに惹{ひ}かれた点：例えば業務時間内の勉強会】",
-        en: "【Another thing that attracts you, e.g. study sessions during working hours】",
-      },
-      {
-        ja: "入社後は、まず出荷管理ツールの開発で貢献{こうけん}したいです。",
-        en: "After joining, I'd first like to contribute to the shipping-management tool.",
-      },
-      {
-        ja: "将来的には、CI/CDや脆弱性{ぜいじゃくせい}対応の改善にも関わりたいと考えています。",
-        en: "Longer term, I'd also like to help improve CI/CD and vulnerability handling.",
+        ja: "将来は、使う人と開発チームをつなぐPOの仕事にも挑戦{ちょうせん}したいです。",
+        en: "In the future, I'd also like to take on the PO role, connecting the people who use the system with the development team.",
       },
     ],
   },

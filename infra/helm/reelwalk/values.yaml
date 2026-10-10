@@ -63,7 +63,10 @@ networkPolicy:
   # production, where the database, S3 and SQS are outside the cluster.
   egressToPods: []
   # Destinations the app may never reach. The cloud metadata endpoint holds
-  # the node's credentials; nothing in ReelWalk needs it.
+  # the node's credentials; nothing in ReelWalk needs it. Add the cluster's
+  # pod and Service ranges too: some CNIs match pod addresses against the
+  # 0.0.0.0/0 internet rule (see values-kind.yaml). On EKS with the VPC CNI,
+  # pods take VPC addresses, so list the pod subnets rather than the VPC.
   blockedEgressCidrs:
     - 169.254.169.254/32
 

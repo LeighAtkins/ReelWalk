@@ -30,6 +30,14 @@ networkPolicy:
     - app: postgres
     - app: minio
     - app: elasticmq
+  # The internet rule is 0.0.0.0/0, and kindnet matches pod addresses against
+  # ipBlock too, so without these the app could reach every pod in the cluster
+  # (tested: web could open Argo CD's server). Pods and Services here come from
+  # kind's defaults (cluster-cidr and service-cluster-ip-range).
+  blockedEgressCidrs:
+    - 169.254.169.254/32
+    - 10.244.0.0/16
+    - 10.96.0.0/16
 
 config:
   S3_BUCKET: reelwalk-dev

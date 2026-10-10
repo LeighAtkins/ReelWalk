@@ -27,7 +27,7 @@
     "@types/react": "^19.0.4",
     "@types/react-dom": "^19.0.2",
     "vitest": "^4.1.11",
-    "typescript": "^5.8.3"
+    "typescript": "^6.0.3"
   },
   "exports": {
     "./render-job": "./src/render-job.ts",

@@ -1086,32 +1086,39 @@ p {
 
 .toolbar {
   display: flex;
-  gap: 2px;
-  overflow-x: auto;
-  scrollbar-width: none;
   padding: 6px 6px calc(6px + var(--safe-bottom));
   background: var(--ink-deep);
 }
 
-.toolbar::-webkit-scrollbar {
+/* The tools between the pinned Done and Delete. */
+.toolbar-scroll {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  gap: 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.toolbar-scroll::-webkit-scrollbar {
   display: none;
 }
 
-.toolbar[data-more-right="true"] {
+.toolbar-scroll[data-more-right="true"] {
   mask-image: linear-gradient(to right, #000 calc(100% - 48px), transparent);
 }
 
-.toolbar[data-more-left="true"] {
+.toolbar-scroll[data-more-left="true"] {
   mask-image: linear-gradient(to right, transparent, #000 48px);
 }
 
-.toolbar[data-more-left="true"][data-more-right="true"] {
+.toolbar-scroll[data-more-left="true"][data-more-right="true"] {
   mask-image: linear-gradient(to right, transparent, #000 48px, #000 calc(100% - 48px), transparent);
 }
 
 /* With a mouse there is no swipe, so show where the toolbar and looks continue. */
 @media (pointer: fine) {
-  .toolbar,
+  .toolbar-scroll,
   .look-strip {
     scrollbar-width: thin;
     scrollbar-color: var(--line-strong) transparent;
@@ -1155,6 +1162,22 @@ p {
   padding-right: 6px;
   margin-right: 4px;
   border-right: 1px solid var(--line);
+}
+
+.toolbar-end {
+  display: flex;
+  align-items: center;
+  padding-left: 6px;
+  margin-left: 4px;
+  border-left: 1px solid var(--line);
+}
+
+/* On a narrow phone the pinned ends give up some width to the tools. */
+@media (max-width: 420px) {
+  .toolbar-context .tool,
+  .toolbar-end .tool {
+    min-width: 54px;
+  }
 }
 
 /* ── Bottom sheets ────────────────────────────────────────────── */

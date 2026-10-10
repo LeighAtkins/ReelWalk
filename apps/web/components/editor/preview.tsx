@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { Player, type PlayerRef } from "@remotion/player";
+import { prefetch } from "remotion";
 import { INSTAGRAM, REEL_FORMAT, textsAt, type TextOverlay, type Timeline } from "@reelwalk/core";
 import { ReelComposition, reelDurationInFrames, textCss, type ReelAsset } from "@reelwalk/render/reel";
 import { PlayIcon } from "../icons";
@@ -10,6 +11,13 @@ import { useClock, type Clock } from "./clock";
 type PreviewProps = {
   timeline: Timeline;
   assets: Record<string, ReelAsset>;
+  /**
+   * Media to download once and keep in memory. Without it every clip's
+   * <video> is created fresh when playback reaches it and a phone buffers
+   * the file again each time, for seconds; with it the Player plays the
+   * in-memory copy and switching clips is instant.
+   */
+  prefetchSrcs: string[];
   /** Called with the Player when it mounts and with null when it unmounts. */
   playerRef(player: PlayerRef | null): void;
   playing: boolean;
@@ -179,6 +187,7 @@ function TextTargets({
 export function Preview({
   timeline,
   assets,
+  prefetchSrcs,
   playerRef,
   playing,
   guides,
@@ -200,6 +209,45 @@ export function Preview({
     const observer = new ResizeObserver(([entry]) => setScale(entry.contentRect.width / REEL_FORMAT.width));
     observer.observe(element);
     return () => observer.disconnect();
+  }, []);
+
+  // Keep one in-memory copy per source. A source that drops out (a deleted
+  // clip, a swapped preview) is freed a minute later, not at once: a <video>
+  // may still be showing it, and undo often brings it straight back.
+  const prefetched = useRef(new Map<string, { free: () => void; expiry: ReturnType<typeof setTimeout> | null }>());
+  const prefetchKey = JSON.stringify(prefetchSrcs);
+  useEffect(() => {
+    const map = prefetched.current;
+    const wanted = new Set(JSON.parse(prefetchKey) as string[]);
+    for (const src of wanted) {
+      const held = map.get(src);
+      if (held) {
+        if (held.expiry) clearTimeout(held.expiry);
+        held.expiry = null;
+        continue;
+      }
+      const { free, waitUntilDone } = prefetch(src, { method: "blob-url" });
+      // A failed prefetch only means the clip streams as before.
+      waitUntilDone().catch(() => undefined);
+      map.set(src, { free, expiry: null });
+    }
+    for (const [src, held] of map) {
+      if (wanted.has(src) || held.expiry) continue;
+      held.expiry = setTimeout(() => {
+        held.free();
+        map.delete(src);
+      }, 60_000);
+    }
+  }, [prefetchKey]);
+  useEffect(() => {
+    const map = prefetched.current;
+    return () => {
+      for (const held of map.values()) {
+        if (held.expiry) clearTimeout(held.expiry);
+        held.free();
+      }
+      map.clear();
+    };
   }, []);
 
   const hasClips = timeline.clips.length > 0;

@@ -596,6 +596,17 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
     () => Object.fromEntries(Object.values(library).map((asset) => [asset.id, { src: asset.url, kind: asset.kind }])),
     [library],
   );
+  // Media the preview keeps in memory: the clips' preview renditions and the
+  // song, in reel order. Originals still waiting for a preview are left out;
+  // they can be hundreds of megabytes.
+  const prefetchSrcs = useMemo(() => {
+    const ids = [...timeline.clips.map((clip) => clip.assetId), ...(timeline.music ? [timeline.music.assetId] : [])];
+    const srcs = ids
+      .map((id) => library[id])
+      .filter((asset) => asset && (asset.kind === "VIDEO" || asset.kind === "AUDIO") && !asset.previewPending)
+      .map((asset) => asset!.url);
+    return [...new Set(srcs)];
+  }, [timeline.clips, timeline.music, library]);
   const issues = useMemo(() => exportState.issues ?? instagramIssues(timeline, caption), [exportState.issues, timeline, caption]);
   const libraryList = useMemo(() => Object.values(library), [library]);
 
@@ -609,16 +620,23 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
 
   // ── Toolbars ────────────────────────────────────────────────
   let tools: React.ReactNode;
+  // With something selected, Done stays at the left and Delete at the right;
+  // only the tools between them scroll.
+  const selectionLead = activeSelection ? (
+    <Tool label="Done" onClick={() => setSelection(null)}>
+      <CheckIcon />
+    </Tool>
+  ) : null;
+  const selectionTail = activeSelection ? (
+    <Tool label={activeSelection.kind === "music" ? "Remove" : "Delete"} danger onClick={deleteSelection}>
+      <TrashIcon />
+    </Tool>
+  ) : null;
   if (selectedClip) {
     const index = selectedClipIndex;
     const isVideo = selectedClip.kind === "VIDEO";
     tools = (
       <>
-        <span className="toolbar-context">
-          <Tool label="Done" onClick={() => setSelection(null)}>
-            <CheckIcon />
-          </Tool>
-        </span>
         <Tool label="Split" onClick={split}>
           <SplitIcon />
         </Tool>
@@ -669,19 +687,11 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         <Tool label="Later" disabled={index === timeline.clips.length - 1} onClick={() => apply((current) => moveClip(current, selectedClip.id, index + 1))}>
           <MoveRightIcon />
         </Tool>
-        <Tool label="Delete" danger onClick={deleteSelection}>
-          <TrashIcon />
-        </Tool>
       </>
     );
   } else if (selectedText) {
     tools = (
       <>
-        <span className="toolbar-context">
-          <Tool label="Done" onClick={() => setSelection(null)}>
-            <CheckIcon />
-          </Tool>
-        </span>
         <Tool label="Edit" onClick={() => setSheet("text-edit")}>
           <EditIcon />
         </Tool>
@@ -691,27 +701,16 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         <Tool label="Guides" pressed={guides} onClick={() => setGuides(!guides)}>
           <GuidesIcon />
         </Tool>
-        <Tool label="Delete" danger onClick={deleteSelection}>
-          <TrashIcon />
-        </Tool>
       </>
     );
   } else if (musicSelected) {
     tools = (
       <>
-        <span className="toolbar-context">
-          <Tool label="Done" onClick={() => setSelection(null)}>
-            <CheckIcon />
-          </Tool>
-        </span>
         <Tool label="Adjust" onClick={() => setSheet("music")}>
           <VolumeIcon />
         </Tool>
         <Tool label="Replace" onClick={() => setSheet("music")}>
           <SwapIcon />
-        </Tool>
-        <Tool label="Remove" danger onClick={deleteSelection}>
-          <TrashIcon />
         </Tool>
       </>
     );
@@ -763,7 +762,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
   const closeSheet = () => setSheet(null);
 
   // When the tools run past the edge, a fade on that side says there are more.
-  const toolbarRef = useRef<HTMLElement>(null);
+  const toolbarRef = useRef<HTMLDivElement>(null);
   const markToolbar = useCallback(() => {
     const element = toolbarRef.current;
     if (!element) return;
@@ -816,6 +815,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
       <Preview
         timeline={timeline}
         assets={assets}
+        prefetchSrcs={prefetchSrcs}
         playerRef={attachPlayer}
         playing={playing}
         guides={guides}
@@ -892,8 +892,12 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         onAddMusic={() => setSheet("music")}
       />
 
-      <nav className="toolbar" aria-label="Editing tools" ref={toolbarRef} onScroll={markToolbar}>
-        {tools}
+      <nav className="toolbar" aria-label="Editing tools">
+        {selectionLead ? <span className="toolbar-context">{selectionLead}</span> : null}
+        <div className="toolbar-scroll" ref={toolbarRef} onScroll={markToolbar}>
+          {tools}
+        </div>
+        {selectionTail ? <span className="toolbar-end">{selectionTail}</span> : null}
       </nav>
 
       {updated && !sheet ? (

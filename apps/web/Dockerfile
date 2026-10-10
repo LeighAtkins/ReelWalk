@@ -1,5 +1,5 @@
 ## ── Stage 1: deps ─────────────────────────────────────────────
-FROM node:22-alpine AS deps
+FROM node:25-alpine AS deps
 
 WORKDIR /workspace
 RUN corepack enable
@@ -27,7 +27,7 @@ RUN pnpm --filter @reelwalk/db db:generate \
   && pnpm --filter @reelwalk/web build
 
 ## ── Stage 3: runner ───────────────────────────────────────────
-FROM node:22-alpine AS runner
+FROM node:25-alpine AS runner
 
 WORKDIR /workspace
 

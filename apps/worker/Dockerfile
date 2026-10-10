@@ -1,5 +1,5 @@
 ## ── Stage 1: runtime base ─────────────────────────────────────
-FROM node:22-bookworm-slim AS runtime
+FROM node:25-bookworm-slim AS runtime
 
 # Security updates, then ffmpeg plus the shared libraries Chrome Headless Shell needs.
 RUN apt-get update \

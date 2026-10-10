@@ -18,6 +18,17 @@ web:
       memory: 256Mi
     limits:
       memory: 512Mi
+  # CPU-based HorizontalPodAutoscaler; replicas is then the HPA's job.
+  # Needs metrics-server in the cluster.
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
+  # Keeps this many web pods up during voluntary disruptions (node drains,
+  # cluster upgrades). Only rendered when more than one pod can run.
+  podDisruptionBudget:
+    minAvailable: 1
 
 worker:
   image:
@@ -39,6 +50,22 @@ worker:
     minReplicas: 1
     maxReplicas: 4
     targetCPUUtilizationPercentage: 70
+
+# Deny-by-default traffic rules for the release's pods (templates/networkpolicy.yaml).
+networkPolicy:
+  enabled: true
+  # Who may reach the web pods. Empty: anyone, which is what a NodePort or a
+  # cloud load balancer needs. Narrow it to the ingress controller's pods
+  # when there is one, e.g.
+  #   - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: ingress-nginx}}
+  webIngressFrom: []
+  # Pods in the same namespace the app may call (by their labels). Empty in
+  # production, where the database, S3 and SQS are outside the cluster.
+  egressToPods: []
+  # Destinations the app may never reach. The cloud metadata endpoint holds
+  # the node's credentials; nothing in ReelWalk needs it.
+  blockedEgressCidrs:
+    - 169.254.169.254/32
 
 # Runs `prisma migrate deploy` and the idempotent seed, using the worker image.
 migrate:

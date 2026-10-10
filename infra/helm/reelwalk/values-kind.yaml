@@ -4,6 +4,12 @@
 
 web:
   replicas: 2
+  # metrics-server is installed by infra/kind/metrics-server.sh.
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 4
+    targetCPUUtilizationPercentage: 70
   service:
     type: NodePort
     # Mapped to http://localhost:8081 by infra/kind/cluster.yaml.
@@ -17,6 +23,13 @@ worker:
       memory: 512Mi
     limits:
       memory: 2Gi
+
+# Postgres, MinIO and ElasticMQ run next to the app here (infra/k8s/local).
+networkPolicy:
+  egressToPods:
+    - app: postgres
+    - app: minio
+    - app: elasticmq
 
 config:
   S3_BUCKET: reelwalk-dev

@@ -4,6 +4,12 @@
 
 web:
   replicas: 2
+  # metrics-server is installed by infra/kind/metrics-server.sh.
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 4
+    targetCPUUtilizationPercentage: 70
   service:
     type: NodePort
     # Mapped to http://localhost:8081 by infra/kind/cluster.yaml.
@@ -18,12 +24,31 @@ worker:
     limits:
       memory: 2Gi
 
+# Postgres, MinIO and ElasticMQ run next to the app here (infra/k8s/local).
+networkPolicy:
+  egressToPods:
+    - app: postgres
+    - app: minio
+    - app: elasticmq
+  # The internet rule is 0.0.0.0/0, and kindnet matches pod addresses against
+  # ipBlock too, so without these the app could reach every pod in the cluster
+  # (tested: web could open Argo CD's server). Pods and Services here come from
+  # kind's defaults (cluster-cidr and service-cluster-ip-range).
+  blockedEgressCidrs:
+    - 169.254.169.254/32
+    - 10.244.0.0/16
+    - 10.96.0.0/16
+
 config:
   S3_BUCKET: reelwalk-dev
   S3_FORCE_PATH_STYLE: "true"
   S3_ENDPOINT_URL: http://minio:9000
   # The browser reaches MinIO through the NodePort mapped to localhost:9100.
   S3_PUBLIC_ENDPOINT_URL: http://localhost:9100
+  # Empty: media links are signed MinIO URLs. Inheriting the production
+  # CloudFront domain from values.yaml sent the browser to the real CDN,
+  # which has none of the local files (403).
+  CLOUDFRONT_BASE_URL: ""
   SQS_ENDPOINT_URL: http://elasticmq:9324
   SQS_QUEUE_URL: http://elasticmq:9324/000000000000/render-jobs
   SQS_DLQ_URL: http://elasticmq:9324/000000000000/render-jobs-dlq

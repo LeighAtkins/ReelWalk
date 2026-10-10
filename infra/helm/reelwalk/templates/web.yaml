@@ -6,7 +6,9 @@ metadata:
     {{- include "reelwalk.labels" . | nindent 4 }}
     app.kubernetes.io/component: web
 spec:
+  {{- if not .Values.web.autoscaling.enabled }}
   replicas: {{ .Values.web.replicas }}
+  {{- end }}
   selector:
     matchLabels:
       {{- include "reelwalk.selectorLabels" . | nindent 6 }}
@@ -88,6 +90,49 @@ spec:
       {{- if and (eq .Values.web.service.type "NodePort") .Values.web.service.nodePort }}
       nodePort: {{ .Values.web.service.nodePort }}
       {{- end }}
+{{- if .Values.web.autoscaling.enabled }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "reelwalk.fullname" . }}-web
+  labels:
+    {{- include "reelwalk.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "reelwalk.fullname" . }}-web
+  minReplicas: {{ .Values.web.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.web.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          # Percent of requests.cpu, so requests must be set (they are).
+          averageUtilization: {{ .Values.web.autoscaling.targetCPUUtilizationPercentage }}
+  behavior:
+    # Scale down slowly: a burst of exports often comes in waves.
+    scaleDown:
+      stabilizationWindowSeconds: 300
+{{- end }}
+{{- if or .Values.web.autoscaling.enabled (gt (int .Values.web.replicas) 1) }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "reelwalk.fullname" . }}-web
+  labels:
+    {{- include "reelwalk.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.web.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "reelwalk.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: web
+{{- end }}
 {{- if .Values.ingress.enabled }}
 ---
 apiVersion: networking.k8s.io/v1

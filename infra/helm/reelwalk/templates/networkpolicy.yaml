@@ -1,0 +1,87 @@
+{{- if .Values.networkPolicy.enabled }}
+# Deny by default, then allow what each pod needs. NetworkPolicies add up:
+# a pod may send or receive whatever ANY policy selecting it allows, and once
+# one policy selects a pod for a direction, everything else in that
+# direction is denied. Needs a CNI that enforces them (kindnet in kind
+# >= 0.24, Calico, Cilium, the VPC CNI with network policy on).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "reelwalk.fullname" . }}-default-deny
+  labels:
+    {{- include "reelwalk.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "reelwalk.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+# Web pods take HTTP on their container port, from anyone unless
+# networkPolicy.webIngressFrom narrows it (e.g. to the ingress controller).
+# Workers and the migrate Job get no ingress rule at all: nothing calls them.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "reelwalk.fullname" . }}-web-ingress
+  labels:
+    {{- include "reelwalk.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "reelwalk.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: web
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: 3000
+      {{- with .Values.networkPolicy.webIngressFrom }}
+      from:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+# Every pod of the release may resolve names, reach the services listed in
+# networkPolicy.egressToPods, and reach the internet (S3, SQS, the database,
+# Instagram) except the cloud metadata address. Blocking 169.254.169.254
+# means a request the app is tricked into making (SSRF) cannot read the
+# node's cloud credentials.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "reelwalk.fullname" . }}-egress
+  labels:
+    {{- include "reelwalk.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "reelwalk.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    {{- range .Values.networkPolicy.egressToPods }}
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- toYaml . | nindent 14 }}
+    {{- end }}
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              {{- toYaml .Values.networkPolicy.blockedEgressCidrs | nindent 14 }}
+{{- end }}

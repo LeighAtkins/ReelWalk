@@ -30,6 +30,9 @@ kubectl --context "${CONTEXT}" -n "${NAMESPACE}" apply -f infra/k8s/local/deps.y
 kubectl --context "${CONTEXT}" -n "${NAMESPACE}" rollout status statefulset/postgres --timeout=180s
 kubectl --context "${CONTEXT}" -n "${NAMESPACE}" rollout status deployment/minio deployment/elasticmq --timeout=180s
 
+# metrics-server, for the web HorizontalPodAutoscaler in values-kind.yaml.
+CONTEXT="${CONTEXT}" bash infra/kind/metrics-server.sh
+
 helm upgrade --install reelwalk infra/helm/reelwalk \
   --kube-context "${CONTEXT}" \
   --namespace "${NAMESPACE}" \

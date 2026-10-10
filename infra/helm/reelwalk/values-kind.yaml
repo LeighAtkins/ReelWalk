@@ -45,6 +45,10 @@ config:
   S3_ENDPOINT_URL: http://minio:9000
   # The browser reaches MinIO through the NodePort mapped to localhost:9100.
   S3_PUBLIC_ENDPOINT_URL: http://localhost:9100
+  # Empty: media links are signed MinIO URLs. Inheriting the production
+  # CloudFront domain from values.yaml sent the browser to the real CDN,
+  # which has none of the local files (403).
+  CLOUDFRONT_BASE_URL: ""
   SQS_ENDPOINT_URL: http://elasticmq:9324
   SQS_QUEUE_URL: http://elasticmq:9324/000000000000/render-jobs
   SQS_DLQ_URL: http://elasticmq:9324/000000000000/render-jobs-dlq

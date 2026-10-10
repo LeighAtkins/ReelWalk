@@ -13,21 +13,21 @@
     "@fontsource-variable/archivo": "^5.3.0",
     "@fontsource-variable/noto-sans-jp": "^5.3.0",
     "@reelwalk/core": "workspace:*",
-    "@remotion/bundler": "^4.0.263",
-    "@remotion/media": "4.0.481",
-    "@remotion/renderer": "^4.0.263",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
-    "remotion": "^4.0.263",
+    "@remotion/bundler": "4.0.534",
+    "@remotion/media": "4.0.534",
+    "@remotion/renderer": "4.0.534",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "remotion": "4.0.534",
     "tsx": "^4.19.2",
     "zod": "^3.24.1"
   },
   "devDependencies": {
     "@types/node": "^22.10.5",
-    "@types/react": "^19.0.4",
-    "@types/react-dom": "^19.0.2",
-    "vitest": "^4.1.11",
-    "typescript": "^5.8.3"
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "vitest": "^5.0.3",
+    "typescript": "^6.0.3"
   },
   "exports": {
     "./render-job": "./src/render-job.ts",

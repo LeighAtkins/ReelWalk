@@ -118,6 +118,8 @@ kubectl --context kind-reelwalk -n reelwalk scale deploy/reelwalk-worker --repli
 kind delete cluster --name reelwalk
 ```
 
+What the chart does (probes, resources, autoscaling, NetworkPolicies) and what testing it on kind showed: [docs/KUBERNETES_NOTES.md](docs/KUBERNETES_NOTES.md). How security findings are handled: [SECURITY.md](SECURITY.md).
+
 To deploy through Argo CD instead of `helm upgrade`, run
 `infra/argocd/install.sh`. From then on the cluster runs the images CI built
 from `main`, and a merge to `main` is a deploy.

@@ -42,7 +42,7 @@ SDK in both cases and only the endpoint settings differ.
 | **Server Components** | Render on the server with data already loaded. The reels grid, the export screen and the exports list are plain `async` functions calling Prisma. The editor page loads the reel and its media library this way, then hands them to the client editor. |
 | **Server Actions** | Every mutation: create a reel, save the timeline (with a revision check), save the caption, issue an upload URL, confirm an upload, export, retry. Each one validates input with zod and checks the workspace. |
 | **Remotion** | React for video. One composition (`packages/render/src/reel`) draws a reel; `@remotion/player` shows it live in the editor and the worker renders the same component to MP4 ([ADR 0006](adr/0006-one-composition-for-preview-and-export.md)). |
-| **Route Handlers** | Used only where the caller is not this app's UI: `/api/health`, `/api/ready` for Kubernetes probes, `/api/editor/render` for the timeline editor. |
+| **Route Handlers** | Used only where the caller is not this app's UI: `/api/health`, `/api/ready` for Kubernetes probes, `/api/reels/[id]/save` for autosave (stable across deploys), `/api/instagram/*` for the OAuth redirect. (`/api/editor/render` was removed: it let anyone queue renders of client-chosen URLs.) |
 | **Prisma** | Schema, migrations and a typed client, shared by web and worker through `packages/db`. |
 | **PostgreSQL** | Source of truth for properties, media, jobs and outputs. Job status changes are conditional updates. |
 | **S3** | Stores uploads and rendered MP4s. The browser uploads straight to it with a presigned URL, so large files never pass through Next.js. |

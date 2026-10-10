@@ -41,6 +41,31 @@ package that holds them is upgraded, and entries whose code is gone are deleted.
 
 ## Record
 
+### 2026-10-10: unauthenticated render API (SSRF), fixed
+
+Found by a code review of the whole app, not by a scanner.
+
+- **What:** `POST /api/editor/render` and `GET /api/editor/render/[jobId]`
+  answered without a session. `getApiUser()` fell back to the seeded demo
+  user, because the code assumed nginx basic auth guarded the path. Production
+  (App Runner) has no nginx, and even the local nginx only guarded `/editor/`.
+  The route stored the client's timeline unvalidated, and the worker rendered
+  each clip's `assetUrl` in headless Chrome.
+- **Impact:** anyone could make the render worker send GET requests to any host
+  and scheme from inside the VPC, get any image or video it returned back as a
+  public MP4 (and a reachable/unreachable signal otherwise), and start paid
+  renders. AWS credentials were not exposed: Fargate has no instance metadata
+  service, and the task credentials endpoint needs a path the attacker cannot
+  know.
+- **Severity:** Medium. It ships, it is reachable from outside, but it is
+  GET-only and leaks only media.
+- **Fix:** nothing used these routes (the desktop editor exports in the
+  browser), so they were deleted along with `getApiUser()`. The worker refuses
+  any `EDITOR` job still in the queue. `e2e/tests/security.spec.ts` checks the
+  routes stay gone and that autosave refuses a request without a session.
+- **Exposure:** the production database had no `EDITOR` jobs, so the route was
+  never used. Deployed the same day; both routes now return 404.
+
 ### 2026-10-10: 15 Dependabot alerts, all fixed
 
 All 15 came from test and build tooling (vitest 2.1 and 3.2 and what they pull

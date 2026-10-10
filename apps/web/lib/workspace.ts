@@ -1,6 +1,5 @@
 import { cache } from "react";
 import { redirect } from "next/navigation";
-import { DEFAULT_USER_EMAIL, prisma } from "@reelwalk/db";
 import { getSessionUser } from "./auth";
 
 /**
@@ -12,19 +11,6 @@ export const getCurrentUser = cache(async () => {
   if (!user) redirect("/login");
   return user;
 });
-
-/**
- * For the legacy desktop editor's API (apps/editor), which nginx protects
- * with basic auth and which has no session: a signed-in user if there is one,
- * otherwise the seeded demo workspace.
- */
-export async function getApiUser() {
-  const user = await getSessionUser();
-  if (user) return user;
-  const demo = await prisma.user.findUnique({ where: { email: DEFAULT_USER_EMAIL }, include: { workspace: true } });
-  if (!demo) throw new Error("Demo user missing. Run `pnpm db:seed`.");
-  return demo;
-}
 
 /**
  * Media a workspace may use: its own uploads plus the open starter library,

@@ -1,5 +1,5 @@
 import { createReadStream, createWriteStream } from "node:fs";
-import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
@@ -60,7 +60,6 @@ async function renderSourceKey(
 import type { ReelAsset } from "@reelwalk/render/reel-types";
 import { renderStubReel } from "@reelwalk/render/render-job";
 import { renderReel } from "@reelwalk/render/render-reel";
-import { renderTimelineProject } from "@reelwalk/render/render-timeline";
 import type { ClaimedJob, RenderResult } from "./handler";
 
 async function downloadObject(client: S3Client, bucket: string, key: string, destination: string) {
@@ -139,9 +138,10 @@ export async function renderJob(
       }
       await renderReel({ timeline: payload.timeline, assets, output: outputPath, concurrency }, report);
     } else if (job.kind === "EDITOR") {
-      const projectPath = path.join(workdir, "project.json");
-      await writeFile(projectPath, JSON.stringify(job.payload), "utf-8");
-      await renderTimelineProject({ project: projectPath, output: outputPath }, report);
+      // Editor projects carried media URLs chosen by the client, so rendering
+      // one made the worker fetch any host it named (SSRF). The route that
+      // queued them is gone; refuse any still in the queue.
+      throw new Error("Editor-project renders are no longer supported");
     } else {
       if (!job.inputKey) throw new Error("The source media for this render was deleted");
       const inputPath = path.join(workdir, inputFilenameFor(job.inputKey));

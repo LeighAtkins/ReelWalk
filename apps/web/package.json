@@ -21,14 +21,14 @@
     "@remotion/player": "4.0.481",
     "next": "^16.3.8",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0",
+    "react-dom": "^19.3.0",
     "remotion": "4.0.481",
     "zod": "^4.6.5"
   },
   "devDependencies": {
     "@types/node": "^22.10.5",
     "@types/react": "^19.0.4",
-    "@types/react-dom": "^19.0.2",
+    "@types/react-dom": "^19.3.0",
     "typescript": "^5.8.3"
   }
 }

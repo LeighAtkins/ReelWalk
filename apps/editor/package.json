@@ -9,11 +9,11 @@
     "preview": "vite preview --host 0.0.0.0 --port 4000"
   },
   "dependencies": {
-    "@remotion/player": "^4.0.263",
+    "@remotion/player": "^4.0.533",
     "mp4-muxer": "^5.2.2",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "remotion": "^4.0.263",
+    "remotion": "^4.0.533",
     "zustand": "^4.5.5"
   },
   "devDependencies": {

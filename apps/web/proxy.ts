@@ -15,6 +15,7 @@ const PUBLIC_PATHS = [
   /^\/(privacy|terms|data-deletion)$/,
   /^\/api\//,
   /^\/icon\.svg$/,
+  /^\/robots\.txt$/,
   /^\/manifest\.webmanifest$/,
 ];
 

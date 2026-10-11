@@ -139,6 +139,10 @@ resource "aws_ecs_task_definition" "worker" {
         for k, v in merge(local.app_env, {
           RENDER_CONCURRENCY       = tostring(var.worker_render_concurrency)
           WORKER_IDLE_EXIT_SECONDS = "240"
+          # Up to max_workers of these share the database pooler with the web app.
+          DATABASE_POOL_MAX = "3"
+          # Where the nightly backup task writes (backups.tf).
+          BACKUP_BUCKET = aws_s3_bucket.backups.bucket
         }) : { name = k, value = v }
       ]
       secrets = [for k, p in aws_ssm_parameter.app : { name = k, valueFrom = p.arn } if k == "DATABASE_URL"]
@@ -263,6 +267,12 @@ resource "aws_apprunner_service" "web" {
           ECS_SUBNETS                = join(",", module.vpc.public_subnets)
           ECS_SECURITY_GROUPS        = aws_security_group.worker.id
           ECS_MAX_WORKERS            = tostring(var.max_workers)
+          RENDER_JOBS_PER_WORKER     = tostring(var.worker_render_concurrency)
+          # web_max_instances x 5, plus the workers' pools, stays well under the
+          # transaction pooler's client limit.
+          DATABASE_POOL_MAX = "5"
+          # One-tap Instagram posting; off until the Meta app is out of development mode.
+          INSTAGRAM_ENABLED = tostring(var.instagram_enabled)
         })
         runtime_environment_secrets = { for k, p in aws_ssm_parameter.app : k => p.arn }
       }
@@ -274,6 +284,8 @@ resource "aws_apprunner_service" "web" {
     memory            = var.web_memory
     instance_role_arn = aws_iam_role.web_instance.arn
   }
+
+  auto_scaling_configuration_arn = aws_apprunner_auto_scaling_configuration_version.web.arn
 
   # /api/ready touches the database on every check, which also keeps a free
   # Supabase project from being paused for inactivity.
@@ -287,6 +299,15 @@ resource "aws_apprunner_service" "web" {
   }
 
   depends_on = [aws_iam_role_policy_attachment.apprunner_ecr]
+}
+
+# One instance is always warm; App Runner adds instances as concurrent
+# requests pass web_max_concurrency each, up to web_max_instances.
+resource "aws_apprunner_auto_scaling_configuration_version" "web" {
+  auto_scaling_configuration_name = "${var.project_name}-web"
+  min_size                        = 1
+  max_size                        = var.web_max_instances
+  max_concurrency                 = var.web_max_concurrency
 }
 
 resource "aws_apprunner_custom_domain_association" "web" {

@@ -1,10 +1,11 @@
 import Link from "next/link";
 import { prisma } from "@reelwalk/db";
 import { BrandMark } from "@/components/icons";
+import { LinkPending } from "@/components/link-pending";
 import { NewReelPicker } from "@/components/new-reel-picker";
 import { StatusBadge } from "@/components/status-badge";
 import { TabBar } from "@/components/tab-bar";
-import { formatDuration } from "@/lib/format";
+import { formatAgo, formatDuration } from "@/lib/format";
 import { coverUrls, durationOf, readTimeline } from "@/lib/reels";
 import { getCurrentUser, mediaScope } from "@/lib/workspace";
 
@@ -19,7 +20,10 @@ export default async function ReelsPage({ searchParams }: { searchParams: Promis
     take: 60,
     include: { renderJobs: { orderBy: { createdAt: "desc" }, take: 1, select: { status: true } } },
   });
-  const librarySize = await prisma.mediaAsset.count({ where: { ...mediaScope(user.workspaceId), kind: { not: "AUDIO" } } });
+  const [librarySize, songs] = await Promise.all([
+    prisma.mediaAsset.count({ where: { ...mediaScope(user.workspaceId), kind: { not: "AUDIO" } } }),
+    prisma.mediaAsset.count({ where: { ...mediaScope(user.workspaceId), kind: "AUDIO" } }),
+  ]);
   const tours = await prisma.tour.findMany({
     where: { workspaceId: user.workspaceId },
     select: { id: true, name: true, _count: { select: { media: true } } },
@@ -27,29 +31,41 @@ export default async function ReelsPage({ searchParams }: { searchParams: Promis
   });
   const timelines = reels.map((reel) => readTimeline(reel.timeline));
   const covers = await coverUrls(timelines);
+  const now = new Date();
 
   return (
     <>
-      <main className="shell">
+      <main className="shell shell-home">
         <header className="shell-head">
           <span className="brand">
             <BrandMark />
             ReelWalk
           </span>
-          <span className="muted small">{user.workspace.name}</span>
         </header>
-        <h1 style={{ marginBottom: 16 }}>Reels</h1>
+        <h1 className="home-title">Reels</h1>
         {welcome === "1" ? (
-          <p className="banner" role="status" data-testid="welcome">
-            Welcome to {user.workspace.name}. Your library already has {librarySize} clips and photos plus the music, so you can
-            start a reel right now.
+          <p className="welcome" role="status" data-testid="welcome">
+            <strong>Welcome to {user.workspace.name}.</strong> Tap <strong>New reel</strong> and pick photos and videos from your
+            phone.
+            {librarySize > 0 || songs > 0
+              ? ` To practise first, your library already has ${[
+                  librarySize > 0 ? `${librarySize} photos and clips` : null,
+                  songs > 0 ? `${songs} songs` : null,
+                ]
+                  .filter(Boolean)
+                  .join(" and ")}.`
+              : null}
           </p>
         ) : null}
 
+        <NewReelPicker librarySize={librarySize} tours={tours.map((tour) => ({ id: tour.id, name: tour.name, rooms: tour._count.media }))} />
+
+        {reels.length === 0 ? (
+          <p className="home-empty">Reels you make show up here. Each one saves as you edit, so you can stop and come back.</p>
+        ) : (
+          <h2 className="home-section">Your reels</h2>
+        )}
         <ul className="reel-grid">
-          <li>
-            <NewReelPicker librarySize={librarySize} tours={tours.map((tour) => ({ id: tour.id, name: tour.name, rooms: tour._count.media }))} />
-          </li>
           {reels.map((reel, index) => {
             const duration = durationOf(timelines[index]);
             const lastExport = reel.renderJobs[0];
@@ -57,18 +73,25 @@ export default async function ReelsPage({ searchParams }: { searchParams: Promis
               <li key={reel.id}>
                 {/* No prefetch: each editor page is a heavy render (media library, signed
                     URLs). Prefetching every card filled the browser's six connections to
-                    the host, and a tap on New reel then waited behind them. */}
+                    the host, and a tap on New reel then waited behind them. LinkPending
+                    answers the tap until the editor's loading frame arrives. */}
                 <Link href={`/reels/${reel.id}`} className="reel-card" data-testid="reel-card" prefetch={false}>
                   <span className="reel-thumb">
                     {covers[index] ? (
-                      <img src={covers[index]!} alt="" />
+                      <img src={covers[index]!} alt="" loading={index < 4 ? "eager" : "lazy"} />
                     ) : (
                       <span className="empty-frame">No media yet</span>
                     )}
-                    {duration > 0 ? <span className="chip timecode">{formatDuration(duration)}</span> : null}
+                    {lastExport ? <StatusBadge status={lastExport.status} /> : null}
+                    {duration > 0 ? <span className="chip timecode reel-duration">{formatDuration(duration)}</span> : null}
+                    <LinkPending />
+                    <span className="reel-meta">
+                      <span className="reel-card-title">{reel.title}</span>
+                      <span className="reel-card-when">
+                        {lastExport ? "" : "Draft, "}edited {formatAgo(reel.updatedAt, now)}
+                      </span>
+                    </span>
                   </span>
-                  <span className="reel-card-title">{reel.title}</span>
-                  {lastExport ? <StatusBadge status={lastExport.status} /> : <span className="muted small">Draft</span>}
                 </Link>
               </li>
             );

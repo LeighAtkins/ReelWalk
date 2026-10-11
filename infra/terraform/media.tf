@@ -94,12 +94,13 @@ resource "aws_cloudfront_distribution" "media" {
   }
 
   default_cache_behavior {
-    target_origin_id       = local.media_origin_id
-    viewer_protocol_policy = "redirect-to-https"
-    allowed_methods        = ["GET", "HEAD"]
-    cached_methods         = ["GET", "HEAD"]
-    compress               = true
-    cache_policy_id        = local.cache_policy_caching_optimized
+    target_origin_id           = local.media_origin_id
+    viewer_protocol_policy     = "redirect-to-https"
+    allowed_methods            = ["GET", "HEAD"]
+    cached_methods             = ["GET", "HEAD"]
+    compress                   = true
+    cache_policy_id            = local.cache_policy_caching_optimized
+    response_headers_policy_id = aws_cloudfront_response_headers_policy.media.id
   }
 
   restrictions {
@@ -112,3 +113,55 @@ resource "aws_cloudfront_distribution" "media" {
     cloudfront_default_certificate = true
   }
 }
+
+# Parts of an upload that was abandoned (tab closed, phone died) are billed
+# like any object until removed; S3 drops them two days after the start.
+resource "aws_s3_bucket_lifecycle_configuration" "media" {
+  bucket = aws_s3_bucket.media.id
+
+  rule {
+    id     = "abort-incomplete-uploads"
+    status = "Enabled"
+    filter {}
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 2
+    }
+  }
+}
+
+# Object keys never get new content (uploads, previews and renders each have
+# their own), so browsers may cache them for a year. Applies only where S3 sent
+# no Cache-Control of its own.
+resource "aws_cloudfront_response_headers_policy" "media" {
+  name = "${var.project_name}-media-cache"
+
+  custom_headers_config {
+    items {
+      header   = "Cache-Control"
+      value    = "public, max-age=31536000, immutable"
+      override = false
+    }
+  }
+
+  # CORS from CloudFront itself. The cache key leaves out the Origin header,
+  # so a file first fetched without CORS (an <audio> tag) was cached without
+  # Access-Control-Allow-Origin, and the editor's fetch() of it then failed.
+  cors_config {
+    access_control_allow_credentials = false
+    access_control_allow_headers {
+      items = ["*"]
+    }
+    access_control_allow_methods {
+      items = ["GET", "HEAD"]
+    }
+    access_control_allow_origins {
+      # Not App Runner's own address: the web service already depends on this
+      # distribution. S3's CORS still answers for it when not cached.
+      items = var.media_cors_origins
+    }
+    access_control_max_age_sec = 3600
+    # Only fills in what S3's own CORS answer left out.
+    origin_override = false
+  }
+}
+

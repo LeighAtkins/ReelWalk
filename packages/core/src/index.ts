@@ -1,3 +1,7 @@
+// Must stay the first import: modules below parse schemas while they load,
+// and Zod decides whether it may use eval on the first parse.
+import "./zod-config";
+
 export * from "./autobuild";
 export * from "./beats";
 export * from "./drag";

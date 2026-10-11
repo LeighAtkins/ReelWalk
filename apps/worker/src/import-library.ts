@@ -104,7 +104,11 @@ async function download(source: string, destination: string): Promise<void> {
 async function importItem(item: LibraryItem, workspaceId: string, workdir: string) {
   const info = describe(item);
   const existing = await prisma.mediaAsset.findUnique({ where: { objectKey: info.objectKey } });
-  if (existing) return { key: info.key, asset: existing, imported: false };
+  if (existing) {
+    // Imported before library items were marked shared: share it now.
+    const asset = existing.shared ? existing : await prisma.mediaAsset.update({ where: { id: existing.id }, data: { shared: true } });
+    return { key: info.key, asset, imported: false };
+  }
 
   const original = path.join(workdir, `${info.key}-original.${info.extension}`);
   const media = path.join(workdir, `${info.key}.${info.extension}`);
@@ -123,6 +127,8 @@ async function importItem(item: LibraryItem, workspaceId: string, workdir: strin
     const asset = await prisma.mediaAsset.create({
       data: {
         workspaceId,
+        // The starter library is visible to every workspace (mediaScope).
+        shared: true,
         kind: "AUDIO",
         objectKey: info.objectKey,
         contentType: info.contentType,
@@ -155,6 +161,8 @@ async function importItem(item: LibraryItem, workspaceId: string, workdir: strin
   const asset = await prisma.mediaAsset.create({
     data: {
       workspaceId,
+      // The starter library is visible to every workspace (mediaScope).
+      shared: true,
       kind: item.kind === "pano" ? "IMAGE" : "VIDEO",
       objectKey: info.objectKey,
       thumbKey: info.thumbKey,
@@ -183,8 +191,12 @@ async function main() {
   const credits = new Map<string, string>();
   let imported = 0;
   let failed = 0;
+  // LIBRARY_KINDS limits what is loaded, e.g. "pano,music" where the stock
+  // video licence does not allow offering the clips in a public library.
+  const kinds = (process.env.LIBRARY_KINDS ?? "pano,video,music").split(",").map((kind) => kind.trim());
+  const wanted = LIBRARY.filter((item) => kinds.includes(item.kind));
   // Three at a time: polite to the sources, and quick enough.
-  const queue = [...LIBRARY];
+  const queue = [...wanted];
   await Promise.all(
     Array.from({ length: 3 }, async () => {
       for (let item = queue.shift(); item; item = queue.shift()) {
@@ -206,7 +218,9 @@ async function main() {
 
   let reels = 0;
   const reset = process.env.RESET_SAMPLES === "1";
-  for (const sample of sampleReels(index)) {
+  // LIBRARY_SAMPLES=0 skips the demo workspace's sample reels (production).
+  const samples = process.env.LIBRARY_SAMPLES === "0" ? [] : sampleReels(index);
+  for (const sample of samples) {
     if (reset) await prisma.reel.deleteMany({ where: { id: sample.id, workspaceId: user.workspaceId } });
     // Otherwise never overwrite: you may have edited a sample.
     const exists = await prisma.reel.count({ where: { id: sample.id } });
@@ -222,9 +236,9 @@ Music: ${credit}` : sample.caption;
     reels++;
   }
 
-  console.log(`\nLibrary: ${imported} imported, ${LIBRARY.length - imported - failed} already there, ${failed} skipped. Sample reels created: ${reels}.`);
+  console.log(`\nLibrary: ${imported} imported, ${wanted.length - imported - failed} already there, ${failed} skipped. Sample reels created: ${reels}.`);
   await prisma.$disconnect();
-  if (failed === LIBRARY.length) process.exit(1);
+  if (failed === wanted.length) process.exit(1);
 }
 
 main().catch((error) => {

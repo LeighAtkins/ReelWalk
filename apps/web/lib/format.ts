@@ -20,3 +20,19 @@ export function formatDuration(ms: number, tenths = false): string {
   const base = `${minutes}:${String(seconds).padStart(2, "0")}`;
   return tenths ? `${base}.${totalTenths % 10}` : base;
 }
+
+const shortDate = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+
+/** "just now", "5 min ago", "3 h ago", "yesterday", "4 days ago", then "Oct 4". */
+export function formatAgo(date: Date, now: Date = new Date()): string {
+  const minutes = Math.floor((now.getTime() - date.getTime()) / 60_000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} h ago`;
+  const days = Math.floor(hours / 24);
+  if (days === 1) return "yesterday";
+  if (days < 7) return `${days} days ago`;
+  return shortDate.format(date);
+}
+

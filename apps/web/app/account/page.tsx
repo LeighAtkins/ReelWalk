@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { LocalTime } from "@/components/local-time";
 import { prisma } from "@reelwalk/db";
-import { changePassword, signOut, updateProfile } from "@/app/auth-actions";
+import { changePassword, deleteAccount, signOut, updateProfile } from "@/app/auth-actions";
 import { disconnectInstagram } from "@/app/instagram-actions";
 import { isInstagramConfigured } from "@/lib/instagram";
 import { SubmitButton } from "@/components/submit-button";
@@ -75,8 +75,7 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
             </>
           ) : (
             <p className="muted">
-              Sharing works through the share sheet and share links. One-tap posting needs this deployment to have a Meta app
-              (META_APP_ID and META_APP_SECRET).
+              Post exports to Instagram from the export screen with your phone&apos;s share sheet, or send a share link.
             </p>
           )}
           {igStatus === "connected" ? <p className="toast" role="status">Instagram connected.</p> : null}
@@ -123,6 +122,11 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
               The current password is wrong.
             </p>
           ) : null}
+          {error === "throttled" ? (
+            <p className="error small" role="alert">
+              Too many attempts. Wait fifteen minutes, then try again.
+            </p>
+          ) : null}
           {saved === "password" ? <p className="toast" role="status">Password changed.</p> : null}
           <SubmitButton pendingLabel="Changing…">Change password</SubmitButton>
         </form>
@@ -133,6 +137,35 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
           </p>
           <SubmitButton className="btn btn-quiet btn-block" pendingLabel="Signing out…" testId="sign-out">
             Sign out
+          </SubmitButton>
+        </form>
+
+        <form action={deleteAccount} className="card card-danger" id="delete">
+          <h2>Delete account</h2>
+          <p className="muted small">
+            Deletes {user.workspace.name} for good: every reel, upload and export, and any connected Instagram account. It cannot be
+            undone.
+          </p>
+          <label className="field">
+            Password
+            <input className="text-input" name="password" type="password" autoComplete="current-password" required />
+          </label>
+          <label className="check">
+            <input type="checkbox" name="confirm" value="yes" required />
+            <span>I understand everything in this studio is deleted.</span>
+          </label>
+          {error === "delete-password" ? (
+            <p className="error small" role="alert">
+              That password is wrong, so nothing was deleted.
+            </p>
+          ) : null}
+          {error === "confirm" ? (
+            <p className="error small" role="alert">
+              Tick the box to confirm.
+            </p>
+          ) : null}
+          <SubmitButton className="btn btn-danger btn-block" pendingLabel="Deleting…" testId="delete-account">
+            Delete my account
           </SubmitButton>
         </form>
       </main>

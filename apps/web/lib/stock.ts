@@ -56,7 +56,25 @@ function toStock(hit: PixabayHit): StockVideo {
   };
 }
 
+// Pixabay asks for results to be cached for 24 hours and allows about 100
+// requests a minute per key; one cache per web instance keeps repeat searches
+// (every venue reel starts from a handful of queries) off the API.
+const DAY_MS = 24 * 3600_000;
+const cache = new Map<string, { at: number; result: Promise<{ hits: PixabayHit[] }> }>();
+
 async function pixabay(query: Record<string, string>): Promise<{ hits: PixabayHit[] }> {
+  const key = JSON.stringify(query);
+  const hit = cache.get(key);
+  if (hit && Date.now() - hit.at < DAY_MS) return hit.result;
+  if (cache.size >= 500) cache.delete(cache.keys().next().value!);
+  const result = fetchPixabay(query);
+  cache.set(key, { at: Date.now(), result });
+  // A failed request is not worth remembering.
+  result.catch(() => cache.delete(key));
+  return result;
+}
+
+async function fetchPixabay(query: Record<string, string>): Promise<{ hits: PixabayHit[] }> {
   const key = process.env.PIXABAY_API_KEY;
   if (!key) throw new Error("Stock search is not set up: PIXABAY_API_KEY is missing.");
   const url = new URL("https://pixabay.com/api/videos/");

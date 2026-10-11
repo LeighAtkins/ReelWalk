@@ -32,7 +32,7 @@ test("a new studio gets the starter library, and its reels stay its own", async 
   await page.getByRole("button", { name: "Create studio" }).click();
 
   // Signed in, in the new studio, with no reels of its own. (The shared starter
-  // library shows up as "Use library media" once import-library has run.)
+  // library shows up as "Starter library" once import-library has run.)
   await expect(page).toHaveURL(/\/\?welcome=1$/);
   await expect(page.getByTestId("welcome")).toContainText("Rivera Homes");
   await expect(page.getByTestId("reel-card")).toHaveCount(0);
@@ -51,4 +51,35 @@ test("a new studio gets the starter library, and its reels stay its own", async 
   await page.getByLabel(/^Password/).fill("walk-the-reel-1");
   await page.getByRole("button", { name: "Create studio" }).click();
   await expect(page.locator("p.error")).toContainText("already has an account");
+});
+
+test("a studio owner can delete their account, and it is gone", async ({ page }) => {
+  const email = `leaving-${Date.now()}@example.com`;
+  const password = "walk-the-reel-2";
+  await page.goto("/signup");
+  await page.getByLabel("Your name").fill("Alex Kim");
+  await page.getByLabel("Email").fill(email);
+  await page.getByLabel(/^Password/).fill(password);
+  await page.getByRole("button", { name: "Create studio" }).click();
+  await expect(page).toHaveURL(/\/\?welcome=1$/);
+
+  await page.goto("/account");
+  const danger = page.locator("#delete");
+  // A wrong password deletes nothing.
+  await danger.getByLabel("Password").fill("not-my-password");
+  await danger.getByRole("checkbox").check();
+  await danger.getByTestId("delete-account").click();
+  await expect(page.getByText("That password is wrong, so nothing was deleted.")).toBeVisible();
+
+  await page.locator("#delete").getByLabel("Password").fill(password);
+  await page.locator("#delete").getByRole("checkbox").check();
+  await page.locator("#delete").getByTestId("delete-account").click();
+  await expect(page).toHaveURL(/\/login\?deleted=1$/);
+  await expect(page.getByText("Your account and everything in it was deleted.")).toBeVisible();
+
+  // The account no longer exists.
+  await page.getByLabel("Email").fill(email);
+  await page.getByLabel("Password").fill(password);
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await expect(page.locator("p.error")).toContainText("do not match");
 });

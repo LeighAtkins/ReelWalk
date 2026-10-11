@@ -21,7 +21,7 @@ export default async function SignupPage({ searchParams }: { searchParams: Promi
           ReelWalk
         </span>
         <h1>Your studio, in about a minute.</h1>
-        <p className="muted">Comes stocked: eight songs with the beat already found, home and interior clips, and 360 rooms to practise on.</p>
+        <p className="muted">Comes stocked with songs whose beat is already found and 360 rooms to practise on. Bring your own photos and video for the real thing.</p>
       </header>
 
       <form action={signUp} className="auth-card" data-testid="signup-form">
@@ -56,6 +56,17 @@ export default async function SignupPage({ searchParams }: { searchParams: Promi
           </Link>
         </p>
       </form>
+      <p className="muted small auth-legal">
+        By creating a studio you agree to the{" "}
+        <Link href="/terms" className="link">
+          Terms
+        </Link>{" "}
+        and{" "}
+        <Link href="/privacy" className="link">
+          Privacy Policy
+        </Link>
+        .
+      </p>
     </main>
   );
 }

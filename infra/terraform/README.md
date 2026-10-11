@@ -80,3 +80,20 @@ SHA=$(git rev-parse HEAD)
 docker build -f apps/web/Dockerfile -t "$ECR/reelwalk-web:$SHA" .
 docker build -f apps/worker/Dockerfile -t "$ECR/reelwalk-worker:$SHA" .
 ```
+
+## Database connections
+
+At runtime `database_url` points at Supabase's **transaction** pooler (port
+6543): every web instance and render worker opens a small pool
+(`DATABASE_POOL_MAX`, 5 and 3), and the pooler shares a few server
+connections between them. The session pooler (port 5432) pins one server
+connection per client and runs out with a handful of instances.
+
+Run migrations through the session pooler instead, because `prisma migrate`
+takes a session-level advisory lock:
+
+```bash
+URL=$(grep -E '^database_url' terraform.tfvars | sed -E 's/^database_url *= *"(.*)"$/\1/')
+DATABASE_URL="${URL/:6543\//:5432/}" pnpm --filter @reelwalk/db migrate:deploy
+```
+

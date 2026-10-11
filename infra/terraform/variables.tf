@@ -54,12 +54,12 @@ variable "image_tag" {
 # App Runner instance: 0.5 vCPU / 1 GB keeps the idle charge near $5 a month.
 variable "web_cpu" {
   type    = string
-  default = "512"
+  default = "1024"
 }
 
 variable "web_memory" {
   type    = string
-  default = "1024"
+  default = "2048"
 }
 
 # A Fargate render task; billed only while a render runs.
@@ -80,9 +80,30 @@ variable "worker_render_concurrency" {
   default = 1
 }
 
+# Render workers running at once. Each takes worker_cpu (2 vCPU); the
+# account's Fargate quota is 12 vCPU, so 6 is the ceiling until it is raised.
 variable "max_workers" {
   type    = number
-  default = 2
+  default = 6
+}
+
+# App Runner instances for the web app: one is always up; more are added as
+# requests in flight pass web_max_concurrency per instance.
+variable "web_max_instances" {
+  type    = number
+  default = 10
+}
+
+# Show "Connect Instagram". While the Meta app is in development mode only
+# its testers can connect, so leave this off for a public launch.
+variable "instagram_enabled" {
+  type    = bool
+  default = false
+}
+
+variable "web_max_concurrency" {
+  type    = number
+  default = 60
 }
 
 # Credentials, from terraform.tfvars (gitignored). Empty strings become the

@@ -9,8 +9,8 @@ import { getSessionUser } from "@/lib/auth";
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Sign in · ReelWalk" };
 
-export default async function LoginPage({ searchParams }: { searchParams: Promise<{ error?: string; next?: string }> }) {
-  const { error, next } = await searchParams;
+export default async function LoginPage({ searchParams }: { searchParams: Promise<{ error?: string; next?: string; deleted?: string }> }) {
+  const { error, next, deleted } = await searchParams;
   if (await getSessionUser()) redirect(next && next.startsWith("/") ? next : "/");
   const demo = Boolean(process.env.DEMO_PASSWORD);
 
@@ -40,6 +40,16 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
             That email and password do not match.
           </p>
         ) : null}
+        {deleted === "1" ? (
+          <p className="small" role="status">
+            Your account and everything in it was deleted.
+          </p>
+        ) : null}
+        {error === "throttled" ? (
+          <p className="error small" role="alert">
+            Too many attempts. Wait fifteen minutes, then try again.
+          </p>
+        ) : null}
         {error === "demo" ? (
           <p className="error small" role="alert">
             The demo studio is not available right now.
@@ -54,7 +64,26 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
             Create your studio
           </Link>
         </p>
+        <details className="muted small" style={{ textAlign: "center" }}>
+          <summary style={{ cursor: "pointer" }}>Forgot your password?</summary>
+          <p style={{ marginTop: 8 }}>
+            Email{" "}
+            <a className="link" href="mailto:leigh.atkins1@gmail.com?subject=ReelWalk%20password%20reset">
+              leigh.atkins1@gmail.com
+            </a>{" "}
+            from the address you signed up with, and you get a new one the same day.
+          </p>
+        </details>
       </form>
+      <p className="muted small auth-legal">
+        <Link href="/terms" className="link">
+          Terms
+        </Link>{" "}
+        ·{" "}
+        <Link href="/privacy" className="link">
+          Privacy
+        </Link>
+      </p>
 
       {demo ? (
         <form action={signInDemo} className="auth-demo">

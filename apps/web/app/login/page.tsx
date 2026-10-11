@@ -9,8 +9,8 @@ import { getSessionUser } from "@/lib/auth";
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Sign in · ReelWalk" };
 
-export default async function LoginPage({ searchParams }: { searchParams: Promise<{ error?: string; next?: string }> }) {
-  const { error, next } = await searchParams;
+export default async function LoginPage({ searchParams }: { searchParams: Promise<{ error?: string; next?: string; deleted?: string }> }) {
+  const { error, next, deleted } = await searchParams;
   if (await getSessionUser()) redirect(next && next.startsWith("/") ? next : "/");
   const demo = Boolean(process.env.DEMO_PASSWORD);
 
@@ -38,6 +38,11 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
         {error === "credentials" ? (
           <p className="error small" role="alert">
             That email and password do not match.
+          </p>
+        ) : null}
+        {deleted === "1" ? (
+          <p className="small" role="status">
+            Your account and everything in it was deleted.
           </p>
         ) : null}
         {error === "throttled" ? (

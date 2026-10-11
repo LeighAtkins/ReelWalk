@@ -1894,3 +1894,41 @@ form + .card {
   text-decoration-color: var(--rule);
   text-underline-offset: 3px;
 }
+
+/* First visit after sign-up: friendly, not an alert. */
+.welcome {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-m);
+  background: var(--ink-deep);
+  color: var(--paper);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+/* Account deletion: set apart from the everyday settings. */
+.card-danger {
+  border-color: rgb(240 68 44 / 0.55);
+}
+
+.btn-danger {
+  background: transparent;
+  color: #ffb4a8;
+  box-shadow: inset 0 0 0 1.5px rgb(240 68 44 / 0.75);
+}
+
+.check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 14px;
+}
+
+.check input {
+  margin-top: 3px;
+  width: 18px;
+  height: 18px;
+  accent-color: var(--signal);
+}
+

@@ -2,6 +2,7 @@ import {
   AbortMultipartUploadCommand,
   CompleteMultipartUploadCommand,
   CreateMultipartUploadCommand,
+  DeleteObjectsCommand,
   GetObjectCommand,
   HeadObjectCommand,
   PutObjectCommand,
@@ -74,6 +75,14 @@ export async function completeMultipartUpload(objectKey: string, uploadId: strin
 
 export async function abortMultipartUpload(objectKey: string, uploadId: string): Promise<void> {
   await s3.send(new AbortMultipartUploadCommand({ Bucket: bucket, Key: objectKey, UploadId: uploadId }));
+}
+
+/** Deletes objects in batches of 1000 (the most one request takes). Keys that do not exist are fine. */
+export async function deleteObjects(objectKeys: string[]): Promise<void> {
+  for (let start = 0; start < objectKeys.length; start += 1000) {
+    const batch = objectKeys.slice(start, start + 1000);
+    await s3.send(new DeleteObjectsCommand({ Bucket: bucket, Delete: { Objects: batch.map((Key) => ({ Key })), Quiet: true } }));
+  }
 }
 
 /** Server-side write, for files the app fetches itself (stock imports). Browser uploads use presigned URLs instead. */

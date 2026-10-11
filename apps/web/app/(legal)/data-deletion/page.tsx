@@ -19,9 +19,13 @@ export default function DataDeletionPage() {
 
       <h2>Your whole account</h2>
       <p>
-        Email <a href="mailto:leigh.atkins1@gmail.com?subject=Delete%20my%20ReelWalk%20account">leigh.atkins1@gmail.com</a> from the
-        address you signed up with. Your account, studio, media, reels, renders and any connected-account tokens are deleted within 7
-        days, and you get a confirmation when it is done.
+        Open <a href="/account#delete">Account</a>, enter your password under <strong>Delete account</strong> and confirm. Your account,
+        studio, media, reels, renders and any connected-account tokens are deleted at once, from the database and from storage.
+      </p>
+      <p>
+        If you can no longer sign in, email{" "}
+        <a href="mailto:leigh.atkins1@gmail.com?subject=Delete%20my%20ReelWalk%20account">leigh.atkins1@gmail.com</a> from the address you
+        signed up with, and it is done within 7 days.
       </p>
     </article>
   );

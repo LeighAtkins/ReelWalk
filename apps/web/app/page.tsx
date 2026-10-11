@@ -19,7 +19,10 @@ export default async function ReelsPage({ searchParams }: { searchParams: Promis
     take: 60,
     include: { renderJobs: { orderBy: { createdAt: "desc" }, take: 1, select: { status: true } } },
   });
-  const librarySize = await prisma.mediaAsset.count({ where: { ...mediaScope(user.workspaceId), kind: { not: "AUDIO" } } });
+  const [librarySize, songs] = await Promise.all([
+    prisma.mediaAsset.count({ where: { ...mediaScope(user.workspaceId), kind: { not: "AUDIO" } } }),
+    prisma.mediaAsset.count({ where: { ...mediaScope(user.workspaceId), kind: "AUDIO" } }),
+  ]);
   const tours = await prisma.tour.findMany({
     where: { workspaceId: user.workspaceId },
     select: { id: true, name: true, _count: { select: { media: true } } },
@@ -40,9 +43,17 @@ export default async function ReelsPage({ searchParams }: { searchParams: Promis
         </header>
         <h1 style={{ marginBottom: 16 }}>Reels</h1>
         {welcome === "1" ? (
-          <p className="banner" role="status" data-testid="welcome">
-            Welcome to {user.workspace.name}. Your library already has {librarySize} clips and photos plus the music, so you can
-            start a reel right now.
+          <p className="welcome" role="status" data-testid="welcome">
+            <strong>Welcome to {user.workspace.name}.</strong> Tap <strong>New reel</strong> and pick photos and videos from your
+            phone.
+            {librarySize > 0 || songs > 0
+              ? ` To practise first, your library already has ${[
+                  librarySize > 0 ? `${librarySize} photos and clips` : null,
+                  songs > 0 ? `${songs} songs` : null,
+                ]
+                  .filter(Boolean)
+                  .join(" and ")}.`
+              : null}
           </p>
         ) : null}
 

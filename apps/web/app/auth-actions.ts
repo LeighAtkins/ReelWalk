@@ -4,7 +4,9 @@ import { randomBytes } from "node:crypto";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { DEFAULT_USER_EMAIL, hashPassword, prisma, verifyPassword } from "@reelwalk/db";
+import { renderSourceKeyFor } from "@reelwalk/core";
 import { createSession, destroySession } from "@/lib/auth";
+import { deleteObjects } from "@/lib/storage";
 import { clearAttempts, clientIp, countAttempt, MINUTE, overLimit, type Limit } from "@/lib/throttle";
 import { getCurrentUser } from "@/lib/workspace";
 
@@ -149,3 +151,44 @@ export async function changePassword(formData: FormData): Promise<void> {
   await prisma.user.update({ where: { id: user.id }, data: { passwordHash: await hashPassword(parsed.data.password) } });
   redirect("/account?saved=password");
 }
+
+/**
+ * Deletes the signed-in user's account: the studio, every reel, upload,
+ * preview and export, in the database and in storage. Asks for the password
+ * again, so a borrowed phone cannot do it.
+ */
+export async function deleteAccount(formData: FormData): Promise<void> {
+  const user = await getCurrentUser();
+  const limits: Limit[] = [{ key: `password:user:${user.id}`, max: 10, windowMs: 15 * MINUTE }];
+  if (await overLimit(limits)) redirect("/account?error=throttled#delete");
+  const password = String(formData.get("password") ?? "");
+  if (formData.get("confirm") !== "yes") redirect("/account?error=confirm#delete");
+  if (!(await verifyPassword(password, user.passwordHash))) {
+    await countAttempt(limits);
+    redirect("/account?error=delete-password#delete");
+  }
+
+  const workspaceId = user.workspaceId;
+  const members = await prisma.user.count({ where: { workspaceId } });
+  if (members > 1) {
+    // Someone else still uses this studio: remove only this person.
+    await prisma.user.delete({ where: { id: user.id } });
+  } else {
+    // Collect the files first: the rows that name them go with the workspace.
+    const [media, outputs] = await Promise.all([
+      prisma.mediaAsset.findMany({ where: { workspaceId, shared: false }, select: { id: true, objectKey: true, thumbKey: true, previewKey: true } }),
+      prisma.renderOutput.findMany({ where: { job: { workspaceId } }, select: { objectKey: true } }),
+    ]);
+    const keys = [
+      ...media.flatMap((asset) => [asset.objectKey, asset.thumbKey, asset.previewKey, renderSourceKeyFor(asset.id)]),
+      ...outputs.map((output) => output.objectKey),
+    ].filter((key): key is string => Boolean(key));
+    // Everything else (users, sessions, reels, media rows, render jobs and
+    // outputs, connected accounts) cascades from the workspace.
+    await prisma.workspace.delete({ where: { id: workspaceId } });
+    await deleteObjects(keys).catch((error) => console.error(`deleteAccount: ${keys.length} objects not deleted for ${workspaceId}`, error));
+  }
+  await destroySession();
+  redirect("/login?deleted=1");
+}
+

@@ -18,8 +18,11 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "backups" {
   bucket = aws_s3_bucket.backups.id
   rule {
     apply_server_side_encryption_by_default {
-      sse_algorithm = "AES256"
+      sse_algorithm     = "aws:kms"
+      kms_master_key_id = aws_kms_key.ops.arn
     }
+    # One key request per backup rather than per part of the upload.
+    bucket_key_enabled = true
   }
 }
 
@@ -35,17 +38,24 @@ resource "aws_s3_bucket_lifecycle_configuration" "backups" {
   }
 }
 
-# The worker task may add backups, nothing else.
+# The worker task may add backups (encrypted with the ops key), nothing else.
 resource "aws_iam_role_policy" "worker_backups" {
   name = "write-backups"
   role = aws_iam_role.worker_task.id
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{
-      Effect   = "Allow"
-      Action   = ["s3:PutObject"]
-      Resource = "${aws_s3_bucket.backups.arn}/db/*"
-    }]
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["s3:PutObject"]
+        Resource = "${aws_s3_bucket.backups.arn}/db/*"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["kms:GenerateDataKey"]
+        Resource = aws_kms_key.ops.arn
+      },
+    ]
   })
 }
 

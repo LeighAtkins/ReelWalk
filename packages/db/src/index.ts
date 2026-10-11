@@ -10,7 +10,17 @@ export const DEFAULT_USER_EMAIL = "demo@reelwalk.local";
 
 function createClient(): PrismaClient {
   const connectionString = process.env.DATABASE_URL ?? "postgresql://reelwalk:reelwalk@localhost:5432/reelwalk";
-  return new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  return new PrismaClient({
+    adapter: new PrismaPg({
+      connectionString,
+      // Every web instance and render worker shares the database's connection
+      // pooler, so each process keeps a small pool (DATABASE_POOL_MAX), and a
+      // query that cannot get a connection fails in seconds instead of hanging.
+      max: Number(process.env.DATABASE_POOL_MAX ?? 5),
+      connectionTimeoutMillis: 10_000,
+      idleTimeoutMillis: 30_000,
+    }),
+  });
 }
 
 // Next.js dev reloads modules on every change; keep one client (and one

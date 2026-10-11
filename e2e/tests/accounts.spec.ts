@@ -32,7 +32,7 @@ test("a new studio gets the starter library, and its reels stay its own", async 
   await page.getByRole("button", { name: "Create studio" }).click();
 
   // Signed in, in the new studio, with no reels of its own. (The shared starter
-  // library shows up as "Use library media" once import-library has run.)
+  // library shows up as "Starter library" once import-library has run.)
   await expect(page).toHaveURL(/\/\?welcome=1$/);
   await expect(page.getByTestId("welcome")).toContainText("Rivera Homes");
   await expect(page.getByTestId("reel-card")).toHaveCount(0);

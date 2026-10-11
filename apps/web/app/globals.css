@@ -265,23 +265,196 @@ p {
 
 /* ── Reels home ───────────────────────────────────────────────── */
 
+.home-title {
+  margin-bottom: 18px;
+  font-size: 34px;
+}
+
+/* Starting a reel: one bold bar, two quiet tiles. */
+.start {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 26px;
+}
+
+.start-primary {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-height: 84px;
+  padding: 14px 18px;
+  border-radius: var(--radius-l);
+  background: #d9361f;
+  color: #fff;
+  cursor: pointer;
+  transition: transform 120ms ease, background-color 120ms ease;
+}
+
+.start-primary:hover {
+  background: #c92f19;
+}
+
+.start-primary:active {
+  transform: scale(0.985);
+}
+
+.start-primary:focus-within {
+  outline: 2px solid var(--paper);
+  outline-offset: 3px;
+}
+
+.start-primary[data-busy="true"] {
+  cursor: progress;
+  opacity: 0.75;
+}
+
+.start-primary input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+/* A camera viewfinder's corner marks around the plus. */
+.viewfinder {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  background:
+    linear-gradient(#fff, #fff) left top / 13px 2px no-repeat,
+    linear-gradient(#fff, #fff) left top / 2px 13px no-repeat,
+    linear-gradient(#fff, #fff) right top / 13px 2px no-repeat,
+    linear-gradient(#fff, #fff) right top / 2px 13px no-repeat,
+    linear-gradient(#fff, #fff) left bottom / 13px 2px no-repeat,
+    linear-gradient(#fff, #fff) left bottom / 2px 13px no-repeat,
+    linear-gradient(#fff, #fff) right bottom / 13px 2px no-repeat,
+    linear-gradient(#fff, #fff) right bottom / 2px 13px no-repeat;
+}
+
+.start-text {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.start-title {
+  font-size: 20px;
+  font-weight: 800;
+  font-stretch: 125%;
+  line-height: 1.1;
+}
+
+.start-sub {
+  font-size: 13.5px;
+  color: rgb(255 255 255 / 0.86);
+}
+
+.start-more {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+}
+
+.start-tile {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto auto;
+  column-gap: 10px;
+  row-gap: 1px;
+  align-items: center;
+  min-height: 60px;
+  padding: 10px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-m);
+  background: var(--ink-deep);
+  color: var(--paper);
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  transition: transform 120ms ease, border-color 120ms ease;
+}
+
+.start-tile .icon {
+  grid-row: 1 / 3;
+  color: var(--rule);
+}
+
+.start-tile:hover {
+  border-color: var(--rule);
+}
+
+.start-tile:active {
+  transform: scale(0.98);
+}
+
+.start-tile:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.start-tile-title {
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.start-tile-sub {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.start-tours {
+  display: grid;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.home-section {
+  margin-bottom: 12px;
+  font-size: 17px;
+  font-stretch: 112%;
+}
+
+.home-empty {
+  padding: 18px 2px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* Reels: thumbnails only, so every row lines up. */
 .reel-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px 12px;
+  gap: 12px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
 .reel-card {
-  display: grid;
-  gap: 8px;
+  display: block;
+  border-radius: var(--radius-m);
   text-decoration: none;
+  transition: transform 120ms ease;
+}
+
+.reel-card:active {
+  transform: scale(0.98);
+}
+
+.reel-card:focus-visible {
+  outline: 2px solid var(--paper);
+  outline-offset: 3px;
 }
 
 .reel-thumb {
   position: relative;
+  display: block;
   aspect-ratio: 9 / 16;
   overflow: hidden;
   border-radius: var(--radius-m);
@@ -296,12 +469,6 @@ p {
   display: block;
 }
 
-.reel-thumb .chip {
-  position: absolute;
-  left: 8px;
-  bottom: 8px;
-}
-
 .reel-thumb .empty-frame {
   position: absolute;
   inset: 0;
@@ -311,13 +478,45 @@ p {
   font-size: 13px;
 }
 
+.reel-thumb .badge {
+  position: absolute;
+  left: 8px;
+  top: 8px;
+  padding: 3px 9px 3px 8px;
+  border-radius: 999px;
+  background: rgb(11 32 54 / 0.82);
+  backdrop-filter: blur(6px);
+}
+
+.reel-duration {
+  position: absolute;
+  right: 8px;
+  top: 8px;
+}
+
+/* Title and age on a scrim at the foot of the thumbnail. */
+.reel-meta {
+  position: absolute;
+  inset: auto 0 0;
+  display: grid;
+  gap: 2px;
+  padding: 28px 10px 10px;
+  background: linear-gradient(to top, rgb(8 22 38 / 0.92), rgb(8 22 38 / 0.6) 60%, transparent);
+}
+
 .reel-card-title {
+  overflow: hidden;
+  color: #fff;
   font-weight: 700;
   font-size: 15px;
   line-height: 1.2;
-  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.reel-card-when {
+  color: rgb(234 242 251 / 0.78);
+  font-size: 12px;
 }
 
 .chip {
@@ -333,61 +532,41 @@ p {
   backdrop-filter: blur(6px);
 }
 
-.new-reel {
-  position: relative;
-  display: grid;
-  place-items: center;
-  align-content: center;
-  gap: 10px;
-  aspect-ratio: 9 / 16;
-  border-radius: var(--radius-m);
-  border: 1.5px dashed var(--rule);
-  color: var(--paper);
-  text-align: center;
-  font-weight: 700;
-  cursor: pointer;
+/* A wide screen gets a wider home: more reels per row. */
+@media (min-width: 720px) {
+  .shell-home {
+    width: min(100%, 980px);
+    padding-left: 32px;
+    padding-right: 32px;
+  }
+
+  .shell-home .start {
+    grid-template-columns: 1.4fr 1fr;
+    align-items: stretch;
+  }
+
+  .shell-home .start-more {
+    grid-template-columns: 1fr;
+  }
+
+  .shell-home .reel-grid {
+    grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+    gap: 16px;
+  }
 }
 
-.new-reel-stack {
-  display: grid;
-  gap: 8px;
-}
+@media (prefers-reduced-motion: reduce) {
+  .start-primary,
+  .start-tile,
+  .reel-card {
+    transition: none;
+  }
 
-.new-reel-stack .new-reel {
-  /* Leaves room for the library button within the card's 9:16 slot. */
-  aspect-ratio: 9 / 13.4;
-}
-
-.new-reel-stack .btn {
-  padding: 0 10px;
-  font-size: 14px;
-}
-
-.new-reel input {
-  position: absolute;
-  inset: 0;
-  opacity: 0;
-  cursor: pointer;
-}
-
-.new-reel:focus-within {
-  outline: 2px solid var(--paper);
-  outline-offset: 2px;
-}
-
-.new-reel .plus {
-  display: grid;
-  place-items: center;
-  width: 52px;
-  height: 52px;
-  border-radius: 999px;
-  background: var(--signal);
-  color: #fff;
-}
-
-.new-reel[data-busy="true"] {
-  cursor: progress;
-  opacity: 0.7;
+  .start-primary:active,
+  .start-tile:active,
+  .reel-card:active {
+    transform: none;
+  }
 }
 
 /* ── Exports list ─────────────────────────────────────────────── */
@@ -1938,3 +2117,178 @@ form + .card {
   text-align: center;
 }
 
+/* ── Loading ──────────────────────────────────────────────────── */
+
+/* Placeholders fade in only after a beat, so a quick load never flashes them. */
+.skeleton {
+  display: block;
+  background: var(--panel);
+  animation:
+    skeleton-in 240ms ease 150ms both,
+    skeleton-pulse 1.6s ease-in-out 390ms infinite;
+}
+
+.skeleton-line {
+  height: 13px;
+  border-radius: 999px;
+}
+
+.skeleton-pill {
+  width: 84px;
+  height: 40px;
+  border-radius: 999px;
+}
+
+.skeleton-heading {
+  width: 104px;
+  height: 15px;
+  margin: 4px 0 15px;
+}
+
+@keyframes skeleton-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes skeleton-pulse {
+  50% {
+    opacity: 0.55;
+  }
+}
+
+/* Inert copies of the real controls: they look the same, they just wait. */
+.start-placeholder {
+  cursor: default;
+}
+
+.start-primary.start-placeholder:hover {
+  background: #d9361f;
+}
+
+.editor-top-placeholder {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+}
+
+.editor-top-placeholder .skeleton:first-child {
+  width: 55%;
+  height: 15px;
+}
+
+.editor-top-placeholder .skeleton:last-child {
+  width: 26%;
+  height: 8px;
+}
+
+.icon-placeholder,
+.tool-placeholder {
+  opacity: 0.35;
+}
+
+.transport-placeholder {
+  justify-self: center;
+  width: 96px;
+  height: 12px;
+}
+
+/* The timeline starts at the playhead, as the editor's does. */
+.timeline-loading {
+  --pps: 40px;
+  overflow: hidden;
+}
+
+.timeline-loading .ruler {
+  margin-left: 50%;
+}
+
+.timeline-loading .lane-clips {
+  display: flex;
+  gap: 2px;
+  margin-left: 50%;
+}
+
+.timeline-loading .lane-clips .skeleton {
+  flex: none;
+  width: 64px;
+  border-radius: var(--radius-s);
+}
+
+/* A camera's focus marks closing in: the app's sign for "on its way". */
+.focus-marks {
+  display: block;
+  width: 56px;
+  height: 56px;
+  background:
+    linear-gradient(#fff, #fff) left top / 14px 2px no-repeat,
+    linear-gradient(#fff, #fff) left top / 2px 14px no-repeat,
+    linear-gradient(#fff, #fff) right top / 14px 2px no-repeat,
+    linear-gradient(#fff, #fff) right top / 2px 14px no-repeat,
+    linear-gradient(#fff, #fff) left bottom / 14px 2px no-repeat,
+    linear-gradient(#fff, #fff) left bottom / 2px 14px no-repeat,
+    linear-gradient(#fff, #fff) right bottom / 14px 2px no-repeat,
+    linear-gradient(#fff, #fff) right bottom / 2px 14px no-repeat;
+  opacity: 0.8;
+  animation: focus-hunt 1.1s ease-in-out infinite alternate;
+}
+
+@keyframes focus-hunt {
+  from {
+    transform: scale(1.12);
+  }
+  to {
+    transform: scale(0.84);
+  }
+}
+
+.stage-loading {
+  display: grid;
+  place-items: center;
+}
+
+.stage-loading .focus-marks {
+  animation:
+    skeleton-in 240ms ease 150ms both,
+    focus-hunt 1.1s ease-in-out 150ms infinite alternate;
+}
+
+/* On a reel card: dims the cover and focuses while the editor opens. */
+.link-pending {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  background: rgb(8 22 38 / 0.6);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.link-pending[data-pending="true"] {
+  opacity: 1;
+}
+
+.link-pending .focus-marks {
+  width: 44px;
+  height: 44px;
+}
+
+.link-pending[data-pending="false"] .focus-marks {
+  animation: none;
+}
+
+/* New reel, once files are picked: the viewfinder focuses while the reel opens. */
+.start-primary[data-busy="true"] .viewfinder {
+  animation: focus-hunt 0.9s ease-in-out infinite alternate;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton,
+  .focus-marks,
+  .stage-loading .focus-marks,
+  .start-primary[data-busy="true"] .viewfinder {
+    animation: none;
+  }
+}

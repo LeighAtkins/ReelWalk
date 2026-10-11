@@ -225,3 +225,16 @@ export const AlertIcon = ({ size }: IconProps) => (
     <path d="M12 10v4.5M12 17.5v.01" />
   </Icon>
 );
+
+/** A covered serving dish: the restaurant and café reel. */
+export function DishIcon({ size }: IconProps) {
+  return (
+    <Icon size={size}>
+      <path d="M3.5 17.5h17" />
+      <path d="M5.5 17.5a6.5 6.5 0 0 1 13 0" />
+      <path d="M12 11V9.2" />
+      <path d="M10.4 9.2h3.2" />
+    </Icon>
+  );
+}
+

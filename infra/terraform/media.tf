@@ -112,3 +112,19 @@ resource "aws_cloudfront_distribution" "media" {
     cloudfront_default_certificate = true
   }
 }
+
+# Parts of an upload that was abandoned (tab closed, phone died) are billed
+# like any object until removed; S3 drops them two days after the start.
+resource "aws_s3_bucket_lifecycle_configuration" "media" {
+  bucket = aws_s3_bucket.media.id
+
+  rule {
+    id     = "abort-incomplete-uploads"
+    status = "Enabled"
+    filter {}
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 2
+    }
+  }
+}
+

@@ -29,7 +29,7 @@ import { saveReelFor, type SaveResult } from "@/lib/save-reel";
 import { exportBlockedReason, retryBlockedReason, storageBlockedReason } from "@/lib/quotas";
 import { ensureWorkerRunning } from "@/lib/render-capacity";
 import { flushOutbox, queueRenderJob } from "@/lib/render-jobs";
-import { headObject, presignUpload } from "@/lib/storage";
+import { abortMultipartUpload, completeMultipartUpload, headObject, presignUpload, startMultipartUpload, UPLOAD_PART_BYTES } from "@/lib/storage";
 import { getCurrentUser, mediaScope } from "@/lib/workspace";
 import { appUrl } from "@/lib/app-url";
 
@@ -246,8 +246,20 @@ const uploadRequestSchema = z.object({
 });
 
 export type UploadTicket =
-  | { ok: true; objectKey: string; contentType: string; uploadUrl: string; thumbKey: string | null; thumbUrl: string | null }
+  | {
+      ok: true;
+      objectKey: string;
+      contentType: string;
+      /** A single PUT for files up to MULTIPART_FROM_BYTES; null when the file goes up in parts. */
+      uploadUrl: string | null;
+      multipart: { uploadId: string; partBytes: number; partUrls: string[] } | null;
+      thumbKey: string | null;
+      thumbUrl: string | null;
+    }
   | { ok: false; error: string };
+
+/** Files above this size are uploaded in parts. */
+const MULTIPART_FROM_BYTES = 32 * 1024 * 1024;
 
 /**
  * Step 1 of an upload. Neither the file nor its thumbnail passes through
@@ -267,11 +279,50 @@ export async function createUpload(input: z.input<typeof uploadRequestSchema>): 
   if (full) return { ok: false, error: full };
   const objectKey = uploadKeyFor(user.workspaceId, randomUUID(), resolved.extension);
   const thumbKey = withThumbnail && resolved.kind !== "AUDIO" ? thumbKeyFor(objectKey) : null;
-  const [uploadUrl, thumbUrl] = await Promise.all([
-    presignUpload(objectKey, resolved.contentType),
+  const multipart = sizeBytes > MULTIPART_FROM_BYTES;
+  const [uploadUrl, parts, thumbUrl] = await Promise.all([
+    multipart ? null : presignUpload(objectKey, resolved.contentType),
+    multipart ? startMultipartUpload(objectKey, resolved.contentType, sizeBytes) : null,
     thumbKey ? presignUpload(thumbKey, "image/jpeg") : null,
   ]);
-  return { ok: true, objectKey, contentType: resolved.contentType, uploadUrl, thumbKey, thumbUrl };
+  return {
+    ok: true,
+    objectKey,
+    contentType: resolved.contentType,
+    uploadUrl,
+    multipart: parts ? { uploadId: parts.uploadId, partBytes: UPLOAD_PART_BYTES, partUrls: parts.partUrls } : null,
+    thumbKey,
+    thumbUrl,
+  };
+}
+
+const partsSchema = z.object({
+  objectKey: z.string().min(1).max(300),
+  uploadId: z.string().min(1).max(1024),
+  parts: z.array(z.object({ partNumber: z.number().int().min(1).max(10_000), etag: z.string().min(1).max(200) })).min(1).max(10_000),
+});
+
+/** Step 2 for a file uploaded in parts: storage joins them into one object. */
+export async function completeUpload(input: z.input<typeof partsSchema>): Promise<{ ok: true } | { ok: false; error: string }> {
+  const parsed = partsSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: "Could not read the upload details." };
+  const user = await getCurrentUser();
+  if (!parsed.data.objectKey.startsWith(`uploads/${user.workspaceId}/`)) return { ok: false, error: "This upload belongs to another workspace." };
+  try {
+    await completeMultipartUpload(parsed.data.objectKey, parsed.data.uploadId, parsed.data.parts);
+    return { ok: true };
+  } catch (error) {
+    console.error("completeUpload failed", error);
+    return { ok: false, error: "Storage could not finish the upload. Try again." };
+  }
+}
+
+/** Gives up on a file uploaded in parts, so storage drops what arrived. */
+export async function abortUpload(input: { objectKey: string; uploadId: string }): Promise<void> {
+  const user = await getCurrentUser();
+  if (typeof input?.objectKey !== "string" || typeof input?.uploadId !== "string") return;
+  if (!input.objectKey.startsWith(`uploads/${user.workspaceId}/`)) return;
+  await abortMultipartUpload(input.objectKey, input.uploadId).catch(() => undefined);
 }
 
 const confirmSchema = z.object({

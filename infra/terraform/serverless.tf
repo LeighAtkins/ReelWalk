@@ -141,6 +141,8 @@ resource "aws_ecs_task_definition" "worker" {
           WORKER_IDLE_EXIT_SECONDS = "240"
           # Up to max_workers of these share the database pooler with the web app.
           DATABASE_POOL_MAX = "3"
+          # Where the nightly backup task writes (backups.tf).
+          BACKUP_BUCKET = aws_s3_bucket.backups.bucket
         }) : { name = k, value = v }
       ]
       secrets = [for k, p in aws_ssm_parameter.app : { name = k, valueFrom = p.arn } if k == "DATABASE_URL"]

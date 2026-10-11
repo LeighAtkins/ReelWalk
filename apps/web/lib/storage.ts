@@ -1,4 +1,13 @@
-import { GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import {
+  AbortMultipartUploadCommand,
+  CompleteMultipartUploadCommand,
+  CreateMultipartUploadCommand,
+  GetObjectCommand,
+  HeadObjectCommand,
+  PutObjectCommand,
+  S3Client,
+  UploadPartCommand,
+} from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 const bucket = process.env.S3_BUCKET ?? "reelwalk-dev";
@@ -28,6 +37,43 @@ export async function presignUpload(objectKey: string, contentType: string): Pro
   return getSignedUrl(presignClient, new PutObjectCommand({ Bucket: bucket, Key: objectKey, ContentType: contentType }), {
     expiresIn: 600,
   });
+}
+
+/** Size of each part of a multipart upload (S3 needs at least 5 MB). */
+export const UPLOAD_PART_BYTES = 16 * 1024 * 1024;
+
+/**
+ * A big file goes up in parts, so a dropped connection costs one part, not
+ * the whole file. Part URLs stay valid for six hours: a phone on a slow
+ * network can take that long over 2 GB, and each part is signed up front.
+ */
+export async function startMultipartUpload(objectKey: string, contentType: string, sizeBytes: number): Promise<{ uploadId: string; partUrls: string[] }> {
+  const { UploadId } = await s3.send(new CreateMultipartUploadCommand({ Bucket: bucket, Key: objectKey, ContentType: contentType }));
+  if (!UploadId) throw new Error("Storage did not start the upload.");
+  const parts = Math.max(1, Math.ceil(sizeBytes / UPLOAD_PART_BYTES));
+  const partUrls = await Promise.all(
+    Array.from({ length: parts }, (_, index) =>
+      getSignedUrl(presignClient, new UploadPartCommand({ Bucket: bucket, Key: objectKey, UploadId, PartNumber: index + 1 }), {
+        expiresIn: 6 * 3600,
+      }),
+    ),
+  );
+  return { uploadId: UploadId, partUrls };
+}
+
+export async function completeMultipartUpload(objectKey: string, uploadId: string, parts: { partNumber: number; etag: string }[]): Promise<void> {
+  await s3.send(
+    new CompleteMultipartUploadCommand({
+      Bucket: bucket,
+      Key: objectKey,
+      UploadId: uploadId,
+      MultipartUpload: { Parts: parts.map((part) => ({ PartNumber: part.partNumber, ETag: part.etag })) },
+    }),
+  );
+}
+
+export async function abortMultipartUpload(objectKey: string, uploadId: string): Promise<void> {
+  await s3.send(new AbortMultipartUploadCommand({ Bucket: bucket, Key: objectKey, UploadId: uploadId }));
 }
 
 /** Server-side write, for files the app fetches itself (stock imports). Browser uploads use presigned URLs instead. */

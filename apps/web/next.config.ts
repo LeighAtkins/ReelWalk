@@ -9,13 +9,16 @@ const dev = process.env.NODE_ENV !== "production";
 // dev's fast refresh needs eval). Media and network calls go to CloudFront,
 // S3 (direct uploads), Pixabay previews and the editor's in-memory blob: copies.
 // Nothing may frame the app, post forms elsewhere, or load plugins.
+// Local stacks (Compose, kind, CI) serve media from MinIO over plain http on
+// localhost; a browser only reaches those addresses on its own machine.
+const local = "http://localhost:* http://127.0.0.1:*";
 const contentSecurityPolicy = [
   "default-src 'self'",
   `script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'${dev ? " 'unsafe-eval'" : ""}`,
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob: https:",
-  "media-src 'self' data: blob: https:",
-  `connect-src 'self' blob: data: https:${dev ? " ws: http:" : ""}`,
+  `img-src 'self' data: blob: https: ${local}`,
+  `media-src 'self' data: blob: https: ${local}`,
+  `connect-src 'self' blob: data: https: ${local}${dev ? " ws: http:" : ""}`,
   "font-src 'self' data:",
   "worker-src 'self' blob:",
   "frame-ancestors 'none'",

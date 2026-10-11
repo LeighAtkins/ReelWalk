@@ -18,7 +18,7 @@
     "@prisma/adapter-pg": "7.10.0",
     "@prisma/client": "7.10.0",
     "prisma": "7.10.0",
-    "tsx": "^4.19.2"
+    "tsx": "^4.23.15"
   },
   "devDependencies": {
     "@types/node": "^22.10.5",

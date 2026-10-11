@@ -1,9 +1,6 @@
-import { z } from "zod";
-
-// Zod compiles parsers with `new Function` unless told not to. The web app's
-// Content-Security-Policy forbids eval, so every page that parsed a schema
-// logged a violation; jitless parsing avoids it at no noticeable cost.
-z.config({ jitless: true });
+// Must stay the first import: modules below parse schemas while they load,
+// and Zod decides whether it may use eval on the first parse.
+import "./zod-config";
 
 export * from "./autobuild";
 export * from "./beats";

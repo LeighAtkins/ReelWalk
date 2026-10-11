@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { acceptFor, vibeById, VIBES } from "@reelwalk/core";
@@ -18,6 +18,7 @@ export function NewReelPicker({ librarySize = 0, tours = [] }: { librarySize?: n
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [vibeId, setVibeId] = useState("");
+  const input = useRef<HTMLInputElement>(null);
 
   async function start(files: File[]) {
     setBusy(true);
@@ -31,6 +32,17 @@ export function NewReelPicker({ librarySize = 0, tours = [] }: { librarySize?: n
       setBusy(false);
     }
   }
+
+  // Files picked before the page finished loading never reached onChange:
+  // pick them up as soon as it can, rather than losing the tap.
+  useEffect(() => {
+    const element = input.current;
+    const files = Array.from(element?.files ?? []);
+    if (!element || files.length === 0) return;
+    element.value = "";
+    void start(files);
+    // Once, on mount; start() itself is recreated each render.
+  }, []);
 
   async function startFromLibrary() {
     setBusy(true);
@@ -68,6 +80,7 @@ export function NewReelPicker({ librarySize = 0, tours = [] }: { librarySize?: n
           <span className="start-sub">Pick photos and videos from your phone</span>
         </span>
         <input
+          ref={input}
           type="file"
           multiple
           accept={acceptFor(["IMAGE", "VIDEO"])}

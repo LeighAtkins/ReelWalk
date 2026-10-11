@@ -161,7 +161,8 @@ p {
 }
 
 .btn-signal {
-  background: var(--signal);
+  /* A shade deeper than --signal, so white text passes WCAG AA (4.7:1). */
+  background: #d9361f;
   color: #fff;
 }
 
@@ -1930,5 +1931,10 @@ form + .card {
   width: 18px;
   height: 18px;
   accent-color: var(--signal);
+}
+
+.auth-legal {
+  margin-top: 14px;
+  text-align: center;
 }
 

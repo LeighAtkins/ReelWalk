@@ -94,12 +94,13 @@ resource "aws_cloudfront_distribution" "media" {
   }
 
   default_cache_behavior {
-    target_origin_id       = local.media_origin_id
-    viewer_protocol_policy = "redirect-to-https"
-    allowed_methods        = ["GET", "HEAD"]
-    cached_methods         = ["GET", "HEAD"]
-    compress               = true
-    cache_policy_id        = local.cache_policy_caching_optimized
+    target_origin_id           = local.media_origin_id
+    viewer_protocol_policy     = "redirect-to-https"
+    allowed_methods            = ["GET", "HEAD"]
+    cached_methods             = ["GET", "HEAD"]
+    compress                   = true
+    cache_policy_id            = local.cache_policy_caching_optimized
+    response_headers_policy_id = aws_cloudfront_response_headers_policy.media.id
   }
 
   restrictions {
@@ -124,6 +125,21 @@ resource "aws_s3_bucket_lifecycle_configuration" "media" {
     filter {}
     abort_incomplete_multipart_upload {
       days_after_initiation = 2
+    }
+  }
+}
+
+# Object keys never get new content (uploads, previews and renders each have
+# their own), so browsers may cache them for a year. Applies only where S3 sent
+# no Cache-Control of its own.
+resource "aws_cloudfront_response_headers_policy" "media" {
+  name = "${var.project_name}-media-cache"
+
+  custom_headers_config {
+    items {
+      header   = "Cache-Control"
+      value    = "public, max-age=31536000, immutable"
+      override = false
     }
   }
 }

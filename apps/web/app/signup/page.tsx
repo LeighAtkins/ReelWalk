@@ -56,6 +56,17 @@ export default async function SignupPage({ searchParams }: { searchParams: Promi
           </Link>
         </p>
       </form>
+      <p className="muted small auth-legal">
+        By creating a studio you agree to the{" "}
+        <Link href="/terms" className="link">
+          Terms
+        </Link>{" "}
+        and{" "}
+        <Link href="/privacy" className="link">
+          Privacy Policy
+        </Link>
+        .
+      </p>
     </main>
   );
 }

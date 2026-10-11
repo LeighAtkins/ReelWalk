@@ -142,5 +142,26 @@ resource "aws_cloudfront_response_headers_policy" "media" {
       override = false
     }
   }
+
+  # CORS from CloudFront itself. The cache key leaves out the Origin header,
+  # so a file first fetched without CORS (an <audio> tag) was cached without
+  # Access-Control-Allow-Origin, and the editor's fetch() of it then failed.
+  cors_config {
+    access_control_allow_credentials = false
+    access_control_allow_headers {
+      items = ["*"]
+    }
+    access_control_allow_methods {
+      items = ["GET", "HEAD"]
+    }
+    access_control_allow_origins {
+      # Not App Runner's own address: the web service already depends on this
+      # distribution. S3's CORS still answers for it when not cached.
+      items = var.media_cors_origins
+    }
+    access_control_max_age_sec = 3600
+    # Only fills in what S3's own CORS answer left out.
+    origin_override = false
+  }
 }
 

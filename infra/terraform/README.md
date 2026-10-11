@@ -93,7 +93,7 @@ Run migrations through the session pooler instead, because `prisma migrate`
 takes a session-level advisory lock:
 
 ```bash
-URL=$(grep -E '^database_url' terraform.tfvars | sed -E 's/^database_url *= *"(.*)"$//')
+URL=$(grep -E '^database_url' terraform.tfvars | sed -E 's/^database_url *= *"(.*)"$/\1/')
 DATABASE_URL="${URL/:6543\//:5432/}" pnpm --filter @reelwalk/db migrate:deploy
 ```
 

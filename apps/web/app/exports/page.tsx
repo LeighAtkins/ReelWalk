@@ -11,7 +11,8 @@ import { getCurrentUser } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
 
-export default async function ExportsPage() {
+export default async function ExportsPage({ searchParams }: { searchParams: Promise<{ busy?: string }> }) {
+  const { busy } = await searchParams;
   const user = await getCurrentUser();
   const jobs = await prisma.renderJob.findMany({
     where: { workspaceId: user.workspaceId, kind: { not: "PREVIEW" } },
@@ -27,6 +28,11 @@ export default async function ExportsPage() {
       <main className="shell">
         <AutoRefresh active={jobs.some((job) => isActive(job.status))} />
         <h1 style={{ marginBottom: 16 }}>Exports</h1>
+        {busy ? (
+          <p className="error small" role="alert" style={{ marginBottom: 12 }}>
+            Several exports are already rendering. Retry when one of them has finished.
+          </p>
+        ) : null}
         {jobs.length === 0 ? (
           <div className="empty">
             <strong>No exports yet.</strong>

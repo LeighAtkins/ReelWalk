@@ -3,12 +3,46 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const appDir = dirname(fileURLToPath(import.meta.url));
+const dev = process.env.NODE_ENV !== "production";
+
+// Scripts only from this origin (Next's inline bootstrap needs 'unsafe-inline';
+// dev's fast refresh needs eval). Media and network calls go to CloudFront,
+// S3 (direct uploads), Pixabay previews and the editor's in-memory blob: copies.
+// Nothing may frame the app, post forms elsewhere, or load plugins.
+const contentSecurityPolicy = [
+  "default-src 'self'",
+  `script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'${dev ? " 'unsafe-eval'" : ""}`,
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob: https:",
+  "media-src 'self' data: blob: https:",
+  `connect-src 'self' blob: data: https:${dev ? " ws: http:" : ""}`,
+  "font-src 'self' data:",
+  "worker-src 'self' blob:",
+  "frame-ancestors 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "object-src 'none'",
+].join("; ");
+
+const securityHeaders = [
+  { key: "Content-Security-Policy", value: contentSecurityPolicy },
+  { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains" },
+  { key: "X-Content-Type-Options", value: "nosniff" },
+  { key: "X-Frame-Options", value: "DENY" },
+  { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+  { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), payment=()" },
+];
 
 const nextConfig: NextConfig = {
   output: "standalone",
   outputFileTracingRoot: join(appDir, "../.."),
   // Workspace packages ship TypeScript sources, so Next compiles them.
   transpilePackages: ["@reelwalk/core", "@reelwalk/db", "@reelwalk/render"],
+  // Next's own "X-Powered-By: Next.js" says nothing a visitor needs.
+  poweredByHeader: false,
+  async headers() {
+    return [{ source: "/:path*", headers: securityHeaders }];
+  },
 };
 
 export default nextConfig;

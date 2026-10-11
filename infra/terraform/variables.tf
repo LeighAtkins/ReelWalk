@@ -94,6 +94,13 @@ variable "web_max_instances" {
   default = 10
 }
 
+# Show "Connect Instagram". While the Meta app is in development mode only
+# its testers can connect, so leave this off for a public launch.
+variable "instagram_enabled" {
+  type    = bool
+  default = false
+}
+
 variable "web_max_concurrency" {
   type    = number
   default = 60

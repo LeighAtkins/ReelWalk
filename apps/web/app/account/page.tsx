@@ -75,8 +75,7 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
             </>
           ) : (
             <p className="muted">
-              Sharing works through the share sheet and share links. One-tap posting needs this deployment to have a Meta app
-              (META_APP_ID and META_APP_SECRET).
+              Post exports to Instagram from the export screen with your phone&apos;s share sheet, or send a share link.
             </p>
           )}
           {igStatus === "connected" ? <p className="toast" role="status">Instagram connected.</p> : null}
@@ -121,6 +120,11 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
           {error === "current" ? (
             <p className="error small" role="alert">
               The current password is wrong.
+            </p>
+          ) : null}
+          {error === "throttled" ? (
+            <p className="error small" role="alert">
+              Too many attempts. Wait fifteen minutes, then try again.
             </p>
           ) : null}
           {saved === "password" ? <p className="toast" role="status">Password changed.</p> : null}

@@ -72,6 +72,16 @@ model Session {
   @@index([expiresAt])
 }
 
+// Sign-in, sign-up and password attempts counted per key ("login:email:...",
+// "login:ip:...") in a fixed window (apps/web/lib/throttle.ts).
+model AuthThrottle {
+  key         String   @id
+  count       Int      @default(0)
+  windowStart DateTime @default(now())
+
+  @@index([windowStart])
+}
+
 // A connected publishing account, e.g. an Instagram professional account.
 model SocialAccount {
   id          String    @id @default(cuid())

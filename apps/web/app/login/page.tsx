@@ -40,6 +40,11 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
             That email and password do not match.
           </p>
         ) : null}
+        {error === "throttled" ? (
+          <p className="error small" role="alert">
+            Too many attempts. Wait fifteen minutes, then try again.
+          </p>
+        ) : null}
         {error === "demo" ? (
           <p className="error small" role="alert">
             The demo studio is not available right now.

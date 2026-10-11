@@ -269,6 +269,8 @@ resource "aws_apprunner_service" "web" {
           # web_max_instances x 5, plus the workers' pools, stays well under the
           # transaction pooler's client limit.
           DATABASE_POOL_MAX = "5"
+          # One-tap Instagram posting; off until the Meta app is out of development mode.
+          INSTAGRAM_ENABLED = tostring(var.instagram_enabled)
         })
         runtime_environment_secrets = { for k, p in aws_ssm_parameter.app : k => p.arn }
       }

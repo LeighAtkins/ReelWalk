@@ -26,6 +26,7 @@ import {
 import { prisma } from "@reelwalk/db";
 import { toLibraryAsset, type LibraryAsset } from "@/lib/library";
 import { saveReelFor, type SaveResult } from "@/lib/save-reel";
+import { exportBlockedReason, retryBlockedReason, storageBlockedReason } from "@/lib/quotas";
 import { ensureWorkerRunning } from "@/lib/render-capacity";
 import { flushOutbox, queueRenderJob } from "@/lib/render-jobs";
 import { headObject, presignUpload } from "@/lib/storage";
@@ -169,6 +170,8 @@ export async function exportReel(input: { id: string }): Promise<ExportResult> {
   const timeline = parseTimeline(reel.timeline);
   const issues = instagramIssues(timeline, reel.caption);
   if (!canExport(issues)) return { ok: false, issues };
+  const blocked = await exportBlockedReason(user.workspaceId);
+  if (blocked) return { ok: false, issues: [], message: blocked };
 
   const library = await prisma.mediaAsset.findMany({
     where: { id: { in: referencedAssetIds(timeline) }, ...mediaScope(user.workspaceId) },
@@ -203,6 +206,7 @@ export async function exportReel(input: { id: string }): Promise<ExportResult> {
 export async function retryRenderJob(formData: FormData): Promise<void> {
   const jobId = String(formData.get("jobId") ?? "");
   const user = await getCurrentUser();
+  if (await retryBlockedReason(user.workspaceId)) redirect("/exports?busy=1");
 
   // FAILED -> QUEUED as a single conditional write: two taps (or two tabs)
   // can only ever produce one new generation and one new message.
@@ -259,6 +263,8 @@ export async function createUpload(input: z.input<typeof uploadRequestSchema>): 
   if (sizeBytes > MAX_UPLOAD_BYTES) return { ok: false, error: `${fileName} is larger than 2 GB.` };
 
   const user = await getCurrentUser();
+  const full = await storageBlockedReason(user.workspaceId, sizeBytes, fileName);
+  if (full) return { ok: false, error: full };
   const objectKey = uploadKeyFor(user.workspaceId, randomUUID(), resolved.extension);
   const thumbKey = withThumbnail && resolved.kind !== "AUDIO" ? thumbKeyFor(objectKey) : null;
   const [uploadUrl, thumbUrl] = await Promise.all([
@@ -295,6 +301,9 @@ export async function confirmUpload(input: z.input<typeof confirmSchema>): Promi
   if (!head) return { ok: false, error: `${data.fileName} did not reach storage. Try again.` };
   const resolved = resolveUploadType(head.contentType, data.objectKey);
   if (!resolved) return { ok: false, error: `${data.fileName} is not a supported file.` };
+  // The size declared up front is the client's word; this is what arrived.
+  const full = await storageBlockedReason(user.workspaceId, head.sizeBytes, data.fileName);
+  if (full) return { ok: false, error: full };
   const thumbKey = data.thumbKey && data.thumbKey === thumbKeyFor(data.objectKey) && (await headObject(data.thumbKey)) ? data.thumbKey : null;
 
   const asset = await prisma.mediaAsset.upsert({

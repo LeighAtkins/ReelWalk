@@ -13,8 +13,13 @@ const GRAPH = () => `https://graph.facebook.com/${process.env.META_GRAPH_VERSION
 
 export const INSTAGRAM_SCOPES = ["instagram_basic", "instagram_content_publish", "pages_show_list", "pages_read_engagement", "business_management"];
 
+/**
+ * One-tap posting is offered only when the Meta app exists and is switched on
+ * (INSTAGRAM_ENABLED=true). While the Meta app is in development mode only its
+ * testers can connect, so the switch stays off for everyone else.
+ */
 export function isInstagramConfigured(): boolean {
-  return Boolean(process.env.META_APP_ID && process.env.META_APP_SECRET);
+  return Boolean(process.env.META_APP_ID && process.env.META_APP_SECRET && process.env.INSTAGRAM_ENABLED === "true");
 }
 
 /**

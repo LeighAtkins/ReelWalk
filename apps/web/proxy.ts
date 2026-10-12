@@ -20,6 +20,8 @@ const PUBLIC_PATHS = [
   /^\/(privacy|terms|data-deletion)$/,
   /^\/api\//,
   /^\/icon\.svg$/,
+  // The landing page's photos and drawn screens.
+  /^\/landing\//,
   /^\/robots\.txt$/,
   /^\/manifest\.webmanifest$/,
 ];

@@ -26,9 +26,16 @@ resource "aws_sesv2_email_identity" "domain" {
 
 data "aws_iam_policy_document" "send_email" {
   statement {
-    sid       = "SendEmail"
-    actions   = ["ses:SendEmail"]
-    resources = [aws_sesv2_email_identity.domain.arn]
+    sid     = "SendEmail"
+    actions = ["ses:SendEmail"]
+    # The domain identity is what we send from. While the account is in the
+    # SES sandbox, SES also authorises each recipient address as an identity
+    # resource, so the wildcard is needed for any mail to arrive; the
+    # FromAddress condition below still pins the sender to our domain.
+    resources = [
+      aws_sesv2_email_identity.domain.arn,
+      "arn:aws:ses:${var.aws_region}:${data.aws_caller_identity.current.account_id}:identity/*",
+    ]
     condition {
       test     = "StringLike"
       variable = "ses:FromAddress"

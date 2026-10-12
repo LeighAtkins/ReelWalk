@@ -50,6 +50,7 @@ model Workspace {
   tours      Tour[]
   renderJobs RenderJob[]
   socialAccounts SocialAccount[]
+  feedback   Feedback[]
 
   // Set by the Stripe webhook from the subscription (plans in @reelwalk/core).
   plan                 Plan      @default(FREE)
@@ -79,6 +80,40 @@ model User {
   createdAt   DateTime    @default(now())
   renderJobs  RenderJob[]
   sessions    Session[]
+  passwordResets PasswordReset[]
+  feedback    Feedback[]
+}
+
+// A "forgot your password" link. The email carries a random token; only its
+// SHA-256 is stored. Good for an hour and for one use (apps/web/app/password-reset-actions.ts).
+model PasswordReset {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
+// A note someone sent us from the app. Also emailed to the support address;
+// the row stays if the account is later deleted, with the ids cleared.
+model Feedback {
+  id          String     @id @default(cuid())
+  workspaceId String?
+  workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+  userId      String?
+  user        User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
+  message     String
+  // Path of the screen the form was opened from, e.g. "/reels/abc/export".
+  page        String?
+  // The sender ticked "you may contact me about this".
+  contactOk   Boolean    @default(false)
+  createdAt   DateTime   @default(now())
+
+  @@index([createdAt])
 }
 
 // A signed-in browser. The cookie carries a random token; only its SHA-256 is stored.
@@ -213,6 +248,12 @@ model Reel {
   caption     String      @default("")
   // Random token in the public link /r/<token>. Null until sharing is switched on.
   shareToken  String?     @unique
+  // The owner lets ReelWalk repost the export on @reelwalking and the site
+  // (ADR 0016). Off by default; withdrawn from the same checkbox.
+  featureConsent   Boolean   @default(false)
+  // Instagram handle to credit, without the "@".
+  featureHandle    String?
+  featureConsentAt DateTime?
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
   renderJobs  RenderJob[]

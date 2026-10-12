@@ -24,6 +24,14 @@ locals {
     OUTBOX_POLL_SECONDS          = "5"
   }
 
+  # Web-only settings (the worker neither sends mail nor has an admin page).
+  web_env = {
+    # Transactional email through SES (email.tf). Unset means log instead of send.
+    EMAIL_FROM   = "ReelWalk <hello@${var.app_domain}>"
+    # Who may open /admin/featured.
+    ADMIN_EMAILS = join(",", var.admin_emails)
+  }
+
   # Parameter Store holds the credentials; both runtimes read them at start.
   app_secrets = {
     DATABASE_URL          = var.database_url
@@ -261,7 +269,7 @@ resource "aws_apprunner_service" "web" {
 
       image_configuration {
         port = "3000"
-        runtime_environment_variables = merge(local.app_env, {
+        runtime_environment_variables = merge(local.app_env, local.web_env, {
           # App Runner sets HOSTNAME to the instance name and Next's server binds to it; health checks use localhost.
           HOSTNAME                   = "0.0.0.0"
           ECS_CLUSTER                = aws_ecs_cluster.renders.name

@@ -101,6 +101,12 @@ variable "instagram_enabled" {
   default = false
 }
 
+# People who may open the admin pages (/admin/featured), by account email.
+variable "admin_emails" {
+  type    = list(string)
+  default = ["leigh.atkins1@gmail.com"]
+}
+
 variable "web_max_concurrency" {
   type    = number
   default = 60

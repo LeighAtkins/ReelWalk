@@ -163,6 +163,11 @@ services:
     environment:
       <<: *app-env
       CLOUDFRONT_BASE_URL: ""
+      # No EMAIL_FROM here, so mail is logged, and kept for /api/dev/mailbox
+      # (the end-to-end tests read password reset links from it).
+      DEV_MAILBOX: "true"
+      # The demo user may open /admin/featured on the local stack.
+      ADMIN_EMAILS: ${ADMIN_EMAILS:-demo@reelwalk.local}
     ports:
       - "3000:3000"
     restart: unless-stopped

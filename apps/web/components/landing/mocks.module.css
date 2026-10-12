@@ -1,0 +1,629 @@
+/*
+ * Drawn app screens for the landing page. The colours are the app's own
+ * (globals.css), written out here because the page around them is light:
+ * the phone is the one dark thing on the page, as it is on a desk.
+ */
+
+.phone {
+  --ink: #0f2a44;
+  --ink-deep: #0b2036;
+  --panel: #163a5c;
+  --rule: #8fb3d9;
+  --paper: #eaf2fb;
+  --muted: #9cb7d3;
+  --signal: #f0442c;
+  --line: rgb(143 179 217 / 0.2);
+  --line-strong: rgb(143 179 217 / 0.45);
+
+  position: relative;
+  width: 100%;
+  max-width: 300px;
+  margin: 0;
+  padding: 10px;
+  border-radius: 38px;
+  background: #0a1626;
+  box-shadow:
+    0 0 0 1px rgb(15 42 68 / 0.35),
+    0 24px 60px rgb(15 42 68 / 0.22);
+  color: var(--paper);
+  font-size: 12px;
+  line-height: 1.3;
+  user-select: none;
+}
+
+.screen {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto auto auto;
+  aspect-ratio: 9 / 18.5;
+  overflow: hidden;
+  border-radius: 28px;
+  background: var(--ink);
+}
+
+.screen :global(.icon) {
+  stroke-width: 2;
+}
+
+.dim {
+  opacity: 0.35;
+}
+
+/* ── Shared chrome: top bar, pills ──────────────────────────────── */
+
+.topbar {
+  display: grid;
+  grid-template-columns: 32px 1fr auto;
+  align-items: center;
+  gap: 6px;
+  padding: 14px 10px 6px;
+}
+
+.iconBtn {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+}
+
+.titleBlock {
+  display: grid;
+  justify-items: center;
+  min-width: 0;
+}
+
+.title {
+  font-weight: 700;
+  font-stretch: 112%;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.saveState {
+  font-size: 9px;
+  color: var(--muted);
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: var(--paper);
+  color: var(--ink);
+  font-weight: 700;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.pillSignal {
+  background: #d9361f;
+  color: #fff;
+}
+
+.pillQuiet {
+  background: transparent;
+  color: var(--paper);
+  box-shadow: inset 0 0 0 1.5px var(--line-strong);
+}
+
+.pillDim {
+  opacity: 0.45;
+}
+
+.pillBlock {
+  width: 100%;
+  min-height: 38px;
+}
+
+/* ── Media sheet ────────────────────────────────────────────────── */
+
+.sheet {
+  position: absolute;
+  inset: 52px 0 0;
+  display: grid;
+  grid-template-rows: auto auto auto auto auto 1fr;
+  gap: 10px;
+  padding: 8px 12px 0;
+  border-radius: 20px 20px 0 0;
+  background: var(--ink-deep);
+  box-shadow: 0 -10px 30px rgb(0 0 0 / 0.4);
+}
+
+.sheetHandle {
+  justify-self: center;
+  width: 34px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--line-strong);
+}
+
+.sheetHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sheetTitle {
+  font-size: 17px;
+  font-weight: 800;
+  font-stretch: 125%;
+}
+
+.sheetNote {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.chips {
+  display: flex;
+  gap: 6px;
+}
+
+.chip {
+  padding: 6px 9px;
+  border-radius: 8px;
+  background: var(--panel);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.chipOn {
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.library {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.libraryItem {
+  position: relative;
+  aspect-ratio: 4 / 5;
+  overflow: hidden;
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.libraryItem img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.libraryItem[data-picked="true"] {
+  box-shadow: inset 0 0 0 2.5px var(--signal);
+}
+
+.libraryItem[data-picked="true"] img {
+  opacity: 0.85;
+}
+
+.tag {
+  position: absolute;
+  left: 5px;
+  bottom: 5px;
+  padding: 2px 5px;
+  border-radius: 5px;
+  background: rgb(11 32 54 / 0.8);
+  font-size: 9px;
+  font-weight: 700;
+  font-stretch: 75%;
+  letter-spacing: 0.02em;
+}
+
+.order {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: var(--signal);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+/* ── Editor: stage, transport, timeline, toolbar ────────────────── */
+
+.stage {
+  display: grid;
+  place-items: center;
+  min-height: 0;
+  padding: 4px 16px;
+}
+
+/* Sized by height, as the editor's stage is: the timeline keeps its room. */
+.stage .frame {
+  width: auto;
+  height: 100%;
+  max-width: 100%;
+}
+
+.frame {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 9 / 16;
+  container-type: inline-size;
+  overflow: hidden;
+  border-radius: 12px;
+  background: #000;
+  box-shadow: 0 0 0 1px var(--line-strong), 0 18px 50px rgb(0 0 0 / 0.45);
+}
+
+.frame img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* A text in the "Label" style, as the renderer draws it. */
+.label {
+  position: absolute;
+  top: 12%;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 1.2cqw 4cqw;
+  border-radius: 2cqw;
+  background: #e9d8a6;
+  color: var(--ink);
+  font-size: 6cqw;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* The details card: the price, the facts, the address, the studio. */
+.details {
+  position: absolute;
+  left: 8%;
+  right: 8%;
+  bottom: 9%;
+  display: grid;
+  gap: 1.8cqw;
+  padding: 4.5cqw 5cqw;
+  border-radius: 5cqw;
+  background: rgb(11 32 54 / 0.8);
+  color: var(--paper);
+}
+
+.details strong {
+  font-size: 9cqw;
+  font-weight: 850;
+  font-stretch: 110%;
+  line-height: 1;
+  letter-spacing: -0.01em;
+}
+
+.facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1cqw 4cqw;
+  font-size: 4.8cqw;
+  font-weight: 700;
+  font-stretch: 80%;
+}
+
+.facts span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4cqw;
+}
+
+.facts i {
+  width: 1px;
+  height: 4.5cqw;
+  background: var(--signal);
+}
+
+.address {
+  font-size: 4cqw;
+  color: var(--muted);
+}
+
+.contact {
+  font-size: 4cqw;
+  font-weight: 700;
+}
+
+.transport {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 14px;
+}
+
+.clock {
+  font-stretch: 75%;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+}
+
+.clockTotal {
+  color: var(--muted);
+}
+
+.transportEnd {
+  display: flex;
+  gap: 12px;
+  margin-left: auto;
+}
+
+.timeline {
+  position: relative;
+  display: grid;
+  gap: 5px;
+  padding: 0 0 8px;
+  overflow: hidden;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: var(--ink-deep);
+}
+
+/* The ruler: a tick every quarter second, a longer one on the second. */
+.ruler {
+  position: relative;
+  height: 20px;
+  color: var(--muted);
+  background-image:
+    linear-gradient(90deg, var(--rule) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(143 179 217 / 0.55) 1px, transparent 1px);
+  background-size: var(--pps) 9px, calc(var(--pps) / 4) 4px;
+  background-repeat: repeat-x;
+  background-position: var(--offset) bottom, var(--offset) bottom;
+}
+
+.ruler span {
+  position: absolute;
+  top: 1px;
+  font-size: 8px;
+  font-stretch: 75%;
+  font-weight: 600;
+  transform: translateX(3px);
+}
+
+.laneClips {
+  position: relative;
+  height: 44px;
+}
+
+.lane {
+  position: relative;
+  height: 20px;
+}
+
+/* A clip: its thumbnail repeated along its length, as the editor draws it. */
+.clipBlock {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  overflow: hidden;
+  border-radius: 6px;
+  background-color: var(--panel);
+  background-repeat: repeat-x;
+  background-size: auto 100%;
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.35);
+}
+
+.clipBlock[data-selected="true"] {
+  box-shadow: inset 0 0 0 2px var(--signal);
+}
+
+.clipTime {
+  position: absolute;
+  left: 4px;
+  bottom: 4px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: rgb(11 32 54 / 0.85);
+  font-size: 8px;
+  font-weight: 600;
+  font-stretch: 75%;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.bar {
+  position: absolute;
+  top: 1px;
+  bottom: 1px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+  padding: 0 8px;
+  border-radius: 6px;
+  font-size: 9px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.barText {
+  background: #e9d8a6;
+  color: var(--ink);
+}
+
+.barMusic {
+  /* The song starts before the visible window: its name sits at the window's edge. */
+  padding-left: calc(8px - var(--offset));
+  background: #5b8fc4;
+  color: #fff;
+}
+
+.playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--signal);
+  pointer-events: none;
+}
+
+.playhead::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -4px;
+  border: 5px solid transparent;
+  border-top: 7px solid var(--signal);
+}
+
+.toolbar {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  padding: 8px 4px 16px;
+  background: var(--ink-deep);
+}
+
+.tool {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  font-size: 8.5px;
+  font-weight: 600;
+}
+
+/* ── Export and share screens ───────────────────────────────────── */
+
+.exportTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 12px 4px;
+}
+
+.exportName {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.exportBody {
+  grid-row: 2 / -1;
+  display: grid;
+  gap: 12px;
+  align-content: start;
+  padding: 8px 14px 18px;
+}
+
+.exportFrame {
+  width: 60%;
+  justify-self: center;
+  border-radius: 16px;
+}
+
+.exportFrame img {
+  opacity: 0.45;
+}
+
+.exportFill {
+  position: absolute;
+  inset: auto 0 0;
+  background: linear-gradient(to top, rgb(240 68 44 / 0.85), rgb(240 68 44 / 0.55));
+}
+
+.exportFigure {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 2px;
+  font-size: 10px;
+  text-align: center;
+}
+
+.exportFigure strong {
+  font-size: 34px;
+  font-weight: 800;
+  font-stretch: 75%;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.exportNote {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  text-align: center;
+}
+
+.shareFrame {
+  width: 46%;
+  justify-self: center;
+  border-radius: 14px;
+}
+
+.shareText {
+  display: grid;
+  gap: 4px;
+}
+
+.shareTitle {
+  font-size: 19px;
+  font-weight: 800;
+  font-stretch: 125%;
+  line-height: 1.05;
+}
+
+.shareSub {
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.shareRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.shareRow .pill {
+  padding: 0 8px;
+}
+
+.captionBox {
+  display: grid;
+  gap: 5px;
+}
+
+.captionHead {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.captionHead span {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.captionText {
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--panel);
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+/* Fewer rows on a short phone: the caption's end is cut, as it would be. */
+@media (max-width: 380px) {
+  .phone {
+    max-width: 260px;
+  }
+}

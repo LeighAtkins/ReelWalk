@@ -2,23 +2,22 @@ import Link from "next/link";
 import { PLANS } from "@reelwalk/core";
 import { BrandMark, InstagramIcon } from "@/components/icons";
 import type { SampleReel } from "@/lib/sample-reels";
+import { EditorMock, ExportMock, MediaSheetMock, ShareMock } from "./mocks";
 import { PricingSection } from "./pricing";
 import styles from "./landing.module.css";
 
 export const CONTACT_EMAIL = "hello@reelwalking.com";
 export const INSTAGRAM_URL = "https://www.instagram.com/reelwalking";
 
-/** The price of the add-on a photographer sells the agent; the upsell maths is built on it. */
-const REEL_ADDON_USD = 150;
-
 /**
  * What a signed-out visitor sees at /: a marketing page for real-estate
- * photographers. Server-rendered, no script: the pricing switch is CSS.
+ * photographers who shoot several listings a day and edit none of them.
+ * Server-rendered, no script: the pricing switch is CSS, the only motion is
+ * the first sample reel playing. The app's screens are drawn in HTML
+ * (mocks.tsx) with real room photos, so the page shows the product as it is.
  */
 export function Landing({ samples }: { samples: SampleReel[] }) {
-  const agent = PLANS.AGENT;
-  const reelsToPayYear = Math.ceil(agent.priceUsdYearly / REEL_ADDON_USD);
-  const monthsFromOne = Math.floor(REEL_ADDON_USD / agent.priceUsd);
+  const paid = PLANS.AGENT;
   return (
     <div className={styles.page}>
       <SiteHeader />
@@ -27,82 +26,126 @@ export function Landing({ samples }: { samples: SampleReel[] }) {
         <section className={styles.hero} aria-labelledby="hero-title">
           <div className={styles.heroText}>
             <h1 id="hero-title" data-testid="hero-title">
-              Turn every listing into a reel the agent will post
+              Listing reels, made between shoots.
             </h1>
             <p className={styles.lede}>
-              Drop in the listing photos, 360 panos and the clips on your phone. Cut it in the browser, with music on the beat and the
-              address on screen. ReelWalk renders it in the cloud and posts it to Instagram in one tap.
+              You shoot three or four houses a day and spend the rest of it driving. ReelWalk turns the photos and clips already on your
+              phone into a vertical reel for the listing: a few minutes of taps, a cloud render while you are on the road, and it is
+              ready to post before the next door.
             </p>
             <div className={styles.ctas}>
               <Link href="/signup" className="btn btn-signal" data-testid="hero-cta">
                 Start free, no card
               </Link>
               <a href="#sample" className="btn btn-quiet" data-testid="see-sample">
-                See a sample
+                See a finished reel
               </a>
             </div>
-            <p className={`${styles.fine} muted`}>
+            <p className={styles.fine}>
               {PLANS.FREE.exportsPerMonth} reels a month free. Works in the browser on iPhone and Android, nothing to install.
             </p>
           </div>
           <SampleReels samples={samples} />
         </section>
 
-        <section className={styles.how} aria-labelledby="how-title">
-          <h2 id="how-title">Three steps, about ten minutes</h2>
-          <ol className={styles.steps}>
-            <li>
-              <span className={styles.stepClip}>
-                <span className={`timecode ${styles.stepTime}`}>0:00</span>
-              </span>
-              <h3>Pick the shots</h3>
-              <p>Photos from the shoot, 360 panos, a phone clip of the street. Pick them on your phone the way you would for a post.</p>
-            </li>
-            <li>
-              <span className={styles.stepClip}>
-                <span className={`timecode ${styles.stepTime}`}>0:04</span>
-              </span>
-              <h3>Cut it on the beat</h3>
-              <p>
-                Choose a song with the beat already found, let the cuts land on it, add the price, the beds and baths, the open-house time.
-              </p>
-            </li>
-            <li>
-              <span className={styles.stepClip}>
-                <span className={`timecode ${styles.stepTime}`}>0:11</span>
-              </span>
-              <h3>Render and post</h3>
-              <p>The cloud renders the full-size vertical video while you drive to the next shoot. Post it to Instagram in one tap, or hand the agent a link.</p>
-            </li>
-          </ol>
-        </section>
-
-        <section className={styles.forPhotographers} aria-labelledby="photographers-title">
-          <div>
-            <h2 id="photographers-title">For listing photographers</h2>
+        <section className={styles.how} aria-labelledby="how-title" id="how">
+          <div className={styles.howHead}>
+            <h2 id="how-title">How it works</h2>
             <p className={styles.lede}>
-              You already have the best shots of the house. The agent wants a reel for the launch post and has no time to make one. Sell it as
-              an add-on to every shoot.
-            </p>
-            <p>
-              No timeline to fight with on a laptop at night: the edit is a few taps on the phone you are already holding, and the render happens
-              somewhere else. The address, price and your studio name are typed once and kept for the next listing.
+              Four screens, all on your phone. These are the app&rsquo;s own screens, drawn with real room photos from the starter
+              library, so you can see what you would be tapping.
             </p>
           </div>
-          <dl className={styles.math} data-testid="upsell-math">
-            <div>
-              <dt>A social reel add-on</dt>
-              <dd className="timecode">${REEL_ADDON_USD}</dd>
-            </div>
-            <div>
-              <dt>{agent.name} plan for a year</dt>
-              <dd className="timecode">${agent.priceUsdYearly}</dd>
-            </div>
-            <div className={styles.mathResult}>
-              <dt>Sell it on {reelsToPayYear} listings</dt>
-              <dd>and the year is paid for. One pays for {monthsFromOne} months.</dd>
-            </div>
-          </dl>
+          <ol className={styles.steps}>
+            <li className={styles.step}>
+              <div className={styles.stepText}>
+                <h3>
+                  <span className={styles.stepNo}>1</span>
+                  Pick the listing&rsquo;s photos and clips
+                </h3>
+                <p>
+                  Straight from the camera roll, or from what you have already uploaded. Tap them in the order you want them to play.
+                  360 photos are welcome, and so is the clip of the street you shot on the way in.
+                </p>
+              </div>
+              <div className={styles.stepMock}>
+                <MediaSheetMock />
+              </div>
+            </li>
+            <li className={styles.step}>
+              <div className={styles.stepText}>
+                <h3>
+                  <span className={styles.stepNo}>2</span>
+                  The editor lays them out and cuts on the beat
+                </h3>
+                <p>
+                  They land on a timeline in your order. Pick a song from the library and the cuts move to its beat. Type the address,
+                  price and beds once and it sits over the picture. A 360 photo becomes a slow camera sweep through the room.
+                </p>
+              </div>
+              <div className={styles.stepMock}>
+                <EditorMock />
+              </div>
+            </li>
+            <li className={styles.step}>
+              <div className={styles.stepText}>
+                <h3>
+                  <span className={styles.stepNo}>3</span>
+                  It renders in the cloud while you drive
+                </h3>
+                <p>
+                  Tap Export and put the phone down. The full-size render runs on our servers, not your phone, and keeps going if you
+                  close the tab. It shows up under Exports a few minutes later.
+                </p>
+              </div>
+              <div className={styles.stepMock}>
+                <ExportMock />
+              </div>
+            </li>
+            <li className={styles.step}>
+              <div className={styles.stepText}>
+                <h3>
+                  <span className={styles.stepNo}>4</span>
+                  Post it in one tap, or send the agent a link
+                </h3>
+                <p>
+                  On a paid plan it posts to the Instagram account you connected, caption included. Or download the MP4, or copy a link
+                  the agent can open on their own phone. The reel is yours either way.
+                </p>
+              </div>
+              <div className={styles.stepMock}>
+                <ShareMock />
+              </div>
+            </li>
+          </ol>
+          <p className={styles.timeNote}>
+            How long it takes: a few minutes of taps on your phone, then a few minutes of cloud render that happen without you.
+          </p>
+        </section>
+
+        <section className={styles.facts} aria-labelledby="facts-title">
+          <h2 id="facts-title">What you are signing up for</h2>
+          <ul className={styles.factList}>
+            <li>Works in the browser on iPhone and Android. Nothing to install, and the same edit opens on a laptop.</li>
+            <li>
+              A free plan with {PLANS.FREE.exportsPerMonth} reels a month and no card. It renders at {PLANS.FREE.outputWidth}×
+              {(PLANS.FREE.outputWidth * 16) / 9} with a small ReelWalk mark.
+            </li>
+            <li>
+              Paid plans render at {paid.outputWidth}×{(paid.outputWidth * 16) / 9}, Instagram&rsquo;s full size, with no mark, and post
+              to Instagram in one tap.
+            </li>
+            <li>You keep all rights to your photos, your clips and the reels made from them.</li>
+            <li>Cancel any time from your account. Your reels stay yours.</li>
+            <li>The music and 360 rooms in the library are openly licensed, and the credit is added for you where one is needed.</li>
+            <li>
+              A real address for questions: <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>, or{" "}
+              <a href={INSTAGRAM_URL} rel="noopener" target="_blank">
+                @reelwalking
+              </a>{" "}
+              on Instagram.
+            </li>
+          </ul>
         </section>
 
         <PricingSection viewer={{ signedIn: false }} />
@@ -110,10 +153,17 @@ export function Landing({ samples }: { samples: SampleReel[] }) {
         <section className={styles.faq} aria-labelledby="faq-title">
           <h2 id="faq-title">Questions</h2>
           <details>
+            <summary>How long does one reel take?</summary>
+            <p>
+              A few minutes of taps on your phone to pick the shots, choose a song and type the details, then a few minutes of cloud
+              render that you do not have to wait for. Start one at the kerb and it is usually finished before you are at the next house.
+            </p>
+          </details>
+          <details>
             <summary>Where does the video get made?</summary>
             <p>
-              In the cloud. Your phone only shows the preview; the full 1080×1920 render runs on our servers and lands in your exports a few
-              minutes later, even if you close the tab.
+              In the cloud. Your phone only shows the preview; the full render runs on our servers and lands in your exports a few minutes
+              later, even if you close the tab.
             </p>
           </details>
           <details>
@@ -123,17 +173,27 @@ export function Landing({ samples }: { samples: SampleReel[] }) {
           <details>
             <summary>Who owns the reels?</summary>
             <p>
-              You do. You keep all rights to your photos, clips and the videos made from them. Included library music and 360 rooms are openly
-              licensed, and the credit is added for you where one is needed.
+              You do. You keep all rights to your photos, clips and the videos made from them. Included library music and 360 rooms are
+              openly licensed, and the credit is added for you where one is needed.
             </p>
           </details>
           <details>
             <summary>Can I cancel?</summary>
             <p>
-              Any time, from your account. A monthly plan runs to the end of the month you paid for; a yearly one to the end of the year. Your
-              reels stay yours either way.
+              Any time, from your account. A monthly plan runs to the end of the month you paid for; a yearly one to the end of the year.
+              Your reels stay yours either way.
             </p>
           </details>
+        </section>
+
+        <section className={styles.closing} aria-labelledby="closing-title">
+          <h2 id="closing-title">Try it on the next listing</h2>
+          <p className={styles.lede}>
+            Make a reel from a shoot you have already done. If it earns its keep, the Agent plan is ${paid.priceUsd} a month.
+          </p>
+          <Link href="/signup" className="btn btn-signal">
+            Start free, no card
+          </Link>
         </section>
       </main>
 
@@ -146,17 +206,19 @@ export function Landing({ samples }: { samples: SampleReel[] }) {
 export function SiteHeader({ plansHref = "#pricing" }: { plansHref?: string }) {
   return (
     <header className={styles.top}>
-      <Link href="/" className="brand">
-        <BrandMark />
-        ReelWalk
-      </Link>
-      <nav className={styles.topNav} aria-label="Site">
-        <a href={plansHref}>Plans</a>
-        <Link href="/login">Sign in</Link>
-        <Link href="/signup" className="btn btn-signal" data-testid="top-cta">
-          Start free
+      <div className={styles.topInner}>
+        <Link href="/" className="brand">
+          <BrandMark />
+          ReelWalk
         </Link>
-      </nav>
+        <nav className={styles.topNav} aria-label="Site">
+          <a href={plansHref}>Plans</a>
+          <Link href="/login">Sign in</Link>
+          <Link href="/signup" className="btn btn-signal" data-testid="top-cta">
+            Start free
+          </Link>
+        </nav>
+      </div>
     </header>
   );
 }
@@ -182,48 +244,39 @@ export function SiteFooter() {
 }
 
 /**
- * The sample reels, in phone frames. With no SAMPLE_REEL_URL set, one drawn
- * frame stands in: a floor plan sketch with the caption bar, so the layout
- * reads the same once a real export is dropped in.
+ * Finished reels in phone frames: the proof that the output is real. The
+ * first plays on its own, muted; the others wait with their poster and
+ * controls. With no SAMPLE_REEL_URL set, one empty frame keeps the layout.
  */
 function SampleReels({ samples }: { samples: SampleReel[] }) {
   return (
-    <div className={styles.samples} id="sample" data-testid="sample" data-count={samples.length}>
-      {samples.length === 0 ? (
-        <figure className={styles.phone} data-placeholder="true">
-          <div className={styles.placeholder} aria-hidden="true">
-            <span className={styles.sketch}>
-              <span className={styles.room} style={{ gridArea: "a" }} />
-              <span className={styles.room} style={{ gridArea: "b" }} />
-              <span className={styles.room} style={{ gridArea: "c" }} />
-              <span className={styles.room} style={{ gridArea: "d" }} />
-              <span className={styles.marker} />
-            </span>
-            <span className={styles.captionBar}>
-              <strong>14 Harbour Lane</strong>
-              <span>3 bed, 2 bath, open Saturday 11 to 12</span>
-            </span>
-            <span className={`chip timecode ${styles.placeholderTime}`}>0:14</span>
+    <figure className={styles.samples} id="sample" data-testid="sample" data-count={samples.length}>
+      <figcaption className={styles.samplesCaption}>
+        <strong>Made with ReelWalk.</strong> {samples.length > 0 ? "Finished reels, as they came out of the export. " : ""}Sound is off.
+      </figcaption>
+      <div className={styles.phones}>
+        {samples.length === 0 ? (
+          <div className={styles.phone} data-placeholder="true">
+            <span className={styles.placeholder}>A finished reel plays here.</span>
           </div>
-          <figcaption className="visually-hidden">A sample walkthrough reel will appear here.</figcaption>
-        </figure>
-      ) : (
-        samples.map((sample, index) => (
-          <figure key={sample.src} className={styles.phone}>
-            <video
-              src={sample.src}
-              poster={sample.poster ?? undefined}
-              autoPlay={index === 0}
-              muted
-              loop
-              playsInline
-              preload={index === 0 ? "auto" : "metadata"}
-              controls={index > 0}
-              aria-label={`Sample reel ${index + 1}`}
-            />
-          </figure>
-        ))
-      )}
-    </div>
+        ) : (
+          samples.map((sample, index) => (
+            <div key={sample.src} className={styles.phone}>
+              <video
+                src={sample.src}
+                poster={sample.poster ?? undefined}
+                autoPlay={index === 0}
+                muted
+                loop
+                playsInline
+                preload={index === 0 ? "auto" : "metadata"}
+                controls={index > 0}
+                aria-label={`Sample reel ${index + 1}`}
+              />
+            </div>
+          ))
+        )}
+      </div>
+    </figure>
   );
 }

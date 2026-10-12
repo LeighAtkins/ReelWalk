@@ -23,7 +23,7 @@ export function PricingSection({ viewer, id = "pricing" }: { viewer: PricingView
     <section className={styles.pricing} id={id} aria-labelledby={`${id}-title`} data-testid="pricing">
       <div className={styles.pricingHead}>
         <h2 id={`${id}-title`}>Plans</h2>
-        <p className={styles.lede}>Start free, no card. Upgrade when the first agent asks for the next one.</p>
+        <p className={styles.lede}>Start free, no card. Pay when the agents start asking for the next one.</p>
         {yearlyOn ? (
           <fieldset className={styles.interval} data-testid="interval">
             <legend className="visually-hidden">Billing interval</legend>
@@ -126,11 +126,11 @@ function PlanAction({ plan, viewer, yearlyOn }: { plan: PlanDef; viewer: Pricing
 function audience(plan: PlanDef): string {
   switch (plan.id) {
     case "FREE":
-      return "Try the editor on a listing or two.";
+      return "Try it on a listing or two.";
     case "AGENT":
-      return "One photographer or agent, every listing.";
+      return "One photographer, every listing.";
     default:
-      return "A studio or office, five people posting.";
+      return "A studio, five people posting.";
   }
 }
 

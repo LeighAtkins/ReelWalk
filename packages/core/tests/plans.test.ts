@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { effectivePlan, monthStart, outputSize, PLANS } from "../src/plans";
+import { effectivePlan, isBillingInterval, monthStart, outputSize, PLAN_IDS, planPrice, PLANS, yearlyMonthsFree, yearlyPerMonth } from "../src/plans";
 
 const day = (iso: string) => new Date(iso);
 
@@ -36,5 +36,38 @@ describe("plans", () => {
     expect(PLANS.FREE.watermark).toBe(true);
     expect(outputSize(PLANS.AGENT.outputWidth)).toEqual({ width: 1080, height: 1920 });
     expect(PLANS.OFFICE.watermark).toBe(false);
+  });
+
+  it("keeps the stored ids while OFFICE shows as Studio", () => {
+    expect(PLAN_IDS).toEqual(["FREE", "AGENT", "OFFICE"]);
+    expect(PLANS.OFFICE.name).toBe("Studio");
+    expect(PLANS.AGENT.name).toBe("Agent");
+  });
+
+  it("free is 3 exports a month with no Instagram; Agent and Studio post to Instagram", () => {
+    expect(PLANS.FREE.exportsPerMonth).toBe(3);
+    expect(PLANS.FREE.instagram).toBe(false);
+    expect(PLANS.AGENT.exportsPerMonth).toBe(40);
+    expect(PLANS.AGENT.instagram).toBe(true);
+    expect(PLANS.OFFICE.exportsPerMonth).toBe(200);
+    expect(PLANS.OFFICE.seats).toBe(5);
+  });
+
+  it("a year costs ten months: two free", () => {
+    expect(planPrice(PLANS.AGENT, "month")).toBe(29);
+    expect(planPrice(PLANS.AGENT, "year")).toBe(290);
+    expect(planPrice(PLANS.OFFICE, "year")).toBe(790);
+    expect(planPrice(PLANS.FREE, "year")).toBe(0);
+    expect(yearlyMonthsFree(PLANS.AGENT)).toBe(2);
+    expect(yearlyMonthsFree(PLANS.OFFICE)).toBe(2);
+    expect(yearlyMonthsFree(PLANS.FREE)).toBe(0);
+    expect(yearlyPerMonth(PLANS.AGENT)).toBeCloseTo(24.17, 2);
+  });
+
+  it("knows its billing intervals", () => {
+    expect(isBillingInterval("month")).toBe(true);
+    expect(isBillingInterval("year")).toBe(true);
+    expect(isBillingInterval("week")).toBe(false);
+    expect(isBillingInterval(undefined)).toBe(false);
   });
 });

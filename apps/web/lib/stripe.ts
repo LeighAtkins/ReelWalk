@@ -1,14 +1,17 @@
 import Stripe from "stripe";
-import type { PlanId } from "@reelwalk/core";
+import { BILLING_INTERVALS, type BillingInterval, type PlanId } from "@reelwalk/core";
 
 /**
  * Stripe is optional: without keys the account page shows plans but no
  * upgrade buttons, and the webhook refuses everything. Keys come from SSM in
  * production (STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET) and the price ids
- * from plain env (STRIPE_PRICE_AGENT, STRIPE_PRICE_OFFICE).
+ * from plain env: one per plan and interval, STRIPE_PRICE_AGENT_MONTHLY,
+ * STRIPE_PRICE_AGENT_YEARLY, STRIPE_PRICE_OFFICE_MONTHLY and
+ * STRIPE_PRICE_OFFICE_YEARLY. The monthly prices are required for billing to
+ * be on; a missing yearly price just hides the yearly option.
  */
 export function isBillingConfigured(): boolean {
-  return ["STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", "STRIPE_PRICE_AGENT", "STRIPE_PRICE_OFFICE"].every(isSet);
+  return ["STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", ...PAID.map((plan) => priceEnvName(plan, "month"))].every(isSet);
 }
 
 // Terraform stores an absent secret as "unset" (Parameter Store refuses empty values).
@@ -25,15 +28,26 @@ export function stripe(): Stripe {
 
 const PAID: Exclude<PlanId, "FREE">[] = ["AGENT", "OFFICE"];
 
-export function priceForPlan(plan: PlanId): string | null {
+/** The env var holding the Stripe price id for a plan at an interval. */
+export function priceEnvName(plan: Exclude<PlanId, "FREE">, interval: BillingInterval): string {
+  return `STRIPE_PRICE_${plan}_${interval === "year" ? "YEARLY" : "MONTHLY"}`;
+}
+
+export function priceForPlan(plan: PlanId, interval: BillingInterval = "month"): string | null {
   if (plan === "FREE") return null;
-  return process.env[`STRIPE_PRICE_${plan}`] ?? null;
+  const id = process.env[priceEnvName(plan, interval)];
+  return id && id !== "unset" ? id : null;
+}
+
+/** Whether every paid plan can be bought at this interval (yearly prices may be left out). */
+export function isIntervalAvailable(interval: BillingInterval): boolean {
+  return PAID.every((plan) => priceForPlan(plan, interval) !== null);
 }
 
 /** The plan a Stripe price id sells, or null for a price this app does not know. */
 export function planForPrice(priceId: string | null | undefined): PlanId | null {
   if (!priceId) return null;
-  return PAID.find((plan) => priceForPlan(plan) === priceId) ?? null;
+  return PAID.find((plan) => BILLING_INTERVALS.some((interval) => priceForPlan(plan, interval) === priceId)) ?? null;
 }
 
 /**

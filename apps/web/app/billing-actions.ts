@@ -1,7 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { isPlanId } from "@reelwalk/core";
+import { isBillingInterval, isPlanId } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
 import { appUrl } from "@/lib/app-url";
 import { isBillingConfigured, priceForPlan, stripe } from "@/lib/stripe";
@@ -16,17 +16,24 @@ async function customerFor(workspaceId: string, email: string, name: string): Pr
   return customer.id;
 }
 
-/** Sends the signed-in user to Stripe Checkout for a plan. The webhook sets the plan once paid. */
+/**
+ * Sends the signed-in user to Stripe Checkout for a plan, charged monthly
+ * (the default) or yearly when the form says `interval=year`. The webhook
+ * sets the plan once paid.
+ */
 export async function startCheckout(formData: FormData): Promise<void> {
   const user = await getCurrentUser();
   const plan = formData.get("plan");
-  if (!isBillingConfigured() || !isPlanId(plan) || plan === "FREE") redirect("/account?billing=unavailable");
+  const interval = formData.get("interval") ?? "month";
+  if (!isBillingConfigured() || !isPlanId(plan) || plan === "FREE" || !isBillingInterval(interval)) redirect("/account?billing=unavailable");
+  const price = priceForPlan(plan, interval);
+  if (!price) redirect("/account?billing=unavailable");
   const base = await appUrl();
   const customer = await customerFor(user.workspaceId, user.email, user.workspace.name);
   const session = await stripe().checkout.sessions.create({
     mode: "subscription",
     customer,
-    line_items: [{ price: priceForPlan(plan)!, quantity: 1 }],
+    line_items: [{ price, quantity: 1 }],
     client_reference_id: user.workspaceId,
     subscription_data: { metadata: { workspaceId: user.workspaceId } },
     allow_promotion_codes: true,

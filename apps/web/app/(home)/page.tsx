@@ -1,17 +1,29 @@
 import Link from "next/link";
 import { prisma } from "@reelwalk/db";
 import { BrandMark } from "@/components/icons";
+import { Landing } from "@/components/landing/landing";
 import { LinkPending } from "@/components/link-pending";
 import { NewReelPicker } from "@/components/new-reel-picker";
 import { StatusBadge } from "@/components/status-badge";
 import { TabBar } from "@/components/tab-bar";
 import { formatAgo, formatDuration } from "@/lib/format";
+import { getSessionUser } from "@/lib/auth";
 import { coverUrls, durationOf, readTimeline } from "@/lib/reels";
+import { sampleReels } from "@/lib/sample-reels";
 import { getCurrentUser, mediaScope } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
 
-export default async function ReelsPage({ searchParams }: { searchParams: Promise<{ welcome?: string }> }) {
+/**
+ * The front door. Signed out it is the marketing page; signed in, the studio's
+ * reels. The proxy lets / through without a session cookie for this reason.
+ */
+export default async function HomePage({ searchParams }: { searchParams: Promise<{ welcome?: string }> }) {
+  if (!(await getSessionUser())) return <Landing samples={sampleReels()} />;
+  return <ReelsHome searchParams={searchParams} />;
+}
+
+async function ReelsHome({ searchParams }: { searchParams: Promise<{ welcome?: string }> }) {
   const { welcome } = await searchParams;
   const user = await getCurrentUser();
   const reels = await prisma.reel.findMany({

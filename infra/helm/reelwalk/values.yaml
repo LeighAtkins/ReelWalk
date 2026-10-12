@@ -121,6 +121,10 @@ config:
   OUTBOX_POLL_SECONDS: "5"
   # Browser tabs per render. Keep requests.cpu in step when raising it.
   RENDER_CONCURRENCY: "4"
+  # Finished reels the landing page plays: public URLs, comma separated, with
+  # optional poster images in the same order. Empty shows a placeholder frame.
+  SAMPLE_REEL_URL: ""
+  SAMPLE_REEL_POSTER_URL: ""
 
 secret:
   # true: the chart creates the Secret from `values` (local development only).

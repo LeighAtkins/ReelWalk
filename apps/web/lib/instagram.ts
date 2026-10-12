@@ -87,8 +87,22 @@ export async function listInstagramAccounts(token: string): Promise<InstagramAcc
 export type ContainerStatus = "IN_PROGRESS" | "FINISHED" | "ERROR" | "EXPIRED" | "PUBLISHED";
 
 /** Step 1: asks Instagram to fetch the video and prepare a Reel. The URL must be reachable from the public internet. */
-export async function createReelContainer(input: { igUserId: string; token: string; videoUrl: string; caption: string }): Promise<string> {
-  const body = new URLSearchParams({ media_type: "REELS", video_url: input.videoUrl, caption: input.caption.slice(0, 2200), share_to_feed: "true" });
+/**
+ * Where the cover frame is taken from, in milliseconds. Frame 0 shows the
+ * hero shot before any text overlay has faded in; by 700 ms the hook text has
+ * finished its pop-in and the first clip's motion has barely started, so the
+ * Explore, grid and feed tiles show the price line, not a blank room.
+ */
+export const COVER_FRAME_MS = 700;
+
+export async function createReelContainer(input: { igUserId: string; token: string; videoUrl: string; caption: string; coverMs?: number }): Promise<string> {
+  const body = new URLSearchParams({
+    media_type: "REELS",
+    video_url: input.videoUrl,
+    caption: input.caption.slice(0, 2200),
+    share_to_feed: "true",
+    thumb_offset: String(Math.max(0, Math.round(input.coverMs ?? COVER_FRAME_MS))),
+  });
   const result = await graph<{ id: string }>(`/${input.igUserId}/media`, { method: "POST", body, token: input.token });
   return result.id;
 }

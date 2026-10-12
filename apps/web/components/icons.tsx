@@ -160,6 +160,12 @@ export const InstagramIcon = ({ size }: IconProps) => (
     <circle cx="17.2" cy="6.8" r="0.9" fill="currentColor" stroke="none" />
   </Icon>
 );
+export const CalendarIcon = ({ size }: IconProps) => (
+  <Icon size={size}>
+    <rect x="3.5" y="5" width="17" height="15.5" rx="3" />
+    <path d="M3.5 10h17M8 3v4M16 3v4M12 13.5v3l2 1.2" />
+  </Icon>
+);
 export const LinkIcon = ({ size }: IconProps) => (
   <Icon size={size}>
     <path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1.2 1.2" />

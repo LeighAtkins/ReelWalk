@@ -23,6 +23,16 @@ export function isInstagramConfigured(): boolean {
 }
 
 /**
+ * The local stack's stand-in (DEV_FAKE_INSTAGRAM=true, docker-compose.yml):
+ * /api/dev/instagram connects a pretend account so the end-to-end suite can
+ * schedule and cancel posts without a Meta app. Nothing is ever sent to
+ * Instagram with it, and a deployment with a real Meta app ignores the flag.
+ */
+export function isFakeInstagram(): boolean {
+  return process.env.DEV_FAKE_INSTAGRAM === "true" && !isInstagramConfigured();
+}
+
+/**
  * Apps created with the Instagram use case get "Facebook Login for Business",
  * which takes a configuration id (META_LOGIN_CONFIG_ID, from the app's
  * Configurations page) instead of a scope list. Classic Facebook Login apps
@@ -43,7 +53,37 @@ export function instagramAuthUrl(redirectUri: string, state: string): string {
   return url.toString();
 }
 
-type GraphError = { error?: { message?: string; code?: number; error_subcode?: number } };
+type GraphError = { error?: { message?: string; code?: number; error_subcode?: number; is_transient?: boolean } };
+
+/**
+ * Graph API error codes that clear up on their own: unknown or temporary
+ * errors, rate limits, and "media not ready" / "could not fetch the video"
+ * when Instagram's own fetch of the file has a hiccup.
+ * https://developers.facebook.com/docs/graph-api/guides/error-handling
+ */
+const TRANSIENT_CODES = new Set([1, 2, 4, 17, 32, 341, 613, 9004, 9007]);
+
+/** An error answer from the Graph API, with what is needed to decide on a retry. */
+export class InstagramError extends Error {
+  readonly status: number;
+  readonly code: number | null;
+  readonly transient: boolean;
+
+  constructor(message: string, status: number, code: number | null, transient: boolean) {
+    super(message);
+    this.name = "InstagramError";
+    this.status = status;
+    this.code = code;
+    this.transient = transient;
+  }
+}
+
+/** Whether a failed Graph call is worth retrying: Graph's own transient errors, 5xx, 429, and the network. */
+export function isTransientInstagramError(error: unknown): boolean {
+  if (error instanceof InstagramError) return error.transient;
+  // fetch failures (DNS, a reset connection, the 20 s timeout) never got an answer from Instagram.
+  return true;
+}
 
 async function graph<T>(path: string, init: RequestInit & { token?: string; query?: Record<string, string> } = {}): Promise<T> {
   const url = new URL(`${GRAPH()}${path}`);
@@ -51,7 +91,12 @@ async function graph<T>(path: string, init: RequestInit & { token?: string; quer
   if (init.token) url.searchParams.set("access_token", init.token);
   const response = await fetch(url, { method: init.method ?? "GET", body: init.body, signal: AbortSignal.timeout(20_000) });
   const data = (await response.json().catch(() => ({}))) as T & GraphError;
-  if (!response.ok || data.error) throw new Error(data.error?.message ?? `Instagram answered ${response.status}.`);
+  if (!response.ok || data.error) {
+    const code = data.error?.code ?? null;
+    const transient =
+      response.status >= 500 || response.status === 429 || data.error?.is_transient === true || (code !== null && TRANSIENT_CODES.has(code));
+    throw new InstagramError(data.error?.message ?? `Instagram answered ${response.status}.`, response.status, code, transient);
+  }
   return data;
 }
 

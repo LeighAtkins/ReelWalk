@@ -1,0 +1,149 @@
+import type { Metadata } from "next";
+import Link from "next/link";
+import { prisma, type ScheduledPostStatus } from "@reelwalk/db";
+import { cancelScheduled } from "@/app/scheduled-actions";
+import { AutoRefresh } from "@/components/auto-refresh";
+import { BackIcon } from "@/components/icons";
+import { LocalTime } from "@/components/local-time";
+import { SubmitButton } from "@/components/submit-button";
+import { TabBar } from "@/components/tab-bar";
+import { getCurrentUser } from "@/lib/workspace";
+
+export const dynamic = "force-dynamic";
+export const metadata: Metadata = { title: "Scheduled posts · ReelWalk" };
+
+const LABELS: Record<ScheduledPostStatus, string> = {
+  SCHEDULED: "Scheduled",
+  PUBLISHING: "Posting",
+  PUBLISHED: "Posted",
+  FAILED: "Failed",
+  CANCELLED: "Cancelled",
+};
+
+type Row = Awaited<ReturnType<typeof loadPosts>>[number];
+
+function loadPosts(workspaceId: string, upcoming: boolean) {
+  return prisma.scheduledPost.findMany({
+    where: { workspaceId, status: upcoming ? { in: ["SCHEDULED", "PUBLISHING"] } : { in: ["PUBLISHED", "FAILED", "CANCELLED"] } },
+    orderBy: { publishAt: upcoming ? "asc" : "desc" },
+    take: upcoming ? 120 : 30,
+    include: { renderJob: { select: { reel: { select: { id: true, title: true } } } } },
+  });
+}
+
+/** The studio's queue of Instagram posts: what is coming, and what happened to the rest. */
+export default async function ScheduledPage({ searchParams }: { searchParams: Promise<{ cancelled?: string }> }) {
+  const { cancelled } = await searchParams;
+  const user = await getCurrentUser();
+  const [upcoming, past, account] = await Promise.all([
+    loadPosts(user.workspaceId, true),
+    loadPosts(user.workspaceId, false),
+    prisma.socialAccount.findUnique({ where: { workspaceId_provider: { workspaceId: user.workspaceId, provider: "instagram" } }, select: { username: true } }),
+  ]);
+
+  return (
+    <>
+      <main className="shell">
+        <AutoRefresh active={upcoming.some((post) => post.status === "PUBLISHING")} intervalMs={10_000} />
+        <header className="shell-head">
+          <Link href="/account" className="btn btn-quiet" prefetch={false}>
+            <BackIcon size={18} />
+            Account
+          </Link>
+        </header>
+        <h1 style={{ marginBottom: 4 }}>Scheduled posts</h1>
+        <p className="muted small" style={{ marginBottom: 16 }}>
+          {account ? `Reels queued to post to @${account.username}. ` : "Connect Instagram on the Account tab to schedule posts. "}
+          Schedule one from an export&apos;s screen; times are shown in your time zone.
+        </p>
+        {cancelled === "1" ? (
+          <p className="toast" role="status">
+            Cancelled. Nothing will be posted.
+          </p>
+        ) : null}
+        {cancelled === "late" ? (
+          <p className="error small" role="alert">
+            That post had already started going out, so it could not be cancelled.
+          </p>
+        ) : null}
+
+        <section className="scheduled-section" aria-labelledby="upcoming-heading">
+          <h2 id="upcoming-heading">Coming up</h2>
+          {upcoming.length === 0 ? (
+            <div className="empty">
+              <strong>Nothing scheduled.</strong>
+              <span className="muted small">Open a finished export and tap Schedule to post it later.</span>
+            </div>
+          ) : (
+            <ul className="export-list" data-testid="scheduled-upcoming">
+              {upcoming.map((post) => (
+                <PostRow key={post.id} post={post} />
+              ))}
+            </ul>
+          )}
+        </section>
+
+        {past.length > 0 ? (
+          <section className="scheduled-section" aria-labelledby="past-heading">
+            <h2 id="past-heading">Earlier</h2>
+            <ul className="export-list" data-testid="scheduled-past">
+              {past.map((post) => (
+                <PostRow key={post.id} post={post} />
+              ))}
+            </ul>
+          </section>
+        ) : null}
+      </main>
+      <TabBar />
+    </>
+  );
+}
+
+function PostRow({ post }: { post: Row }) {
+  const reel = post.renderJob.reel;
+  return (
+    <li className="export-row scheduled-row" data-testid="scheduled-row" data-status={post.status} data-id={post.id}>
+      <span className="export-row-body">
+        {reel ? (
+          <Link href={`/reels/${reel.id}/export`} prefetch={false}>
+            {reel.title}
+          </Link>
+        ) : (
+          <span>Earlier export</span>
+        )}
+        <span className="muted small">
+          <LocalTime date={post.publishedAt ?? post.publishAt} />
+          {post.status === "PUBLISHING" && post.attempts > 0 ? `, retry ${post.attempts}` : ""}
+        </span>
+        <span className={`badge badge-${post.status.toLowerCase()}`} data-testid="scheduled-status">
+          {LABELS[post.status]}
+        </span>
+        {post.caption ? (
+          <span className="small muted" title={post.caption} style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {post.caption}
+          </span>
+        ) : null}
+        {post.status === "PUBLISHED" && post.permalink ? (
+          <a className="link small" href={post.permalink} target="_blank" rel="noopener" data-testid="scheduled-permalink">
+            Open on Instagram
+          </a>
+        ) : null}
+        {post.status === "FAILED" && post.error ? (
+          <span className="small error" data-testid="scheduled-error">
+            {post.error}
+          </span>
+        ) : null}
+      </span>
+      {post.status === "SCHEDULED" ? (
+        <form action={cancelScheduled}>
+          <input type="hidden" name="id" value={post.id} />
+          <SubmitButton className="btn btn-quiet" pendingLabel="Cancelling…" testId="scheduled-cancel">
+            Cancel
+          </SubmitButton>
+        </form>
+      ) : (
+        <span />
+      )}
+    </li>
+  );
+}

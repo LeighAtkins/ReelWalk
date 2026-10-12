@@ -19,6 +19,7 @@ A phone-first editor for Instagram Reels of property listings. Pick photos and w
 - Instagram rules built in: 3 s to 3 min, caption and hashtag limits, guides for the areas Instagram covers with its own buttons and caption
 - Undo and redo, autosave, and protection against two tabs overwriting each other
 - Export renders on a worker and keeps going if you leave; the export screen opens the phone's share sheet with the video and copies the caption
+- Scheduled posting: with Instagram connected (Agent plan and up), queue an export to post itself at a chosen time; the queue is at `/scheduled` (`docs/adr/0017`)
 
 > The product strategy (floorplan overlay, AI room labels) is in `docs/PLAN.md` and `docs/MVP_SPEC.md`.
 

@@ -51,6 +51,7 @@ model Workspace {
   renderJobs RenderJob[]
   socialAccounts SocialAccount[]
   feedback   Feedback[]
+  scheduledPosts ScheduledPost[]
 
   // Set by the Stripe webhook from the subscription (plans in @reelwalk/core).
   plan                 Plan      @default(FREE)
@@ -84,6 +85,7 @@ model User {
   sessions    Session[]
   passwordResets PasswordReset[]
   feedback    Feedback[]
+  scheduledPosts ScheduledPost[]
 }
 
 // A "forgot your password" link. The email carries a random token; only its
@@ -139,6 +141,58 @@ model AuthThrottle {
   windowStart DateTime @default(now())
 
   @@index([windowStart])
+}
+
+enum ScheduledPostStatus {
+  SCHEDULED
+  PUBLISHING
+  PUBLISHED
+  FAILED
+  CANCELLED
+}
+
+// A finished export queued to go out as an Instagram Reel at publishAt (ADR
+// 0017). The publisher (packages/db/src/scheduled-posts.ts) claims due rows
+// with a compare-and-set on claimToken, so two web instances never work on
+// the same post at once.
+model ScheduledPost {
+  id          String              @id @default(cuid())
+  workspaceId String
+  workspace   Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  renderJobId String
+  renderJob   RenderJob           @relation(fields: [renderJobId], references: [id], onDelete: Cascade)
+  createdById String?
+  createdBy   User?               @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  // Copied from the reel when scheduled, so later edits do not change a queued post.
+  caption     String
+  // Instagram's thumb_offset: where the cover frame is taken from.
+  coverMs     Int                 @default(700)
+  // UTC. The form converts from the viewer's time zone.
+  publishAt   DateTime
+  status      ScheduledPostStatus @default(SCHEDULED)
+  // Failed tries so far (transient errors are retried up to three times).
+  attempts    Int                 @default(0)
+  // Why the last try failed, in words for the studio.
+  error       String?
+  // Set by each claim; every later write is conditional on it.
+  claimToken  String?
+  // A PUBLISHING post is not touched again before this time: the next
+  // container check, a retry after a transient error, or, while an instance
+  // holds it, the moment the claim counts as abandoned (15 minutes).
+  nextCheckAt DateTime?
+  // The Instagram media container, kept across ticks while Instagram processes the video.
+  containerId String?
+  containerAt DateTime?
+  mediaId     String?
+  permalink   String?
+  publishedAt DateTime?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  @@index([status, publishAt])
+  @@index([status, nextCheckAt])
+  @@index([workspaceId, publishAt])
+  @@index([renderJobId])
 }
 
 // A connected publishing account, e.g. an Instagram professional account.
@@ -309,6 +363,7 @@ model RenderJob {
   createdAt    DateTime        @default(now())
   updatedAt    DateTime        @updatedAt
   output       RenderOutput?
+  scheduledPosts ScheduledPost[]
 
   @@index([workspaceId, createdAt])
   @@index([propertyId, createdAt])

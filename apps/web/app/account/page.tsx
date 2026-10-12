@@ -155,8 +155,11 @@ export default async function AccountPage({
             <>
               <p>
                 Connected as <strong>@{instagram.username}</strong>. Finished exports get a <strong>Post to @{instagram.username}</strong>{" "}
-                button on the export screen.
+                button on the export screen, and can be scheduled to post later.
               </p>
+              <Link className="btn btn-block" href="/scheduled" prefetch={false} data-testid="scheduled-link">
+                Scheduled posts
+              </Link>
               <form action={disconnectInstagram}>
                 <button className="btn btn-quiet" type="submit">
                   Disconnect

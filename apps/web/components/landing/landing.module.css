@@ -1,46 +1,45 @@
 /*
- * The marketing page: a light, quiet page around dark phones. The app's
- * tokens are re-mapped inside .page so the shared classes (.btn, .brand,
- * :focus-visible) keep working: --ink is still the ground and --paper still
- * the text, they just swap shades. Signed-in /pricing renders the same
- * PricingSection inside the app's dark shell and is not touched by this.
+ * The marketing page, in the app's own visual system. Nothing is remapped:
+ * --ink is the ground, --paper the text, --signal the one red, exactly as in
+ * the editor, so the shared classes (.btn, .brand, :focus-visible) and the
+ * drawn screens (mocks.module.css) are the same thing here as in the app.
+ * The blueprint grid on <body> is covered: a marketing page is a plain
+ * surface, the drafting paper belongs to the editor. Signed-in /pricing
+ * renders the same PricingSection inside the app's shell.
  * Phone first; two columns from 880px.
  */
 
 .page {
-  --ink: #ffffff;
-  --ink-deep: #f4f6f9;
-  --panel: #e8edf3;
-  --rule: #5f7f9f;
-  --paper: #0f2a44;
-  --muted: #4f6072;
-  --signal: #d9361f;
-  --line: rgb(15 42 68 / 0.12);
-  --line-strong: rgb(15 42 68 / 0.26);
-
   display: grid;
   min-height: 100dvh;
   grid-template-rows: auto 1fr auto;
   background: var(--ink);
   color: var(--paper);
-  color-scheme: light;
 }
 
 .page :global(.btn) {
   font-weight: 700;
+  transition: background-color 120ms ease, box-shadow 120ms ease;
 }
 
 .page :global(.btn-signal:hover) {
-  background: #c92f19;
+  background: #e63d24;
 }
+
+.page :global(.btn-quiet:hover) {
+  box-shadow: inset 0 0 0 1.5px var(--rule);
+}
+
+/* ── Top bar ────────────────────────────────────────────────────── */
 
 .top {
   position: sticky;
   top: 0;
   z-index: 5;
   padding: calc(10px + var(--safe-top)) 20px 10px;
-  background: rgb(255 255 255 / 0.92);
-  backdrop-filter: blur(8px);
+  background: rgb(15 42 68 / 0.82);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--line);
 }
 
@@ -56,7 +55,7 @@
 .topNav {
   display: flex;
   align-items: center;
-  gap: 18px;
+  gap: 20px;
   font-size: 14px;
   font-weight: 600;
 }
@@ -81,6 +80,8 @@
   display: none;
 }
 
+/* ── Column and type ────────────────────────────────────────────── */
+
 .main {
   width: min(100%, 1120px);
   margin: 0 auto;
@@ -88,8 +89,14 @@
 }
 
 .main h2 {
-  font-size: clamp(26px, 4.5vw, 34px);
-  letter-spacing: -0.015em;
+  font-size: clamp(28px, 4.5vw, 38px);
+  letter-spacing: -0.02em;
+}
+
+.sectionHead {
+  display: grid;
+  gap: 14px;
+  margin-bottom: 40px;
 }
 
 .lede {
@@ -109,26 +116,43 @@
 /* ── Hero ───────────────────────────────────────────────────────── */
 
 .hero {
+  position: relative;
   display: grid;
-  gap: 36px;
-  padding: 40px 0 48px;
+  gap: 40px;
+  padding: 44px 0 56px;
+}
+
+/* One light behind the phones, the way a screen lights the desk it sits on. */
+.hero::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  inset: 40% -20px -10%;
+  background: radial-gradient(ellipse 60% 60% at 50% 60%, rgb(143 179 217 / 0.14), transparent 70%);
+  pointer-events: none;
+}
+
+.hero > * {
+  position: relative;
+  z-index: 1;
 }
 
 .heroText {
   display: grid;
-  gap: 18px;
+  gap: 20px;
   align-content: start;
 }
 
 .hero h1 {
-  font-size: clamp(36px, 8.5vw, 54px);
-  line-height: 1.02;
-  letter-spacing: -0.025em;
-  max-width: 11em;
+  font-size: clamp(38px, 9vw, 62px);
+  line-height: 0.98;
+  letter-spacing: -0.03em;
+  max-width: 10.5em;
 }
 
 .hero .lede {
   color: var(--paper);
+  font-size: 18px;
 }
 
 .ctas {
@@ -138,8 +162,9 @@
 }
 
 .ctas :global(.btn) {
-  min-height: 48px;
-  padding: 0 22px;
+  min-height: 50px;
+  padding: 0 24px;
+  font-size: 16px;
 }
 
 /* ── Sample reels ───────────────────────────────────────────────── */
@@ -160,12 +185,12 @@
   color: var(--paper);
 }
 
-/* On a phone the three phones scroll sideways, the first one in view. */
+/* On a phone the phones scroll sideways, the first one in view. */
 .phones {
   display: flex;
   gap: 14px;
   margin: 0 -20px;
-  padding: 6px 20px 16px;
+  padding: 6px 20px 10px;
   overflow-x: auto;
   scroll-snap-type: x mandatory;
   scrollbar-width: none;
@@ -178,14 +203,14 @@
 .phone {
   position: relative;
   flex: none;
-  width: min(68vw, 240px);
+  width: min(68vw, 250px);
   aspect-ratio: 9 / 16;
   overflow: hidden;
-  border-radius: 22px;
-  background: #0a1626;
+  border-radius: 24px;
+  background: #061120;
   box-shadow:
-    0 0 0 1px rgb(15 42 68 / 0.35),
-    0 18px 44px rgb(15 42 68 / 0.2);
+    0 0 0 1px rgb(143 179 217 / 0.32),
+    0 30px 80px rgb(0 0 0 / 0.5);
   scroll-snap-align: center;
 }
 
@@ -197,33 +222,16 @@
   background: #000;
 }
 
-.placeholder {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  padding: 24px;
-  color: #9cb7d3;
-  font-size: 14px;
-  text-align: center;
-}
-
 /* ── How it works ───────────────────────────────────────────────── */
 
 .how {
-  padding: 40px 0 8px;
+  padding: 56px 0 8px;
   border-top: 1px solid var(--line);
-}
-
-.howHead {
-  display: grid;
-  gap: 12px;
-  margin-bottom: 36px;
 }
 
 .steps {
   display: grid;
-  gap: 48px;
+  gap: 56px;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -231,12 +239,12 @@
 
 .step {
   display: grid;
-  gap: 22px;
+  gap: 24px;
 }
 
 .stepText {
   display: grid;
-  gap: 10px;
+  gap: 12px;
   align-content: start;
 }
 
@@ -244,23 +252,24 @@
   display: flex;
   align-items: baseline;
   gap: 12px;
-  font-size: clamp(21px, 3vw, 26px);
+  font-size: clamp(22px, 3vw, 27px);
   font-stretch: 118%;
   line-height: 1.15;
   max-width: 18em;
 }
 
-/* The step's number: these four really are a sequence. */
+/* The step's number, drawn as the order badge the photographer taps onto
+   each photo: these four really are a sequence. */
 .stepNo {
   flex: none;
   display: inline-grid;
   place-items: center;
-  width: 30px;
-  height: 30px;
+  width: 28px;
+  height: 28px;
   border-radius: 999px;
-  background: var(--paper);
-  color: var(--ink);
-  font-size: 15px;
+  background: var(--signal);
+  color: #fff;
+  font-size: 14px;
   font-stretch: 100%;
   letter-spacing: 0;
   transform: translateY(-3px);
@@ -280,10 +289,11 @@
 }
 
 .timeNote {
-  margin: 44px 0 0;
+  margin: 48px 0 0;
   padding: 18px 20px;
-  border-radius: 12px;
+  border-radius: var(--radius-m);
   background: var(--ink-deep);
+  box-shadow: inset 0 0 0 1px var(--line);
   font-size: 15.5px;
   line-height: 1.5;
 }
@@ -291,14 +301,18 @@
 /* ── The plain facts ────────────────────────────────────────────── */
 
 .facts {
-  padding: 48px 0;
+  padding: 56px 0;
   border-top: 1px solid var(--line);
+}
+
+.facts .sectionHead {
+  margin-bottom: 28px;
 }
 
 .factList {
   display: grid;
-  gap: 14px 40px;
-  margin: 22px 0 0;
+  gap: 16px 48px;
+  margin: 0;
   padding: 0;
   list-style: none;
   font-size: 15.5px;
@@ -311,7 +325,7 @@
   max-width: 32em;
 }
 
-/* A short red rule, the app's one accent, in place of a bullet. */
+/* A short drafting rule in place of a bullet; red stays for actions. */
 .factList li::before {
   content: "";
   position: absolute;
@@ -319,7 +333,7 @@
   top: 0.72em;
   width: 12px;
   height: 2px;
-  background: var(--signal);
+  background: var(--rule);
 }
 
 .factList a {
@@ -331,15 +345,15 @@
 /* ── Pricing ────────────────────────────────────────────────────── */
 
 .pricing {
-  padding: 48px 0;
+  padding: 56px 0;
   border-top: 1px solid var(--line);
   scroll-margin-top: 70px;
 }
 
 .pricingHead {
   display: grid;
-  gap: 12px;
-  margin-bottom: 24px;
+  gap: 14px;
+  margin-bottom: 28px;
 }
 
 .interval {
@@ -393,6 +407,10 @@
   display: block;
 }
 
+.pricing:has(input[value="year"]:checked) .plan .price.yearly {
+  display: grid;
+}
+
 .pricing:has(input[value="year"]:checked) .plan .monthly {
   display: none;
 }
@@ -405,20 +423,21 @@
   list-style: none;
 }
 
+/* The app's .card: a sunken surface with a lit edge. */
 .plan {
   display: grid;
   gap: 12px;
   align-content: start;
-  padding: 22px 20px;
+  padding: 24px 22px;
   border: 1px solid var(--line-strong);
-  border-radius: 16px;
-  background: var(--ink);
+  border-radius: var(--radius-l);
+  background: var(--ink-deep);
 }
 
-/* The plan most photographers want: the red rule, like Export. */
+/* The plan most photographers want: the red edge, like Export. */
 .plan[data-featured="true"] {
-  border-color: var(--paper);
-  box-shadow: inset 0 4px 0 var(--signal);
+  border-color: rgb(240 68 44 / 0.7);
+  box-shadow: inset 0 3px 0 var(--signal);
 }
 
 .plan h3 {
@@ -433,16 +452,17 @@
 
 .price {
   display: grid;
-  gap: 2px;
-  margin: 0;
+  gap: 4px;
+  margin: 4px 0 0;
 }
 
 .amount {
-  font-size: 40px;
+  font-size: 42px;
   line-height: 1;
   font-weight: 800;
   font-stretch: 112%;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.025em;
+  font-variant-numeric: tabular-nums;
 }
 
 .per {
@@ -452,8 +472,8 @@
 
 .features {
   display: grid;
-  gap: 8px;
-  margin: 4px 0 6px;
+  gap: 9px;
+  margin: 6px 0 8px;
   padding: 0;
   list-style: none;
   font-size: 14px;
@@ -468,7 +488,7 @@
 
 .features li :global(.icon) {
   margin-top: 2px;
-  color: #1f8a63;
+  color: var(--ok);
 }
 
 .current {
@@ -483,13 +503,13 @@
 /* ── FAQ ────────────────────────────────────────────────────────── */
 
 .faq {
-  padding: 48px 0;
+  padding: 56px 0;
   border-top: 1px solid var(--line);
   max-width: 680px;
 }
 
 .faq h2 {
-  margin-bottom: 8px;
+  margin-bottom: 10px;
 }
 
 .faq details {
@@ -497,7 +517,7 @@
 }
 
 .faq summary {
-  padding: 14px 0;
+  padding: 15px 0;
   font-size: 17px;
   font-weight: 700;
   cursor: pointer;
@@ -532,13 +552,14 @@
   display: grid;
   gap: 16px;
   justify-items: start;
-  padding: 48px 0 24px;
+  padding: 56px 0 24px;
   border-top: 1px solid var(--line);
 }
 
 .closing :global(.btn) {
-  min-height: 48px;
-  padding: 0 22px;
+  min-height: 50px;
+  padding: 0 24px;
+  font-size: 16px;
 }
 
 /* ── Footer ─────────────────────────────────────────────────────── */
@@ -591,12 +612,18 @@
 
   .phones {
     margin: 0;
-    padding: 6px 0 16px;
+    padding: 6px 0 10px;
     overflow: visible;
   }
 
   .phone {
-    width: 200px;
+    width: 210px;
+  }
+
+  /* One reel, or the still: a single frame earns the room. */
+  .phones[data-count="0"] .phone,
+  .phones[data-count="1"] .phone {
+    width: 260px;
   }
 }
 
@@ -604,30 +631,62 @@
   .hero {
     grid-template-columns: minmax(0, 1.05fr) auto;
     align-items: center;
-    gap: 48px;
-    padding: 64px 0 72px;
+    gap: 56px;
+    padding: 72px 0 88px;
+  }
+
+  .hero::before {
+    inset: -10% -10% -10% 45%;
+    background: radial-gradient(ellipse 55% 60% at 60% 50%, rgb(143 179 217 / 0.14), transparent 70%);
   }
 
   .phone {
-    width: 164px;
+    width: 172px;
   }
 
-  .how {
-    padding-top: 56px;
+  .phones[data-count="0"] .phone,
+  .phones[data-count="1"] .phone {
+    width: 280px;
+  }
+
+  .how,
+  .facts,
+  .pricing,
+  .faq {
+    padding-top: 72px;
+  }
+
+  .facts,
+  .pricing,
+  .faq {
+    padding-bottom: 72px;
   }
 
   .steps {
-    gap: 56px;
+    gap: 72px;
   }
 
   .step {
     grid-template-columns: minmax(0, 1fr) 340px;
     align-items: center;
-    gap: 56px;
+    gap: 64px;
+  }
+
+  /* The screens alternate sides, as the eye reads down a page. */
+  .step:nth-child(even) {
+    grid-template-columns: 340px minmax(0, 1fr);
+  }
+
+  .step:nth-child(even) .stepText {
+    order: 2;
   }
 
   .timeNote {
-    margin-top: 56px;
+    margin-top: 64px;
+  }
+
+  .closing {
+    padding-top: 72px;
   }
 
   .footer {
@@ -642,6 +701,12 @@
 
 @media (min-width: 1080px) {
   .phone {
-    width: 184px;
+    width: 192px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page :global(.btn) {
+    transition: none;
   }
 }

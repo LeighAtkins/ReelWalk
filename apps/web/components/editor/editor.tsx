@@ -37,7 +37,7 @@ import {
   type Plan,
   type Timeline,
 } from "@reelwalk/core";
-import type { ReelAsset } from "@reelwalk/render/reel";
+import { ELEGANT_FADE_S, type ReelAsset } from "@reelwalk/render/reel";
 import { deleteReel, exportReel, readyPreviews } from "@/app/actions";
 import { formatDuration } from "@/lib/format";
 import type { LibraryAsset } from "@/lib/library";
@@ -495,12 +495,14 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
       } else {
         const id = newId();
         // Stacked texts start lower, so a second one does not cover the first.
-        const y = Math.min(0.62, 0.42 + textsAt(timeline, clock.get()).length * 0.1);
+        // Elegant text sits in the middle of the picture, the way the luxury reels place it.
+        const elegant = draft.style === "elegant";
+        const y = Math.min(elegant ? 0.7 : 0.62, (elegant ? 0.5 : 0.42) +textsAt(timeline, clock.get()).length * 0.1);
         const startMs = clock.get();
         apply((current) => addText(current, { ...draft, id, startMs, x: 0.5, y }));
         setSelection({ kind: "text", id });
-        // Park just past the pop-in animation, so the paused preview shows the text fully.
-        seek(startMs + 300);
+        // Park just past the entry animation (pop or slow fade), so the paused preview shows the text fully.
+        seek(startMs + (elegant ? ELEGANT_FADE_S * 1000 + 100 : 300));
       }
       setSheet(null);
     },

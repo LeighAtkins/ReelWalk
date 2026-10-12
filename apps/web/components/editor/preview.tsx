@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { Player, type PlayerRef } from "@remotion/player";
 import { prefetch } from "remotion";
-import { INSTAGRAM, REEL_FORMAT, textsAt, type TextOverlay, type Timeline } from "@reelwalk/core";
+import { INSTAGRAM, minTextSize, REEL_FORMAT, TEXT_SIZE_MAX, textsAt, type TextOverlay, type Timeline } from "@reelwalk/core";
 import { ReelComposition, reelDurationInFrames, textCss, type ReelAsset } from "@reelwalk/render/reel";
 import { PlayIcon } from "../icons";
 import { useClock, type Clock } from "./clock";
@@ -107,7 +107,7 @@ function TextHandle({
         };
         if (event.key === "+" || event.key === "=" || event.key === "-") {
           event.preventDefault();
-          onResize(clamp(Math.round((text.size + (event.key === "-" ? -0.1 : 0.1)) * 20) / 20, 0.5, 2.5), `size-${text.id}`);
+          onResize(clamp(Math.round((text.size + (event.key === "-" ? -0.1 : 0.1)) * 20) / 20, minTextSize(text.style), TEXT_SIZE_MAX), `size-${text.id}`);
           return;
         }
         const move = moves[event.key];
@@ -130,7 +130,7 @@ function TextHandle({
           const size = text.size;
           const gesture = `drag:size-${text.id}:${Date.now()}`;
           const move = (e: PointerEvent) =>
-            onResize(clamp(Math.round(((size * Math.hypot(e.clientX - cx, e.clientY - cy)) / from) * 20) / 20, 0.5, 2.5), gesture);
+            onResize(clamp(Math.round(((size * Math.hypot(e.clientX - cx, e.clientY - cy)) / from) * 20) / 20, minTextSize(text.style), TEXT_SIZE_MAX), gesture);
           const end = () => {
             window.removeEventListener("pointermove", move);
             window.removeEventListener("pointerup", end);

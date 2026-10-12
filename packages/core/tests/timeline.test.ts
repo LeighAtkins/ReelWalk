@@ -13,6 +13,9 @@ import {
   isEquirect,
   locate,
   MIN_CLIP_MS,
+  minTextSize,
+  TEXT_STYLES,
+  textSchema,
   moveClip,
   parseTimeline,
   referencedAssetIds,
@@ -197,6 +200,45 @@ describe("text", () => {
     const timeline = addText(base, text);
     expect(updateText(timeline, "t1", { startMs: 5000, endMs: 4000 }).texts[0]).toMatchObject({ startMs: 5000, endMs: 5100 });
     expect(updateText(timeline, "t1", { endMs: 50_000 }).texts[0].endMs).toBe(10_000);
+  });
+});
+
+describe("elegant text", () => {
+  const base = reel(video("a", 0, 10_000));
+  const overlay = { id: "e1", text: "the privacy I want", startMs: 0, endMs: 3000 };
+
+  it("is a text style", () => {
+    expect(TEXT_STYLES).toContain("elegant");
+    expect(textSchema.parse({ ...overlay, style: "elegant" })).toMatchObject({ style: "elegant", size: 1, color: "#ffffff" });
+  });
+
+  it("may go smaller than the bold styles", () => {
+    expect(minTextSize("elegant")).toBe(0.3);
+    expect(textSchema.parse({ ...overlay, style: "elegant", size: 0.3 }).size).toBe(0.3);
+    expect(textSchema.safeParse({ ...overlay, style: "elegant", size: 0.29 }).success).toBe(false);
+    expect(textSchema.safeParse({ ...overlay, style: "elegant", size: 2.6 }).success).toBe(false);
+  });
+
+  it("keeps the old minimum for the other styles", () => {
+    for (const style of TEXT_STYLES.filter((style) => style !== "elegant")) {
+      expect(textSchema.safeParse({ ...overlay, style, size: 0.5 }).success).toBe(true);
+      expect(textSchema.safeParse({ ...overlay, style, size: 0.4 }).success).toBe(false);
+    }
+    // Saved timelines without a style are still plain text with the plain minimum.
+    expect(textSchema.safeParse({ ...overlay, size: 0.4 }).success).toBe(false);
+    expect(textSchema.parse({ ...overlay }).style).toBe("plain");
+  });
+
+  it("grows a small elegant text when it is switched to a bold style", () => {
+    const timeline = addText(base, { ...overlay, style: "elegant", color: "#ffffff", size: 0.4, x: 0.5, y: 0.5 });
+    expect(timeline.texts[0].size).toBe(0.4);
+    expect(updateText(timeline, "e1", { style: "headline" }).texts[0]).toMatchObject({ style: "headline", size: 0.5 });
+    expect(addText(base, { ...overlay, style: "plain", color: "#ffffff", size: 0.3, x: 0.5, y: 0.5 }).texts[0].size).toBe(0.5);
+  });
+
+  it("round-trips through a saved timeline", () => {
+    const timeline = addText(base, { ...overlay, style: "elegant", color: "#ffffff", size: 0.35, x: 0.5, y: 0.5 });
+    expect(parseTimeline(JSON.parse(JSON.stringify(timeline)))).toEqual(timeline);
   });
 });
 

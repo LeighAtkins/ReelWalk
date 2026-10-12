@@ -1,20 +1,23 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import {
   acceptFor,
   canExport,
   captionFromDetails,
   DETAILS_PLACEMENTS,
+  fitTextSize,
   hasDetails,
   listingDetailsSchema,
   clipDurationMs,
   FILTERS,
   DEFAULT_PANO,
   MIN_CLIP_MS,
+  minTextSize,
   MOTIONS,
   SPEEDS,
   TEXT_COLORS,
+  TEXT_SIZE_MAX,
   TEXT_STYLES,
   type Clip,
   type Filter,
@@ -27,7 +30,7 @@ import {
   type TextOverlay,
   type TextStyle,
 } from "@reelwalk/core";
-import { FILTER_CSS, FILTER_LABELS, TEXT_STYLE_LABELS, textCss } from "@reelwalk/render/reel";
+import { ELEGANT_FONT_FAMILY, FILTER_CSS, FILTER_LABELS, TEXT_STYLE_LABELS, textCss } from "@reelwalk/render/reel";
 import { formatDuration } from "@/lib/format";
 import type { LibraryAsset } from "@/lib/library";
 import { saveCaption } from "@/app/actions";
@@ -112,17 +115,20 @@ function Segmented<T extends string | number>({
   value,
   onChange,
   format = String,
+  optionStyle,
 }: {
   label: string;
   options: readonly T[];
   value: T;
   onChange(value: T): void;
   format?: (value: T) => string;
+  /** Lets an option show what it does, such as a text style in its own typeface. */
+  optionStyle?: (value: T) => CSSProperties | undefined;
 }) {
   return (
     <div className="segmented" role="group" aria-label={label}>
       {options.map((option) => (
-        <button key={String(option)} type="button" aria-pressed={option === value} onClick={() => onChange(option)}>
+        <button key={String(option)} type="button" aria-pressed={option === value} style={optionStyle?.(option)} onClick={() => onChange(option)}>
           {format(option)}
         </button>
       ))}
@@ -622,6 +628,9 @@ export function PlanSheet({
 
 export type TextDraft = Pick<TextOverlay, "text" | "style" | "color" | "size">;
 
+/** The "Elegant" style chip, set in the serif it puts on the reel. */
+const ELEGANT_CHIP: CSSProperties = { fontFamily: ELEGANT_FONT_FAMILY, fontWeight: 500, fontSize: "1.12em", letterSpacing: "0.06em" };
+
 export function TextSheet({
   initial,
   onSave,
@@ -648,7 +657,14 @@ export function TextSheet({
       <div className="text-style-preview" aria-hidden="true">
         <span style={{ ...previewCss, zoom: 0.32 }}>{draft.text || "Your text"}</span>
       </div>
-      <Segmented label="Style" options={TEXT_STYLES} value={draft.style} onChange={(style: TextStyle) => setDraft({ ...draft, style })} format={(style) => TEXT_STYLE_LABELS[style]} />
+      <Segmented
+        label="Style"
+        options={TEXT_STYLES}
+        value={draft.style}
+        onChange={(style: TextStyle) => setDraft({ ...draft, style, size: fitTextSize(style, draft.size) })}
+        format={(style) => TEXT_STYLE_LABELS[style]}
+        optionStyle={(style) => (style === "elegant" ? ELEGANT_CHIP : undefined)}
+      />
       <div className="swatches" role="group" aria-label="Colour">
         {TEXT_COLORS.map((color) => (
           <button
@@ -662,7 +678,7 @@ export function TextSheet({
           />
         ))}
       </div>
-      <Range label="Size" value={draft.size} min={0.5} max={2.5} step={0.1} display={`${Math.round(draft.size * 100)}%`} onChange={(size) => setDraft({ ...draft, size })} />
+      <Range label="Size" value={draft.size} min={minTextSize(draft.style)} max={TEXT_SIZE_MAX} step={0.1} display={`${Math.round(draft.size * 100)}%`} onChange={(size) => setDraft({ ...draft, size })} />
       <button type="button" className="btn btn-signal btn-block" disabled={!draft.text.trim()} onClick={() => onSave({ ...draft, text: draft.text.trim() })}>
         {initial ? "Save text" : "Add text"}
       </button>

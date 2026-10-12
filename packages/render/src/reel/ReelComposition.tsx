@@ -17,7 +17,7 @@ import {
 import { Video as RenderVideo } from "@remotion/media";
 import { cameraAt, framePlan, REEL_FORMAT, timelineDurationMs, walkInto, type Clip, type Plan, type TextOverlay, type Timeline } from "@reelwalk/core";
 import { useFontsFor } from "./fonts";
-import { FILTER_CSS, textCss } from "./look";
+import { ELEGANT_FADE_S, FILTER_CSS, textCss } from "./look";
 import { DetailsCardView } from "./DetailsCardView";
 import { PanoView } from "./PanoView";
 import { PlanOverlayView } from "./PlanOverlayView";
@@ -144,14 +144,30 @@ const ClipView: React.FC<{
   );
 };
 
-const TextView: React.FC<{ text: TextOverlay }> = ({ text }) => {
+/** Scale and opacity of a text overlay at a frame of its own sequence. */
+function textMotion(style: TextOverlay["style"], frame: number, fps: number, durationInFrames: number): { scale: number; opacity: number } {
+  if (style === "elegant") {
+    // A slow fade in and out, no movement: the words settle onto the picture.
+    const fade = Math.max(1, Math.min(Math.round(ELEGANT_FADE_S * fps), Math.floor(durationInFrames / 2)));
+    const clamp = { extrapolateLeft: "clamp", extrapolateRight: "clamp" } as const;
+    const fadeIn = interpolate(frame, [0, fade], [0, 1], clamp);
+    const fadeOut = interpolate(frame, [durationInFrames - fade, durationInFrames], [1, 0], clamp);
+    return { scale: 1, opacity: Math.min(fadeIn, fadeOut) };
+  }
+  // A short pop on entry, the way Instagram animates text in.
+  const pop = spring({ frame, fps, config: { damping: 14, stiffness: 180 }, durationInFrames: 10 });
+  return {
+    scale: interpolate(pop, [0, 1], [0.86, 1]),
+    opacity: interpolate(frame, [0, 3], [0, 1], { extrapolateRight: "clamp" }),
+  };
+}
+
+const TextView: React.FC<{ text: TextOverlay; durationInFrames: number }> = ({ text, durationInFrames }) => {
   const frame = useCurrentFrame();
   const { fps, width, height } = useVideoConfig();
   const css = textCss(text.style, text.color, text.size);
   useFontsFor(text.text, Number(css.fontWeight ?? 600));
-  // A short pop on entry, the way Instagram animates text in.
-  const pop = spring({ frame, fps, config: { damping: 14, stiffness: 180 }, durationInFrames: 10 });
-  const scale = interpolate(pop, [0, 1], [0.86, 1]);
+  const { scale, opacity } = textMotion(text.style, frame, fps, durationInFrames);
 
   return (
     <AbsoluteFill style={{ pointerEvents: "none" }}>
@@ -164,7 +180,7 @@ const TextView: React.FC<{ text: TextOverlay }> = ({ text }) => {
           display: "flex",
           justifyContent: "center",
           transform: `translate(-50%, -50%) scale(${scale})`,
-          opacity: interpolate(frame, [0, 3], [0, 1], { extrapolateRight: "clamp" }),
+          opacity,
         }}
       >
         <span style={css}>{text.text}</span>
@@ -221,7 +237,7 @@ export const ReelComposition: React.FC<ReelProps> = ({ timeline, assets, waterma
       <PlanOverlayView timeline={timeline} />
       {plan.texts.map(({ text, from, durationInFrames }) => (
         <Sequence key={text.id} from={from} durationInFrames={durationInFrames} name={`text ${text.text.slice(0, 12)}`}>
-          <TextView text={text} />
+          <TextView text={text} durationInFrames={durationInFrames} />
         </Sequence>
       ))}
       <DetailsCardView timeline={timeline} />

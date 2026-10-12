@@ -37,6 +37,13 @@ export async function startCheckout(formData: FormData): Promise<void> {
     client_reference_id: user.workspaceId,
     subscription_data: { metadata: { workspaceId: user.workspaceId } },
     allow_promotion_codes: true,
+    // Offices get a proper invoice: Checkout asks for the billing address and
+    // an optional tax id, and writes both onto the customer.
+    billing_address_collection: "auto",
+    tax_id_collection: { enabled: true },
+    customer_update: { name: "auto", address: "auto" },
+    // Tags the session in the Dashboard so this flow can be told apart from later ones.
+    integration_identifier: "reelwalk_plan_checkout_qmxvtkhe",
     success_url: `${base}/account?billing=welcome`,
     cancel_url: `${base}/account`,
   });

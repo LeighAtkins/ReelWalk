@@ -9,6 +9,9 @@ import { NextResponse, type NextRequest } from "next/server";
 const SESSION_COOKIE = "rw_session";
 
 const PUBLIC_PATHS = [
+  // The landing page and the plans: / is the marketing page without a session.
+  /^\/$/,
+  /^\/pricing$/,
   /^\/login$/,
   /^\/signup$/,
   /^\/r\/[^/]+$/,
@@ -25,7 +28,7 @@ export function proxy(request: NextRequest) {
   if (request.cookies.has(SESSION_COOKIE)) return NextResponse.next();
 
   const login = new URL("/login", request.url);
-  if (pathname !== "/") login.searchParams.set("next", pathname + search);
+  login.searchParams.set("next", pathname + search);
   return NextResponse.redirect(login);
 }
 

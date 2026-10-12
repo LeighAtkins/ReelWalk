@@ -141,7 +141,8 @@ test("a studio can pick an Instagram sound, schedule with it, then change and re
     // Change it to a trending sound; it sticks after a reload.
     await row.getByTestId("sound-open").click();
     await expect(sheet).toBeVisible();
-    await expect(sheet.getByTestId("sound-keep-reel")).toBeChecked();
+    // The re-picked sound above was saved without "keep my music", and the sheet reopens that way.
+    await expect(sheet.getByTestId("sound-keep-reel")).not.toBeChecked();
     await sheet.getByTestId("sound-tab-trending").click();
     await expect(sheet.getByTestId("sound-tab-trending")).toHaveAttribute("aria-pressed", "true");
     await sheet.locator('[data-testid="sound-option"][data-audio-id="fake-sound-2"]').click();

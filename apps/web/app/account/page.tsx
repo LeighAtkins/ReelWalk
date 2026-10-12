@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { LocalTime } from "@/components/local-time";
 import { prisma } from "@reelwalk/db";
 import { changePassword, deleteAccount, signOut, updateProfile } from "@/app/auth-actions";
@@ -133,6 +134,11 @@ export default async function AccountPage({
               </SubmitButton>
             </form>
           ) : null}
+          <p className="muted small" style={{ marginBottom: 0 }}>
+            <Link href="/pricing" data-testid="see-plans">
+              Compare all plans and yearly prices
+            </Link>
+          </p>
           {billingOn && current.stripeCustomerId ? (
             <form action={openBillingPortal}>
               <SubmitButton className="btn btn-quiet btn-block" pendingLabel="Opening…" testId="billing-portal">

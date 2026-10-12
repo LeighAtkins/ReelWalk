@@ -33,7 +33,7 @@ test("an owner can offer a finished reel for featuring, see it listed, and withd
   await expect(page.getByTestId("feature-consent-box")).toBeChecked();
   await expect(page.getByTestId("feature-handle")).toHaveValue("rivera.homes");
 
-  // The demo user is an admin on the local stack (ADMIN_EMAILS), so the reel is listed with its file.
+  // The seed makes the demo user an admin on the local stack, so the reel is listed with its file.
   await page.goto("/admin/featured");
   const row = page.getByTestId("featured-row").filter({ hasText: "@rivera.homes" }).first();
   await expect(row).toBeVisible();

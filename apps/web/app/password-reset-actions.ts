@@ -2,6 +2,7 @@
 
 import { randomBytes } from "node:crypto";
 import { redirect } from "next/navigation";
+import { after } from "next/server";
 import { z } from "zod";
 import { hashPassword, prisma } from "@reelwalk/db";
 import { appUrl } from "@/lib/app-url";
@@ -13,7 +14,9 @@ import { clientIp, countAttempt, MINUTE, overLimit, type Limit } from "@/lib/thr
 /**
  * "Forgot your password?" (ADR 0016). The email carries a random token; the
  * table keeps its SHA-256, an expiry an hour out, and the moment it was used.
- * The forgot form answers the same whether or not the address has an account.
+ * The forgot form answers the same whether or not the address has an account,
+ * and in the same time: the lookup, the write and the send all run after the
+ * response, so a known address costs the caller nothing extra.
  */
 
 const RESET_MINUTES = 60;
@@ -34,9 +37,14 @@ export async function requestPasswordReset(formData: FormData): Promise<void> {
   ];
   if (await overLimit(limits)) redirect("/forgot?error=throttled");
   await countAttempt(limits);
+  // Throws when EMAIL_FROM is set without APP_URL; better here than in a link nobody can trust.
+  const base = await appUrl();
 
-  const user = await prisma.user.findUnique({ where: { email }, select: { id: true, name: true, passwordHash: true } });
-  if (user && user.passwordHash) {
+  // Everything that depends on whether the account exists happens after the
+  // redirect has gone out, so timing says nothing either.
+  after(async () => {
+    const user = await prisma.user.findUnique({ where: { email }, select: { id: true, name: true, passwordHash: true } });
+    if (!user || !user.passwordHash) return;
     const token = randomBytes(32).toString("base64url");
     const expiresAt = new Date(Date.now() + RESET_MINUTES * MINUTE);
     await prisma.$transaction([
@@ -44,7 +52,7 @@ export async function requestPasswordReset(formData: FormData): Promise<void> {
       prisma.passwordReset.deleteMany({ where: { userId: user.id, usedAt: null } }),
       prisma.passwordReset.create({ data: { userId: user.id, tokenHash: hashResetToken(token), expiresAt } }),
     ]);
-    const url = `${await appUrl()}/reset/${token}`;
+    const url = `${base}/reset/${token}`;
     try {
       await sendEmail({
         to: email,
@@ -70,11 +78,11 @@ export async function requestPasswordReset(formData: FormData): Promise<void> {
     } catch (error) {
       console.error(`password reset: email to ${email} failed`, error);
     }
-  }
+  });
 
   // Old rows are dead weight; clear them now and then.
   if (Math.random() < 0.05) {
-    await prisma.passwordReset.deleteMany({ where: { expiresAt: { lt: new Date(Date.now() - 24 * 60 * MINUTE) } } });
+    after(() => prisma.passwordReset.deleteMany({ where: { expiresAt: { lt: new Date(Date.now() - 24 * 60 * MINUTE) } } }));
   }
   redirect("/forgot?sent=1");
 }
@@ -92,8 +100,11 @@ export async function resetPassword(formData: FormData): Promise<void> {
 
   const passwordHash = await hashPassword(parsed.data.password);
   const used = await prisma.$transaction(async (tx) => {
-    // Two tabs cannot both spend the same link.
-    const { count } = await tx.passwordReset.updateMany({ where: { id: reset.id, usedAt: null }, data: { usedAt: new Date() } });
+    // Two tabs cannot both spend the same link, and a link that ran out while the form was open is refused.
+    const { count } = await tx.passwordReset.updateMany({
+      where: { id: reset.id, usedAt: null, expiresAt: { gt: new Date() } },
+      data: { usedAt: new Date() },
+    });
     if (count === 0) return false;
     await tx.user.update({ where: { id: reset.userId }, data: { passwordHash } });
     // Whoever held the old password is signed out everywhere.

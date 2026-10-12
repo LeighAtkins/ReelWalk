@@ -29,8 +29,15 @@ function ses(): SESv2Client {
   return client;
 }
 
-/** The last messages "sent" without a provider, newest last. Only read by the dev mailbox. */
-const devMailbox: (EmailMessage & { sentAt: Date })[] = [];
+/**
+ * The last messages "sent" without a provider, newest last. Only read by the
+ * dev mailbox. On globalThis, like the Prisma client: a production build may
+ * bundle this module once for the Server Action and again for the route
+ * handler, and both must see the same array.
+ */
+type DevMail = EmailMessage & { sentAt: Date };
+const globalForMail = globalThis as unknown as { reelwalkDevMailbox?: DevMail[] };
+const devMailbox: DevMail[] = (globalForMail.reelwalkDevMailbox ??= []);
 const DEV_MAILBOX_SIZE = 50;
 
 export function devMailboxFor(to: string): (EmailMessage & { sentAt: Date })[] {

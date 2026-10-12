@@ -52,6 +52,11 @@ export function FeatureConsent({
           Thank you. We may feature this reel{handle ? `, crediting @${handle}` : ""}.
         </p>
       ) : null}
+      {status === "badhandle" ? (
+        <p className="toast" role="alert" data-testid="feature-saved">
+          Handle not saved: use letters, numbers, dots or underscores. Your choice above was saved.
+        </p>
+      ) : null}
       {status === "off" ? (
         <p className="toast" role="status" data-testid="feature-saved">
           Saved. We will not feature this reel.

@@ -24,12 +24,10 @@ locals {
     OUTBOX_POLL_SECONDS          = "5"
   }
 
-  # Web-only settings (the worker neither sends mail nor has an admin page).
+  # Web-only settings (the worker sends no mail).
   web_env = {
     # Transactional email through SES (email.tf). Unset means log instead of send.
-    EMAIL_FROM   = "ReelWalk <hello@${var.app_domain}>"
-    # Who may open /admin/featured.
-    ADMIN_EMAILS = join(",", var.admin_emails)
+    EMAIL_FROM = "ReelWalk <hello@${var.app_domain}>"
   }
 
   # Parameter Store holds the credentials; both runtimes read them at start.

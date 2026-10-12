@@ -4,17 +4,17 @@ import { notFound } from "next/navigation";
 import { prisma } from "@reelwalk/db";
 import { LocalTime } from "@/components/local-time";
 import { TabBar } from "@/components/tab-bar";
-import { isAdminEmail } from "@/lib/admin";
+import { isAdmin } from "@/lib/admin";
 import { outputUrls } from "@/lib/render-jobs";
 import { getCurrentUser } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Featured reels · ReelWalk" };
 
-/** Reels whose owners said we may repost them, newest consent first, with the file to download. Admins only (ADMIN_EMAILS). */
+/** Reels whose owners said we may repost them, newest consent first, with the file to download. Admins only (User.isAdmin). */
 export default async function FeaturedAdminPage() {
   const user = await getCurrentUser();
-  if (!isAdminEmail(user.email)) notFound();
+  if (!isAdmin(user)) notFound();
 
   const reels = await prisma.reel.findMany({
     where: { featureConsent: true },

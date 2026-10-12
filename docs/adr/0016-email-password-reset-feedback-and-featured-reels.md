@@ -44,14 +44,22 @@ that takes IAM rather than an API key keeps secrets out of the picture.
   carries `featureConsent`, `featureHandle` and `featureConsentAt`.
   Posting through the app fills in the handle from the connected Instagram
   account. `/admin/featured` lists consented reels with download links for
-  accounts named in `ADMIN_EMAILS`; everyone else gets a 404, so the page
-  does not advertise itself.
+  accounts with `User.isAdmin`; everyone else gets a 404, so the page does
+  not advertise itself. Nothing in the app sets the flag (signup never
+  verifies an email, so an address is no credential);
+  `packages/db/scripts/set-admin.ts <email>` does, by hand. The seed makes
+  the local demo user an admin when `DEMO_PASSWORD` is set.
 
 ## Consequences
 
-- Env added: `EMAIL_FROM` and `ADMIN_EMAILS` (both set by Terraform for
-  App Runner; Compose sets `DEV_MAILBOX=true` and names the demo user as
-  admin so the suite can check the list).
+- Env added: `EMAIL_FROM` (Terraform sets it for App Runner; Compose sets
+  `DEV_MAILBOX=true` instead). With `EMAIL_FROM` set, `APP_URL` is
+  required: an emailed link must not take its host from the request, which
+  anyone can spoof. Compose and the Helm values now set `APP_URL`
+  explicitly.
+- The forgot form answers before any lookup, write or send happens (those
+  run in `after()`), so a known address costs the caller the same time as
+  an unknown one.
 - Until SES production access is granted, mail reaches only verified
   addresses; the app behaves the same and logs the SES error.
 - Reset links are as strong as the inbox they land in, which is the

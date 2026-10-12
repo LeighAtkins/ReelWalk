@@ -75,6 +75,8 @@ model User {
   name        String
   // scrypt hash, "scrypt$<salt>$<hash>" (apps/web/lib/auth.ts). Null for accounts that cannot sign in.
   passwordHash String?
+  // May open /admin/*. Set by hand (packages/db/scripts/set-admin.ts), never by the app.
+  isAdmin     Boolean     @default(false)
   workspaceId String
   workspace   Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   createdAt   DateTime    @default(now())

@@ -11,10 +11,12 @@ async function main() {
   // The demo studio can be signed into when DEMO_PASSWORD is set (local
   // Compose sets one; a public deployment leaves it unset).
   const passwordHash = process.env.DEMO_PASSWORD ? await hashPassword(process.env.DEMO_PASSWORD) : undefined;
+  // On a local stack the demo user is also the admin, so the suite can check /admin/featured.
+  const isAdmin = Boolean(passwordHash);
   await prisma.user.upsert({
     where: { email: DEFAULT_USER_EMAIL },
-    update: passwordHash ? { passwordHash } : {},
-    create: { email: DEFAULT_USER_EMAIL, name: "Demo Agent", workspaceId: workspace.id, passwordHash },
+    update: { ...(passwordHash ? { passwordHash } : {}), isAdmin },
+    create: { email: DEFAULT_USER_EMAIL, name: "Demo Agent", workspaceId: workspace.id, passwordHash, isAdmin },
   });
 
   const templates = [

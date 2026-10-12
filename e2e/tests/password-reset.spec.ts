@@ -66,6 +66,8 @@ test("a forgotten password is reset from an emailed link, which then stops worki
   await page.getByLabel("Password").fill("first-password-1");
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.locator("p.error")).toContainText("do not match");
+  // The refused attempt reloads the form empty, so the email goes in again.
+  await page.getByLabel("Email").fill(email);
   await page.getByLabel("Password").fill("second-password-2");
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page).toHaveURL(/\/$/);

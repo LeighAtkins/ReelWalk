@@ -400,16 +400,17 @@
   outline-offset: 2px;
 }
 
-/* The switch: yearly prices are hidden until the yearly radio is checked. */
-.yearly {
+/* The switch: yearly prices are hidden until the yearly radio is checked.
+   Scoped to .plan so these outrank .price's display: grid below. */
+.plan .yearly {
   display: none;
 }
 
-.pricing:has(input[value="year"]:checked) .yearly {
+.pricing:has(input[value="year"]:checked) .plan .yearly {
   display: block;
 }
 
-.pricing:has(input[value="year"]:checked) .monthly {
+.pricing:has(input[value="year"]:checked) .plan .monthly {
   display: none;
 }
 

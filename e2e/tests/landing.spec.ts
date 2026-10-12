@@ -36,7 +36,7 @@ test.describe("signed out", () => {
 test("signed in, / is still the reels home", async ({ page }) => {
   await page.goto("/");
   await expect(page).toHaveURL(/\/$/);
-  await expect(page.getByRole("heading", { name: "Reels" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Reels", exact: true })).toBeVisible();
   await expect(page.getByTestId("hero-title")).toHaveCount(0);
 });
 

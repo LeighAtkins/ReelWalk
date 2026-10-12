@@ -39,6 +39,8 @@ locals {
     PIXABAY_API_KEY       = var.pixabay_api_key
     STRIPE_SECRET_KEY     = var.stripe_secret_key
     STRIPE_WEBHOOK_SECRET = var.stripe_webhook_secret
+    # Bearer secret EventBridge sends to /api/scheduled-posts/run (scheduled_posts.tf).
+    SCHEDULER_SECRET = random_password.scheduler.result
   }
 }
 

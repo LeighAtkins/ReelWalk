@@ -63,6 +63,16 @@ worker against AWS with
 On EKS the same policy would be attached to an IRSA role instead and no key
 would exist.
 
+## Scheduled Instagram posts
+
+`scheduled_posts.tf` has EventBridge POST to `/api/scheduled-posts/run` every
+minute (ADR 0017). The bearer secret is a `random_password`: Terraform puts it
+in the EventBridge connection and in Parameter Store as `SCHEDULER_SECRET`,
+and nothing needs to go in `terraform.tfvars`. App Runner reads parameters at
+start, so deploy (or restart) the web service after the first apply. Until it
+has the secret, the endpoint answers 404 and the `scheduled-posts-failing`
+alarm can fire.
+
 ## Accepted scanner findings
 
 Trivy flags the missing WAF on the distribution and the lack of a

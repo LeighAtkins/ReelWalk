@@ -11,7 +11,8 @@ import { ShareButton } from "@/components/share-button";
 import { ShareLink } from "@/components/share-link";
 import { outputSize, parseReelExportPayload } from "@reelwalk/core";
 import { PostToInstagram } from "@/components/post-to-instagram";
-import { isInstagramConfigured } from "@/lib/instagram";
+import { SchedulePost } from "@/components/schedule-post";
+import { isFakeInstagram, isInstagramConfigured } from "@/lib/instagram";
 import { workspacePlan } from "@/lib/plans";
 import { appUrl } from "@/lib/app-url";
 import { outputUrls } from "@/lib/render-jobs";
@@ -95,7 +96,12 @@ export default async function ExportPage({
               </p>
             </div>
             <div className="export-actions">
-              {instagram && plan.instagram ? <PostToInstagram jobId={job.id} username={instagram.username} /> : null}
+              {instagram && plan.instagram ? (
+                <>
+                  <PostToInstagram jobId={job.id} username={instagram.username} />
+                  {isInstagramConfigured() || isFakeInstagram() ? <SchedulePost jobId={job.id} username={instagram.username} /> : null}
+                </>
+              ) : null}
               {planId === "FREE" && isInstagramConfigured() ? (
                 <Link className="btn btn-quiet" href="/account#plan" prefetch={false}>
                   Post straight to Instagram with Agent

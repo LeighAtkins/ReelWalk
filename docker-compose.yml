@@ -166,6 +166,9 @@ services:
       # No EMAIL_FROM here, so mail is logged, and kept for /api/dev/mailbox
       # (the end-to-end tests read password reset links from it).
       DEV_MAILBOX: "true"
+      # A pretend Instagram connection (/api/dev/instagram) so the suite can
+      # schedule and cancel posts; nothing is sent to Instagram.
+      DEV_FAKE_INSTAGRAM: "true"
     ports:
       - "3000:3000"
     restart: unless-stopped

@@ -25,6 +25,12 @@ enum RenderJobKind {
 }
 
 // Legal transitions live in @reelwalk/core (job-status.ts).
+enum Plan {
+  FREE
+  AGENT
+  OFFICE
+}
+
 enum RenderJobStatus {
   QUEUED
   RUNNING
@@ -44,6 +50,22 @@ model Workspace {
   tours      Tour[]
   renderJobs RenderJob[]
   socialAccounts SocialAccount[]
+
+  // Set by the Stripe webhook from the subscription (plans in @reelwalk/core).
+  plan                 Plan      @default(FREE)
+  // A plan given by hand (testers), good until compedUntil. A paid plan wins.
+  compedPlan           Plan?
+  compedUntil          DateTime?
+  stripeCustomerId     String?   @unique
+  stripeSubscriptionId String?   @unique
+  planRenewsAt         DateTime?
+}
+
+// Stripe event ids already handled, so a repeated delivery changes nothing.
+model BillingEvent {
+  id         String   @id
+  type       String
+  receivedAt DateTime @default(now())
 }
 
 model User {

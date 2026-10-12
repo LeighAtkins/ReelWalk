@@ -14,4 +14,6 @@ export type ReelAsset = {
 export type ReelProps = {
   timeline: Timeline;
   assets: Record<string, ReelAsset>;
+  /** Free-plan exports carry the ReelWalk mark; the editor preview never does. */
+  watermark?: boolean;
 };

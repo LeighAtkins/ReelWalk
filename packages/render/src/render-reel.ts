@@ -26,11 +26,19 @@ function getServeUrl(): Promise<string> {
 }
 
 export async function renderReel(
-  input: { timeline: Timeline; assets: Record<string, ReelAsset>; output: string; concurrency?: number },
+  input: {
+    timeline: Timeline;
+    assets: Record<string, ReelAsset>;
+    output: string;
+    concurrency?: number;
+    /** Frame width, 720 or 1080 (the composition is laid out at 1080 and scaled). */
+    width?: number;
+    watermark?: boolean;
+  },
   onProgress?: (fraction: number) => void,
 ): Promise<string> {
   const serveUrl = await getServeUrl();
-  const inputProps = { timeline: input.timeline, assets: input.assets };
+  const inputProps = { timeline: input.timeline, assets: input.assets, watermark: input.watermark ?? false };
   const composition = await selectComposition({ serveUrl, id: REEL_COMPOSITION_ID, inputProps });
 
   const outputLocation = path.resolve(input.output);
@@ -46,6 +54,8 @@ export async function renderReel(
     // Limited-range BT.709, the standard for web video. Without it the output
     // is full-range (yuvj420p), which some players show with shifted colours.
     colorSpace: "bt709",
+    // Free-plan exports come out at 720×1280: same layout, scaled down.
+    scale: (input.width ?? 1080) / 1080,
     inputProps,
     outputLocation,
     concurrency: renderConcurrency(input.concurrency, os.availableParallelism()),

@@ -26,11 +26,13 @@ locals {
 
   # Parameter Store holds the credentials; both runtimes read them at start.
   app_secrets = {
-    DATABASE_URL         = var.database_url
-    META_APP_ID          = var.meta_app_id
-    META_APP_SECRET      = var.meta_app_secret
-    META_LOGIN_CONFIG_ID = var.meta_login_config_id
-    PIXABAY_API_KEY      = var.pixabay_api_key
+    DATABASE_URL          = var.database_url
+    META_APP_ID           = var.meta_app_id
+    META_APP_SECRET       = var.meta_app_secret
+    META_LOGIN_CONFIG_ID  = var.meta_login_config_id
+    PIXABAY_API_KEY       = var.pixabay_api_key
+    STRIPE_SECRET_KEY     = var.stripe_secret_key
+    STRIPE_WEBHOOK_SECRET = var.stripe_webhook_secret
   }
 }
 
@@ -272,7 +274,9 @@ resource "aws_apprunner_service" "web" {
           # transaction pooler's client limit.
           DATABASE_POOL_MAX = "5"
           # One-tap Instagram posting; off until the Meta app is out of development mode.
-          INSTAGRAM_ENABLED = tostring(var.instagram_enabled)
+          INSTAGRAM_ENABLED   = tostring(var.instagram_enabled)
+          STRIPE_PRICE_AGENT  = var.stripe_price_agent
+          STRIPE_PRICE_OFFICE = var.stripe_price_office
         })
         runtime_environment_secrets = { for k, p in aws_ssm_parameter.app : k => p.arn }
       }

@@ -9,6 +9,13 @@ import { referencedAssetIds, timelineSchema, type Timeline } from "./timeline";
  */
 export const reelExportPayloadSchema = z.object({
   timeline: timelineSchema,
+  // Decided by the plan when Export was pressed. Older payloads have none: full size, no mark.
+  output: z
+    .object({
+      width: z.union([z.literal(720), z.literal(1080)]),
+      watermark: z.boolean(),
+    })
+    .default({ width: 1080, watermark: false }),
   assets: z.record(
     z.string(),
     z.object({
@@ -30,6 +37,7 @@ export function parseReelExportPayload(value: unknown): ReelExportPayload {
 export function buildReelExportPayload(
   timeline: Timeline,
   library: { id: string; objectKey: string; kind: "VIDEO" | "IMAGE" | "AUDIO" }[],
+  output: ReelExportPayload["output"] = { width: 1080, watermark: false },
 ): ReelExportPayload {
   const byId = new Map(library.map((asset) => [asset.id, asset]));
   const assets: ReelExportPayload["assets"] = {};
@@ -38,5 +46,5 @@ export function buildReelExportPayload(
     if (!asset) throw new Error("This reel uses media that no longer exists. Remove it and try again.");
     assets[id] = { objectKey: asset.objectKey, kind: asset.kind };
   }
-  return { timeline, assets };
+  return { timeline, assets, output };
 }

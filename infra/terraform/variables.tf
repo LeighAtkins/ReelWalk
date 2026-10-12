@@ -135,3 +135,27 @@ variable "pixabay_api_key" {
   sensitive = true
   default   = ""
 }
+
+# Stripe billing (apps/web/lib/stripe.ts). Empty means no upgrade buttons.
+variable "stripe_secret_key" {
+  type      = string
+  sensitive = true
+  default   = ""
+}
+
+variable "stripe_webhook_secret" {
+  type      = string
+  sensitive = true
+  default   = ""
+}
+
+variable "stripe_price_agent" {
+  type    = string
+  default = ""
+}
+
+variable "stripe_price_office" {
+  type    = string
+  default = ""
+}
+

@@ -22,6 +22,7 @@ import { DetailsCardView } from "./DetailsCardView";
 import { PanoView } from "./PanoView";
 import { PlanOverlayView } from "./PlanOverlayView";
 import type { ReelAsset, ReelProps } from "./types";
+import { Watermark } from "./Watermark";
 
 /** Frames of the dip-to-black on each side of a "fade" transition. */
 const FADE_FRAMES = 8;
@@ -197,7 +198,7 @@ const MusicTrack: React.FC<{ timeline: Timeline; asset: ReelAsset }> = ({ timeli
  * The whole reel. Used by the Player in the editor and by the worker for the
  * final MP4, so the export always matches the preview.
  */
-export const ReelComposition: React.FC<ReelProps> = ({ timeline, assets }) => {
+export const ReelComposition: React.FC<ReelProps> = ({ timeline, assets, watermark = false }) => {
   const { fps } = useVideoConfig();
   const plan = framePlan(timeline, fps);
   const musicAsset = timeline.music ? assets[timeline.music.assetId] : undefined;
@@ -224,6 +225,7 @@ export const ReelComposition: React.FC<ReelProps> = ({ timeline, assets }) => {
         </Sequence>
       ))}
       <DetailsCardView timeline={timeline} />
+      {watermark ? <Watermark /> : null}
       {musicAsset ? <MusicTrack timeline={timeline} asset={musicAsset} /> : null}
     </AbsoluteFill>
   );

@@ -97,3 +97,23 @@ URL=$(grep -E '^database_url' terraform.tfvars | sed -E 's/^database_url *= *"(.
 DATABASE_URL="${URL/:6543\//:5432/}" pnpm --filter @reelwalk/db migrate:deploy
 ```
 
+## Stripe billing
+
+Optional. Without it the account page shows the plans and usage but no
+upgrade buttons. To turn it on, in the Stripe dashboard (test mode first):
+
+1. Create two recurring prices, Agent $19/month and Office $79/month, and
+   copy their ids into `stripe_price_agent` and `stripe_price_office`.
+2. Copy a secret key into `stripe_secret_key`.
+3. Add a webhook endpoint for `https://reelwalking.com/api/stripe/webhook`
+   with the events `checkout.session.completed`,
+   `customer.subscription.created`, `customer.subscription.updated` and
+   `customer.subscription.deleted`; copy its signing secret into
+   `stripe_webhook_secret`.
+4. `terraform apply`, then deploy.
+
+The webhook writes the plan from the subscription's price; nothing else
+changes a paid plan. Testers get a plan by hand:
+`DATABASE_URL=... npx tsx scripts/comp.ts <email> AGENT 90` in `packages/db`
+(session pooler, port 5432).
+

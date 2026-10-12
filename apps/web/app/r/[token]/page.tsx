@@ -2,9 +2,11 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { prisma } from "@reelwalk/db";
 import { CopyButton } from "@/components/copy-button";
+import { FeatureConsent } from "@/components/feature-consent";
 import { BrandMark, DownloadIcon } from "@/components/icons";
 import { outputUrls } from "@/lib/render-jobs";
 import { appUrl } from "@/lib/app-url";
+import { getSessionUser } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -48,11 +50,23 @@ export async function generateMetadata({ params }: { params: Promise<{ token: st
   };
 }
 
-export default async function SharedReelPage({ params }: { params: Promise<{ token: string }> }) {
-  const { token } = await params;
+export default async function SharedReelPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ token: string }>;
+  searchParams: Promise<{ featured?: string }>;
+}) {
+  const [{ token }, { featured }] = await Promise.all([params, searchParams]);
   const shared = await loadShared(token);
   if (!shared) notFound();
   const { reel, urls } = shared;
+  // The owner, looking at their own link, gets the same consent box as the export screen.
+  const viewer = await getSessionUser();
+  const owner = viewer?.workspaceId === reel.workspaceId;
+  const instagram = owner
+    ? await prisma.socialAccount.findUnique({ where: { workspaceId_provider: { workspaceId: reel.workspaceId, provider: "instagram" } }, select: { username: true } })
+    : null;
 
   return (
     <main className="share">
@@ -97,6 +111,16 @@ export default async function SharedReelPage({ params }: { params: Promise<{ tok
               Save the video, paste the caption, post it as a Reel.
             </p>
           </div>
+        ) : null}
+        {owner && urls ? (
+          <FeatureConsent
+            reelId={reel.id}
+            consent={reel.featureConsent}
+            handle={reel.featureHandle}
+            suggestedHandle={instagram?.username ?? null}
+            back={`/r/${token}#featured`}
+            status={featured}
+          />
         ) : null}
       </section>
     </main>

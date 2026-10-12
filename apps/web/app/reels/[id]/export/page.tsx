@@ -5,6 +5,7 @@ import { prisma } from "@reelwalk/db";
 import { retryRenderJob } from "@/app/actions";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { CaptionEditor } from "@/components/caption-editor";
+import { FeatureConsent } from "@/components/feature-consent";
 import { BackIcon, DownloadIcon } from "@/components/icons";
 import { ShareButton } from "@/components/share-button";
 import { ShareLink } from "@/components/share-link";
@@ -19,8 +20,14 @@ import { getCurrentUser } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
 
-export default async function ExportPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
+export default async function ExportPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ featured?: string }>;
+}) {
+  const [{ id }, { featured }] = await Promise.all([params, searchParams]);
   const user = await getCurrentUser();
   const reel = await prisma.reel.findFirst({
     where: { id, workspaceId: user.workspaceId },
@@ -119,6 +126,17 @@ export default async function ExportPage({ params }: { params: Promise<{ id: str
         )}
 
         <CaptionEditor reelId={reel.id} initial={reel.caption} />
+
+        {urls ? (
+          <FeatureConsent
+            reelId={reel.id}
+            consent={reel.featureConsent}
+            handle={reel.featureHandle}
+            suggestedHandle={instagram?.username ?? null}
+            back={`/reels/${reel.id}/export#featured`}
+            status={featured}
+          />
+        ) : null}
       </section>
     </main>
   );

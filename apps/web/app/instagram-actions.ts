@@ -39,7 +39,7 @@ export async function startInstagramPost(input: { jobId: string }): Promise<Post
 
   const job = await prisma.renderJob.findFirst({
     where: { id: input.jobId, workspaceId: user.workspaceId, status: "SUCCEEDED" },
-    include: { output: true, reel: { select: { caption: true } } },
+    include: { output: true, reel: { select: { id: true, caption: true, featureConsent: true, featureHandle: true } } },
   });
   const urls = job ? await outputUrls(job) : null;
   if (!job || !urls) return { state: "failed", error: "This export has not finished." };
@@ -54,6 +54,10 @@ export async function startInstagramPost(input: { jobId: string }): Promise<Post
       videoUrl: urls.playUrl,
       caption: job.reel?.caption ?? "",
     });
+    // A reel offered for featuring without a handle is credited to the account it was posted from.
+    if (job.reel?.featureConsent && !job.reel.featureHandle) {
+      await prisma.reel.update({ where: { id: job.reel.id }, data: { featureHandle: account.username } }).catch(() => undefined);
+    }
     return { state: "processing", containerId };
   } catch (error) {
     return { state: "failed", error: error instanceof Error ? error.message : "Instagram refused the video." };

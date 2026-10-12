@@ -41,5 +41,5 @@ open for both later.
 - The Playwright suite signs in once (`auth.setup.ts`) and reuses the cookie.
 - Adding magic links or Google sign-in later means another way to call
   `createSession()`, not a new session model.
-- Password reset needs an email provider and does not exist yet; the account
-  page can change a known password.
+- Password reset by email arrived with SES in ADR 0016; the account page
+  can change a known password.

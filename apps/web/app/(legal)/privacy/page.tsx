@@ -6,7 +6,7 @@ export default function PrivacyPage() {
   return (
     <article className="prose">
       <h1>Privacy policy</h1>
-      <p className="muted small">Last updated 7 October 2026</p>
+      <p className="muted small">Last updated 12 October 2026</p>
 
       <h2>What ReelWalk is</h2>
       <p>
@@ -32,6 +32,15 @@ export default function PrivacyPage() {
           <strong>Instagram connection</strong> (optional): if you connect an Instagram professional account, we store the account id, its
           username and the access token Meta issues, so that you can publish exports as Reels. We use it for nothing else. Disconnecting
           deletes the token.
+        </li>
+        <li>
+          <strong>Featured reels</strong> (optional): if you tick &quot;Feature my reel&quot; on an export, we may repost that video on our
+          Instagram account and website, crediting the handle you give. We record when you ticked it. Untick the box and we stop using the
+          reel from then on.
+        </li>
+        <li>
+          <strong>Email</strong>: we email you only to reset your password when you ask, and to answer feedback you send us if you let
+          us. Feedback is kept with your email address and the screen it was sent from.
         </li>
         <li>
           <strong>Server logs</strong>: ordinary request logs (addresses, paths, timestamps) kept briefly to run and debug the service.

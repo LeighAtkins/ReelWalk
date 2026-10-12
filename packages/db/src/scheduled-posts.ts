@@ -80,6 +80,21 @@ export function afterFailure(attempts: number, failure: PublishFailure, now: Dat
 
 export type ContainerState = "IN_PROGRESS" | "FINISHED" | "ERROR" | "EXPIRED" | "PUBLISHED";
 
+/** A sound from Instagram's library to attach when the container is created (ADR 0018). */
+export type ScheduledPostAudio = { audioId: string; audioVolume: number; videoVolume: number };
+
+/** The post's chosen sound, or null when it has none. Volumes default to the sound replacing the reel's own audio. */
+export function scheduledPostAudio(post: Pick<ScheduledPost, "audioId" | "audioVolume" | "videoVolume">): ScheduledPostAudio | null {
+  if (!post.audioId) return null;
+  return { audioId: post.audioId, audioVolume: post.audioVolume ?? 100, videoVolume: post.videoVolume ?? 0 };
+}
+
+/** The sound's name for messages: "Title · Artist" in quotes, or its id when the title is missing. */
+export function scheduledPostAudioName(post: Pick<ScheduledPost, "audioId" | "audioTitle" | "audioArtist">): string {
+  const title = post.audioTitle ? (post.audioArtist ? `${post.audioTitle} · ${post.audioArtist}` : post.audioTitle) : (post.audioId ?? "");
+  return `"${title}"`;
+}
+
 /**
  * Everything the publisher needs from outside the database. The web app
  * passes the Instagram Graph calls, the storage URL and the mailer; tests
@@ -91,7 +106,15 @@ export type ScheduledPostDeps = {
    * returns what posting needs. A string is a permanent refusal, in words.
    */
   prepare(post: ScheduledPost): Promise<{ igUserId: string; token: string; videoUrl: string } | string>;
-  createContainer(input: { igUserId: string; token: string; videoUrl: string; caption: string; coverMs: number }): Promise<string>;
+  createContainer(input: {
+    igUserId: string;
+    token: string;
+    videoUrl: string;
+    caption: string;
+    coverMs: number;
+    /** Sent as audio_configuration; null posts the reel with its own soundtrack. */
+    audio: ScheduledPostAudio | null;
+  }): Promise<string>;
   containerStatus(containerId: string, token: string): Promise<{ status: ContainerState; detail: string | null }>;
   publish(igUserId: string, containerId: string, token: string): Promise<{ mediaId: string; permalink: string | null }>;
   /** Whether an error thrown by the calls above is worth retrying. */
@@ -187,13 +210,32 @@ export async function advanceScheduledPost(
     if (typeof ready === "string") return fail({ message: ready, transient: false }, true);
 
     if (!post.containerId) {
-      const containerId = await deps.createContainer({
-        igUserId: ready.igUserId,
-        token: ready.token,
-        videoUrl: ready.videoUrl,
-        caption: post.caption,
-        coverMs: post.coverMs,
-      });
+      const audio = scheduledPostAudio(post);
+      let containerId: string;
+      try {
+        containerId = await deps.createContainer({
+          igUserId: ready.igUserId,
+          token: ready.token,
+          videoUrl: ready.videoUrl,
+          caption: post.caption,
+          coverMs: post.coverMs,
+          audio,
+        });
+      } catch (error) {
+        const failure = deps.classify(error);
+        // Never posted without the sound the studio picked: a refusal with
+        // one attached fails the post, and says which sound it was.
+        if (audio && !failure.transient) {
+          return fail(
+            {
+              message: `Instagram would not create the post with the sound ${scheduledPostAudioName(post)}: ${failure.message} Nothing was posted. Pick another sound or remove it, then schedule again.`,
+              transient: false,
+            },
+            false,
+          );
+        }
+        return fail(failure, false);
+      }
       // Fetching and processing the video takes a while; look again on a later tick.
       return (await write({ containerId, containerAt: now, nextCheckAt: new Date(now.getTime() + containerRecheckDelayMs(0)) })) ? "waiting" : "lost";
     }
@@ -251,6 +293,29 @@ export async function cancelScheduledPost(prisma: PrismaClient, input: { id: str
   const { count } = await prisma.scheduledPost.updateMany({
     where: { id: input.id, workspaceId: input.workspaceId, status: "SCHEDULED" },
     data: { status: "CANCELLED", nextCheckAt: null },
+  });
+  return count === 1;
+}
+
+/**
+ * Changes or removes the sound of a post that has not started publishing.
+ * False if it has (its container may already carry the old sound), or it is
+ * not the workspace's.
+ */
+export async function setScheduledPostAudio(
+  prisma: PrismaClient,
+  input: {
+    id: string;
+    workspaceId: string;
+    audio: { audioId: string; title: string; artist: string | null; audioVolume: number; videoVolume: number } | null;
+  },
+): Promise<boolean> {
+  const audio = input.audio;
+  const { count } = await prisma.scheduledPost.updateMany({
+    where: { id: input.id, workspaceId: input.workspaceId, status: "SCHEDULED" },
+    data: audio
+      ? { audioId: audio.audioId, audioTitle: audio.title, audioArtist: audio.artist, audioVolume: audio.audioVolume, videoVolume: audio.videoVolume }
+      : { audioId: null, audioTitle: null, audioArtist: null, audioVolume: null, videoVolume: null },
   });
   return count === 1;
 }

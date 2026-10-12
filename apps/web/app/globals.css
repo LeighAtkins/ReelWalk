@@ -1872,6 +1872,143 @@ input[type="range"] {
   opacity: 0.7;
 }
 
+/* ── Instagram sound picker ───────────────────────────────────── */
+
+.sound-control {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.sound-button {
+  flex: 1 1 auto;
+  min-width: 0;
+  justify-content: flex-start;
+}
+
+.sound-control-compact .sound-button {
+  flex: 0 1 auto;
+  min-height: 36px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+
+.sound-control-compact .sound-clear {
+  width: 36px;
+  height: 36px;
+}
+
+.sound-button-set {
+  box-shadow: inset 0 0 0 1.5px var(--rule);
+}
+
+.sound-button-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sound-hint {
+  margin-top: -8px;
+}
+
+.sound-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sound-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 4px;
+  border-radius: var(--radius-m);
+  background: var(--panel);
+}
+
+.sound-row[data-selected] {
+  box-shadow: inset 0 0 0 2px var(--paper);
+}
+
+.sound-pick {
+  display: grid;
+  grid-template-columns: 48px 1fr;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  min-height: 60px;
+  padding: 6px 0 6px 6px;
+  border: 0;
+  border-radius: var(--radius-m);
+  background: transparent;
+  text-align: left;
+}
+
+.sound-cover {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  overflow: hidden;
+  border-radius: var(--radius-s);
+  background: var(--ink-deep);
+  color: var(--muted);
+}
+
+.sound-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.sound-tick {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgb(11 32 54 / 0.6);
+  color: var(--paper);
+}
+
+.sound-meta {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.sound-title,
+.sound-artist {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sound-title {
+  font-weight: 700;
+}
+
+.sound-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.scheduled-sound {
+  display: grid;
+  gap: 4px;
+  justify-items: start;
+  margin-top: 4px;
+}
+
+.scheduled-sound[data-pending] {
+  opacity: 0.6;
+}
+
 .caption-box {
   display: grid;
   gap: 8px;

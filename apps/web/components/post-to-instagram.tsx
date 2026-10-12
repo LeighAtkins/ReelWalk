@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import type { InstagramAudioChoice } from "@reelwalk/core";
 import { continueInstagramPost, startInstagramPost, type PostStep } from "@/app/instagram-actions";
 import { InstagramIcon } from "./icons";
 
@@ -9,7 +10,7 @@ import { InstagramIcon } from "./icons";
  * connected Instagram professional account. Instagram processes the video
  * for a few seconds to a few minutes; this polls until it is published.
  */
-export function PostToInstagram({ jobId, username }: { jobId: string; username: string }) {
+export function PostToInstagram({ jobId, username, audio = null }: { jobId: string; username: string; audio?: InstagramAudioChoice | null }) {
   const [step, setStep] = useState<PostStep | { state: "idle" } | { state: "starting" }>({ state: "idle" });
 
   useEffect(() => {
@@ -21,7 +22,7 @@ export function PostToInstagram({ jobId, username }: { jobId: string; username: 
 
   async function post() {
     setStep({ state: "starting" });
-    setStep(await startInstagramPost({ jobId }));
+    setStep(await startInstagramPost({ jobId, audio }));
   }
 
   if (step.state === "published") {

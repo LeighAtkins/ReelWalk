@@ -10,8 +10,7 @@ import { BackIcon, DownloadIcon } from "@/components/icons";
 import { ShareButton } from "@/components/share-button";
 import { ShareLink } from "@/components/share-link";
 import { outputSize, parseReelExportPayload } from "@reelwalk/core";
-import { PostToInstagram } from "@/components/post-to-instagram";
-import { SchedulePost } from "@/components/schedule-post";
+import { InstagramPublishing } from "@/components/instagram-publishing";
 import { isFakeInstagram, isInstagramConfigured } from "@/lib/instagram";
 import { workspacePlan } from "@/lib/plans";
 import { appUrl } from "@/lib/app-url";
@@ -97,10 +96,7 @@ export default async function ExportPage({
             </div>
             <div className="export-actions">
               {instagram && plan.instagram ? (
-                <>
-                  <PostToInstagram jobId={job.id} username={instagram.username} />
-                  {isInstagramConfigured() || isFakeInstagram() ? <SchedulePost jobId={job.id} username={instagram.username} /> : null}
-                </>
+                <InstagramPublishing jobId={job.id} username={instagram.username} live={isInstagramConfigured() || isFakeInstagram()} />
               ) : null}
               {planId === "FREE" && isInstagramConfigured() ? (
                 <Link className="btn btn-quiet" href="/account#plan" prefetch={false}>

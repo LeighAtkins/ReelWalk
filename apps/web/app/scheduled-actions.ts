@@ -2,8 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { INSTAGRAM, publishAtProblem, zonedLocalToUtc } from "@reelwalk/core";
-import { cancelScheduledPost as cancelPost, prisma } from "@reelwalk/db";
+import { INSTAGRAM, parseInstagramAudioChoice, publishAtProblem, zonedLocalToUtc } from "@reelwalk/core";
+import { cancelScheduledPost as cancelPost, prisma, setScheduledPostAudio } from "@reelwalk/db";
 import { COVER_FRAME_MS } from "@/lib/instagram";
 import { postingProblem } from "@/lib/scheduled-posts";
 import { getCurrentUser } from "@/lib/workspace";
@@ -17,10 +17,12 @@ export type ScheduleResult = { ok: true; id: string; publishAt: string } | { ok:
  * Queues a finished export to be posted as a Reel at a wall-clock time in
  * the viewer's time zone. The caption is the reel's, as saved right now.
  */
-export async function schedulePost(input: { jobId: string; local: string; timeZone: string }): Promise<ScheduleResult> {
+export async function schedulePost(input: { jobId: string; local: string; timeZone: string; audio?: unknown }): Promise<ScheduleResult> {
   const user = await getCurrentUser();
   const problem = await postingProblem(user.workspaceId);
   if (problem) return { ok: false, error: problem };
+  const audio = input.audio == null ? null : parseInstagramAudioChoice(input.audio);
+  if (input.audio != null && !audio) return { ok: false, error: "That Instagram sound could not be read. Pick it again." };
 
   const publishAt = zonedLocalToUtc(String(input.local), String(input.timeZone));
   if (!publishAt) return { ok: false, error: "Pick a date and time." };
@@ -45,7 +47,17 @@ export async function schedulePost(input: { jobId: string; local: string; timeZo
   if (waiting >= MAX_WAITING) return { ok: false, error: `You have ${waiting} posts waiting. Cancel one, or wait for some to go out.` };
 
   const post = await prisma.scheduledPost.create({
-    data: { workspaceId: user.workspaceId, renderJobId: job.id, createdById: user.id, caption, coverMs: COVER_FRAME_MS, publishAt },
+    data: {
+      workspaceId: user.workspaceId,
+      renderJobId: job.id,
+      createdById: user.id,
+      caption,
+      coverMs: COVER_FRAME_MS,
+      publishAt,
+      ...(audio
+        ? { audioId: audio.audioId, audioTitle: audio.title, audioArtist: audio.artist, audioVolume: audio.audioVolume, videoVolume: audio.videoVolume }
+        : {}),
+    },
   });
   revalidatePath("/scheduled");
   return { ok: true, id: post.id, publishAt: publishAt.toISOString() };
@@ -57,4 +69,19 @@ export async function cancelScheduled(formData: FormData): Promise<void> {
   const cancelled = await cancelPost(prisma, { id: String(formData.get("id") ?? ""), workspaceId: user.workspaceId });
   revalidatePath("/scheduled");
   redirect(cancelled ? "/scheduled?cancelled=1" : "/scheduled?cancelled=late");
+}
+
+export type SoundResult = { ok: true } | { ok: false; error: string };
+
+/**
+ * Changes (audio set) or removes (audio null) the Instagram sound of a post
+ * that is still waiting. One already publishing keeps what it had.
+ */
+export async function setScheduledSound(input: { id: string; audio: unknown }): Promise<SoundResult> {
+  const user = await getCurrentUser();
+  const audio = input.audio == null ? null : parseInstagramAudioChoice(input.audio);
+  if (input.audio != null && !audio) return { ok: false, error: "That Instagram sound could not be read. Pick it again." };
+  const changed = await setScheduledPostAudio(prisma, { id: String(input.id ?? ""), workspaceId: user.workspaceId, audio });
+  revalidatePath("/scheduled");
+  return changed ? { ok: true } : { ok: false, error: "That post has already started going out, so its sound can no longer change." };
 }

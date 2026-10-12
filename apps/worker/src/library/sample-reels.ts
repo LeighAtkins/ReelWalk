@@ -130,17 +130,17 @@ export function sampleReels(index: AssetIndex): SampleReel[] {
       id: "sample-country-house",
       title: "Country house tour",
       caption:
-        "Just listed: a light-filled country house with a garden lounge, open fire and veranda.\n\nBook a viewing through the link in bio.\n\n#justlisted #housetour #countryhome #realestate #dreamhome",
+        "Just listed: a light-filled lake country home with a garden lounge, wood-burning fireplace and wraparound porch.\n\nOpen house Saturday 11–1. Schedule a private showing through the link in bio.\n\n#justlisted #hometour #lakewaytx #austinrealestate #dreamhome",
       timeline: build({
         durations,
         music: music(index, "carefree"),
         details: listingDetailsSchema.parse({
-          price: "£1,250,000",
+          price: "$1,295,000",
           beds: "4",
           baths: "3",
-          area: "310 m²",
-          address: "Lythwood, Midlands",
-          contact: "Viewings this weekend",
+          area: "3,200 sq ft",
+          address: "Lakeway, TX",
+          contact: "Open house Sat 11–1",
           placement: "end",
         }),
         clips: [
@@ -167,17 +167,17 @@ export function sampleReels(index: AssetIndex): SampleReel[] {
       id: "sample-city-apartment",
       title: "City apartment",
       caption:
-        "A modern apartment with a chef's kitchen, a calm bedroom, a spa bathroom and its own terrace.\n\n#apartmenttour #modernliving #cityapartment #newlisting",
+        "A modern condo with a chef's kitchen, a calm bedroom, a spa bathroom and its own private terrace.\n\nTour this weekend: DM @demo_realty to reserve a time.\n\n#condotour #modernliving #capitolhill #seattlerealestate #newlisting",
       timeline: build({
         durations,
         music: music(index, "bossa-antigua"),
         details: listingDetailsSchema.parse({
-          price: "¥98,000,000",
+          price: "$849,000",
           beds: "2",
           baths: "1",
-          area: "74 m²",
-          address: "Kanda, Chiyoda, Tokyo",
-          contact: "@demo_realty",
+          area: "780 sq ft",
+          address: "Capitol Hill, Seattle, WA",
+          contact: "Tour this weekend",
           placement: "end",
         }),
         clips: [
@@ -202,17 +202,17 @@ export function sampleReels(index: AssetIndex): SampleReel[] {
     },
     {
       id: "sample-sea-view",
-      title: "Sea-view retreat (360)",
-      caption: "Wake up to the sea. Four rooms, one deck, all in 360.\n\n#seaview #holidayhome #360tour #coastalliving",
+      title: "Ocean-view retreat (360)",
+      caption: "Wake up to the ocean. Four rooms, one deck, all in 360.\n\nBook direct and save: link in bio.\n\n#oceanview #vacationrental #outerbanks #obx #360tour #coastalliving",
       timeline: build({
         durations,
         music: music(index, "inspired"),
         details: listingDetailsSchema.parse({
-          price: "R2,400 a night",
+          price: "$395 a night",
           beds: "1",
           baths: "1",
           area: "",
-          address: "Wild Coast, South Africa",
+          address: "Outer Banks, NC",
           contact: "Book direct: link in bio",
           placement: "end",
         }),
@@ -227,9 +227,9 @@ export function sampleReels(index: AssetIndex): SampleReel[] {
           pano(index, "sundowner_deck", { yawStart: -40, yawEnd: 35 }, { transitionIn: "fade" }),
         ],
         labels: [
-          { clip: "relax_inn_seaview_suite", text: "Sea-view retreat", style: "headline", y: 0.38, from: 300, before: 600 },
+          { clip: "relax_inn_seaview_suite", text: "Ocean-view retreat", style: "headline", y: 0.38, from: 300, before: 600 },
           { clip: "en_suite", text: "En suite", color: "#ff5a5f", from: 800 },
-          { clip: "cayley_interior", text: "Dining with a sea view", color: "#ff5a5f", from: 1200 },
+          { clip: "cayley_interior", text: "Dining with an ocean view", color: "#ff5a5f", from: 1200 },
           { clip: "sundowner_deck", text: "Sundowner deck", color: "#ff5a5f", y: 0.26, from: 600 },
         ],
       }),

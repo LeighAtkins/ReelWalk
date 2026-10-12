@@ -267,12 +267,11 @@ function SampleReels({ samples }: { samples: SampleReel[] }) {
               <video
                 src={sample.src}
                 poster={sample.poster ?? undefined}
-                autoPlay={index === 0}
+                autoPlay
                 muted
                 loop
                 playsInline
-                preload={index === 0 ? "auto" : "metadata"}
-                controls={index > 0}
+                preload="auto"
                 aria-label={`Sample reel ${index + 1}`}
               />
             </div>

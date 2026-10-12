@@ -102,8 +102,12 @@ DATABASE_URL="${URL/:6543\//:5432/}" pnpm --filter @reelwalk/db migrate:deploy
 Optional. Without it the account page shows the plans and usage but no
 upgrade buttons. To turn it on, in the Stripe dashboard (test mode first):
 
-1. Create two recurring prices, Agent $19/month and Office $79/month, and
-   copy their ids into `stripe_price_agent` and `stripe_price_office`.
+1. Create the recurring prices from `packages/core/src/plans.ts`: Agent
+   $29/month and $290/year, Studio (stored as OFFICE) $79/month and
+   $790/year. Copy their ids into `stripe_price_agent_monthly`,
+   `stripe_price_agent_yearly`, `stripe_price_office_monthly` and
+   `stripe_price_office_yearly`. The monthly ids turn billing on; leaving a
+   yearly id empty hides the yearly option.
 2. Copy a secret key into `stripe_secret_key`.
 3. Add a webhook endpoint for `https://reelwalking.com/api/stripe/webhook`
    with the events `checkout.session.completed`,

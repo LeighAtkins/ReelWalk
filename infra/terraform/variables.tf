@@ -149,12 +149,38 @@ variable "stripe_webhook_secret" {
   default   = ""
 }
 
-variable "stripe_price_agent" {
+# Stripe price ids, one per plan and billing interval. The monthly ones turn
+# billing on; a missing yearly one hides the yearly option. OFFICE is the
+# stored id of the plan shown as "Studio".
+variable "stripe_price_agent_monthly" {
   type    = string
   default = ""
 }
 
-variable "stripe_price_office" {
+variable "stripe_price_agent_yearly" {
+  type    = string
+  default = ""
+}
+
+variable "stripe_price_office_monthly" {
+  type    = string
+  default = ""
+}
+
+variable "stripe_price_office_yearly" {
+  type    = string
+  default = ""
+}
+
+# Public https URLs of finished reels shown on the landing page (apps/web/components/landing),
+# comma separated, newest first. Empty shows a placeholder frame.
+variable "sample_reel_urls" {
+  type    = string
+  default = ""
+}
+
+# Poster images for sample_reel_urls, comma separated in the same order. Optional.
+variable "sample_reel_poster_urls" {
   type    = string
   default = ""
 }

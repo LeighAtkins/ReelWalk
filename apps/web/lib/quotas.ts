@@ -1,3 +1,4 @@
+import { PLANS } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
 import { exportsThisMonth, storageUsed, workspacePlan } from "@/lib/plans";
 
@@ -23,7 +24,7 @@ export async function exportBlockedReason(workspaceId: string): Promise<string |
   }
   if (thisMonth >= plan.exportsPerMonth) {
     return id === "FREE"
-      ? `That is all ${plan.exportsPerMonth} of this month's free exports. The Agent plan has 50 a month, at full size and without the mark.`
+      ? `That is all ${plan.exportsPerMonth} of this month's free exports. The ${PLANS.AGENT.name} plan has ${PLANS.AGENT.exportsPerMonth} a month, at full size and without the mark.`
       : `That makes ${plan.exportsPerMonth} exports this month, the ${plan.name} plan's allowance. It resets on the 1st.`;
   }
   if (lastDay >= EXPORTS_PER_DAY) {
@@ -46,6 +47,6 @@ export async function storageBlockedReason(workspaceId: string, adding: number, 
   const [{ plan, id }, used] = await Promise.all([workspacePlan(workspaceId), storageUsed(workspaceId)]);
   const limit = plan.storageGb * 1024 ** 3;
   if (used + adding <= limit) return null;
-  const more = id === "FREE" ? " The Agent plan has 25 GB." : "";
+  const more = id === "FREE" ? ` The ${PLANS.AGENT.name} plan has ${PLANS.AGENT.storageGb} GB.` : "";
   return `${fileName} does not fit: your library holds ${gb(used)} of its ${gb(limit)}.${more}`;
 }

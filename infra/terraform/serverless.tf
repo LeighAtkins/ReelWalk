@@ -275,8 +275,13 @@ resource "aws_apprunner_service" "web" {
           DATABASE_POOL_MAX = "5"
           # One-tap Instagram posting; off until the Meta app is out of development mode.
           INSTAGRAM_ENABLED   = tostring(var.instagram_enabled)
-          STRIPE_PRICE_AGENT  = var.stripe_price_agent
-          STRIPE_PRICE_OFFICE = var.stripe_price_office
+          STRIPE_PRICE_AGENT_MONTHLY  = var.stripe_price_agent_monthly
+          STRIPE_PRICE_AGENT_YEARLY   = var.stripe_price_agent_yearly
+          STRIPE_PRICE_OFFICE_MONTHLY = var.stripe_price_office_monthly
+          STRIPE_PRICE_OFFICE_YEARLY  = var.stripe_price_office_yearly
+          # Finished reels the landing page plays; empty shows a placeholder frame.
+          SAMPLE_REEL_URL        = var.sample_reel_urls
+          SAMPLE_REEL_POSTER_URL = var.sample_reel_poster_urls
         })
         runtime_environment_secrets = { for k, p in aws_ssm_parameter.app : k => p.arn }
       }

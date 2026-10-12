@@ -1,11 +1,24 @@
 /**
  * What each plan allows. Shared by the web app (quotas, billing, the account
- * page) and the worker (output size, watermark), so the two never disagree.
+ * page, the landing page) and the worker (output size, watermark), so the
+ * two never disagree.
  *
- * Prices are what Stripe charges; the price ids live in env (STRIPE_PRICE_*).
+ * Prices are what Stripe charges; the price ids live in env
+ * (STRIPE_PRICE_<PLAN>_MONTHLY / _YEARLY). The ids FREE/AGENT/OFFICE are
+ * stored in the database, so a plan may be renamed (OFFICE shows as "Studio")
+ * without a migration.
  */
 
 export type PlanId = "FREE" | "AGENT" | "OFFICE";
+
+/** How often a paid plan is charged. Yearly costs ten months: two free. */
+export type BillingInterval = "month" | "year";
+
+export const BILLING_INTERVALS: BillingInterval[] = ["month", "year"];
+
+export function isBillingInterval(value: unknown): value is BillingInterval {
+  return value === "month" || value === "year";
+}
 
 /** Export width: 720 gives 720×1280, 1080 gives Instagram's full 1080×1920. */
 export type OutputWidth = 720 | 1080;
@@ -13,7 +26,10 @@ export type OutputWidth = 720 | 1080;
 export type PlanDef = {
   id: PlanId;
   name: string;
+  /** Charged every month on the monthly plan. 0 for Free. */
   priceUsd: number;
+  /** Charged once a year on the yearly plan. 0 for Free. */
+  priceUsdYearly: number;
   /** Exports started in a calendar month (UTC). Failed renders do not count. */
   exportsPerMonth: number;
   /** Exports queued or rendering at once. */
@@ -27,15 +43,31 @@ export type PlanDef = {
 };
 
 export const PLANS: Record<PlanId, PlanDef> = {
-  FREE: { id: "FREE", name: "Free", priceUsd: 0, exportsPerMonth: 5, activeExports: 2, storageGb: 1, outputWidth: 720, watermark: true, instagram: false, seats: 1 },
-  AGENT: { id: "AGENT", name: "Agent", priceUsd: 19, exportsPerMonth: 50, activeExports: 3, storageGb: 25, outputWidth: 1080, watermark: false, instagram: true, seats: 1 },
-  OFFICE: { id: "OFFICE", name: "Office", priceUsd: 79, exportsPerMonth: 300, activeExports: 6, storageGb: 100, outputWidth: 1080, watermark: false, instagram: true, seats: 5 },
+  FREE: { id: "FREE", name: "Free", priceUsd: 0, priceUsdYearly: 0, exportsPerMonth: 3, activeExports: 2, storageGb: 1, outputWidth: 720, watermark: true, instagram: false, seats: 1 },
+  AGENT: { id: "AGENT", name: "Agent", priceUsd: 29, priceUsdYearly: 290, exportsPerMonth: 40, activeExports: 3, storageGb: 25, outputWidth: 1080, watermark: false, instagram: true, seats: 1 },
+  OFFICE: { id: "OFFICE", name: "Studio", priceUsd: 79, priceUsdYearly: 790, exportsPerMonth: 200, activeExports: 6, storageGb: 100, outputWidth: 1080, watermark: false, instagram: true, seats: 5 },
 };
 
 export const PLAN_IDS = Object.keys(PLANS) as PlanId[];
 
 export function isPlanId(value: unknown): value is PlanId {
   return typeof value === "string" && value in PLANS;
+}
+
+/** What a plan costs for one charge at the given interval. */
+export function planPrice(plan: PlanDef, interval: BillingInterval): number {
+  return interval === "year" ? plan.priceUsdYearly : plan.priceUsd;
+}
+
+/** The yearly plan's price spread over twelve months, for "$24/month, billed yearly". */
+export function yearlyPerMonth(plan: PlanDef): number {
+  return Math.round((plan.priceUsdYearly / 12) * 100) / 100;
+}
+
+/** How many months of the monthly price the yearly plan saves (two, at ten months' price). */
+export function yearlyMonthsFree(plan: PlanDef): number {
+  if (plan.priceUsd === 0) return 0;
+  return Math.round(12 - plan.priceUsdYearly / plan.priceUsd);
 }
 
 /**

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { defaultScheduleLocal, SCHEDULE_MAX_AHEAD_DAYS, toZonedLocal } from "@reelwalk/core";
+import { defaultScheduleLocal, instagramAudioLabel, SCHEDULE_MAX_AHEAD_DAYS, toZonedLocal, type InstagramAudioChoice } from "@reelwalk/core";
 import { schedulePost } from "@/app/scheduled-actions";
 import { CalendarIcon } from "./icons";
 
@@ -13,12 +13,14 @@ const longTime = new Intl.DateTimeFormat(undefined, { weekday: "short", month: "
  * viewer's own time zone; the server converts and stores UTC. The caption is
  * the one in the box below, as saved when Schedule is tapped.
  */
-export function SchedulePost({ jobId, username }: { jobId: string; username: string }) {
+export function SchedulePost({ jobId, username, audio = null }: { jobId: string; username: string; audio?: InstagramAudioChoice | null }) {
   const [open, setOpen] = useState(false);
   const [zone, setZone] = useState("UTC");
   const [local, setLocal] = useState("");
   const [bounds, setBounds] = useState<{ min: string; max: string } | null>(null);
-  const [state, setState] = useState<{ step: "idle" | "saving" } | { step: "error"; error: string } | { step: "done"; id: string; publishAt: Date }>({ step: "idle" });
+  const [state, setState] = useState<
+    { step: "idle" | "saving" } | { step: "error"; error: string } | { step: "done"; id: string; publishAt: Date; sound: string | null }
+  >({ step: "idle" });
 
   // The zone is only known in the browser, so the defaults are set after hydration.
   useEffect(() => {
@@ -36,14 +38,15 @@ export function SchedulePost({ jobId, username }: { jobId: string; username: str
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     setState({ step: "saving" });
-    const result = await schedulePost({ jobId, local, timeZone: zone }).catch(() => ({ ok: false as const, error: "Could not reach ReelWalk. Try again." }));
-    setState(result.ok ? { step: "done", id: result.id, publishAt: new Date(result.publishAt) } : { step: "error", error: result.error });
+    const result = await schedulePost({ jobId, local, timeZone: zone, audio }).catch(() => ({ ok: false as const, error: "Could not reach ReelWalk. Try again." }));
+    setState(result.ok ? { step: "done", id: result.id, publishAt: new Date(result.publishAt), sound: audio ? instagramAudioLabel(audio) : null } : { step: "error", error: result.error });
   }
 
   if (state.step === "done") {
     return (
       <p className="schedule-done" role="status" style={{ gridColumn: "1 / -1" }} data-testid="schedule-confirmed" data-post-id={state.id}>
-        Scheduled for {longTime.format(state.publishAt)} on @{username}.{" "}
+        Scheduled for {longTime.format(state.publishAt)} on @{username}
+        {state.sound ? <> with the sound “{state.sound}”</> : null}.{" "}
         <Link className="link" href="/scheduled" prefetch={false}>
           See scheduled posts
         </Link>
@@ -78,7 +81,8 @@ export function SchedulePost({ jobId, username }: { jobId: string; username: str
         />
       </label>
       <p className="muted small" style={{ margin: 0 }}>
-        Posts with the caption below. ReelWalk publishes it at that time, even with this screen closed.
+        Posts with the caption below{audio ? <> and the sound “{instagramAudioLabel(audio)}”</> : null}. ReelWalk publishes it at that time, even with this screen
+        closed.
       </p>
       <div className="field-row">
         <button className="btn btn-quiet" type="button" onClick={() => setOpen(false)}>

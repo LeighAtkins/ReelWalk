@@ -2,7 +2,8 @@
 
 import { redirect } from "next/navigation";
 import { prisma } from "@reelwalk/db";
-import { containerStatus, createReelContainer, isInstagramConfigured, publishContainer } from "@/lib/instagram";
+import { instagramAudioLabel, parseInstagramAudioChoice } from "@reelwalk/core";
+import { containerStatus, createReelContainer, isInstagramConfigured, isTransientInstagramError, publishContainer } from "@/lib/instagram";
 import { outputUrls } from "@/lib/render-jobs";
 import { workspacePlan } from "@/lib/plans";
 import { getCurrentUser } from "@/lib/workspace";
@@ -30,12 +31,14 @@ async function connectedAccount(workspaceId: string) {
  * from a public URL (CloudFront, or a presigned link on real S3), so this only
  * works where the bucket is reachable from the internet.
  */
-export async function startInstagramPost(input: { jobId: string }): Promise<PostStep> {
+export async function startInstagramPost(input: { jobId: string; audio?: unknown }): Promise<PostStep> {
   const user = await getCurrentUser();
   if (!isInstagramConfigured()) return { state: "failed", error: "Instagram posting is not set up on this deployment." };
   if (!(await workspacePlan(user.workspaceId)).plan.instagram) return { state: "failed", error: "Posting straight to Instagram comes with the Agent plan." };
   const account = await connectedAccount(user.workspaceId);
   if (!account) return { state: "failed", error: "Connect an Instagram professional account first (Account tab)." };
+  const audio = input.audio == null ? null : parseInstagramAudioChoice(input.audio);
+  if (input.audio != null && !audio) return { state: "failed", error: "That Instagram sound could not be read. Pick it again." };
 
   const job = await prisma.renderJob.findFirst({
     where: { id: input.jobId, workspaceId: user.workspaceId, status: "SUCCEEDED" },
@@ -53,6 +56,7 @@ export async function startInstagramPost(input: { jobId: string }): Promise<Post
       token: account.accessToken,
       videoUrl: urls.playUrl,
       caption: job.reel?.caption ?? "",
+      audio,
     });
     // A reel offered for featuring without a handle is credited to the account it was posted from.
     if (job.reel?.featureConsent && !job.reel.featureHandle) {
@@ -60,7 +64,12 @@ export async function startInstagramPost(input: { jobId: string }): Promise<Post
     }
     return { state: "processing", containerId };
   } catch (error) {
-    return { state: "failed", error: error instanceof Error ? error.message : "Instagram refused the video." };
+    const message = error instanceof Error ? error.message : "Instagram refused the video.";
+    // Never posted without the sound that was picked.
+    if (audio && !isTransientInstagramError(error)) {
+      return { state: "failed", error: `Instagram would not create the post with the sound "${instagramAudioLabel(audio)}": ${message} Nothing was posted. Pick another sound or remove it.` };
+    }
+    return { state: "failed", error: message };
   }
 }
 

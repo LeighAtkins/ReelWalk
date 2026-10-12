@@ -167,6 +167,14 @@ model ScheduledPost {
   caption     String
   // Instagram's thumb_offset: where the cover frame is taken from.
   coverMs     Int                 @default(700)
+  // A sound from Instagram's own library (ADR 0018), sent as
+  // audio_configuration when the container is created. All null: none.
+  audioId     String?
+  audioTitle  String?
+  audioArtist String?
+  // 0-100 each: the sound, and the reel's own soundtrack under it.
+  audioVolume Int?
+  videoVolume Int?
   // UTC. The form converts from the viewer's time zone.
   publishAt   DateTime
   status      ScheduledPostStatus @default(SCHEDULED)

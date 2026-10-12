@@ -9,7 +9,20 @@
  * URL -> wait for processing -> publish.
  */
 
-const GRAPH = () => `https://graph.facebook.com/${process.env.META_GRAPH_VERSION ?? "v21.0"}`;
+import {
+  instagramAudioConfiguration,
+  parseInstagramAudioSearch,
+  type InstagramAudioTrack,
+  type InstagramAudioType,
+} from "@reelwalk/core";
+
+/**
+ * The Graph API version every call uses, and the Login dialog too. v22.0 is
+ * the first with audio_configuration on Reels (ADR 0018).
+ */
+export const DEFAULT_GRAPH_VERSION = "v25.0";
+const graphVersion = () => process.env.META_GRAPH_VERSION || DEFAULT_GRAPH_VERSION;
+const GRAPH = () => `https://graph.facebook.com/${graphVersion()}`;
 
 export const INSTAGRAM_SCOPES = ["instagram_basic", "instagram_content_publish", "pages_show_list", "pages_read_engagement", "business_management"];
 
@@ -39,7 +52,7 @@ export function isFakeInstagram(): boolean {
  * leave it unset and send scopes.
  */
 export function instagramAuthUrl(redirectUri: string, state: string): string {
-  const url = new URL(`https://www.facebook.com/${process.env.META_GRAPH_VERSION ?? "v21.0"}/dialog/oauth`);
+  const url = new URL(`https://www.facebook.com/${graphVersion()}/dialog/oauth`);
   url.searchParams.set("client_id", process.env.META_APP_ID ?? "");
   url.searchParams.set("redirect_uri", redirectUri);
   url.searchParams.set("state", state);
@@ -131,7 +144,6 @@ export async function listInstagramAccounts(token: string): Promise<InstagramAcc
 
 export type ContainerStatus = "IN_PROGRESS" | "FINISHED" | "ERROR" | "EXPIRED" | "PUBLISHED";
 
-/** Step 1: asks Instagram to fetch the video and prepare a Reel. The URL must be reachable from the public internet. */
 /**
  * Where the cover frame is taken from, in milliseconds. Frame 0 shows the
  * hero shot before any text overlay has faded in; by 700 ms the hook text has
@@ -140,7 +152,18 @@ export type ContainerStatus = "IN_PROGRESS" | "FINISHED" | "ERROR" | "EXPIRED" |
  */
 export const COVER_FRAME_MS = 700;
 
-export async function createReelContainer(input: { igUserId: string; token: string; videoUrl: string; caption: string; coverMs?: number }): Promise<string> {
+/** A sound from Instagram's library to mix in (ADR 0018); volumes are 0-100. */
+export type ReelAudio = { audioId: string; audioVolume: number; videoVolume: number };
+
+/** Step 1: asks Instagram to fetch the video and prepare a Reel. The URL must be reachable from the public internet. */
+export async function createReelContainer(input: {
+  igUserId: string;
+  token: string;
+  videoUrl: string;
+  caption: string;
+  coverMs?: number;
+  audio?: ReelAudio | null;
+}): Promise<string> {
   const body = new URLSearchParams({
     media_type: "REELS",
     video_url: input.videoUrl,
@@ -148,6 +171,7 @@ export async function createReelContainer(input: { igUserId: string; token: stri
     share_to_feed: "true",
     thumb_offset: String(Math.max(0, Math.round(input.coverMs ?? COVER_FRAME_MS))),
   });
+  if (input.audio) body.set("audio_configuration", instagramAudioConfiguration(input.audio));
   const result = await graph<{ id: string }>(`/${input.igUserId}/media`, { method: "POST", body, token: input.token });
   return result.id;
 }
@@ -164,4 +188,34 @@ export async function publishContainer(igUserId: string, containerId: string, to
   const published = await graph<{ id: string }>(`/${igUserId}/media_publish`, { method: "POST", body, token });
   const media = await graph<{ permalink?: string }>(`/${published.id}`, { token, query: { fields: "permalink" } }).catch(() => ({ permalink: undefined }));
   return { mediaId: published.id, permalink: media.permalink ?? null };
+}
+
+/**
+ * Searches Instagram's audio library (GET /ig_audio). An empty query returns
+ * what is trending. For a business account `music` is the commercially
+ * cleared catalogue; `original_sound` is creators' sounds. At most 25, no
+ * paging.
+ */
+export async function fetchInstagramAudio(input: { igUserId: string; token: string; type: InstagramAudioType; query: string }): Promise<InstagramAudioTrack[]> {
+  const query: Record<string, string> = { audio_type: input.type, user_id: input.igUserId };
+  if (input.query.trim()) query.search_query = input.query.trim();
+  const body = await graph<{ audio?: unknown }>("/ig_audio", { token: input.token, query });
+  return parseInstagramAudioSearch(body, input.type);
+}
+
+/** Graph error codes meaning the login no longer works, and ones meaning a permission is missing. */
+const EXPIRED_TOKEN_CODES = new Set([102, 190, 463, 467]);
+const PERMISSION_CODES = new Set([3, 10]);
+
+/** A Graph API failure in words a studio can act on. */
+export function instagramErrorMessage(error: unknown, fallback = "Instagram did not answer. Try again in a moment."): string {
+  if (error instanceof InstagramError) {
+    if (error.code !== null && EXPIRED_TOKEN_CODES.has(error.code)) return "Your Instagram connection has expired. Reconnect it on the Account tab.";
+    // 200-299 are the "permission denied" family.
+    if (error.code !== null && (PERMISSION_CODES.has(error.code) || (error.code >= 200 && error.code < 300))) {
+      return "ReelWalk is missing an Instagram permission for this. Reconnect Instagram on the Account tab and allow everything it asks for.";
+    }
+    return error.transient ? fallback : error.message;
+  }
+  return fallback;
 }

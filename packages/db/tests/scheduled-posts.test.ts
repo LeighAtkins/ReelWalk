@@ -10,7 +10,10 @@ import {
   prisma,
   runScheduledPosts,
   SCHEDULED_POST_STUCK_MS,
+  scheduledPostAudio,
+  scheduledPostAudioName,
   scheduledPostRetryDelayMs,
+  setScheduledPostAudio,
   type ContainerState,
   type ScheduledPostDeps,
 } from "../src/index";
@@ -54,6 +57,14 @@ describe("scheduled post transitions", () => {
     expect(containerRecheckDelayMs(120_000)).toBe(60_000);
     expect(containerRecheckDelayMs(60 * 60_000)).toBe(5 * 60_000);
   });
+
+  it("sends a post's chosen sound, and nothing when it has none", () => {
+    expect(scheduledPostAudio({ audioId: null, audioVolume: null, videoVolume: null })).toBeNull();
+    expect(scheduledPostAudio({ audioId: "123", audioVolume: 100, videoVolume: 35 })).toEqual({ audioId: "123", audioVolume: 100, videoVolume: 35 });
+    expect(scheduledPostAudio({ audioId: "123", audioVolume: null, videoVolume: null })).toEqual({ audioId: "123", audioVolume: 100, videoVolume: 0 });
+    expect(scheduledPostAudioName({ audioId: "123", audioTitle: "Song", audioArtist: "Band" })).toBe('"Song · Band"');
+    expect(scheduledPostAudioName({ audioId: "123", audioTitle: null, audioArtist: null })).toBe('"123"');
+  });
 });
 
 // Claims are a locking rule in SQL, so they are tested against a real,
@@ -92,7 +103,7 @@ describe.skipIf(!process.env.DATABASE_URL)("scheduled posts (Postgres)", () => {
     const deps: ScheduledPostDeps = {
       prepare: async () => ({ igUserId: "17841400000000000", token: "token", videoUrl: "https://media.example/reel.mp4" }),
       createContainer: vi.fn(async (input) => {
-        calls.push(`create ${input.coverMs}`);
+        calls.push(`create ${input.coverMs}${input.audio ? ` audio ${input.audio.audioId} ${input.audio.audioVolume}/${input.audio.videoVolume}` : ""}`);
         return `1790000000000000${calls.length}`;
       }),
       containerStatus: vi.fn(async () => {
@@ -224,6 +235,47 @@ describe.skipIf(!process.env.DATABASE_URL)("scheduled posts (Postgres)", () => {
     expect(await advanceScheduledPost(prisma, c3!, deps, time(5))).toBe("published");
     expect(deps.publish).toHaveBeenCalledTimes(1);
     expect(deps.createContainer).toHaveBeenCalledTimes(1);
+  });
+
+  it("attaches the chosen sound when the container is created", async () => {
+    const post = await prisma.scheduledPost.create({
+      data: { workspaceId, renderJobId, caption: "Open house", publishAt: time(0), audioId: "555", audioTitle: "Song", audioArtist: "Band", audioVolume: 100, videoVolume: 35 },
+    });
+    const { deps, calls } = fakeInstagram();
+    const [claim] = mine(await claimDueScheduledPosts(prisma, { now: time(1), limit: 50 }), [post.id]);
+    expect(await advanceScheduledPost(prisma, claim!, deps, time(1))).toBe("waiting");
+    expect(calls).toEqual(["create 700 audio 555 100/35"]);
+  });
+
+  it("fails, naming the sound, when Instagram refuses the post with it attached", async () => {
+    const post = await prisma.scheduledPost.create({
+      data: { workspaceId, renderJobId, caption: "Open house", publishAt: time(0), audioId: "555", audioTitle: "Song", audioArtist: "Band", audioVolume: 100, videoVolume: 0 },
+    });
+    const { deps } = fakeInstagram();
+    deps.createContainer = vi.fn(async () => {
+      throw new Error("The audio is not available.");
+    });
+    deps.classify = (error) => ({ message: error instanceof Error ? error.message : String(error), transient: false });
+    const [claim] = mine(await claimDueScheduledPosts(prisma, { now: time(1), limit: 50 }), [post.id]);
+    expect(await advanceScheduledPost(prisma, claim!, deps, time(1))).toBe("failed");
+    const row = await reload(post.id);
+    expect(row.status).toBe("FAILED");
+    expect(row.error).toContain('"Song · Band"');
+    expect(row.error).toContain("The audio is not available.");
+    expect(deps.createContainer).toHaveBeenCalledTimes(1);
+    expect(deps.publish).not.toHaveBeenCalled();
+  });
+
+  it("changes or removes the sound only while the post is waiting", async () => {
+    const post = await schedule(time(0));
+    const audio = { audioId: "777", title: "Song", artist: null, audioVolume: 100, videoVolume: 0 };
+    expect(await setScheduledPostAudio(prisma, { id: post.id, workspaceId: "someone-else", audio })).toBe(false);
+    expect(await setScheduledPostAudio(prisma, { id: post.id, workspaceId, audio })).toBe(true);
+    expect(await reload(post.id)).toMatchObject({ audioId: "777", audioTitle: "Song", audioArtist: null, audioVolume: 100, videoVolume: 0 });
+    expect(await setScheduledPostAudio(prisma, { id: post.id, workspaceId, audio: null })).toBe(true);
+    expect(await reload(post.id)).toMatchObject({ audioId: null, audioTitle: null, audioVolume: null, videoVolume: null });
+    await claimDueScheduledPosts(prisma, { now: time(1), limit: 50 });
+    expect(await setScheduledPostAudio(prisma, { id: post.id, workspaceId, audio })).toBe(false);
   });
 
   it("fails rather than posts a day late", async () => {

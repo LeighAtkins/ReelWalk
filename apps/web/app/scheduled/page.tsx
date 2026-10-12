@@ -1,10 +1,12 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { instagramAudioLabel } from "@reelwalk/core";
 import { prisma, type ScheduledPostStatus } from "@reelwalk/db";
 import { cancelScheduled } from "@/app/scheduled-actions";
 import { AutoRefresh } from "@/components/auto-refresh";
-import { BackIcon } from "@/components/icons";
+import { BackIcon, MusicIcon } from "@/components/icons";
 import { LocalTime } from "@/components/local-time";
+import { ScheduledSound } from "@/components/scheduled-sound";
 import { SubmitButton } from "@/components/submit-button";
 import { TabBar } from "@/components/tab-bar";
 import { getCurrentUser } from "@/lib/workspace";
@@ -121,6 +123,21 @@ function PostRow({ post }: { post: Row }) {
         {post.caption ? (
           <span className="small muted" title={post.caption} style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {post.caption}
+          </span>
+        ) : null}
+        {post.status === "SCHEDULED" ? (
+          <ScheduledSound
+            postId={post.id}
+            initial={
+              post.audioId
+                ? { audioId: post.audioId, title: post.audioTitle ?? post.audioId, artist: post.audioArtist, audioVolume: post.audioVolume ?? 100, videoVolume: post.videoVolume ?? 0 }
+                : null
+            }
+          />
+        ) : post.audioId ? (
+          <span className="small muted sound-label" data-testid="scheduled-sound-label">
+            <MusicIcon size={14} />
+            {instagramAudioLabel({ title: post.audioTitle ?? post.audioId, artist: post.audioArtist })}
           </span>
         ) : null}
         {post.status === "PUBLISHED" && post.permalink ? (

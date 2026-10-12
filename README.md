@@ -20,6 +20,7 @@ A phone-first editor for Instagram Reels of property listings. Pick photos and w
 - Undo and redo, autosave, and protection against two tabs overwriting each other
 - Export renders on a worker and keeps going if you leave; the export screen opens the phone's share sheet with the video and copies the caption
 - Scheduled posting: with Instagram connected (Agent plan and up), queue an export to post itself at a chosen time; the queue is at `/scheduled` (`docs/adr/0017`)
+- Instagram sounds: pick a track or trending sound from Instagram's own licensed library on the export screen; Instagram mixes it in when the Reel is published, now or scheduled (`docs/adr/0018`)
 
 > The product strategy (floorplan overlay, AI room labels) is in `docs/PLAN.md` and `docs/MVP_SPEC.md`.
 

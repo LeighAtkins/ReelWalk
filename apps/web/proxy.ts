@@ -11,6 +11,8 @@ const SESSION_COOKIE = "rw_session";
 const PUBLIC_PATHS = [
   /^\/login$/,
   /^\/signup$/,
+  /^\/forgot$/,
+  /^\/reset\/[^/]+$/,
   /^\/r\/[^/]+$/,
   /^\/(privacy|terms|data-deletion)$/,
   /^\/api\//,

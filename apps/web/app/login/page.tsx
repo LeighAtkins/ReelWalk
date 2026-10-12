@@ -64,16 +64,11 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
             Create your studio
           </Link>
         </p>
-        <details className="muted small" style={{ textAlign: "center" }}>
-          <summary style={{ cursor: "pointer" }}>Forgot your password?</summary>
-          <p style={{ marginTop: 8 }}>
-            Email{" "}
-            <a className="link" href="mailto:leigh.atkins1@gmail.com?subject=ReelWalk%20password%20reset">
-              leigh.atkins1@gmail.com
-            </a>{" "}
-            from the address you signed up with, and you get a new one the same day.
-          </p>
-        </details>
+        <p className="muted small" style={{ textAlign: "center" }}>
+          <Link href="/forgot" className="link">
+            Forgot your password?
+          </Link>
+        </p>
       </form>
       <p className="muted small auth-legal">
         <Link href="/terms" className="link">

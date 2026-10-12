@@ -1,4 +1,3 @@
-import Image from "next/image";
 import {
   BackIcon,
   CaptionIcon,
@@ -15,35 +14,36 @@ import {
   UndoIcon,
 } from "@/components/icons";
 import styles from "./mocks.module.css";
+import { RoomPhoto } from "./room-photo";
 
 /**
  * The app's screens, drawn in HTML for the landing page: the media sheet,
  * the editor, the export screen and the share screen, each with real room
  * photos from the starter library in it. They copy the real screens'
- * layout and colours (globals.css) so the page shows what the product
+ * layout and colors (globals.css) so the page shows what the product
  * looks like, not an artist's impression. One listing runs through all four.
  */
 
 const LISTING = {
-  title: "14 Harbour Lane",
+  title: "1427 Lakeview Dr",
   price: "$1,250,000",
   facts: ["4 bed", "3 bath", "2,900 sq ft"],
-  address: "14 Harbour Lane, Newport",
-  contact: "Harbour Lane Photo",
+  address: "1427 Lakeview Dr, Austin, TX",
+  contact: "Lakeview Listing Media",
 };
 
 /** Rooms of the one listing, in the order the photographer tapped them. */
 const ROOMS = [
-  { file: "lounge-garden", name: "Garden lounge", pano: true },
+  { file: "lounge-garden", name: "Family room", pano: true },
   { file: "kitchen-view", name: "Kitchen", pano: true },
-  { file: "suite", name: "Main suite", pano: false },
-  { file: "bathroom", name: "Bathroom", pano: false },
-  { file: "veranda", name: "Veranda", pano: true },
-  { file: "deck", name: "Deck", pano: false },
-  { file: "lounge-window", name: "Sitting room", pano: false },
+  { file: "suite", name: "Primary suite", pano: false },
+  { file: "bathroom", name: "Primary bath", pano: false },
+  { file: "veranda", name: "Covered porch", pano: true },
+  { file: "deck", name: "Back deck", pano: false },
+  { file: "lounge-window", name: "Living room", pano: false },
   { file: "glasshouse", name: "Guest room", pano: true },
   { file: "dining", name: "Dining room", pano: false },
-  { file: "bedroom", name: "Second bedroom", pano: false },
+  { file: "bedroom", name: "Bedroom 2", pano: false },
 ] as const;
 
 type Room = (typeof ROOMS)[number];
@@ -99,7 +99,7 @@ export function MediaSheetMock() {
             const order = picked.indexOf(room);
             return (
               <li key={room.file} className={styles.libraryItem} data-picked={order >= 0}>
-                <Image src={roomSrc(room, true)} alt="" width={270} height={480} sizes="96px" unoptimized />
+                <RoomPhoto src={roomSrc(room, true)} name={room.name} width={270} height={480} />
                 {room.pano ? <span className={styles.tag}>360</span> : null}
                 {order >= 0 ? <span className={styles.order}>{order + 1}</span> : null}
               </li>
@@ -139,7 +139,7 @@ export function EditorMock() {
   const onScreen = ROOMS[2];
   const windowStart = playhead - 2.8; // the second shown at the timeline's left edge
   return (
-    <Phone label="The ReelWalk editor: the main suite on screen with the price card, and a timeline of five rooms, a text and a song">
+    <Phone label="The ReelWalk editor: the primary suite on screen with the price card, and a timeline of five rooms, a text and a song">
       <div className={styles.topbar}>
         <span className={styles.iconBtn}>
           <CloseIcon size={18} />
@@ -152,7 +152,7 @@ export function EditorMock() {
       </div>
       <div className={styles.stage}>
         <div className={styles.frame}>
-          <Image src={roomSrc(onScreen)} alt="" width={900} height={1600} sizes="(min-width: 880px) 220px, 60vw" unoptimized />
+          <RoomPhoto src={roomSrc(onScreen)} name={onScreen.name} width={900} height={1600} />
           <span className={styles.label}>{onScreen.name}</span>
           <DetailsCard />
         </div>
@@ -255,7 +255,7 @@ export function ExportMock() {
       </div>
       <div className={styles.exportBody}>
         <div className={`${styles.frame} ${styles.exportFrame}`}>
-          <Image src={roomSrc(ROOMS[0])} alt="" width={900} height={1600} sizes="(min-width: 880px) 220px, 60vw" unoptimized />
+          <RoomPhoto src={roomSrc(ROOMS[0])} name={ROOMS[0].name} width={900} height={1600} />
           <span className={styles.exportFill} style={{ height: `${percent}%` }} />
           <span className={styles.exportFigure}>
             <strong>{percent}%</strong>
@@ -282,7 +282,7 @@ export function ShareMock() {
       </div>
       <div className={styles.exportBody}>
         <div className={`${styles.frame} ${styles.shareFrame}`}>
-          <Image src={roomSrc(ROOMS[4])} alt="" width={900} height={1600} sizes="(min-width: 880px) 160px, 44vw" unoptimized />
+          <RoomPhoto src={roomSrc(ROOMS[4])} name={ROOMS[4].name} width={900} height={1600} />
           <DetailsCard />
         </div>
         <div className={styles.shareText}>
@@ -302,13 +302,31 @@ export function ShareMock() {
         </div>
         <div className={styles.captionBox}>
           <span className={styles.captionHead}>
-            Post caption <span>118/2200</span>
+            Post caption <span>131/2200</span>
           </span>
           <span className={styles.captionText}>
-            Just listed: {LISTING.address}. 4 bed, 3 bath, open Saturday 11 to 1. Call Harbour Lane Photo for the link. #justlisted #newport
+            Just listed: {LISTING.address}. 4 bed, 3 bath, 2,900 sq ft. Open house Saturday 11 to 1. Message Lakeview Listing Media for the
+            link. #justlisted #austinrealestate
           </span>
         </div>
       </div>
     </Phone>
+  );
+}
+
+/* ── A still from a finished reel ───────────────────────────────── */
+
+/**
+ * One frame of a rendered reel, as the renderer draws it: the room with the
+ * details card over it. The hero shows this in place of a sample video when
+ * no SAMPLE_REEL_URL is configured, so the layout is always finished.
+ */
+export function ReelStill() {
+  const room = ROOMS[5];
+  return (
+    <span className={styles.still} role="img" aria-label="A frame from a finished listing reel: the back deck with the price card">
+      <RoomPhoto src={roomSrc(room)} name={room.name} width={900} height={1600} eager />
+      <DetailsCard />
+    </span>
   );
 }

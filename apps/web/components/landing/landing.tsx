@@ -2,7 +2,7 @@ import Link from "next/link";
 import { PLANS } from "@reelwalk/core";
 import { BrandMark, InstagramIcon } from "@/components/icons";
 import type { SampleReel } from "@/lib/sample-reels";
-import { EditorMock, ExportMock, MediaSheetMock, ShareMock } from "./mocks";
+import { EditorMock, ExportMock, MediaSheetMock, ReelStill, ShareMock } from "./mocks";
 import { PricingSection } from "./pricing";
 import styles from "./landing.module.css";
 
@@ -12,9 +12,10 @@ export const INSTAGRAM_URL = "https://www.instagram.com/reelwalking";
 /**
  * What a signed-out visitor sees at /: a marketing page for real-estate
  * photographers who shoot several listings a day and edit none of them.
- * Server-rendered, no script: the pricing switch is CSS, the only motion is
- * the first sample reel playing. The app's screens are drawn in HTML
- * (mocks.tsx) with real room photos, so the page shows the product as it is.
+ * Server-rendered, no script beyond the image fallback: the pricing switch
+ * is CSS, the only motion is the first sample reel playing. The page is the
+ * app's own visual system (globals.css): the same navy, type and controls,
+ * so the drawn screens (mocks.tsx) sit in it rather than on it.
  */
 export function Landing({ samples }: { samples: SampleReel[] }) {
   const paid = PLANS.AGENT;
@@ -49,11 +50,11 @@ export function Landing({ samples }: { samples: SampleReel[] }) {
         </section>
 
         <section className={styles.how} aria-labelledby="how-title" id="how">
-          <div className={styles.howHead}>
+          <div className={styles.sectionHead}>
             <h2 id="how-title">How it works</h2>
             <p className={styles.lede}>
-              Four screens, all on your phone. These are the app&rsquo;s own screens, drawn with real room photos from the starter
-              library, so you can see what you would be tapping.
+              Four screens, all on your phone. These are the app&rsquo;s own screens, drawn with real rooms from the starter library, so
+              you can see what you would be tapping.
             </p>
           </div>
           <ol className={styles.steps}>
@@ -124,7 +125,9 @@ export function Landing({ samples }: { samples: SampleReel[] }) {
         </section>
 
         <section className={styles.facts} aria-labelledby="facts-title">
-          <h2 id="facts-title">What you are signing up for</h2>
+          <div className={styles.sectionHead}>
+            <h2 id="facts-title">What you are signing up for</h2>
+          </div>
           <ul className={styles.factList}>
             <li>Works in the browser on iPhone and Android. Nothing to install, and the same edit opens on a laptop.</li>
             <li>
@@ -156,7 +159,7 @@ export function Landing({ samples }: { samples: SampleReel[] }) {
             <summary>How long does one reel take?</summary>
             <p>
               A few minutes of taps on your phone to pick the shots, choose a song and type the details, then a few minutes of cloud
-              render that you do not have to wait for. Start one at the kerb and it is usually finished before you are at the next house.
+              render that you do not have to wait for. Start one at the curb and it is usually finished before you are at the next house.
             </p>
           </details>
           <details>
@@ -246,18 +249,17 @@ export function SiteFooter() {
 /**
  * Finished reels in phone frames: the proof that the output is real. The
  * first plays on its own, muted; the others wait with their poster and
- * controls. With no SAMPLE_REEL_URL set, one empty frame keeps the layout.
+ * controls. With no SAMPLE_REEL_URL set, one frame shows a still from a
+ * reel instead, so the hero is finished either way.
  */
 function SampleReels({ samples }: { samples: SampleReel[] }) {
+  const count = samples.length;
   return (
-    <figure className={styles.samples} id="sample" data-testid="sample" data-count={samples.length}>
-      <figcaption className={styles.samplesCaption}>
-        <strong>Made with ReelWalk.</strong> {samples.length > 0 ? "Finished reels, as they came out of the export. " : ""}Sound is off.
-      </figcaption>
-      <div className={styles.phones}>
-        {samples.length === 0 ? (
+    <figure className={styles.samples} id="sample" data-testid="sample" data-count={count}>
+      <div className={styles.phones} data-count={count}>
+        {count === 0 ? (
           <div className={styles.phone} data-placeholder="true">
-            <span className={styles.placeholder}>A finished reel plays here.</span>
+            <ReelStill />
           </div>
         ) : (
           samples.map((sample, index) => (
@@ -277,6 +279,10 @@ function SampleReels({ samples }: { samples: SampleReel[] }) {
           ))
         )}
       </div>
+      <figcaption className={styles.samplesCaption}>
+        <strong>Made with ReelWalk.</strong>{" "}
+        {count > 0 ? "Finished reels, as they came out of the export. Sound is off." : "A frame from a finished listing reel."}
+      </figcaption>
     </figure>
   );
 }

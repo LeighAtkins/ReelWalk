@@ -36,7 +36,6 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
 # Bind every interface whatever the platform sets HOSTNAME to (App Runner sets the instance name).
 ENV HOSTNAME=0.0.0.0
-ENV HOSTNAME=0.0.0.0
 
 # Nothing installs packages at runtime, so the package managers (and their
 # own vulnerable dependencies) are removed.
@@ -46,6 +45,8 @@ RUN apk upgrade --no-cache \
 # The standalone output contains the server and only the node_modules it traces.
 COPY --from=builder /workspace/apps/web/.next/standalone ./
 COPY --from=builder /workspace/apps/web/.next/static apps/web/.next/static
+# Standalone output never includes public/: without this every /landing/*.jpg is a 404.
+COPY --from=builder /workspace/apps/web/public apps/web/public
 
 USER node
 EXPOSE 3000

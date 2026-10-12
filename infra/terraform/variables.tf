@@ -185,3 +185,10 @@ variable "sample_reel_poster_urls" {
   default = ""
 }
 
+# How often EventBridge runs the scheduled Instagram post publisher
+# (scheduled_posts.tf). Posts go out within one interval of their time.
+variable "scheduled_posts_rate" {
+  type    = string
+  default = "rate(1 minute)"
+}
+

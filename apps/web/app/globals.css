@@ -246,7 +246,8 @@ p {
   display: grid;
   justify-items: center;
   gap: 2px;
-  min-width: 96px;
+  /* Four tabs fit a 360 px phone. */
+  min-width: 72px;
   padding: 6px 12px;
   border-radius: var(--radius-m);
   color: var(--muted);

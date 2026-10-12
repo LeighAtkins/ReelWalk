@@ -4,6 +4,7 @@ import { prisma } from "@reelwalk/db";
 import { changePassword, deleteAccount, signOut, updateProfile } from "@/app/auth-actions";
 import { openBillingPortal, startCheckout } from "@/app/billing-actions";
 import { disconnectInstagram } from "@/app/instagram-actions";
+import { FeedbackForm } from "@/components/feedback-form";
 import { outputSize, PLANS } from "@reelwalk/core";
 import { isInstagramConfigured } from "@/lib/instagram";
 import { exportsThisMonth, storageUsed, workspacePlan } from "@/lib/plans";
@@ -18,9 +19,9 @@ export const metadata: Metadata = { title: "Account · ReelWalk" };
 export default async function AccountPage({
   searchParams,
 }: {
-  searchParams: Promise<{ saved?: string; error?: string; instagram?: string; billing?: string }>;
+  searchParams: Promise<{ saved?: string; error?: string; instagram?: string; billing?: string; feedback?: string; message?: string }>;
 }) {
-  const { saved, error, instagram: igStatus, billing } = await searchParams;
+  const { saved, error, instagram: igStatus, billing, feedback, message } = await searchParams;
   const user = await getCurrentUser();
   const [reels, exports, own, shared, sessions, instagram, current, usedThisMonth, usedBytes] = await Promise.all([
     prisma.reel.count({ where: { workspaceId: user.workspaceId } }),
@@ -232,6 +233,8 @@ export default async function AccountPage({
           {saved === "password" ? <p className="toast" role="status">Password changed.</p> : null}
           <SubmitButton pendingLabel="Changing…">Change password</SubmitButton>
         </form>
+
+        <FeedbackForm page="/account" back="/account#feedback" status={feedback} error={message} />
 
         <form action={signOut} className="card">
           <p className="muted small">

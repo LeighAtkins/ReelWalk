@@ -5,10 +5,14 @@ import { prisma } from "@reelwalk/db";
 import { retryRenderJob } from "@/app/actions";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { CaptionEditor } from "@/components/caption-editor";
+import { FeatureConsent } from "@/components/feature-consent";
 import { BackIcon, DownloadIcon } from "@/components/icons";
 import { ShareButton } from "@/components/share-button";
 import { ShareLink } from "@/components/share-link";
+import { outputSize, parseReelExportPayload } from "@reelwalk/core";
 import { PostToInstagram } from "@/components/post-to-instagram";
+import { isInstagramConfigured } from "@/lib/instagram";
+import { workspacePlan } from "@/lib/plans";
 import { appUrl } from "@/lib/app-url";
 import { outputUrls } from "@/lib/render-jobs";
 import { coverUrls, readTimeline } from "@/lib/reels";
@@ -16,8 +20,14 @@ import { getCurrentUser } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
 
-export default async function ExportPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
+export default async function ExportPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ featured?: string }>;
+}) {
+  const [{ id }, { featured }] = await Promise.all([params, searchParams]);
   const user = await getCurrentUser();
   const reel = await prisma.reel.findFirst({
     where: { id, workspaceId: user.workspaceId },
@@ -27,12 +37,14 @@ export default async function ExportPage({ params }: { params: Promise<{ id: str
   const job = reel.renderJobs[0];
   if (!job) redirect(`/reels/${reel.id}`);
 
-  const [urls, [cover], base, instagram] = await Promise.all([
+  const [urls, [cover], base, instagram, { plan, id: planId }] = await Promise.all([
     outputUrls(job),
     coverUrls([readTimeline(reel.timeline)]),
     appUrl(),
     prisma.socialAccount.findUnique({ where: { workspaceId_provider: { workspaceId: user.workspaceId, provider: "instagram" } }, select: { username: true } }),
+    workspacePlan(user.workspaceId),
   ]);
+  const output = parseReelExportPayload(job.payload).output;
   const active = isActive(job.status);
   const progress = exportProgressText(job, new Date());
 
@@ -78,11 +90,17 @@ export default async function ExportPage({ params }: { params: Promise<{ id: str
             <div>
               <h1>Ready for Instagram</h1>
               <p className="muted" style={{ marginTop: 6 }}>
-                1080×1920 MP4, 30 fps. Share it to Instagram from your phone, download it, or send a link anyone can open.
+                {outputSize(output.width).width}×{outputSize(output.width).height} MP4, 30 fps. Share it to Instagram from your phone, download it, or send a link anyone can open.
+                {output.watermark ? " Free exports carry a small ReelWalk mark; the Agent plan removes it and exports at full size." : ""}
               </p>
             </div>
             <div className="export-actions">
-              {instagram ? <PostToInstagram jobId={job.id} username={instagram.username} /> : null}
+              {instagram && plan.instagram ? <PostToInstagram jobId={job.id} username={instagram.username} /> : null}
+              {planId === "FREE" && isInstagramConfigured() ? (
+                <Link className="btn btn-quiet" href="/account#plan" prefetch={false}>
+                  Post straight to Instagram with Agent
+                </Link>
+              ) : null}
               <ShareButton url={urls.playUrl} fileName={`${reel.title}.mp4`} caption={reel.caption} />
               <a className="btn btn-quiet" href={urls.downloadUrl} download>
                 <DownloadIcon size={18} />
@@ -108,6 +126,17 @@ export default async function ExportPage({ params }: { params: Promise<{ id: str
         )}
 
         <CaptionEditor reelId={reel.id} initial={reel.caption} />
+
+        {urls ? (
+          <FeatureConsent
+            reelId={reel.id}
+            consent={reel.featureConsent}
+            handle={reel.featureHandle}
+            suggestedHandle={instagram?.username ?? null}
+            back={`/reels/${reel.id}/export#featured`}
+            status={featured}
+          />
+        ) : null}
       </section>
     </main>
   );

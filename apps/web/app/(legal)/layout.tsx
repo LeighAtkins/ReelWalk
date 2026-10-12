@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { BrandMark } from "@/components/icons";
+import { SUPPORT_EMAIL } from "@/lib/email";
 
 /** Public pages: privacy, terms, data deletion. Linked from the Meta app settings. */
 export default function LegalLayout({ children }: { children: React.ReactNode }) {
@@ -25,7 +26,7 @@ export default function LegalLayout({ children }: { children: React.ReactNode })
           Data deletion
         </Link>
         {" · "}
-        <a href="mailto:leigh.atkins1@gmail.com" className="link">
+        <a href={`mailto:${SUPPORT_EMAIL}`} className="link">
           Contact
         </a>
       </footer>

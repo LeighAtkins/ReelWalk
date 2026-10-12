@@ -15,6 +15,7 @@ there is no apply step in CI.
 | `imports.tf` | Import blocks for the bucket and distribution that existed before Terraform |
 
 | `network.tf` | VPC in two zones with public subnets (no NAT gateway) for the Fargate render tasks |
+| `email.tf` | SES domain identity for `reelwalking.com` with Easy DKIM, and `ses:SendEmail` for the App Runner instance role; production access is requested once by hand (comment in the file) |
 | `serverless.tf` | App Runner service for the web app, the ECS cluster and worker task definition started on demand, the roles, and the SSM parameters holding credentials (ADR 0015) |
 
 Secrets (`database_url`, `meta_*`, `pixabay_api_key`) and `image_tag` come
@@ -96,4 +97,28 @@ takes a session-level advisory lock:
 URL=$(grep -E '^database_url' terraform.tfvars | sed -E 's/^database_url *= *"(.*)"$/\1/')
 DATABASE_URL="${URL/:6543\//:5432/}" pnpm --filter @reelwalk/db migrate:deploy
 ```
+
+## Stripe billing
+
+Optional. Without it the account page shows the plans and usage but no
+upgrade buttons. To turn it on, in the Stripe dashboard (test mode first):
+
+1. Create the recurring prices from `packages/core/src/plans.ts`: Agent
+   $29/month and $290/year, Studio (stored as OFFICE) $79/month and
+   $790/year. Copy their ids into `stripe_price_agent_monthly`,
+   `stripe_price_agent_yearly`, `stripe_price_office_monthly` and
+   `stripe_price_office_yearly`. The monthly ids turn billing on; leaving a
+   yearly id empty hides the yearly option.
+2. Copy a secret key into `stripe_secret_key`.
+3. Add a webhook endpoint for `https://reelwalking.com/api/stripe/webhook`
+   with the events `checkout.session.completed`,
+   `customer.subscription.created`, `customer.subscription.updated` and
+   `customer.subscription.deleted`; copy its signing secret into
+   `stripe_webhook_secret`.
+4. `terraform apply`, then deploy.
+
+The webhook writes the plan from the subscription's price; nothing else
+changes a paid plan. Testers get a plan by hand:
+`DATABASE_URL=... npx tsx scripts/comp.ts <email> AGENT 90` in `packages/db`
+(session pooler, port 5432).
 

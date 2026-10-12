@@ -2,19 +2,25 @@ import { DEFAULT_USER_EMAIL, DEFAULT_WORKSPACE_SLUG, hashPassword, prisma } from
 
 // Idempotent: safe to run on every deploy.
 async function main() {
+  // On a local stack (DEMO_PASSWORD set) the demo studio is comped onto the
+  // Studio plan: the end-to-end suite exports more reels than the free plan's
+  // monthly allowance. A public deployment leaves it on Free.
+  const comped = process.env.DEMO_PASSWORD ? { compedPlan: "OFFICE" as const, compedUntil: new Date("2099-01-01T00:00:00Z") } : {};
   const workspace = await prisma.workspace.upsert({
     where: { slug: DEFAULT_WORKSPACE_SLUG },
-    update: {},
-    create: { slug: DEFAULT_WORKSPACE_SLUG, name: "Demo Realty" },
+    update: comped,
+    create: { slug: DEFAULT_WORKSPACE_SLUG, name: "Demo Realty", ...comped },
   });
 
   // The demo studio can be signed into when DEMO_PASSWORD is set (local
   // Compose sets one; a public deployment leaves it unset).
   const passwordHash = process.env.DEMO_PASSWORD ? await hashPassword(process.env.DEMO_PASSWORD) : undefined;
+  // On a local stack the demo user is also the admin, so the suite can check /admin/featured.
+  const isAdmin = Boolean(passwordHash);
   await prisma.user.upsert({
     where: { email: DEFAULT_USER_EMAIL },
-    update: passwordHash ? { passwordHash } : {},
-    create: { email: DEFAULT_USER_EMAIL, name: "Demo Agent", workspaceId: workspace.id, passwordHash },
+    update: { ...(passwordHash ? { passwordHash } : {}), isAdmin },
+    create: { email: DEFAULT_USER_EMAIL, name: "Demo Agent", workspaceId: workspace.id, passwordHash, isAdmin },
   });
 
   const templates = [

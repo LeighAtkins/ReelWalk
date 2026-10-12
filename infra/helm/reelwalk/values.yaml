@@ -107,9 +107,10 @@ config:
   SQS_QUEUE_URL: https://sqs.us-east-2.amazonaws.com/734329326838/reelwalk-render-jobs
   SQS_DLQ_URL: https://sqs.us-east-2.amazonaws.com/734329326838/reelwalk-render-jobs-dlq
   CLOUDFRONT_BASE_URL: https://dh5xvp6apljoh.cloudfront.net
-  # Public address of the web app (share links, OAuth callbacks). Cookies are
-  # secure when it starts with https.
-  APP_URL: ""
+  # Public address of the web app (share links, OAuth callbacks, emailed
+  # links). Cookies are secure when it starts with https. Required once
+  # EMAIL_FROM is set. The kind cluster maps the web app to this port.
+  APP_URL: "http://localhost:8081"
   # Must equal the queue's redrive maxReceiveCount.
   RENDER_MAX_ATTEMPTS: "3"
   RENDER_VISIBILITY_SECONDS: "120"
@@ -120,6 +121,10 @@ config:
   OUTBOX_POLL_SECONDS: "5"
   # Browser tabs per render. Keep requests.cpu in step when raising it.
   RENDER_CONCURRENCY: "4"
+  # Finished reels the landing page plays: public URLs, comma separated, with
+  # optional poster images in the same order. Empty shows a placeholder frame.
+  SAMPLE_REEL_URL: ""
+  SAMPLE_REEL_POSTER_URL: ""
 
 secret:
   # true: the chart creates the Secret from `values` (local development only).

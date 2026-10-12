@@ -202,6 +202,13 @@ export const ExportsIcon = ({ size }: IconProps) => (
     <path d="M4 15v4.5h16V15" />
   </Icon>
 );
+/** A speech bubble: send feedback. */
+export const FeedbackIcon = ({ size }: IconProps) => (
+  <Icon size={size}>
+    <path d="M4 5.5h16v10H9.5L5.5 19.5v-4H4z" />
+    <path d="M8 10.5h8" />
+  </Icon>
+);
 export const SwapIcon = ({ size }: IconProps) => (
   <Icon size={size}>
     <path d="M4 8h13l-3-3M20 16H7l3 3" />

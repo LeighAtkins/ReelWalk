@@ -24,13 +24,21 @@ locals {
     OUTBOX_POLL_SECONDS          = "5"
   }
 
+  # Web-only settings (the worker sends no mail).
+  web_env = {
+    # Transactional email through SES (email.tf). Unset means log instead of send.
+    EMAIL_FROM = "ReelWalk <hello@${var.app_domain}>"
+  }
+
   # Parameter Store holds the credentials; both runtimes read them at start.
   app_secrets = {
-    DATABASE_URL         = var.database_url
-    META_APP_ID          = var.meta_app_id
-    META_APP_SECRET      = var.meta_app_secret
-    META_LOGIN_CONFIG_ID = var.meta_login_config_id
-    PIXABAY_API_KEY      = var.pixabay_api_key
+    DATABASE_URL          = var.database_url
+    META_APP_ID           = var.meta_app_id
+    META_APP_SECRET       = var.meta_app_secret
+    META_LOGIN_CONFIG_ID  = var.meta_login_config_id
+    PIXABAY_API_KEY       = var.pixabay_api_key
+    STRIPE_SECRET_KEY     = var.stripe_secret_key
+    STRIPE_WEBHOOK_SECRET = var.stripe_webhook_secret
   }
 }
 
@@ -259,7 +267,7 @@ resource "aws_apprunner_service" "web" {
 
       image_configuration {
         port = "3000"
-        runtime_environment_variables = merge(local.app_env, {
+        runtime_environment_variables = merge(local.app_env, local.web_env, {
           # App Runner sets HOSTNAME to the instance name and Next's server binds to it; health checks use localhost.
           HOSTNAME                   = "0.0.0.0"
           ECS_CLUSTER                = aws_ecs_cluster.renders.name
@@ -272,7 +280,14 @@ resource "aws_apprunner_service" "web" {
           # transaction pooler's client limit.
           DATABASE_POOL_MAX = "5"
           # One-tap Instagram posting; off until the Meta app is out of development mode.
-          INSTAGRAM_ENABLED = tostring(var.instagram_enabled)
+          INSTAGRAM_ENABLED   = tostring(var.instagram_enabled)
+          STRIPE_PRICE_AGENT_MONTHLY  = var.stripe_price_agent_monthly
+          STRIPE_PRICE_AGENT_YEARLY   = var.stripe_price_agent_yearly
+          STRIPE_PRICE_OFFICE_MONTHLY = var.stripe_price_office_monthly
+          STRIPE_PRICE_OFFICE_YEARLY  = var.stripe_price_office_yearly
+          # Finished reels the landing page plays; empty shows a placeholder frame.
+          SAMPLE_REEL_URL        = var.sample_reel_urls
+          SAMPLE_REEL_POSTER_URL = var.sample_reel_poster_urls
         })
         runtime_environment_secrets = { for k, p in aws_ssm_parameter.app : k => p.arn }
       }

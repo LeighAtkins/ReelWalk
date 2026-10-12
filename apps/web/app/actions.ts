@@ -26,6 +26,7 @@ import {
 import { prisma } from "@reelwalk/db";
 import { toLibraryAsset, type LibraryAsset } from "@/lib/library";
 import { saveReelFor, type SaveResult } from "@/lib/save-reel";
+import { workspacePlan } from "@/lib/plans";
 import { exportBlockedReason, retryBlockedReason, storageBlockedReason } from "@/lib/quotas";
 import { ensureWorkerRunning } from "@/lib/render-capacity";
 import { flushOutbox, queueRenderJob } from "@/lib/render-jobs";
@@ -177,9 +178,10 @@ export async function exportReel(input: { id: string }): Promise<ExportResult> {
     where: { id: { in: referencedAssetIds(timeline) }, ...mediaScope(user.workspaceId) },
     select: { id: true, objectKey: true, kind: true },
   });
+  const { plan } = await workspacePlan(user.workspaceId);
   let payload;
   try {
-    payload = buildReelExportPayload(timeline, library);
+    payload = buildReelExportPayload(timeline, library, { width: plan.outputWidth, watermark: plan.watermark });
   } catch (error) {
     return { ok: false, issues: [], message: error instanceof Error ? error.message : "Could not export." };
   }

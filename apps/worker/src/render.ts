@@ -136,7 +136,7 @@ export async function renderJob(
         // Preparing sources is the first fifth of the bar; Remotion reports the rest.
         report(((index + 1) / entries.length) * 0.2);
       }
-      await renderReel({ timeline: payload.timeline, assets, output: outputPath, concurrency }, report);
+      await renderReel({ timeline: payload.timeline, assets, output: outputPath, concurrency, width: payload.output.width, watermark: payload.output.watermark }, report);
     } else if (job.kind === "EDITOR") {
       // Editor projects carried media URLs chosen by the client, so rendering
       // one made the worker fetch any host it named (SSRF). The route that

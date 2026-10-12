@@ -44,3 +44,17 @@ output "apprunner_certificate_validation_records" {
 output "worker_task_definition" {
   value = aws_ecs_task_definition.worker.arn_without_revision
 }
+
+output "ses_dkim_cname_records" {
+  description = "Three CNAME records for Cloudflare (DNS only); SES verifies the domain once they resolve"
+  value       = [
+    for token in aws_sesv2_email_identity.domain.dkim_signing_attributes[0].tokens : {
+      name  = "${token}._domainkey.${var.app_domain}"
+      value = "${token}.dkim.amazonses.com"
+    }
+  ]
+}
+
+output "ses_identity_arn" {
+  value = aws_sesv2_email_identity.domain.arn
+}

@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@reelwalk/db";
 import { containerStatus, createReelContainer, isInstagramConfigured, publishContainer } from "@/lib/instagram";
 import { outputUrls } from "@/lib/render-jobs";
+import { workspacePlan } from "@/lib/plans";
 import { getCurrentUser } from "@/lib/workspace";
 
 export async function disconnectInstagram(): Promise<void> {
@@ -32,12 +33,13 @@ async function connectedAccount(workspaceId: string) {
 export async function startInstagramPost(input: { jobId: string }): Promise<PostStep> {
   const user = await getCurrentUser();
   if (!isInstagramConfigured()) return { state: "failed", error: "Instagram posting is not set up on this deployment." };
+  if (!(await workspacePlan(user.workspaceId)).plan.instagram) return { state: "failed", error: "Posting straight to Instagram comes with the Agent plan." };
   const account = await connectedAccount(user.workspaceId);
   if (!account) return { state: "failed", error: "Connect an Instagram professional account first (Account tab)." };
 
   const job = await prisma.renderJob.findFirst({
     where: { id: input.jobId, workspaceId: user.workspaceId, status: "SUCCEEDED" },
-    include: { output: true, reel: { select: { caption: true } } },
+    include: { output: true, reel: { select: { id: true, caption: true, featureConsent: true, featureHandle: true } } },
   });
   const urls = job ? await outputUrls(job) : null;
   if (!job || !urls) return { state: "failed", error: "This export has not finished." };
@@ -52,6 +54,10 @@ export async function startInstagramPost(input: { jobId: string }): Promise<Post
       videoUrl: urls.playUrl,
       caption: job.reel?.caption ?? "",
     });
+    // A reel offered for featuring without a handle is credited to the account it was posted from.
+    if (job.reel?.featureConsent && !job.reel.featureHandle) {
+      await prisma.reel.update({ where: { id: job.reel.id }, data: { featureHandle: account.username } }).catch(() => undefined);
+    }
     return { state: "processing", containerId };
   } catch (error) {
     return { state: "failed", error: error instanceof Error ? error.message : "Instagram refused the video." };

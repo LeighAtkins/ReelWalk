@@ -2,6 +2,8 @@
 // Archivo's width axis carries the type: wide for headings, narrow for timecodes.
 import "@fontsource-variable/archivo/wdth.css";
 import "@fontsource-variable/noto-sans-jp/wght.css";
+// The serif of the "elegant" reel text style, also shown on its style chip.
+import "@fontsource-variable/cormorant-garamond/wght.css";
 import "./globals.css";
 import type { Metadata, Viewport } from "next";
 import { WheelScroll } from "@/components/wheel-scroll";

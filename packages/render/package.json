@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@fontsource-variable/archivo": "^5.3.0",
+    "@fontsource-variable/cormorant-garamond": "^5.3.0",
     "@fontsource-variable/noto-sans-jp": "^5.3.0",
     "@reelwalk/core": "workspace:*",
     "@remotion/bundler": "4.0.534",

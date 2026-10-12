@@ -27,13 +27,20 @@ export const FILTERS = ["none", "warm", "cool", "vivid", "mono", "fade"] as cons
 export const MOTIONS = ["none", "zoom-in", "zoom-out", "pan"] as const;
 /** "walk" moves the camera between two 360 photos of the same home (see walk.ts). */
 export const TRANSITIONS = ["cut", "fade", "walk"] as const;
-export const TEXT_STYLES = ["plain", "box", "outline", "headline"] as const;
+/** "elegant" is a thin white serif that fades in, for luxury reels where the imagery leads. */
+export const TEXT_STYLES = ["plain", "box", "outline", "headline", "elegant"] as const;
 export const TEXT_COLORS = ["#ffffff", "#111111", "#ffd23f", "#ff5a5f", "#3ddc97", "#4da3ff"] as const;
 
 export type Filter = (typeof FILTERS)[number];
 export type Motion = (typeof MOTIONS)[number];
 export type Transition = (typeof TRANSITIONS)[number];
 export type TextStyle = (typeof TEXT_STYLES)[number];
+
+/** Allowed `size` of a text overlay. The elegant serif may go smaller than the bold styles. */
+export const TEXT_SIZE_MAX = 2.5;
+export function minTextSize(style: TextStyle): number {
+  return style === "elegant" ? 0.3 : 0.5;
+}
 
 const ms = z.number().int().min(0);
 const unit = z.number().min(0).max(1);
@@ -114,9 +121,10 @@ export const textSchema = z
     style: z.enum(TEXT_STYLES).default("plain"),
     color: z.string().regex(/^#[0-9a-f]{6}$/i).default("#ffffff"),
     /** Scale relative to the default size. */
-    size: z.number().min(0.5).max(2.5).default(1),
+    size: z.number().min(minTextSize("elegant")).max(TEXT_SIZE_MAX).default(1),
   })
-  .refine((text) => text.endMs > text.startMs, { message: "Text must be on screen for a positive time" });
+  .refine((text) => text.endMs > text.startMs, { message: "Text must be on screen for a positive time" })
+  .refine((text) => text.size >= minTextSize(text.style), { message: "Text is too small for this style", path: ["size"] });
 
 export const musicSchema = z.object({
   assetId: z.string().min(1),
@@ -351,12 +359,17 @@ export function updateClip(timeline: Timeline, id: string, settings: ClipSetting
 
 // ── Text and music ──────────────────────────────────────────────
 
+/** Clamps a text size into the range its style allows. */
+export function fitTextSize(style: TextStyle, size: number): number {
+  return Math.max(minTextSize(style), Math.min(TEXT_SIZE_MAX, size));
+}
+
 export function addText(timeline: Timeline, text: Omit<TextOverlay, "endMs"> & { endMs?: number }): Timeline {
   const total = timelineDurationMs(timeline);
   const startMs = Math.max(0, Math.min(Math.round(text.startMs), Math.max(0, total - MIN_CLIP_MS)));
   const endMs = Math.min(total, Math.round(text.endMs ?? startMs + DEFAULT_TEXT_MS));
   if (endMs <= startMs) return timeline;
-  return { ...timeline, texts: [...timeline.texts, textSchema.parse({ ...text, startMs, endMs })] };
+  return { ...timeline, texts: [...timeline.texts, textSchema.parse({ ...text, startMs, endMs, size: fitTextSize(text.style, text.size) })] };
 }
 
 export function updateText(timeline: Timeline, id: string, patch: Partial<Omit<TextOverlay, "id">>): Timeline {
@@ -370,6 +383,8 @@ export function updateText(timeline: Timeline, id: string, patch: Partial<Omit<T
       next.y = Math.max(0, Math.min(1, next.y));
       next.startMs = Math.max(0, Math.min(Math.round(next.startMs), total - 100));
       next.endMs = Math.max(next.startMs + 100, Math.min(Math.round(next.endMs), total));
+      // A small elegant text switched to a bolder style grows to that style's minimum.
+      next.size = fitTextSize(next.style, next.size);
       return textSchema.parse(next);
     }),
   };

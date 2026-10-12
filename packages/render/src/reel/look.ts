@@ -29,6 +29,18 @@ export const FILTER_LABELS: Record<Filter, string> = {
  */
 export const REEL_FONT_FAMILY = '"Archivo Variable", "Noto Sans JP Variable", sans-serif';
 
+/** A thin classic serif for the "elegant" style; Japanese falls back to Noto Sans JP. */
+export const ELEGANT_FONT_FAMILY = '"Cormorant Garamond Variable", "Noto Sans JP Variable", serif';
+
+/**
+ * The elegant serif is set smaller than the base size: at size 1 it is about
+ * 59 px, a cap height of about 37 px on the 1080x1920 frame, so the picture leads.
+ */
+const ELEGANT_SCALE = 0.78;
+
+/** Seconds the elegant style takes to fade in, and to fade out before it ends. */
+export const ELEGANT_FADE_S = 0.6;
+
 /** Base text size on the 1080-wide frame, before the overlay's own `size` scale. */
 export const BASE_TEXT_PX = 76;
 
@@ -45,6 +57,7 @@ export const TEXT_STYLE_LABELS: Record<TextStyle, string> = {
   box: "Label",
   outline: "Outline",
   headline: "Headline",
+  elegant: "Elegant",
 };
 
 /** Styles for a text overlay, in frame pixels (the composition is 1080x1920). */
@@ -89,6 +102,19 @@ export function textCss(style: TextStyle, color: string, size: number): CSSPrope
         lineHeight: 1.02,
         letterSpacing: "-0.01em",
         textShadow: "0 6px 24px rgba(0, 0, 0, 0.45)",
+      };
+    case "elegant":
+      return {
+        ...base,
+        fontFamily: ELEGANT_FONT_FAMILY,
+        fontSize: fontSize * ELEGANT_SCALE,
+        // SemiBold: Cormorant's hairlines vanish at Medium on a bright sky at this size.
+        fontWeight: 600,
+        lineHeight: 1.2,
+        letterSpacing: "0.06em",
+        // A soft glow plus a faint tight edge: not a visible drop shadow, but enough
+        // to hold white serif on a blown-out window or sky.
+        textShadow: "0 1px 3px rgba(0, 0, 0, 0.28), 0 1px 14px rgba(0, 0, 0, 0.4)",
       };
     default:
       return {

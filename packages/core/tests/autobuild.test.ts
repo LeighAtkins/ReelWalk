@@ -69,7 +69,7 @@ describe("buildTourReel", () => {
 });
 
 describe("listing details", () => {
-  const details = listingDetailsSchema.parse({ price: "¥48,000,000", beds: "3", baths: "2", area: "92 m²", address: "Kanda, Chiyoda", contact: "@demo_realty" });
+  const details = listingDetailsSchema.parse({ price: "$1,295,000", beds: "3", baths: "2", area: "1,640 sq ft", address: "Lakeway, TX", contact: "@demo_realty" });
 
   it("knows when a card has anything to show", () => {
     expect(hasDetails(details)).toBe(true);
@@ -78,13 +78,13 @@ describe("listing details", () => {
   });
 
   it("lists only the facts that were filled in", () => {
-    expect(detailFacts(details)).toEqual(["3 bed", "2 bath", "92 m²"]);
+    expect(detailFacts(details)).toEqual(["3 bed", "2 bath", "1,640 sq ft"]);
     expect(detailFacts(listingDetailsSchema.parse({ beds: "1" }))).toEqual(["1 bed"]);
   });
 
   it("drafts a caption", () => {
     expect(captionFromDetails(details)).toBe(
-      "¥48,000,000 · Kanda, Chiyoda\n\n3 bed · 2 bath · 92 m²\n\nViewings: @demo_realty\n\n#justlisted #housetour #realestate #newlisting",
+      "$1,295,000 · Lakeway, TX\n\n3 bed · 2 bath · 1,640 sq ft\n\nViewings: @demo_realty\n\n#justlisted #housetour #realestate #newlisting",
     );
   });
 });

@@ -40,6 +40,25 @@ export const MusicIcon = ({ size }: IconProps) => (
     <circle cx="17" cy="16" r="3" />
   </Icon>
 );
+export const ZoomIcon = ({ size }: IconProps) => (
+  <Icon size={size}>
+    <circle cx="11" cy="11" r="6.5" />
+    <path d="M16 16l4.5 4.5M8.5 11h5M11 8.5v5" />
+  </Icon>
+);
+export const CoverIcon = ({ size }: IconProps) => (
+  <Icon size={size}>
+    <rect x="4" y="3.5" width="16" height="17" rx="2" />
+    <path d="M12 8.5l1.3 2.7 3 .4-2.2 2.1.6 3-2.7-1.5-2.7 1.5.6-3-2.2-2.1 3-.4z" />
+  </Icon>
+);
+export const LogoIcon = ({ size }: IconProps) => (
+  <Icon size={size}>
+    <rect x="3.5" y="3.5" width="17" height="17" rx="2" />
+    <rect x="12.5" y="6.5" width="5" height="5" rx="1" />
+    <path d="M6.5 17.5l4-5 3 3.5 2-2 2 3.5" />
+  </Icon>
+);
 export const SplitIcon = ({ size }: IconProps) => (
   <Icon size={size}>
     <path d="M12 3v18" />

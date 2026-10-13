@@ -34,6 +34,7 @@ function clip(id: string, room: string | null): Clip {
     sourceEndMs: 4000,
     speed: 1,
     volume: 1,
+    zoom: 1,
     fit: "cover",
     filter: "none",
     motion: "none",

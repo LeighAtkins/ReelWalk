@@ -48,7 +48,7 @@ export async function askAndContinue(_previous: AskState, formData: FormData): P
 
   const saved = await prisma.reel.updateMany({
     where: { id: reel.id, workspaceId: user.workspaceId, revision: reel.revision },
-    data: { timeline: result.timeline, revision: { increment: 1 } },
+    data: { timeline: result.timeline, revision: { increment: 1 }, ...(result.caption ? { caption: result.caption } : {}) },
   });
   if (saved.count === 0) return { error: "The reel changed in another tab while this was being worked out. Reload and ask again.", note: null, skipped: [] };
   revalidatePath(`/reels/${reel.id}`);

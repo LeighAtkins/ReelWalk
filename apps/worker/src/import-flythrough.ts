@@ -62,7 +62,7 @@ async function createSampleReel(scene: string, workspaceId: string, assetId: str
   const routeTimeline = route ? parseTimeline(route.timeline) : null;
   const texts: TextOverlay[] = routeTimeline
     ? routeTimeline.texts.filter((text) => text.endMs <= durationMs + 100).map((text) => ({ ...text, endMs: Math.min(text.endMs, durationMs) }))
-    : [{ id: "title", text: "Step inside", startMs: 400, endMs: 3400, style: "headline", color: "#ffffff", size: 1, x: 0.5, y: 0.22 }];
+    : [{ id: "title", text: "Step inside", startMs: 400, endMs: 3400, style: "headline", color: "#ffffff", size: 1, x: 0.5, y: 0.22, animation: "auto" }];
   const timeline = timelineSchema.parse({
     version: 1,
     clips: [

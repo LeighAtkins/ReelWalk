@@ -42,7 +42,7 @@ export async function newAssets(workspaceId: string, before: Timeline, after: Ti
  */
 
 export type AskResult =
-  | { ok: true; timeline: Timeline; note: string; applied: string[]; skipped: string[]; questions: string[]; editId: string; assets?: LibraryAsset[]; instagramPick?: InstagramAudioTrack }
+  | { ok: true; timeline: Timeline; note: string; applied: string[]; skipped: string[]; questions: string[]; editId: string; assets?: LibraryAsset[]; instagramPick?: InstagramAudioTrack; caption?: string }
   | { ok: false; message: string; upgrade?: boolean };
 
 /** The studio's answers to the model's questions, sent back with the same request. */
@@ -155,7 +155,7 @@ export async function askForChange(input: {
   let model = "fake";
   let usage = { inputTokens: 0, cachedTokens: 0, outputTokens: 0 };
   if (isFakeAi()) {
-    plan = fakeAiEditPlan(request, input.timeline, songs);
+    plan = fakeAiEditPlan(request, input.timeline, songs, unused);
   } else {
     const ask = () =>
       structuredAnswer({
@@ -206,7 +206,7 @@ export async function askForChange(input: {
   if (model !== "fake") {
     console.log(`ai edit ${record.id}: ${model}, ${usage.inputTokens} in (${usage.cachedTokens} cached), ${usage.outputTokens} out, $${usageCostUsd(aiModel(), usage).toFixed(4)}, ${result.applied.length} applied, ${result.skipped.length} skipped`);
   }
-  return { ok: true, timeline: result.timeline, note: plan.note, applied: result.applied, skipped: result.skipped, questions: plan.questions, editId: record.id, instagramPick: result.instagramPick };
+  return { ok: true, timeline: result.timeline, note: plan.note, applied: result.applied, skipped: result.skipped, questions: plan.questions, editId: record.id, instagramPick: result.instagramPick, caption: result.caption };
 }
 
 /** One line for the account page: "4 of 60 this month". */

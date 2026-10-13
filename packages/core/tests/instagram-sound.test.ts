@@ -38,6 +38,7 @@ function clip(id: string, kind: "IMAGE" | "VIDEO", durationMs: number): Clip {
     sourceEndMs: durationMs,
     speed: 1,
     volume: 1,
+    zoom: 1,
     fit: "cover",
     filter: "none",
     motion: "none",

@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { INSTAGRAM, parseInstagramAudioChoice, publishAtProblem, zonedLocalToUtc } from "@reelwalk/core";
 import { cancelScheduledPost as cancelPost, prisma, setScheduledPostAudio } from "@reelwalk/db";
 import { COVER_FRAME_MS } from "@/lib/instagram";
+import { reelCoverMs } from "@/app/instagram-actions";
 import { postingProblem } from "@/lib/scheduled-posts";
 import { getCurrentUser } from "@/lib/workspace";
 
@@ -37,7 +38,7 @@ export async function schedulePost(input: { jobId: string; local: string; timeZo
 
   const job = await prisma.renderJob.findFirst({
     where: { id: String(input.jobId), workspaceId: user.workspaceId, status: "SUCCEEDED", output: { isNot: null } },
-    include: { reel: { select: { id: true, caption: true } } },
+    include: { reel: { select: { id: true, caption: true, timeline: true } } },
   });
   if (!job) return { ok: false, error: "This export has not finished." };
   const caption = job.reel?.caption ?? job.caption ?? "";
@@ -52,7 +53,7 @@ export async function schedulePost(input: { jobId: string; local: string; timeZo
       renderJobId: job.id,
       createdById: user.id,
       caption,
-      coverMs: COVER_FRAME_MS,
+      coverMs: reelCoverMs(job.reel?.timeline) ?? COVER_FRAME_MS,
       publishAt,
       ...(audio
         ? { audioId: audio.audioId, audioTitle: audio.title, audioArtist: audio.artist, audioVolume: audio.audioVolume, videoVolume: audio.videoVolume }

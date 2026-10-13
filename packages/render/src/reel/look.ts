@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import type { Filter, TextStyle } from "@reelwalk/core";
+import type { Filter, TextAnimation, TextStyle } from "@reelwalk/core";
 
 /**
  * Colour filters are CSS filters, so the Player preview in the browser and the
@@ -12,6 +12,12 @@ export const FILTER_CSS: Record<Filter, string | undefined> = {
   vivid: "saturate(1.45) contrast(1.08)",
   mono: "grayscale(1) contrast(1.12)",
   fade: "contrast(0.86) brightness(1.08) saturate(0.78)",
+  // Late low sun: warm, a touch darker, richer.
+  golden: "sepia(0.38) saturate(1.35) hue-rotate(-12deg) brightness(0.97) contrast(1.06)",
+  // Twilight: cooler, dimmer, blue in the shadows, the windows glow by comparison.
+  dusk: "saturate(0.9) hue-rotate(18deg) brightness(0.82) contrast(1.12)",
+  // The bright, clean look of listing photography: lifted, a little more contrast and colour.
+  crisp: "brightness(1.08) contrast(1.1) saturate(1.12)",
 };
 
 export const FILTER_LABELS: Record<Filter, string> = {
@@ -21,6 +27,9 @@ export const FILTER_LABELS: Record<Filter, string> = {
   vivid: "Vivid",
   mono: "Mono",
   fade: "Faded",
+  golden: "Golden hour",
+  dusk: "Dusk",
+  crisp: "Crisp",
 };
 
 /**
@@ -58,7 +67,20 @@ export const TEXT_STYLE_LABELS: Record<TextStyle, string> = {
   outline: "Outline",
   headline: "Headline",
   elegant: "Elegant",
+  tag: "Sticker",
 };
+
+export const TEXT_ANIMATION_LABELS: Record<TextAnimation, string> = {
+  auto: "Style's own",
+  pop: "Pop",
+  fade: "Fade",
+  rise: "Rise",
+  type: "Type",
+  none: "None",
+};
+
+/** Lacquer, the brand's one accent, for the status sticker. */
+const LACQUER = "#c1272d";
 
 /** Styles for a text overlay, in frame pixels (the composition is 1080x1920). */
 export function textCss(style: TextStyle, color: string, size: number): CSSProperties {
@@ -102,6 +124,22 @@ export function textCss(style: TextStyle, color: string, size: number): CSSPrope
         lineHeight: 1.02,
         letterSpacing: "-0.01em",
         textShadow: "0 6px 24px rgba(0, 0, 0, 0.45)",
+      };
+    case "tag":
+      // A small sticker: capitals, wide-set, on lacquer unless another colour was chosen.
+      return {
+        ...base,
+        fontWeight: 800,
+        fontStretch: "112%",
+        fontSize: fontSize * 0.62,
+        lineHeight: 1,
+        letterSpacing: "0.14em",
+        textTransform: "uppercase",
+        color: color.toLowerCase() === "#ffffff" ? "#ffffff" : readableOn(color),
+        backgroundColor: color.toLowerCase() === "#ffffff" ? LACQUER : color,
+        padding: `${fontSize * 0.2}px ${fontSize * 0.34}px`,
+        borderRadius: fontSize * 0.1,
+        boxShadow: "0 6px 24px rgba(0, 0, 0, 0.35)",
       };
     case "elegant":
       return {

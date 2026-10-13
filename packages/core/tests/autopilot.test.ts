@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AiAsset, AiSong } from "../src/ai-edit";
 import { autopilotRequest, autopilotStyle, detailsFromInfo, finishAutopilot, pickSong, ruleCut, usableCut } from "../src/autopilot";
-import { clipDurationMs, parseTimeline, timelineDurationMs } from "../src/timeline";
+import { clipDurationMs, parseTimeline, showsDetailsCard, timelineDurationMs } from "../src/timeline";
 
 const assets: Record<string, AiAsset> = {
   front: { id: "front", kind: "VIDEO", title: "02_Exterior_Facade_Palms", durationMs: 12000, isPano: false, bpm: null, beatOffsetMs: null },
@@ -53,7 +53,9 @@ describe("ruleCut", () => {
     const cut = ruleCut(picked(), context("privacy", { price: "$4,000,000" }));
     expect(cut.music?.assetId).toBe("calm");
     expect(cut.texts.map((text) => [text.text, text.style])).toEqual([["the privacy I want", "elegant"]]);
-    expect(cut.details).toBeNull();
+    // The price is kept for a later card or caption, but no card shows.
+    expect(cut.details).toMatchObject({ price: "$4,000,000", placement: "none" });
+    expect(showsDetailsCard(cut.details)).toBe(false);
     expect(Math.min(...cut.clips.map(clipDurationMs))).toBeGreaterThan(2500);
   });
 

@@ -2,7 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { prisma } from "@reelwalk/db";
-import { instagramAudioLabel, parseInstagramAudioChoice } from "@reelwalk/core";
+import { coverMs, instagramAudioLabel, parseInstagramAudioChoice, parseTimeline } from "@reelwalk/core";
 import { containerStatus, createReelContainer, isInstagramConfigured, isTransientInstagramError, publishContainer } from "@/lib/instagram";
 import { outputUrls } from "@/lib/render-jobs";
 import { workspacePlan } from "@/lib/plans";
@@ -31,6 +31,15 @@ async function connectedAccount(workspaceId: string) {
  * from a public URL (CloudFront, or a presigned link on real S3), so this only
  * works where the bucket is reachable from the internet.
  */
+/** The cover frame the reel chose (or the usual one). A reel whose edit cannot be read gets the usual frame. */
+export function reelCoverMs(timeline: unknown): number | undefined {
+  try {
+    return timeline ? coverMs(parseTimeline(timeline)) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function startInstagramPost(input: { jobId: string; audio?: unknown }): Promise<PostStep> {
   const user = await getCurrentUser();
   if (!isInstagramConfigured()) return { state: "failed", error: "Instagram posting is not set up on this deployment." };
@@ -42,7 +51,7 @@ export async function startInstagramPost(input: { jobId: string; audio?: unknown
 
   const job = await prisma.renderJob.findFirst({
     where: { id: input.jobId, workspaceId: user.workspaceId, status: "SUCCEEDED" },
-    include: { output: true, reel: { select: { id: true, caption: true, featureConsent: true, featureHandle: true } } },
+    include: { output: true, reel: { select: { id: true, caption: true, featureConsent: true, featureHandle: true, timeline: true } } },
   });
   const urls = job ? await outputUrls(job) : null;
   if (!job || !urls) return { state: "failed", error: "This export has not finished." };
@@ -56,6 +65,7 @@ export async function startInstagramPost(input: { jobId: string; audio?: unknown
       token: account.accessToken,
       videoUrl: urls.playUrl,
       caption: job.reel?.caption ?? "",
+      coverMs: reelCoverMs(job.reel?.timeline),
       audio,
     });
     // A reel offered for featuring without a handle is credited to the account it was posted from.

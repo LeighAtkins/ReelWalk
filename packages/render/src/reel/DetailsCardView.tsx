@@ -1,6 +1,6 @@
 import React from "react";
 import { interpolate, spring, useCurrentFrame, useVideoConfig } from "remotion";
-import { DETAILS_CARD_MS, detailFacts, hasDetails, INSTAGRAM, type ListingDetails, type Timeline } from "@reelwalk/core";
+import { DETAILS_CARD_MS, detailFacts, hasDetails, INSTAGRAM, showsDetailsCard, type ListingDetails, type Timeline } from "@reelwalk/core";
 import { useFontsFor } from "./fonts";
 import { REEL_FONT_FAMILY } from "./look";
 
@@ -59,14 +59,62 @@ const Card: React.FC<{ details: ListingDetails; local: number; length: number; l
 };
 
 /**
+ * The facts as one thin line at the top of the safe area for the whole reel:
+ * price, then beds, baths and size, the way listing reels keep them in view.
+ */
+const Strip: React.FC<{ details: ListingDetails }> = ({ details }) => {
+  const frame = useCurrentFrame();
+  const { fps, width } = useVideoConfig();
+  const facts = detailFacts(details);
+  const parts = [details.price, ...facts].filter(Boolean);
+  useFontsFor(parts.join(" "), 800);
+  if (parts.length === 0) return null;
+  const safe = INSTAGRAM.safeZonePx;
+  const enter = spring({ frame, fps, config: { damping: 16, stiffness: 140 }, durationInFrames: ENTER_FRAMES });
+  return (
+    <div
+      style={{
+        position: "absolute",
+        top: safe.top,
+        left: safe.left,
+        maxWidth: width - safe.left - safe.right,
+        display: "flex",
+        flexWrap: "wrap",
+        alignItems: "center",
+        gap: "6px 22px",
+        padding: "18px 30px",
+        borderRadius: 999,
+        backgroundColor: COLORS.card,
+        color: COLORS.paper,
+        fontFamily: REEL_FONT_FAMILY,
+        fontSize: 38,
+        fontWeight: 700,
+        fontStretch: "90%",
+        opacity: enter,
+      }}
+    >
+      {parts.map((part, index) => (
+        <span key={part} style={{ display: "flex", alignItems: "center", gap: 22, fontWeight: index === 0 && details.price ? 850 : 700 }}>
+          {index > 0 ? <span style={{ width: 4, height: 28, backgroundColor: COLORS.signal }} /> : null}
+          {part}
+        </span>
+      ))}
+    </div>
+  );
+};
+
+/**
  * Price, rooms and contact as a card over the start or the end of the reel
- * (or both). It sits above Instagram's caption area.
+ * (or both), above Instagram's caption area; or as a strip at the top for
+ * the whole reel; or kept unseen.
  */
 export const DetailsCardView: React.FC<{ timeline: Timeline }> = ({ timeline }) => {
   const frame = useCurrentFrame();
   const { fps, durationInFrames } = useVideoConfig();
   const details = timeline.details;
   if (!hasDetails(details)) return null;
+  if (details.placement === "throughout") return <Strip details={details} />;
+  if (!showsDetailsCard(details)) return null;
 
   // Never more than 40% of a short reel.
   const length = Math.min(Math.round((DETAILS_CARD_MS * fps) / 1000), Math.floor(durationInFrames * 0.4));

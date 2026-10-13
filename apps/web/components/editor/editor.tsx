@@ -42,6 +42,7 @@ import {
 } from "@reelwalk/core";
 import { ELEGANT_FADE_S, type ReelAsset } from "@reelwalk/render/reel";
 import { deleteReel, exportReel, readyPreviews } from "@/app/actions";
+import { deleteBrief, saveBrief } from "@/app/ai-actions";
 import { analyseInstagramSound, chooseInstagramSound } from "@/app/instagram-audio-actions";
 import { formatDuration } from "@/lib/format";
 import type { LibraryAsset } from "@/lib/library";
@@ -83,6 +84,7 @@ import { Filmstrip, type PendingUpload, type Selection } from "./filmstrip";
 import { historyReducer, initHistory } from "./history";
 import {
   AskSheet,
+  type Brief,
   CaptionSheet,
   DetailsSheet,
   ExportSheet,
@@ -143,11 +145,18 @@ export type EditorProps = {
   library: LibraryAsset[];
   /** Whether "Ask for a change" (ADR 0020) is offered on this deployment. */
   askAvailable?: boolean;
+  /** Ways of cutting a whole reel: built-in briefs and the studio's own. */
+  briefs?: Brief[];
   /** Whether the Music sheet offers Instagram's sounds (null: not on this deployment). */
   instagramSounds?: InstagramSoundAccess;
 };
 
 const newId = () => crypto.randomUUID();
+
+/** A reel nobody has cut yet: clips as they were picked, no text, no music. */
+function isFresh(timeline: Timeline): boolean {
+  return timeline.texts.length === 0 && timeline.music === null && timeline.clips.every((clip) => clip.filter === "none" && clip.transitionIn === "cut" && clip.speed === 1);
+}
 const toFrame = (ms: number) => Math.round((ms * REEL_FORMAT.fps) / 1000);
 
 function clipFromAsset(asset: LibraryAsset): Clip {
@@ -206,7 +215,8 @@ function Tool({
   );
 }
 
-export function Editor({ reel, timeline: initialTimeline, library: initialLibrary, openLibrary, tours = {}, instagramSounds = null, askAvailable = false }: EditorProps) {
+export function Editor({ reel, timeline: initialTimeline, library: initialLibrary, openLibrary, tours = {}, instagramSounds = null, askAvailable = false, briefs: initialBriefs = [] }: EditorProps) {
+  const [briefs, setBriefs] = useState<Brief[]>(initialBriefs);
   const router = useRouter();
   const [history, dispatch] = useReducer(historyReducer, initialTimeline, initHistory);
   const timeline = history.present;
@@ -1151,15 +1161,17 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
 
       {sheet === "ask" ? (
         <AskSheet
-          onAsk={async (request) => {
+          briefs={briefs}
+          fresh={isFresh(timeline)}
+          onAsk={async (request, answers) => {
             // The editor's own copy of the timeline goes along, so unsaved work counts.
             const response = await fetch(`/api/reels/${reel.id}/ai-edit`, {
               method: "POST",
               headers: { "content-type": "application/json" },
-              body: JSON.stringify({ request, timeline }),
+              body: JSON.stringify({ request, timeline, answers }),
             });
             const data = (await response.json()) as
-              | { ok: true; timeline: unknown; note: string; applied: string[]; skipped: string[] }
+              | { ok: true; timeline: unknown; note: string; applied: string[]; skipped: string[]; questions: string[] }
               | { ok: false; message: string };
             if (!data.ok) return data;
             if (data.applied.length > 0) {
@@ -1168,7 +1180,16 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
               showToast(data.note, 6000);
               setSheet(null);
             }
-            return { ok: true, note: data.note, applied: data.applied, skipped: data.skipped };
+            return { ok: true, note: data.note, applied: data.applied, skipped: data.skipped, questions: data.questions ?? [] };
+          }}
+          onSaveBrief={async (name, text) => {
+            const result = await saveBrief({ name, text });
+            if (result.ok) setBriefs((current) => [...current, { ...result.brief, own: true }]);
+            return result;
+          }}
+          onDeleteBrief={async (id) => {
+            await deleteBrief({ id });
+            setBriefs((current) => current.filter((brief) => brief.id !== id));
           }}
           onClose={closeSheet}
         />

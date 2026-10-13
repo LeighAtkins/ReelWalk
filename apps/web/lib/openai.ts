@@ -114,6 +114,8 @@ export async function structuredAnswer(options: {
     throw new AiError(`The model refused the request: ${message}`, response.status === 429 || response.status >= 500);
   }
   if (data.status && data.status !== "completed") {
+    const partial = data.output?.find((item) => item.type === "message")?.content?.[0]?.text ?? "";
+    console.error("ai: incomplete answer", data.incomplete_details?.reason, JSON.stringify(data.usage), partial.slice(0, 400));
     throw new AiError(`The model stopped early (${data.incomplete_details?.reason ?? data.status}).`, true);
   }
   const message = data.output?.find((item) => item.type === "message");

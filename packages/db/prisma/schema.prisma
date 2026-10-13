@@ -53,6 +53,7 @@ model Workspace {
   feedback   Feedback[]
   scheduledPosts ScheduledPost[]
   aiEdits    AiEdit[]
+  briefs     ReelBrief[]
 
   // Set by the Stripe webhook from the subscription (plans in @reelwalk/core).
   plan                 Plan      @default(FREE)
@@ -359,6 +360,19 @@ model AiEdit {
   cachedTokens Int       @default(0)
   outputTokens Int       @default(0)
   createdAt    DateTime  @default(now())
+
+  @@index([workspaceId, createdAt])
+}
+
+// A saved way of cutting a reel (ADR 0020): the words a studio gives the
+// model when it asks for a whole reel to be cut, kept to use again.
+model ReelBrief {
+  id          String    @id @default(cuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name        String
+  text        String
+  createdAt   DateTime  @default(now())
 
   @@index([workspaceId, createdAt])
 }

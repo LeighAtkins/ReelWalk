@@ -930,27 +930,52 @@ export function ExportSheet({
 
 // ── Asking for a change ─────────────────────────────────────────
 
-export type AskOutcome = { ok: true; note: string; applied: string[]; skipped: string[] } | { ok: false; message: string };
+export type AskOutcome = { ok: true; note: string; applied: string[]; skipped: string[]; questions: string[] } | { ok: false; message: string };
+export type Brief = { id: string; name: string; text: string; own: boolean };
 
 const ASK_EXAMPLES = ["Make the kitchen clip longer", "Calmer music", "Warmer look on everything", "Add “Open Saturday” at the end"];
 
 /**
- * Say what should change, in words (ADR 0020). The editor applies the answer
- * as one step, so undo takes it back; when nothing could be changed the
- * model's note stays here so the request can be put another way.
+ * Say what should change, in words (ADR 0020), or pick a brief and have the
+ * whole reel cut. The editor applies the answer as one step, so undo takes it
+ * back. When the model needs a fact first it asks up to three questions,
+ * answered here; when nothing could be changed its note stays here so the
+ * request can be put another way. A brief that worked can be kept as a preset.
  */
-export function AskSheet({ onAsk, onClose }: { onAsk(request: string): Promise<AskOutcome>; onClose(): void }) {
+export function AskSheet({
+  briefs,
+  fresh,
+  onAsk,
+  onSaveBrief,
+  onDeleteBrief,
+  onClose,
+}: {
+  briefs: Brief[];
+  /** The reel has not been cut yet, so briefs lead. */
+  fresh: boolean;
+  onAsk(request: string, answers: { question: string; answer: string }[]): Promise<AskOutcome>;
+  onSaveBrief(name: string, text: string): Promise<{ ok: true } | { ok: false; message: string }>;
+  onDeleteBrief(id: string): Promise<void>;
+  onClose(): void;
+}) {
   const [request, setRequest] = useState("");
   const [busy, setBusy] = useState(false);
   const [outcome, setOutcome] = useState<AskOutcome | null>(null);
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [lastBrief, setLastBrief] = useState<string | null>(null);
+  const [saved, setSaved] = useState<string | null>(null);
   const ready = request.trim().length >= 3;
+  const questions = outcome?.ok ? outcome.questions : [];
+  const canSave = outcome?.ok && outcome.applied.length > 0 && lastBrief === null && request.trim().length >= 3;
 
   async function submit() {
     if (!ready || busy) return;
     setBusy(true);
     setOutcome(null);
+    setSaved(null);
     try {
-      setOutcome(await onAsk(request.trim()));
+      const sent = questions.map((question) => ({ question, answer: answers[question] ?? "" })).filter((entry) => entry.answer.trim());
+      setOutcome(await onAsk(request.trim(), sent));
     } catch {
       setOutcome({ ok: false, message: "Could not reach ReelWalk. Check the connection and try again." });
     } finally {
@@ -958,34 +983,95 @@ export function AskSheet({ onAsk, onClose }: { onAsk(request: string): Promise<A
     }
   }
 
+  async function keep() {
+    const name = window.prompt("Name this preset", "")?.trim();
+    if (!name) return;
+    const result = await onSaveBrief(name, request.trim());
+    setSaved(result.ok ? `Kept as “${name}”.` : result.message);
+  }
+
   return (
-    <Sheet title="Ask for a change" onClose={onClose}>
-      <p className="muted small">Say what you want different, the way you would to an editor. It changes this reel; undo takes it back.</p>
-      <div className="ask-examples" aria-label="Examples">
-        {ASK_EXAMPLES.map((example) => (
-          <button key={example} type="button" className="chip chip-btn" onClick={() => setRequest(example)}>
-            {example}
-          </button>
-        ))}
-      </div>
+    <Sheet title={fresh ? "Cut it for me" : "Ask for a change"} onClose={onClose}>
+      <p className="muted small">
+        {fresh
+          ? "Pick a way to cut it, or say what you want in your own words. The reel is cut from what you have uploaded; undo takes it back."
+          : "Say what you want different, the way you would to an editor. It changes this reel; undo takes it back."}
+      </p>
+      {briefs.length > 0 ? (
+        <div className="ask-examples" aria-label="Ways to cut it">
+          {briefs.map((brief) => (
+            <span key={brief.id} className="ask-brief">
+              <button
+                type="button"
+                className="chip chip-btn"
+                aria-pressed={lastBrief === brief.id}
+                onClick={() => {
+                  setRequest(brief.text);
+                  setLastBrief(brief.id);
+                  setOutcome(null);
+                }}
+                data-testid={`brief-${brief.id}`}
+              >
+                {brief.name}
+              </button>
+              {brief.own ? (
+                <button type="button" className="ask-brief-delete" aria-label={`Delete preset ${brief.name}`} onClick={() => onDeleteBrief(brief.id)}>
+                  ×
+                </button>
+              ) : null}
+            </span>
+          ))}
+        </div>
+      ) : null}
+      {!fresh ? (
+        <div className="ask-examples" aria-label="Examples">
+          {ASK_EXAMPLES.map((example) => (
+            <button
+              key={example}
+              type="button"
+              className="chip chip-btn"
+              onClick={() => {
+                setRequest(example);
+                setLastBrief(null);
+              }}
+            >
+              {example}
+            </button>
+          ))}
+        </div>
+      ) : null}
       <textarea
         className="text-area"
-        rows={3}
+        rows={fresh ? 4 : 3}
         value={request}
         maxLength={600}
-        placeholder="For example: cut the hallway, and put the price at the start in the thin serif"
-        onChange={(event) => setRequest(event.target.value)}
+        placeholder={fresh ? "For example: a slow luxury reel, calm music, the address at the end" : "For example: cut the hallway, and put the price at the start in the thin serif"}
+        onChange={(event) => {
+          setRequest(event.target.value);
+          setLastBrief(null);
+        }}
         onKeyDown={(event) => {
           if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) submit();
         }}
         data-testid="ask-input"
       />
+      {questions.length > 0 ? (
+        <div className="ask-questions" data-testid="ask-questions">
+          <p className="small">{outcome?.ok ? outcome.note : null}</p>
+          {questions.map((question) => (
+            <label key={question} className="field">
+              {question}
+              <input className="text-input" value={answers[question] ?? ""} maxLength={200} onChange={(event) => setAnswers({ ...answers, [question]: event.target.value })} />
+            </label>
+          ))}
+        </div>
+      ) : null}
       {outcome && !outcome.ok ? (
         <p className="error" role="alert">
           {outcome.message}
         </p>
       ) : null}
-      {outcome?.ok && outcome.applied.length === 0 ? (
+      {outcome?.ok && outcome.applied.length === 0 && questions.length === 0 ? (
         <p role="status" data-testid="ask-note">
           {outcome.note}
         </p>
@@ -997,9 +1083,15 @@ export function AskSheet({ onAsk, onClose }: { onAsk(request: string): Promise<A
           ))}
         </ul>
       ) : null}
+      {saved ? <p className="muted small">{saved}</p> : null}
       <button type="button" className="btn btn-block" disabled={!ready || busy} onClick={submit} data-testid="ask-submit">
-        {busy ? "Working it out…" : "Make the change"}
+        {busy ? "Working it out…" : questions.length > 0 ? "Answer and cut it" : fresh ? "Cut it" : "Make the change"}
       </button>
+      {canSave ? (
+        <button type="button" className="btn btn-quiet btn-block" onClick={keep} data-testid="ask-save-brief">
+          Keep these words as a preset
+        </button>
+      ) : null}
     </Sheet>
   );
 }

@@ -19,7 +19,8 @@ test("a studio can ask for a change in words and undo it", async ({ page }) => {
   test.skip((await ask.count()) === 0, "this stack has no model and no stand-in (OPENAI_API_KEY or DEV_FAKE_AI)");
 
   await ask.click();
-  const sheet = page.getByRole("dialog", { name: "Ask for a change" });
+  // A reel nobody has cut yet is offered the briefs first, under a different title.
+  const sheet = page.getByRole("dialog", { name: /Ask for a change|Cut it for me/ });
   const total = page.getByLabel("Playhead position");
   await expect(total).toContainText("/ 0:06.0");
   await sheet.getByTestId("ask-input").fill("make it longer and warmer");
@@ -40,7 +41,16 @@ test("a studio can ask for a change in words and undo it", async ({ page }) => {
   await sheet.getByTestId("ask-submit").click();
   await expect(sheet.getByTestId("ask-note")).toContainText("could not tell what to change", { timeout: 30_000 });
 
-  // Both requests count against the month's allowance.
+  // A brief cuts the whole reel: the stand-in opens it with a headline.
+  await sheet.getByRole("button", { name: /close/i }).click();
+  await ask.click();
+  await sheet.getByTestId("brief-just-listed").click();
+  await expect(sheet.getByTestId("ask-input")).toHaveValue(/just-listed reel/);
+  await sheet.getByTestId("ask-submit").click();
+  await expect(page.locator(".toast")).toContainText("opens with a headline", { timeout: 30_000 });
+  await expect(page.getByTestId("text-bar")).toContainText("Just listed");
+
+  // All three requests count against the month's allowance.
   await page.goto("/account");
   await expect(page.getByTestId("ai-usage")).toContainText(/^\d+ of \d+ this month$/);
 });

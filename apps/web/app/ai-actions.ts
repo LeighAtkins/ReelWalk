@@ -10,6 +10,24 @@ import { getCurrentUser } from "@/lib/workspace";
 
 export type AskState = { error: string | null; note: string | null; skipped: string[] };
 
+/** Keeps a brief to cut the next reel with (ADR 0020). Returns the brief as the sheet lists it. */
+export async function saveBrief(input: { name: string; text: string }): Promise<{ ok: true; brief: { id: string; name: string; text: string } } | { ok: false; message: string }> {
+  const name = input.name.trim().slice(0, 40);
+  const text = input.text.trim().slice(0, 600);
+  if (!name || text.length < 3) return { ok: false, message: "A preset needs a name and the words to cut with." };
+  const user = await getCurrentUser();
+  const count = await prisma.reelBrief.count({ where: { workspaceId: user.workspaceId } });
+  if (count >= 20) return { ok: false, message: "Twenty presets is the most a studio can keep. Delete one first." };
+  const brief = await prisma.reelBrief.create({ data: { workspaceId: user.workspaceId, name, text }, select: { id: true, name: true, text: true } });
+  return { ok: true, brief };
+}
+
+export async function deleteBrief(input: { id: string }): Promise<{ ok: boolean }> {
+  const user = await getCurrentUser();
+  const deleted = await prisma.reelBrief.deleteMany({ where: { id: input.id, workspaceId: user.workspaceId } });
+  return { ok: deleted.count === 1 };
+}
+
 /**
  * "Ask for a change" on the export screen (ADR 0020): applies the request to
  * the saved reel, then either starts a new export or opens the editor on the

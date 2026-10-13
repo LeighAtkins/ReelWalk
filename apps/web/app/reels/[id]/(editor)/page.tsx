@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { planSchema, referencedAssetIds, type Plan } from "@reelwalk/core";
+import { AI_BRIEFS, planSchema, referencedAssetIds, type Plan } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
 import { Editor } from "@/components/editor/editor";
 import { isFakeInstagram, isInstagramConfigured } from "@/lib/instagram";
@@ -47,6 +47,10 @@ export default async function EditReelPage({
   // Instagram's sounds in the Music sheet (ADR 0019): not offered at all where
   // this deployment cannot reach Instagram; otherwise offered, or explained.
   const instagramSounds = isInstagramConfigured() || isFakeInstagram() ? { problem: await instagramSoundProblem(user.workspaceId) } : null;
+  // Ways of cutting a whole reel: the built-in briefs, then the studio's own.
+  const briefs = isAiAvailable()
+    ? [...AI_BRIEFS.map((brief) => ({ ...brief, own: false })), ...(await prisma.reelBrief.findMany({ where: { workspaceId: user.workspaceId }, orderBy: { createdAt: "asc" }, select: { id: true, name: true, text: true } })).map((brief) => ({ ...brief, own: true }))]
+    : [];
 
   return (
     <Editor
@@ -58,6 +62,7 @@ export default async function EditReelPage({
       tours={tours}
       instagramSounds={instagramSounds}
       askAvailable={isAiAvailable()}
+      briefs={briefs}
     />
   );
 }

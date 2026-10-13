@@ -90,8 +90,8 @@
 
 .main h2 {
   font-size: clamp(32px, 4.8vw, 46px);
-  font-weight: 500;
-  font-variation-settings: "opsz" 96;
+  font-weight: 560;
+  font-variation-settings: "opsz" 44;
   line-height: 1.02;
 }
 
@@ -250,8 +250,8 @@
   align-items: baseline;
   gap: 14px;
   font-family: var(--display);
-  font-weight: 500;
-  font-variation-settings: "opsz" 72;
+  font-weight: 650;
+  font-variation-settings: "opsz" 28;
   font-size: clamp(24px, 3.2vw, 30px);
   line-height: 1.12;
   max-width: 18em;
@@ -261,8 +261,8 @@
    says so without a badge. */
 .stepNo {
   flex: none;
-  color: var(--muted);
-  font-size: 1.1em;
+  color: var(--paper);
+  font-size: 1.25em;
   font-variant-numeric: lining-nums;
 }
 
@@ -308,8 +308,8 @@
   padding: 0;
   list-style: none;
   font-family: var(--display);
-  font-weight: 500;
-  font-variation-settings: "opsz" 72;
+  font-weight: 600;
+  font-variation-settings: "opsz" 30;
   font-size: clamp(24px, 3.4vw, 34px);
   line-height: 1.15;
   max-width: 20em;
@@ -468,8 +468,8 @@
 
 .plan h3 {
   font-family: var(--display);
-  font-weight: 500;
-  font-variation-settings: "opsz" 72;
+  font-weight: 650;
+  font-variation-settings: "opsz" 26;
   font-size: 26px;
   line-height: 1.1;
 }
@@ -488,8 +488,8 @@
 
 .amount {
   font-family: var(--display);
-  font-weight: 500;
-  font-variation-settings: "opsz" 96;
+  font-weight: 560;
+  font-variation-settings: "opsz" 46;
   font-size: 46px;
   line-height: 1;
   font-variant-numeric: lining-nums tabular-nums;

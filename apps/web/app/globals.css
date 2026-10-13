@@ -92,25 +92,27 @@ a {
 
 /* ── Type ─────────────────────────────────────────────────────── */
 
-/* Display is Bodoni: weight 600 in the app's headings, the optical size
-   pinned high so the hairlines stay fine at every size. h3 is a UI heading
-   and stays in the sans. */
+/* Display is Bodoni. Its optical-size axis must track the pixel size: at
+   display sizes the hairlines can be fine, but at 20–32px they need the
+   smaller optical sizes, which draw them thicker, or the letters vanish on
+   black. Weight 650 for the same reason. h3 is a UI heading in the sans. */
 h1,
 h2 {
   margin: 0;
   font-family: var(--display);
-  font-weight: 600;
-  font-variation-settings: "opsz" 72;
+  font-weight: 650;
   line-height: 1.05;
   letter-spacing: 0;
 }
 
 h1 {
   font-size: 32px;
+  font-variation-settings: "opsz" 32;
 }
 
 h2 {
   font-size: 23px;
+  font-variation-settings: "opsz" 22;
 }
 
 h3 {
@@ -221,8 +223,8 @@ p {
   align-items: center;
   gap: 9px;
   font-family: var(--display);
-  font-weight: 500;
-  font-variation-settings: "opsz" 48;
+  font-weight: 650;
+  font-variation-settings: "opsz" 22;
   font-size: 22px;
   letter-spacing: 0.005em;
   text-decoration: none;
@@ -2604,6 +2606,31 @@ video:-webkit-full-screen {
 
 .chip-btn:hover {
   background: #332f2a;
+}
+
+.ask-brief {
+  display: inline-flex;
+  align-items: center;
+}
+
+.ask-brief .chip-btn[aria-pressed="true"] {
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.ask-brief-delete {
+  margin-left: -4px;
+  padding: 0 6px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1;
+}
+
+.ask-questions {
+  display: grid;
+  gap: 10px;
 }
 
 .ask-skipped {

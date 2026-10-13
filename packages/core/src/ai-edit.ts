@@ -68,6 +68,7 @@ export const AI_EDIT_OPS = [
   "snapToBeat",
   "details",
   "roomLabels",
+  "room",
 ] as const;
 
 export type AiEditOpName = (typeof AI_EDIT_OPS)[number];
@@ -164,7 +165,7 @@ export const AI_EDIT_PLAN_JSON_SCHEMA = {
           fit: { type: ["string", "null"], enum: ["cover", "contain", null] },
           volume: { type: ["number", "null"], description: "0 to 1" },
           toPosition: { type: ["integer", "null"], description: "move: the clip's new number, 1 = first" },
-          content: { type: ["string", "null"], description: "addText/editText: the words" },
+          content: { type: ["string", "null"], description: "addText/editText: the words; room: the room's name, lower case (kitchen, living room, primary bedroom, pool)" },
           style: { type: ["string", "null"], enum: [...TEXT_STYLES, null] },
           color: { type: ["string", "null"], description: "#rrggbb" },
           size: { type: ["number", "null"], description: "0.3 to 2.5, 1 = normal" },
@@ -204,22 +205,22 @@ export const AI_BRIEFS: AiBrief[] = [
   {
     id: "just-listed",
     name: "Just listed",
-    text: "Cut a 25 to 35 second just-listed reel: open on the best exterior or drone shot, then living, kitchen, bedrooms, bath, outdoor last. Quick cuts on the beat, a bright song, room labels on, a short headline at the start and the details card at the end.",
+    text: "Cut a 20 to 30 second just-listed reel from my shots: open on the best exterior or drone shot, then living, kitchen, bedrooms, bath, outdoor last. Quick cuts of 1.5 to 2.5 seconds on the beat, a bright song, room labels on, a short headline at the start and the details card at the end.",
   },
   {
     id: "privacy",
     name: "The privacy I want",
-    text: "Cut a slow, quiet 20 to 30 second reel in the luxury style: long takes, 360 photos as slow sweeps, calm music, no room labels, one line in the thin elegant serif at the start that reads like a thought (for example: the privacy I want), and no details card.",
+    text: "Cut a slow, quiet 15 to 25 second reel in the luxury style from my shots: takes of 3 to 4 seconds, 360 photos as slow sweeps, calm music, no room labels, one line in the thin elegant serif at the start that reads like a thought (for example: the privacy I want), and no details card.",
   },
   {
     id: "open-house",
     name: "Open house",
-    text: "Cut a 20 to 30 second open-house reel: the hook is the open-house day and time in a box at the start, the walk goes exterior, living, kitchen, primary bedroom, outdoor; room labels on; the details card with the address and time at the end. Ask me for the day and time if I have not given them.",
+    text: "Cut a 15 to 25 second open-house reel from my shots: the hook is the open-house day and time in a box at the start, the walk goes exterior, living, kitchen, primary bedroom, outdoor, cuts of 1.5 to 2.5 seconds on the beat; room labels on; the details card with the address and time at the end. Ask me for the day and time if I have not given them.",
   },
   {
     id: "walkthrough",
     name: "Walkthrough",
-    text: "Cut a natural 30 to 45 second walkthrough in the order a visitor would see the rooms, every shot 3 to 4 seconds, gentle zoom on photos, warm look, room labels on, the details card at the end.",
+    text: "Cut a natural 25 to 40 second walkthrough from my shots in the order a visitor would see the rooms, every shot 2 to 3 seconds, gentle zoom on photos, warm look, room labels on, the details card at the end.",
   },
 ];
 
@@ -287,11 +288,12 @@ Rules:
 - "Longer" without a number means about 1.5x the current length; "shorter" about 0.7x; "much" doubles the change. "Slower" halves speed, "faster" doubles it, within 0.5 to 3.
 - Looks: warm, cool, vivid, mono (black and white), fade (soft, filmic), none. Use clip 0 to apply to every clip when the user means the whole reel.
 - Music requests like "calmer" or "more energy" pick the song whose mood fits best; say which in the note. "No music" is op music with songId null.
-- Text: keep it short; style "elegant" is a thin serif, "headline" is bold, "box" is text on a pill, "plain" is white text with a shadow. y is 0 at the top and 1 at the bottom; keep text between 0.12 and 0.88 so Instagram's own overlays do not cover it.
+- Text: keep it short; style "elegant" is a thin serif, "headline" is bold, "box" is text on a pill, "plain" is white text with a shadow. y is 0 at the top and 1 at the bottom. Where text goes: the opening hook at y 0.42 (the middle, where the eye is), size 1.1 to 1.3; a second line or caption-style text at y 0.6; never above 0.3 or below 0.72, because Instagram's name, caption and buttons cover the top fifth and the bottom quarter. Room labels and the details card place themselves. A hook shows over the whole first clip: start 0, end where the first clip ends.
 - Room labels are the texts whose number is marked (room label); to turn them all off use roomLabels on=false rather than removing each.
 - When clips are trimmed, moved or removed, the other texts follow their clips, cuts that were on the beat stay on it, and room labels are redrawn, all by themselves: do not re-time texts or snap to the beat to compensate for your own edits.
 - The details card (price, beds, baths, area, address, contact) is op details; pass only the fields to change, null for the rest; to remove the card pass details null.
-- Cutting a whole reel ("cut it", "make something from these", a brief): the description lists unused media; add the shots worth using with op add (assetId), set the order with op order (new clips are numbered after the ones listed, in the order you added them), trim each to length (videos 2 to 4 s, photos 2.5 to 3.5 s with motion zoom-in, 360 photos 5 s), pick a song, snapToBeat, add a headline at the start, room labels and the details card as the brief says, and keep the whole reel between 20 and 45 seconds. Lead with the strongest exterior or wide shot and end on an outdoor or view shot. Leave out shots that repeat a room already covered unless the brief wants a long reel.
+- Cutting a whole reel ("cut it", "make something from these", a brief): the clips already in the reel are the user's shoot of this property; build the reel from them. Never remove them to make room for other media. Use "unused media" only when the user asks for it, or when the reel has fewer than three clips. Order them with op order, then cut fast: a reel is 1.5 to 2.5 s a shot unless the brief says slower (luxury, slow: 3 to 4 s); a photo 2 s with motion zoom-in, a 360 photo 4 s. A video longer than 6 s can give two or three shots: duplicate it and trim each copy to a different part (startMs, lengthMs) so the reel has more cuts instead of longer ones. Aim for 8 to 14 cuts in a 20 to 30 s reel. Pick a song, snapToBeat, add the hook, and the details card as the brief says. Lead with the strongest exterior or wide shot and end on an outdoor or view shot.
+- Rooms: when room labels are wanted and a clip does not know its room, name it with op room (clip, content: the room in lower case) from its file name or your best reading of it, before turning room labels on.
 - Questions: if, and only if, a brief needs a fact you do not have (an address, a price, an open-house time) return up to three short questions in "questions", no operations, and a note saying what you will do once you know. Otherwise decide for yourself and never ask. You may ask once: if the user has given answers, cut the reel with what you have, leave unknown details-card fields empty, use only the shots that exist, and do not ask again.
 - If the request is unclear, impossible with these operations, or not about the reel, return no operations and say so in the note in one sentence, without apologising.
 - The note is one or two short sentences in the second person, present tense, plain language, naming what changed ("The kitchen clip now runs 6 seconds and the music is Fretless."). No markdown.`;
@@ -805,6 +807,18 @@ export function applyAiEditPlan(timeline: Timeline, plan: Pick<AiEditPlan, "ops"
         applied.push(`details card updated (${Object.keys(patch).join(", ") || "unchanged"})`);
         break;
       }
+      case "room": {
+        const clips = clipsFor(op, false);
+        if (!clips) break;
+        const name = op.content?.trim().toLowerCase().slice(0, 40);
+        if (!name) {
+          skipped.push("room: no room given");
+          break;
+        }
+        current = { ...current, clips: current.clips.map((clip) => (clip.id === clips[0].id ? { ...clip, room: name } : clip)) };
+        applied.push(`${clipLabel(current, clips[0], assets)} is the ${name}`);
+        break;
+      }
       case "roomLabels": {
         if (op.on === null || op.on === undefined) {
           skipped.push("roomLabels: say on or off");
@@ -834,6 +848,19 @@ export function applyAiEditPlan(timeline: Timeline, plan: Pick<AiEditPlan, "ops"
     }
     if (hasRoomLabels(current)) current = addRoomLabels(current);
   }
+  // Text this plan added ends on a cut when it was meant to (within 0.8 s of
+  // one): the beat snap moves cuts by a few hundred milliseconds, and a hook
+  // that ends just before its clip does reads as a mistake.
+  const before = new Set(timeline.texts.map((text) => text.id));
+  const cuts = [...clipStartsMs(current).slice(1), timelineDurationMs(current)];
+  current = {
+    ...current,
+    texts: current.texts.map((text) => {
+      if (before.has(text.id) || text.id.startsWith("room-")) return text;
+      const nearest = cuts.reduce((best, cut) => (Math.abs(cut - text.endMs) < Math.abs(best - text.endMs) ? cut : best), cuts[0] ?? text.endMs);
+      return Math.abs(nearest - text.endMs) <= 800 && nearest > text.startMs + 300 ? { ...text, endMs: nearest } : text;
+    }),
+  };
   return { timeline: current, applied, skipped };
 }
 

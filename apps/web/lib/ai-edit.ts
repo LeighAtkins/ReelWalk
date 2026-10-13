@@ -7,6 +7,7 @@ import {
   describeReel,
   fakeAiEditPlan,
   monthStart,
+  nextPlan,
   referencedAssetIds,
   songMood,
   type AiAsset,
@@ -17,6 +18,7 @@ import {
 import { prisma } from "@reelwalk/db";
 import { AiError, aiModel, isAiAvailable, isFakeAi, structuredAnswer, usageCostUsd } from "@/lib/openai";
 import { workspacePlan } from "@/lib/plans";
+import { isUnlimited } from "@/lib/quotas";
 import { mediaScope } from "@/lib/workspace";
 
 /**
@@ -28,7 +30,7 @@ import { mediaScope } from "@/lib/workspace";
 
 export type AskResult =
   | { ok: true; timeline: Timeline; note: string; applied: string[]; skipped: string[]; questions: string[]; editId: string }
-  | { ok: false; message: string };
+  | { ok: false; message: string; upgrade?: boolean };
 
 /** The studio's answers to the model's questions, sent back with the same request. */
 export type AskAnswer = { question: string; answer: string };
@@ -39,13 +41,14 @@ export function aiEditsThisMonth(workspaceId: string, now: Date = new Date()): P
 }
 
 /** Why another request cannot be made now, or null if it can. */
-export async function aiEditBlockedReason(workspaceId: string): Promise<string | null> {
-  if (!isAiAvailable()) return "Asking for changes is not set up on this deployment.";
-  const [{ plan, id }, used] = await Promise.all([workspacePlan(workspaceId), aiEditsThisMonth(workspaceId)]);
-  if (used < plan.aiEditsPerMonth) return null;
+export async function aiEditBlockedReason(workspaceId: string): Promise<{ message: string; upgrade: boolean } | null> {
+  if (!isAiAvailable()) return { message: "Asking for changes is not set up on this deployment.", upgrade: false };
+  const [{ plan, id }, used, unlimited] = await Promise.all([workspacePlan(workspaceId), aiEditsThisMonth(workspaceId), isUnlimited(workspaceId)]);
+  if (unlimited || used < plan.aiEditsPerMonth) return null;
+  const next = nextPlan(id);
   return id === "FREE"
-    ? `That is all ${plan.aiEditsPerMonth} of this month's free requests. The ${PLANS.AGENT.name} plan has ${PLANS.AGENT.aiEditsPerMonth} a month.`
-    : `That makes ${plan.aiEditsPerMonth} requests this month, the ${plan.name} plan's allowance. It resets on the 1st.`;
+    ? { message: `That is all ${plan.aiEditsPerMonth} of this month's free requests. The ${PLANS.AGENT.name} plan has ${PLANS.AGENT.aiEditsPerMonth} a month.`, upgrade: true }
+    : { message: `That makes ${plan.aiEditsPerMonth} requests this month, the ${plan.name} plan's allowance. It resets on the 1st${next ? `; ${next.name} has ${next.aiEditsPerMonth}` : ""}.`, upgrade: next !== null };
 }
 
 const title = (fileName: string) => fileName.replace(/\.[a-z0-9]{2,4}$/i, "");
@@ -106,7 +109,7 @@ export async function askForChange(input: {
   if (request.length < 3) return { ok: false, message: "Say what you would like changed." };
   if (request.length > 600) return { ok: false, message: "Keep the request under 600 characters." };
   const blocked = await aiEditBlockedReason(input.user.workspaceId);
-  if (blocked) return { ok: false, message: blocked };
+  if (blocked) return { ok: false, message: blocked.message, upgrade: blocked.upgrade };
 
   const { assets, songs, unused } = await context(input.user.workspaceId, input.timeline);
   const description = describeReel({ title: input.reel.title, timeline: input.timeline, assets, songs, unused });

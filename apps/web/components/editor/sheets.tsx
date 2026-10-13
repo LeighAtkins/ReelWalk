@@ -873,6 +873,7 @@ export function ExportSheet({
   durationMs,
   busy,
   error,
+  upgrade = false,
   instagramSound = null,
   onExport,
   onShowIssue,
@@ -882,6 +883,8 @@ export function ExportSheet({
   durationMs: number;
   busy: boolean;
   error: string | null;
+  /** The error is a plan limit that a bigger plan lifts: offer the plans. */
+  upgrade?: boolean;
   /** "Title · Artist" when the reel is edited to an Instagram sound, which the video file leaves out. */
   instagramSound?: string | null;
   onExport(): void;
@@ -921,6 +924,11 @@ export function ExportSheet({
         </ul>
       ) : null}
       {error ? <p className="error" role="alert">{error}</p> : null}
+      {error && upgrade ? (
+        <Link href="/pricing" className="btn btn-block" data-testid="upgrade-link">
+          See plans
+        </Link>
+      ) : null}
       <button type="button" className="btn btn-signal btn-block" disabled={!ready || busy} onClick={onExport} data-testid="confirm-export">
         {busy ? "Starting export…" : "Export video"}
       </button>
@@ -930,7 +938,7 @@ export function ExportSheet({
 
 // ── Asking for a change ─────────────────────────────────────────
 
-export type AskOutcome = { ok: true; note: string; applied: string[]; skipped: string[]; questions: string[] } | { ok: false; message: string };
+export type AskOutcome = { ok: true; note: string; applied: string[]; skipped: string[]; questions: string[] } | { ok: false; message: string; upgrade?: boolean };
 export type Brief = { id: string; name: string; text: string; own: boolean };
 
 const ASK_EXAMPLES = ["Make the kitchen clip longer", "Calmer music", "Warmer look on everything", "Add “Open Saturday” at the end"];
@@ -1070,6 +1078,11 @@ export function AskSheet({
         <p className="error" role="alert">
           {outcome.message}
         </p>
+      ) : null}
+      {outcome && !outcome.ok && outcome.upgrade ? (
+        <Link href="/pricing" className="btn btn-quiet btn-block" data-testid="upgrade-link">
+          See plans
+        </Link>
       ) : null}
       {outcome?.ok && outcome.applied.length === 0 && questions.length === 0 ? (
         <p role="status" data-testid="ask-note">

@@ -8,7 +8,7 @@ import { exportReel } from "@/app/actions";
 import { askForChange } from "@/lib/ai-edit";
 import { getCurrentUser } from "@/lib/workspace";
 
-export type AskState = { error: string | null; note: string | null; skipped: string[] };
+export type AskState = { error: string | null; note: string | null; skipped: string[]; upgrade?: boolean };
 
 /** Keeps a brief to cut the next reel with (ADR 0020). Returns the brief as the sheet lists it. */
 export async function saveBrief(input: { name: string; text: string }): Promise<{ ok: true; brief: { id: string; name: string; text: string } } | { ok: false; message: string }> {
@@ -43,7 +43,7 @@ export async function askAndContinue(_previous: AskState, formData: FormData): P
   if (!reel) return { error: "This reel was deleted.", note: null, skipped: [] };
 
   const result = await askForChange({ user, reel, timeline: parseTimeline(reel.timeline), request });
-  if (!result.ok) return { error: result.message, note: null, skipped: [] };
+  if (!result.ok) return { error: result.message, note: null, skipped: [], upgrade: result.upgrade };
   if (result.applied.length === 0) return { error: null, note: result.note, skipped: result.skipped };
 
   const saved = await prisma.reel.updateMany({
@@ -57,5 +57,5 @@ export async function askAndContinue(_previous: AskState, formData: FormData): P
   const exported = await exportReel({ id: reel.id });
   // exportReel redirects when it succeeds; a value means it could not start.
   const why = exported.message ?? exported.issues.map((issue) => issue.message).join(" ");
-  return { error: `${result.note} The export could not start: ${why}`, note: null, skipped: result.skipped };
+  return { error: `${result.note} The export could not start: ${why}`, note: null, skipped: result.skipped, upgrade: exported.upgrade };
 }

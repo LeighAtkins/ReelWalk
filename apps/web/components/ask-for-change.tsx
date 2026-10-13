@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useActionState } from "react";
 import { askAndContinue, type AskState } from "@/app/ai-actions";
 
@@ -35,6 +36,11 @@ export function AskForChange({ reelId, usage }: { reelId: string; usage: { used:
         <p className="error small" role="alert">
           {state.error}
         </p>
+      ) : null}
+      {state.error && state.upgrade ? (
+        <Link href="/pricing" className="btn btn-quiet">
+          See plans
+        </Link>
       ) : null}
       {state.note ? (
         <p role="status" data-testid="ask-note">

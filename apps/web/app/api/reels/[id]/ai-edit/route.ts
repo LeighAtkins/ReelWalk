@@ -20,7 +20,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const user = await getSessionUser();
   if (!user) return Response.json({ ok: false, message: "You were signed out. Sign in again." }, { status: 401 });
 
-  let body: { request?: unknown; timeline?: unknown };
+  let body: { request?: unknown; timeline?: unknown; answers?: unknown };
   try {
     body = (await request.json()) as typeof body;
   } catch {
@@ -43,6 +43,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const allowed = await prisma.mediaAsset.count({ where: { id: { in: ids }, ...mediaScope(user.workspaceId) } });
   if (allowed !== ids.length) return Response.json({ ok: false, message: "The reel uses media that is not in your library." }, { status: 400 });
 
-  const result = await askForChange({ user, reel, timeline, request: body.request });
+  const answers = Array.isArray(body.answers)
+    ? body.answers
+        .filter((entry): entry is { question: string; answer: string } => typeof entry?.question === "string" && typeof entry?.answer === "string")
+        .slice(0, 3)
+    : [];
+  const result = await askForChange({ user, reel, timeline, request: body.request, answers });
   return Response.json(result, { status: result.ok ? 200 : 422 });
 }

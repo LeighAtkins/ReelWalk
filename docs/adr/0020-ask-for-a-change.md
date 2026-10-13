@@ -47,6 +47,20 @@ export screen's "Ask for a change" card calls the `askAndContinue` action,
 which saves the result against the reel's revision and either starts a new
 export or opens the editor on it.
 
+**Cutting from scratch, and briefs.** The same door cuts a whole reel:
+the description also lists the studio's own recent uploads the reel does
+not use, and two more operations, `add` (an unused asset becomes a clip
+with the editor's defaults) and `order`, let the model build the cut; the
+instructions carry a short editor's guide (lead with the exterior, 2–4 s a
+shot, 360 photos as 5 s sweeps, cut on the beat, 20–45 s). When a brief
+needs a fact the model does not have it may ask up to three questions,
+once; the sheet shows them as fields and sends the answers back with the
+same request. A brief is just words: four ship in `AI_BRIEFS` ("Just
+listed", "The privacy I want", "Open house", "Walkthrough") and a studio
+can keep its own in `ReelBrief` after a cut it liked. After any change
+that moves clips, texts are put back over their pictures, cuts that were
+on the beat go back on it, and room labels are redrawn.
+
 **Metered per plan.** `aiEditsPerMonth` in `PLANS` (Free 5, Agent 60,
 Studio 300). Every request is an `AiEdit` row with the request, the
 model's note and plan, what was applied and skipped, and the token counts;

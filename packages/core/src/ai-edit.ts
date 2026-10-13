@@ -10,6 +10,9 @@
 import { z } from "zod";
 import { beatPeriodMs, nearestBeatMs, snapCutsToBeats, type BeatGrid } from "./beats";
 import {
+  DEFAULT_IMAGE_MS,
+  DEFAULT_PANO,
+  DEFAULT_PANO_MS,
   FILTERS,
   MIN_CLIP_MS,
   MOTIONS,
@@ -17,9 +20,11 @@ import {
   TEXT_COLORS,
   TEXT_STYLES,
   TRANSITIONS,
+  addClips,
   addRoomLabels,
   addText,
   clipDurationMs,
+  clipSchema,
   clipStartsMs,
   duplicateClip,
   hasDetails,
@@ -43,6 +48,8 @@ import {
 // ── What the model may ask for ──────────────────────────────────
 
 export const AI_EDIT_OPS = [
+  "add",
+  "order",
   "trim",
   "speed",
   "look",
@@ -106,12 +113,22 @@ export const aiEditOpSchema = z.object({
   songId: nullable(z.string().min(1).max(64)),
   on: nullable(z.boolean()),
   details: nullable(detailsPatchSchema),
+  /** add: an id from the unused media list. */
+  assetId: nullable(z.string().min(1).max(64)),
+  /** order: every clip's number, in the new order. */
+  order: nullable(z.array(z.number().int().min(1).max(100)).max(100)),
 });
 
 export const aiEditPlanSchema = z.object({
-  ops: z.array(aiEditOpSchema).max(30),
+  ops: z.array(aiEditOpSchema).max(60),
   /** One or two plain sentences to the studio: what was done, or why nothing was. */
   note: z.string().trim().max(400),
+  /**
+   * Up to three things the model needs to know before it can cut the reel
+   * (the address, the price, an open-house time). When present, ops is empty
+   * and the studio answers in the same sheet.
+   */
+  questions: z.array(z.string().trim().min(1).max(160)).max(3).default([]),
 });
 
 export type AiEditOp = z.infer<typeof aiEditOpSchema>;
@@ -121,8 +138,9 @@ export type AiEditPlan = z.infer<typeof aiEditPlanSchema>;
 export const AI_EDIT_PLAN_JSON_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["ops", "note"],
+  required: ["ops", "note", "questions"],
   properties: {
+    questions: { type: "array", items: { type: "string" }, description: "At most three, only when the reel cannot be cut without the answer; then ops is empty" },
     ops: {
       type: "array",
       items: {
@@ -130,7 +148,7 @@ export const AI_EDIT_PLAN_JSON_SCHEMA = {
         additionalProperties: false,
         required: [
           "op", "clip", "text", "startMs", "endMs", "lengthMs", "speed", "filter", "motion", "transition", "fit", "volume",
-          "toPosition", "content", "style", "color", "size", "y", "songId", "on", "details",
+          "toPosition", "content", "style", "color", "size", "y", "songId", "on", "details", "assetId", "order",
         ],
         properties: {
           op: { type: "string", enum: [...AI_EDIT_OPS] },
@@ -152,6 +170,8 @@ export const AI_EDIT_PLAN_JSON_SCHEMA = {
           size: { type: ["number", "null"], description: "0.3 to 2.5, 1 = normal" },
           y: { type: ["number", "null"], description: "0 = top of frame, 1 = bottom" },
           songId: { type: ["string", "null"], description: "music: a song id from the list, or null for no music" },
+          assetId: { type: ["string", "null"], description: "add: an id from the unused media list; the clip goes at toPosition, or the end" },
+          order: { type: ["array", "null"], items: { type: "integer" }, description: "order: every clip's number, first to last" },
           on: { type: ["boolean", "null"], description: "roomLabels" },
           details: {
             type: ["object", "null"],
@@ -174,6 +194,35 @@ export const AI_EDIT_PLAN_JSON_SCHEMA = {
   },
 } as const;
 
+// ── Briefs: ways of cutting a whole reel ────────────────────────
+
+/** A saved way of cutting a reel: the words given to the model along with the media. */
+export type AiBrief = { id: string; name: string; text: string };
+
+/** The briefs every studio starts with. Studios save their own next to them. */
+export const AI_BRIEFS: AiBrief[] = [
+  {
+    id: "just-listed",
+    name: "Just listed",
+    text: "Cut a 25 to 35 second just-listed reel: open on the best exterior or drone shot, then living, kitchen, bedrooms, bath, outdoor last. Quick cuts on the beat, a bright song, room labels on, a short headline at the start and the details card at the end.",
+  },
+  {
+    id: "privacy",
+    name: "The privacy I want",
+    text: "Cut a slow, quiet 20 to 30 second reel in the luxury style: long takes, 360 photos as slow sweeps, calm music, no room labels, one line in the thin elegant serif at the start that reads like a thought (for example: the privacy I want), and no details card.",
+  },
+  {
+    id: "open-house",
+    name: "Open house",
+    text: "Cut a 20 to 30 second open-house reel: the hook is the open-house day and time in a box at the start, the walk goes exterior, living, kitchen, primary bedroom, outdoor; room labels on; the details card with the address and time at the end. Ask me for the day and time if I have not given them.",
+  },
+  {
+    id: "walkthrough",
+    name: "Walkthrough",
+    text: "Cut a natural 30 to 45 second walkthrough in the order a visitor would see the rooms, every shot 3 to 4 seconds, gentle zoom on photos, warm look, room labels on, the details card at the end.",
+  },
+];
+
 // ── What the model is told ──────────────────────────────────────
 
 /** A clip's source, as much as the model needs to reason about it. */
@@ -186,7 +235,30 @@ export type AiAsset = {
   isPano: boolean;
   bpm: number | null;
   beatOffsetMs: number | null;
+  /** The room it shows, when the library knows ("kitchen"). */
+  room?: string | null;
 };
+
+/** A fresh clip for an asset, as the editor would make it when the asset is tapped. */
+export function clipForAsset(asset: AiAsset, id: string): Clip {
+  const isImage = asset.kind === "IMAGE";
+  return clipSchema.parse({
+    id,
+    assetId: asset.id,
+    kind: isImage ? "IMAGE" : "VIDEO",
+    sourceStartMs: 0,
+    sourceEndMs: asset.isPano ? DEFAULT_PANO_MS : isImage ? DEFAULT_IMAGE_MS : Math.max(MIN_CLIP_MS, asset.durationMs ?? 5000),
+    speed: 1,
+    volume: 1,
+    fit: "cover",
+    filter: "none",
+    motion: isImage && !asset.isPano ? "zoom-in" : "none",
+    transitionIn: "cut",
+    pano: asset.isPano ? DEFAULT_PANO : null,
+    spot: null,
+    room: asset.room ?? null,
+  });
+}
 
 /** The songs the model may switch to, with a word on their mood. */
 export type AiSong = { id: string; title: string; bpm: number | null; mood: string | null };
@@ -219,13 +291,22 @@ Rules:
 - Room labels are the texts whose number is marked (room label); to turn them all off use roomLabels on=false rather than removing each.
 - When clips are trimmed, moved or removed, the other texts follow their clips, cuts that were on the beat stay on it, and room labels are redrawn, all by themselves: do not re-time texts or snap to the beat to compensate for your own edits.
 - The details card (price, beds, baths, area, address, contact) is op details; pass only the fields to change, null for the rest; to remove the card pass details null.
+- Cutting a whole reel ("cut it", "make something from these", a brief): the description lists unused media; add the shots worth using with op add (assetId), set the order with op order (new clips are numbered after the ones listed, in the order you added them), trim each to length (videos 2 to 4 s, photos 2.5 to 3.5 s with motion zoom-in, 360 photos 5 s), pick a song, snapToBeat, add a headline at the start, room labels and the details card as the brief says, and keep the whole reel between 20 and 45 seconds. Lead with the strongest exterior or wide shot and end on an outdoor or view shot. Leave out shots that repeat a room already covered unless the brief wants a long reel.
+- Questions: if, and only if, a brief needs a fact you do not have (an address, a price, an open-house time) return up to three short questions in "questions", no operations, and a note saying what you will do once you know. Otherwise decide for yourself and never ask. You may ask once: if the user has given answers, cut the reel with what you have, leave unknown details-card fields empty, use only the shots that exist, and do not ask again.
 - If the request is unclear, impossible with these operations, or not about the reel, return no operations and say so in the note in one sentence, without apologising.
 - The note is one or two short sentences in the second person, present tense, plain language, naming what changed ("The kitchen clip now runs 6 seconds and the music is Fretless."). No markdown.`;
 
 const ms = (value: number) => `${(value / 1000).toFixed(1)} s`;
 
 /** The reel, in text, for the model. Clips and texts are numbered from 1. */
-export function describeReel(input: { title: string; timeline: Timeline; assets: Record<string, AiAsset | undefined>; songs: AiSong[] }): string {
+export function describeReel(input: {
+  title: string;
+  timeline: Timeline;
+  assets: Record<string, AiAsset | undefined>;
+  songs: AiSong[];
+  /** Media the studio has that the reel does not use yet, for cutting from scratch. */
+  unused?: AiAsset[];
+}): string {
   const { timeline, assets, songs } = input;
   const starts = clipStartsMs(timeline);
   const lines: string[] = [];
@@ -283,6 +364,15 @@ export function describeReel(input: { title: string; timeline: Timeline; assets:
     lines.push("Songs available (songId: title, tempo, mood):");
     for (const song of songs) lines.push(`- ${song.id}: "${song.title}"${song.bpm ? `, ${Math.round(song.bpm)} bpm` : ""}${song.mood ? `, ${song.mood}` : ""}`);
   }
+  const unused = (input.unused ?? []).filter((asset) => asset.kind !== "AUDIO");
+  if (unused.length > 0) {
+    lines.push("");
+    lines.push("Unused media (assetId: what it is):");
+    for (const asset of unused) {
+      const what = asset.kind === "VIDEO" ? `video, ${asset.durationMs ? ms(asset.durationMs) : "length unknown"}` : asset.isPano ? "360 photo" : "photo";
+      lines.push(`- ${asset.id}: ${what}, "${asset.title}"${asset.room ? `, ${asset.room}` : ""}`);
+    }
+  }
   lines.push("");
   lines.push(`Text colors to prefer: ${TEXT_COLORS.join(", ")}.`);
   return lines.join("\n");
@@ -301,6 +391,8 @@ export type AiEditResult = {
 type ApplyOptions = {
   assets: Record<string, AiAsset | undefined>;
   songs: AiSong[];
+  /** Media the reel may add (op add), by id. */
+  unused?: AiAsset[];
   newId?: () => string;
 };
 
@@ -371,7 +463,7 @@ export function cutsOnBeat(timeline: Timeline, toleranceMs = 60): boolean {
   return starts.slice(1).every((start) => Math.abs(nearestBeatMs(start, grid, music.sourceStartMs) - start) <= toleranceMs);
 }
 
-const STRUCTURAL_OPS: ReadonlySet<AiEditOpName> = new Set(["trim", "speed", "move", "remove", "duplicate", "snapToBeat"]);
+const STRUCTURAL_OPS: ReadonlySet<AiEditOpName> = new Set(["add", "order", "trim", "speed", "move", "remove", "duplicate", "snapToBeat"]);
 
 /**
  * Applies the plan to the timeline, one operation at a time. A bad operation
@@ -379,7 +471,7 @@ const STRUCTURAL_OPS: ReadonlySet<AiEditOpName> = new Set(["trim", "speed", "mov
  * model is usually right about the rest. Clip and text numbers refer to the
  * reel as it was described, so they are resolved to ids up front.
  */
-export function applyAiEditPlan(timeline: Timeline, plan: AiEditPlan, options: ApplyOptions): AiEditResult {
+export function applyAiEditPlan(timeline: Timeline, plan: Pick<AiEditPlan, "ops" | "note"> & Partial<AiEditPlan>, options: ApplyOptions): AiEditResult {
   const { assets, songs } = options;
   const newId = options.newId ?? defaultId;
   const clipIds = timeline.clips.map((clip) => clip.id);
@@ -391,6 +483,9 @@ export function applyAiEditPlan(timeline: Timeline, plan: AiEditPlan, options: A
   const anchors = anchorTexts(timeline);
   const onBeat = cutsOnBeat(timeline);
   const removedTexts = new Set<string>();
+  // Clips added by this plan get numbers after the ones the model was shown.
+  const added: string[] = [];
+  const numberOf = (n: number) => clipIds[n - 1] ?? added[n - 1 - clipIds.length];
   const structural = () => plan.ops.some((op) => STRUCTURAL_OPS.has(op.op));
 
   const clipsFor = (op: AiEditOp, allowAll: boolean): Clip[] | null => {
@@ -405,7 +500,7 @@ export function applyAiEditPlan(timeline: Timeline, plan: AiEditPlan, options: A
       }
       return current.clips;
     }
-    const id = clipIds[op.clip - 1];
+    const id = numberOf(op.clip);
     const clip = id ? current.clips.find((entry) => entry.id === id) : undefined;
     if (!clip) {
       skipped.push(`${op.op}: there is no clip ${op.clip}`);
@@ -423,6 +518,35 @@ export function applyAiEditPlan(timeline: Timeline, plan: AiEditPlan, options: A
 
   for (const op of plan.ops) {
     switch (op.op) {
+      case "add": {
+        const asset = op.assetId ? options.unused?.find((entry) => entry.id === op.assetId) : undefined;
+        if (!asset) {
+          skipped.push(`add: no unused media ${op.assetId ?? ""}`.trim());
+          break;
+        }
+        const clip = clipForAsset(asset, newId());
+        current = addClips(current, [clip], op.toPosition ? op.toPosition - 1 : current.clips.length);
+        added.push(clip.id);
+        applied.push(`added "${asset.title}" as clip ${current.clips.findIndex((entry) => entry.id === clip.id) + 1}`);
+        break;
+      }
+      case "order": {
+        if (!op.order || op.order.length === 0) {
+          skipped.push("order: no order given");
+          break;
+        }
+        const ids = op.order.map(numberOf).filter((id): id is string => Boolean(id) && current.clips.some((clip) => clip.id === id));
+        const unique = [...new Set(ids)];
+        if (unique.length === 0) {
+          skipped.push("order: none of those clip numbers exist");
+          break;
+        }
+        // Clips the model left out keep their relative order after the ones it named.
+        const rest = current.clips.filter((clip) => !unique.includes(clip.id));
+        current = { ...current, clips: [...unique.map((id) => current.clips.find((clip) => clip.id === id)!), ...rest] };
+        applied.push(`clips reordered${rest.length ? ` (${rest.length} left where they were)` : ""}`);
+        break;
+      }
       case "trim": {
         const clips = clipsFor(op, false);
         if (!clips) break;
@@ -724,6 +848,7 @@ export function fakeAiEditPlan(request: string, timeline: Timeline, songs: AiSon
   const blank: Omit<AiEditOp, "op"> = {
     clip: null, text: null, startMs: null, endMs: null, lengthMs: null, speed: null, filter: null, motion: null, transition: null, fit: null,
     volume: null, toPosition: null, content: null, style: null, color: null, size: null, y: null, songId: null, on: null, details: null,
+    assetId: null, order: null,
   };
   const ops: AiEditOp[] = [];
   const notes: string[] = [];
@@ -752,10 +877,16 @@ export function fakeAiEditPlan(request: string, timeline: Timeline, songs: AiSon
     ops.push({ ...blank, op: "trim", clip: index + 1, lengthMs: Math.round(clipDurationMs(timeline.clips[index]) * factor) });
     notes.push(`Clip ${index + 1} is ${longer[1]}.`);
   }
+  if (/\b(cut (it|a|an)|make something|make a reel|from scratch)\b/.test(text) && timeline.clips.length > 0) {
+    ops.push({ ...blank, op: "addText", content: "Just listed", style: "headline", startMs: 0, y: 0.3 });
+    if (timeline.music?.bpm) ops.push({ ...blank, op: "snapToBeat" });
+    if (timeline.clips.some((clip) => clip.room)) ops.push({ ...blank, op: "roomLabels", on: true });
+    notes.push("The reel opens with a headline" + (timeline.music?.bpm ? ", the cuts are on the beat" : "") + ".");
+  }
   if (/\broom (labels|names)\b/.test(text)) {
     const on = !/\b(off|remove|no|hide)\b/.test(text);
     ops.push({ ...blank, op: "roomLabels", on });
     notes.push(`Room labels are ${on ? "on" : "off"}.`);
   }
-  return { ops, note: notes.join(" ") || "I could not tell what to change from that. Try naming a clip, the music, the text or the look." };
+  return { ops, questions: [], note: notes.join(" ") || "I could not tell what to change from that. Try naming a clip, the music, the text or the look." };
 }

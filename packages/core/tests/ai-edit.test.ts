@@ -30,6 +30,7 @@ function reel(): Timeline {
 const blank: Omit<AiEditOp, "op"> = {
   clip: null, text: null, startMs: null, endMs: null, lengthMs: null, speed: null, filter: null, motion: null, transition: null, fit: null,
   volume: null, toPosition: null, content: null, style: null, color: null, size: null, y: null, songId: null, on: null, details: null,
+  assetId: null, order: null,
 };
 const op = (fields: Partial<AiEditOp> & { op: AiEditOp["op"] }): AiEditOp => ({ ...blank, ...fields });
 
@@ -151,6 +152,44 @@ describe("keeping the rest of the reel in step", () => {
   it("leaves texts alone when nothing structural changed", () => {
     const { timeline } = applyAiEditPlan(reel(), { ops: [op({ op: "look", clip: 0, filter: "mono" })], note: "" }, { assets, songs });
     expect(timeline.texts).toEqual(reel().texts);
+  });
+});
+
+describe("cutting from unused media", () => {
+  const unused: AiAsset[] = [
+    { id: "d", kind: "VIDEO", title: "drone over the house", durationMs: 9000, isPano: false, bpm: null, beatOffsetMs: null, room: null },
+    { id: "p", kind: "IMAGE", title: "pool (360)", durationMs: null, isPano: true, bpm: null, beatOffsetMs: null, room: "pool" },
+  ];
+
+  it("lists unused media to the model", () => {
+    const text = describeReel({ title: "New", timeline: reel(), assets, songs, unused });
+    expect(text).toContain('- d: video, 9.0 s, "drone over the house"');
+    expect(text).toContain('- p: 360 photo, "pool (360)", pool');
+  });
+
+  it("adds shots, orders them by number (new ones counted after the shown ones) and trims a new clip", () => {
+    let n = 0;
+    const plan = {
+      ops: [op({ op: "add", assetId: "d", toPosition: 1 }), op({ op: "add", assetId: "p" }), op({ op: "order", order: [3, 1, 4, 2] }), op({ op: "trim", clip: 3, lengthMs: 3000 })],
+      note: "",
+      questions: [],
+    };
+    const { timeline, applied, skipped } = applyAiEditPlan(reel(), plan, { assets, songs, unused, newId: () => `n${++n}` });
+    expect(timeline.clips.map((clip) => clip.assetId)).toEqual(["d", "k", "p", "l"]);
+    expect(clipDurationMs(timeline.clips[0])).toBe(3000);
+    expect(timeline.clips[2]).toMatchObject({ kind: "IMAGE", pano: { yawStart: -45 }, room: "pool", sourceEndMs: 5000 });
+    expect(skipped).toEqual([]);
+    expect(applied[0]).toBe('added "drone over the house" as clip 1');
+  });
+
+  it("refuses media that is not in the unused list", () => {
+    const { skipped } = applyAiEditPlan(reel(), { ops: [op({ op: "add", assetId: "zzz" })], note: "", questions: [] }, { assets, songs, unused });
+    expect(skipped).toEqual(["add: no unused media zzz"]);
+  });
+
+  it("carries questions through the schema with no operations", () => {
+    const parsed = aiEditPlanSchema.parse({ ops: [], note: "Tell me the open-house time and I will cut it.", questions: ["What day and time is the open house?"] });
+    expect(parsed.questions).toHaveLength(1);
   });
 });
 

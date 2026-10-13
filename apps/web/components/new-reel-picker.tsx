@@ -19,6 +19,7 @@ export function NewReelPicker({ librarySize = 0, tours = [] }: { librarySize?: n
   const [error, setError] = useState<string | null>(null);
   const [vibeId, setVibeId] = useState("");
   const input = useRef<HTMLInputElement>(null);
+  const autoInput = useRef<HTMLInputElement>(null);
 
   async function start(files: File[], autopilot = false) {
     setBusy(true);
@@ -36,11 +37,16 @@ export function NewReelPicker({ librarySize = 0, tours = [] }: { librarySize?: n
   // Files picked before the page finished loading never reached onChange:
   // pick them up as soon as it can, rather than losing the tap.
   useEffect(() => {
-    const element = input.current;
-    const files = Array.from(element?.files ?? []);
-    if (!element || files.length === 0) return;
-    element.value = "";
-    void start(files);
+    for (const [element, autopilot] of [
+      [autoInput.current, true],
+      [input.current, false],
+    ] as const) {
+      const files = Array.from(element?.files ?? []);
+      if (!element || files.length === 0) continue;
+      element.value = "";
+      void start(files, autopilot);
+      return;
+    }
     // Once, on mount; start() itself is recreated each render.
   }, []);
 
@@ -80,6 +86,7 @@ export function NewReelPicker({ librarySize = 0, tours = [] }: { librarySize?: n
           <span className="start-sub">Pick your shots. ReelWalk cuts them to music, adds the text and renders it.</span>
         </span>
         <input
+          ref={autoInput}
           type="file"
           multiple
           accept={acceptFor(["IMAGE", "VIDEO"])}

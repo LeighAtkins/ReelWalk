@@ -215,7 +215,8 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number }> = ({ t
         ) : (
           <span style={{ ...css, position: "relative" }}>
             <span style={{ visibility: "hidden" }}>{text.text}</span>
-            <span style={{ position: "absolute", left: css.padding ? undefined : 0, top: css.padding ? undefined : 0, inset: css.padding ? css.padding : undefined, textAlign: "inherit" }}>
+            {/* The same box as the hidden text (its padding, when the style has one), so the words wrap the same way. */}
+            <span style={{ position: "absolute", inset: css.padding ?? 0, textAlign: "inherit" }}>
               {written}
               {cursor ? "|" : ""}
             </span>

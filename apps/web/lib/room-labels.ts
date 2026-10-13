@@ -1,3 +1,4 @@
+import { ROOM_NAMES } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
 import { isAiConfigured, structuredAnswer, usageCostUsd, aiModel } from "@/lib/openai";
 import { readObject } from "@/lib/storage";
@@ -11,30 +12,8 @@ import { readObject } from "@/lib/storage";
  * once. Shared library media and shots that already know their room are left
  * alone.
  */
-export const ROOMS = [
-  "exterior",
-  "aerial",
-  "front door",
-  "entry",
-  "living room",
-  "family room",
-  "dining room",
-  "kitchen",
-  "primary bedroom",
-  "bedroom",
-  "bathroom",
-  "office",
-  "hallway",
-  "stairs",
-  "laundry",
-  "garage",
-  "pool",
-  "patio",
-  "balcony",
-  "garden",
-  "view",
-  "other",
-] as const;
+/** What the model may answer: the studio's room names, and "other" when nothing fits. */
+export const ROOMS = [...ROOM_NAMES, "other"] as const;
 
 const SCHEMA = {
   type: "object",

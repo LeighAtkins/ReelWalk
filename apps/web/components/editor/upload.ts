@@ -117,9 +117,14 @@ function put(url: string, body: Blob, contentType: string | null, onProgress?: (
  * 90 seconds to mono, and run the same detector the importer uses.
  */
 async function detectTempo(file: File): Promise<BeatGrid | null> {
+  return (await analyseAudio(await file.arrayBuffer())).beat;
+}
+
+/** Decodes a song and finds its length and tempo. Both are null when the browser cannot decode it. */
+async function analyseAudio(data: ArrayBuffer): Promise<{ durationMs: number | null; beat: BeatGrid | null }> {
   try {
     const context = new AudioContext();
-    const decoded = await context.decodeAudioData(await file.arrayBuffer());
+    const decoded = await context.decodeAudioData(data);
     void context.close();
     const seconds = Math.min(90, decoded.duration);
     const offline = new OfflineAudioContext(1, Math.ceil(seconds * BEAT_SAMPLE_RATE), BEAT_SAMPLE_RATE);
@@ -128,10 +133,25 @@ async function detectTempo(file: File): Promise<BeatGrid | null> {
     source.connect(offline.destination);
     source.start();
     const rendered = await offline.startRendering();
-    return detectBeats(rendered.getChannelData(0));
+    return { durationMs: Math.round(decoded.duration * 1000), beat: detectBeats(rendered.getChannelData(0)) };
   } catch {
     // Not decodable here: the song still works, just without beat snapping.
-    return null;
+    return { durationMs: null, beat: null };
+  }
+}
+
+/**
+ * Length and tempo of a song already in storage (an Instagram sound's private
+ * copy, ADR 0019): fetched from its presigned storage URL, which answers
+ * CORS, never from Instagram's CDN, which does not.
+ */
+export async function analyseStoredAudio(url: string): Promise<{ durationMs: number | null; beat: BeatGrid | null }> {
+  try {
+    const response = await fetch(url);
+    if (!response.ok) return { durationMs: null, beat: null };
+    return await analyseAudio(await response.arrayBuffer());
+  } catch {
+    return { durationMs: null, beat: null };
   }
 }
 

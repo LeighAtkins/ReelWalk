@@ -126,15 +126,30 @@ export const textSchema = z
   .refine((text) => text.endMs > text.startMs, { message: "Text must be on screen for a positive time" })
   .refine((text) => text.size >= minTextSize(text.style), { message: "Text is too small for this style", path: ["size"] });
 
-export const musicSchema = z.object({
-  assetId: z.string().min(1),
-  /** Where in the song the reel starts. */
-  sourceStartMs: ms.default(0),
-  volume: unit.default(0.8),
-  /** Tempo of the song and the time of its first beat, when detected. */
-  bpm: z.number().min(40).max(240).nullable().default(null),
-  beatOffsetMs: ms.nullable().default(null),
-});
+export const musicSchema = z
+  .object({
+    assetId: z.string().min(1),
+    /** Where in the song the reel starts. Always 0 for an Instagram sound. */
+    sourceStartMs: ms.default(0),
+    /** For an Instagram sound, only how loud it is in the editor's preview: Instagram sets its own mix when it posts. */
+    volume: unit.default(0.8),
+    /** Tempo of the song and the time of its first beat, when detected. */
+    bpm: z.number().min(40).max(240).nullable().default(null),
+    beatOffsetMs: ms.nullable().default(null),
+    /**
+     * Set when the song is a private copy of a sound from Instagram's library
+     * (ADR 0019). The export never contains it; Instagram attaches the sound
+     * when the reel is posted, always from its start.
+     */
+    instagramAudioId: z.string().min(1).max(64).nullish(),
+  })
+  // Instagram has no start offset for an attached sound, so neither does the edit.
+  .transform((music) => (music.instagramAudioId ? { ...music, sourceStartMs: 0 } : music));
+
+/** Whether the reel's music is an Instagram sound, which plays from its start and is never rendered into the export. */
+export function isInstagramMusic(music: { instagramAudioId?: string | null } | null | undefined): boolean {
+  return Boolean(music?.instagramAudioId);
+}
 
 export const DETAILS_PLACEMENTS = ["end", "start", "both"] as const;
 /** How long the details card stays on screen. */

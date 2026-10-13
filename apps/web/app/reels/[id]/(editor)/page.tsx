@@ -3,6 +3,8 @@ import { notFound } from "next/navigation";
 import { planSchema, referencedAssetIds, type Plan } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
 import { Editor } from "@/components/editor/editor";
+import { isFakeInstagram, isInstagramConfigured } from "@/lib/instagram";
+import { instagramSoundProblem } from "@/lib/instagram-sound";
 import { toLibraryAsset } from "@/lib/library";
 import { readTimeline } from "@/lib/reels";
 import { getCurrentUser, mediaScope } from "@/lib/workspace";
@@ -41,6 +43,10 @@ export default async function EditReelPage({
     if (plan.success) tours[tour.id] = { name: tour.name, plan: plan.data };
   }
 
+  // Instagram's sounds in the Music sheet (ADR 0019): not offered at all where
+  // this deployment cannot reach Instagram; otherwise offered, or explained.
+  const instagramSounds = isInstagramConfigured() || isFakeInstagram() ? { problem: await instagramSoundProblem(user.workspaceId) } : null;
+
   return (
     <Editor
       key={reel.id}
@@ -49,6 +55,7 @@ export default async function EditReelPage({
       timeline={timeline}
       library={library}
       tours={tours}
+      instagramSounds={instagramSounds}
     />
   );
 }

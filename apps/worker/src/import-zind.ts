@@ -234,7 +234,7 @@ async function createSampleReel(tourId: string, name: string, workspaceId: strin
   // Music from the open library, if it has been imported.
   const song =
     (await prisma.mediaAsset.findUnique({ where: { objectKey: "library/music/wallpaper.mp3" } })) ??
-    (await prisma.mediaAsset.findFirst({ where: { workspaceId, kind: "AUDIO", bpm: { not: null } }, orderBy: { fileName: "asc" } }));
+    (await prisma.mediaAsset.findFirst({ where: { workspaceId, kind: "AUDIO", bpm: { not: null }, instagramAudioId: null }, orderBy: { fileName: "asc" } }));
   const timeline = buildTourReel({
     shots,
     plan,

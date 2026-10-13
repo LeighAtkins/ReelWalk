@@ -24,6 +24,11 @@ export type LibraryAsset = {
   beatOffsetMs: number | null;
   /** A video whose light preview is still being made; url is the original until then. */
   previewPending: boolean;
+  /**
+   * Set for the workspace's private copy of an Instagram sound (ADR 0019):
+   * edited against, never exported. Instagram plays it from its start.
+   */
+  instagram: { audioId: string; title: string; artist: string | null } | null;
 };
 
 export async function toLibraryAsset(asset: {
@@ -44,6 +49,9 @@ export async function toLibraryAsset(asset: {
   room?: string | null;
   bpm?: number | null;
   beatOffsetMs?: number | null;
+  instagramAudioId?: string | null;
+  instagramTitle?: string | null;
+  instagramArtist?: string | null;
 }): Promise<LibraryAsset> {
   const spot = spotSchema.safeParse(asset.spot);
   // The editor plays the light preview rendition when one exists; exports always use the original.
@@ -66,5 +74,8 @@ export async function toLibraryAsset(asset: {
     bpm: asset.bpm ?? null,
     beatOffsetMs: asset.beatOffsetMs ?? null,
     previewPending: asset.kind === "VIDEO" && asset.previewKey === null,
+    instagram: asset.instagramAudioId
+      ? { audioId: asset.instagramAudioId, title: asset.instagramTitle ?? asset.fileName, artist: asset.instagramArtist ?? null }
+      : null,
   };
 }

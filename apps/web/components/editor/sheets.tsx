@@ -12,6 +12,7 @@ import {
   clipDurationMs,
   FILTERS,
   DEFAULT_PANO,
+  isInstagramMusic,
   MIN_CLIP_MS,
   minTextSize,
   MOTIONS,
@@ -21,6 +22,8 @@ import {
   TEXT_STYLES,
   type Clip,
   type Filter,
+  type InstagramAudioTrack,
+  type InstagramAudioType,
   type Issue,
   type ListingDetails,
   type Motion,
@@ -33,9 +36,11 @@ import {
 import { ELEGANT_FONT_FAMILY, FILTER_CSS, FILTER_LABELS, TEXT_STYLE_LABELS, textCss } from "@reelwalk/render/reel";
 import { formatDuration } from "@/lib/format";
 import type { LibraryAsset } from "@/lib/library";
+import Link from "next/link";
 import { saveCaption } from "@/app/actions";
 import { CaptionEditor } from "../caption-editor";
-import { AlertIcon, PlusIcon } from "../icons";
+import { AlertIcon, InstagramIcon, PlusIcon } from "../icons";
+import { InstagramSoundBrowser } from "../instagram-sound-picker";
 import { Sheet } from "../sheet";
 
 // ── Shell ───────────────────────────────────────────────────────
@@ -670,11 +675,29 @@ export function TimingSheet({
 
 // ── Music ───────────────────────────────────────────────────────
 
+/**
+ * Whether the Music sheet offers Instagram's sounds: null when this
+ * deployment cannot reach Instagram at all (no tabs), otherwise the reason the
+ * workspace cannot use them yet (not connected, plan) or null when it can.
+ */
+export type InstagramSoundAccess = { problem: string | null } | null;
+
+type MusicSource = "songs" | InstagramAudioType;
+
+const MUSIC_SOURCES: { source: MusicSource; label: string; testId: string }[] = [
+  { source: "songs", label: "Your songs", testId: "music-source-songs" },
+  { source: "music", label: "Instagram music", testId: "music-source-instagram" },
+  { source: "original_sound", label: "Trending sounds", testId: "music-source-trending" },
+];
+
 export function MusicSheet({
   library,
   music,
   uploading,
+  instagram,
+  instagramBusyId,
   onPick,
+  onPickInstagram,
   onSnap,
   onUpload,
   onChange,
@@ -684,7 +707,12 @@ export function MusicSheet({
   library: LibraryAsset[];
   music: Music | null;
   uploading: boolean;
+  instagram: InstagramSoundAccess;
+  /** The Instagram sound being fetched after it was picked. */
+  instagramBusyId: string | null;
   onPick(asset: LibraryAsset): void;
+  /** Edit to a sound from Instagram's library (ADR 0019). */
+  onPickInstagram(track: InstagramAudioTrack): void;
   /** Move every cut onto a beat of the song. */
   onSnap(): void;
   onUpload(file: File): void;
@@ -692,17 +720,30 @@ export function MusicSheet({
   onRemove(): void;
   onClose(): void;
 }) {
-  const tracks = library.filter((asset) => asset.kind === "AUDIO");
+  // Instagram's copies are chosen from the Instagram tabs, not listed as songs of your own.
+  const tracks = library.filter((asset) => asset.kind === "AUDIO" && !asset.instagram);
   const current = music ? library.find((asset) => asset.id === music.assetId) : undefined;
+  const instagramSound = current?.instagram ?? null;
+  const fromInstagram = isInstagramMusic(music) || instagramSound !== null;
+  const [source, setSource] = useState<MusicSource>(fromInstagram && instagram ? "music" : "songs");
+  const sources = instagram ? MUSIC_SOURCES : MUSIC_SOURCES.slice(0, 1);
+
   return (
     <Sheet title="Music" onClose={onClose}>
       {music ? (
-        <>
-          <p>
-            <strong>{current?.fileName ?? "Track"}</strong>
+        <div className="music-current" data-testid="music-current" data-instagram={fromInstagram || undefined}>
+          <p className="music-current-name">
+            <strong>{instagramSound?.title ?? current?.fileName ?? "Track"}</strong>
+            {instagramSound?.artist ? <span className="muted"> · {instagramSound.artist}</span> : null}
+            {fromInstagram ? (
+              <span className="chip">
+                <InstagramIcon size={12} />
+                Instagram sound
+              </span>
+            ) : null}
           </p>
           <Range
-            label="Music volume"
+            label={fromInstagram ? "Volume in this preview" : "Music volume"}
             value={Math.round(music.volume * 100)}
             min={0}
             max={100}
@@ -710,7 +751,11 @@ export function MusicSheet({
             display={`${Math.round(music.volume * 100)}%`}
             onChange={(value) => onChange({ volume: value / 100 })}
           />
-          {current?.durationMs ? (
+          {fromInstagram ? (
+            <p className="muted small" data-testid="music-start-locked">
+              Instagram plays this sound from its start.
+            </p>
+          ) : current?.durationMs ? (
             <Range
               label="Start the song at"
               value={music.sourceStartMs}
@@ -728,40 +773,76 @@ export function MusicSheet({
           ) : (
             <p className="muted small">No steady beat was found in this song, so cuts cannot snap to it.</p>
           )}
+          {fromInstagram ? (
+            <p className="muted small">
+              Your export stays without it: Instagram adds the sound when you post or schedule from ReelWalk.
+            </p>
+          ) : null}
           <button type="button" className="btn btn-quiet btn-block" onClick={onRemove}>
             Remove music
           </button>
-        </>
+        </div>
       ) : null}
 
-      <label className="btn btn-block picker-btn" data-busy={uploading}>
-        <PlusIcon size={18} />
-        {uploading ? "Uploading…" : music ? "Use a different song" : "Choose a song"}
-        <input
-          type="file"
-          accept={acceptFor(["AUDIO"])}
-          disabled={uploading}
-          data-testid="music-input"
-          onChange={(event) => {
-            const file = event.target.files?.[0];
-            event.target.value = "";
-            if (file) onUpload(file);
-          }}
-        />
-      </label>
-      {tracks.length > 0 ? (
-        <div className="segmented" role="group" aria-label="Your songs">
-          {tracks.map((track) => (
-            <button key={track.id} type="button" aria-pressed={music?.assetId === track.id} onClick={() => onPick(track)}>
-              {track.fileName}
+      {sources.length > 1 ? (
+        <div className="segmented" role="group" aria-label="Where the music comes from">
+          {sources.map((entry) => (
+            <button key={entry.source} type="button" aria-pressed={entry.source === source} onClick={() => setSource(entry.source)} data-testid={entry.testId}>
+              {entry.label}
             </button>
           ))}
         </div>
       ) : null}
-      <p className="muted small">
-        Use music you have the rights to. Instagram can mute reels that use copyrighted songs; its own music library is
-        added when you post in the app.
-      </p>
+
+      {source === "songs" ? (
+        <>
+          <label className="btn btn-block picker-btn" data-busy={uploading}>
+            <PlusIcon size={18} />
+            {uploading ? "Uploading…" : music ? "Use a different song" : "Choose a song"}
+            <input
+              type="file"
+              accept={acceptFor(["AUDIO"])}
+              disabled={uploading}
+              data-testid="music-input"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = "";
+                if (file) onUpload(file);
+              }}
+            />
+          </label>
+          {tracks.length > 0 ? (
+            <div className="segmented" role="group" aria-label="Your songs">
+              {tracks.map((track) => (
+                <button key={track.id} type="button" aria-pressed={music?.assetId === track.id} onClick={() => onPick(track)}>
+                  {track.fileName}
+                </button>
+              ))}
+            </div>
+          ) : null}
+          <p className="muted small">
+            Use music you have the rights to. Instagram can mute reels that use copyrighted songs; for its own library, pick
+            {instagram ? " Instagram music or Trending sounds above." : " a sound when you post in the Instagram app."}
+          </p>
+        </>
+      ) : instagram?.problem ? (
+        <p className="muted small" data-testid="music-instagram-unavailable">
+          {instagram.problem}{" "}
+          <Link className="link" href="/account" prefetch={false}>
+            Go to Account
+          </Link>
+        </p>
+      ) : (
+        <InstagramSoundBrowser
+          key={source}
+          type={source}
+          selectedId={fromInstagram ? (instagramSound?.audioId ?? music?.instagramAudioId ?? null) : null}
+          busyId={instagramBusyId}
+          disabled={instagramBusyId !== null}
+          onSelect={onPickInstagram}
+          hint="Pick one to edit your reel to it; Instagram adds it when you post from ReelWalk."
+        />
+      )}
     </Sheet>
   );
 }
@@ -792,6 +873,7 @@ export function ExportSheet({
   durationMs,
   busy,
   error,
+  instagramSound = null,
   onExport,
   onShowIssue,
   onClose,
@@ -800,6 +882,8 @@ export function ExportSheet({
   durationMs: number;
   busy: boolean;
   error: string | null;
+  /** "Title · Artist" when the reel is edited to an Instagram sound, which the video file leaves out. */
+  instagramSound?: string | null;
   onExport(): void;
   onShowIssue(issue: Issue): void;
   onClose(): void;
@@ -811,6 +895,11 @@ export function ExportSheet({
         {formatDuration(durationMs, true)} reel, rendered as a 1080×1920 MP4 at 30 fps. Usually ready in about {renderMinutes(durationMs)}; you can
         keep editing while it renders.
       </p>
+      {instagramSound ? (
+        <p className="muted small" data-testid="export-instagram-sound">
+          The video file has only your clips&apos; own sound. Instagram adds “{instagramSound}” when you post or schedule it from ReelWalk.
+        </p>
+      ) : null}
       {issues.length > 0 ? (
         <ul className="issue-list">
           {issues.map((issue) => (

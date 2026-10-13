@@ -34,7 +34,8 @@ async function ReelsHome({ searchParams }: { searchParams: Promise<{ welcome?: s
   });
   const [librarySize, songs] = await Promise.all([
     prisma.mediaAsset.count({ where: { ...mediaScope(user.workspaceId), kind: { not: "AUDIO" } } }),
-    prisma.mediaAsset.count({ where: { ...mediaScope(user.workspaceId), kind: "AUDIO" } }),
+    // Instagram sounds' private copies (ADR 0019) are not songs in your library.
+    prisma.mediaAsset.count({ where: { ...mediaScope(user.workspaceId), kind: "AUDIO", instagramAudioId: null } }),
   ]);
   const tours = await prisma.tour.findMany({
     where: { workspaceId: user.workspaceId },

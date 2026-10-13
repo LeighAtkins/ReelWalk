@@ -20,6 +20,7 @@ import {
   DEFAULT_PANO,
   DEFAULT_PANO_MS,
   duplicateClip,
+  instagramAudioLabel,
   instagramIssues,
   moveClip,
   REEL_FORMAT,
@@ -33,12 +34,14 @@ import {
   updateClip,
   updateText,
   type Clip,
+  type InstagramAudioTrack,
   type Issue,
   type Plan,
   type Timeline,
 } from "@reelwalk/core";
 import { ELEGANT_FADE_S, type ReelAsset } from "@reelwalk/render/reel";
 import { deleteReel, exportReel, readyPreviews } from "@/app/actions";
+import { analyseInstagramSound, chooseInstagramSound } from "@/app/instagram-audio-actions";
 import { formatDuration } from "@/lib/format";
 import type { LibraryAsset } from "@/lib/library";
 import { takePendingFiles } from "@/lib/pending-files";
@@ -92,9 +95,10 @@ import {
   TransitionSheet,
   TrimSheet,
   VolumeSheet,
+  type InstagramSoundAccess,
   type TextDraft,
 } from "./sheets";
-import { uploadFile } from "./upload";
+import { analyseStoredAudio, uploadFile } from "./upload";
 import { useAutosave } from "./use-autosave";
 
 // The Player only runs in the browser.
@@ -133,6 +137,8 @@ export type EditorProps = {
   reel: { id: string; title: string; revision: number; caption: string };
   timeline: Timeline;
   library: LibraryAsset[];
+  /** Whether the Music sheet offers Instagram's sounds (null: not on this deployment). */
+  instagramSounds?: InstagramSoundAccess;
 };
 
 const newId = () => crypto.randomUUID();
@@ -194,7 +200,7 @@ function Tool({
   );
 }
 
-export function Editor({ reel, timeline: initialTimeline, library: initialLibrary, openLibrary, tours = {} }: EditorProps) {
+export function Editor({ reel, timeline: initialTimeline, library: initialLibrary, openLibrary, tours = {}, instagramSounds = null }: EditorProps) {
   const router = useRouter();
   const [history, dispatch] = useReducer(historyReducer, initialTimeline, initHistory);
   const timeline = history.present;
@@ -391,6 +397,55 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         showToast(error instanceof Error ? error.message : "Could not upload the song.");
       } finally {
         setMusicUploading(false);
+      }
+    },
+    [apply, showToast],
+  );
+
+  // Editing to an Instagram sound (ADR 0019): the server keeps a private copy
+  // of its preview; its length and tempo are found here, like an upload's.
+  const [instagramBusy, setInstagramBusy] = useState<string | null>(null);
+  const pickInstagramSound = useCallback(
+    async (track: InstagramAudioTrack) => {
+      setInstagramBusy(track.id);
+      try {
+        const result = await chooseInstagramSound({ audioId: track.id, type: track.type, title: track.title, artist: track.artist });
+        if (!result.ok) {
+          showToast(result.error, 5000);
+          return;
+        }
+        let asset = result.asset;
+        // Measured once per copy; a sound chosen again already knows its tempo.
+        if (asset.durationMs === null) {
+          const analysis = await analyseStoredAudio(asset.url);
+          if (analysis.durationMs !== null) {
+            asset = { ...asset, durationMs: analysis.durationMs, bpm: analysis.beat?.bpm ?? null, beatOffsetMs: analysis.beat?.offsetMs ?? null };
+            void analyseInstagramSound({
+              assetId: asset.id,
+              durationMs: analysis.durationMs,
+              bpm: asset.bpm,
+              beatOffsetMs: asset.beatOffsetMs,
+              catalogueMs: track.durationMs,
+            }).catch(() => undefined);
+          }
+        }
+        const chosen = asset;
+        setLibrary((current) => ({ ...current, [chosen.id]: chosen }));
+        apply((current) =>
+          setMusic(current, {
+            assetId: chosen.id,
+            sourceStartMs: 0,
+            volume: current.music?.volume ?? 0.8,
+            bpm: chosen.bpm,
+            beatOffsetMs: chosen.beatOffsetMs,
+            instagramAudioId: chosen.instagram?.audioId ?? track.id,
+          }),
+        );
+        setSelection({ kind: "music" });
+      } catch {
+        showToast("Could not get that sound from Instagram. Try again.");
+      } finally {
+        setInstagramBusy(null);
       }
     },
     [apply, showToast],
@@ -613,6 +668,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
   }, [timeline.clips, timeline.music, library]);
   const issues = useMemo(() => exportState.issues ?? instagramIssues(timeline, caption), [exportState.issues, timeline, caption]);
   const libraryList = useMemo(() => Object.values(library), [library]);
+  const musicInstagram = timeline.music ? (library[timeline.music.assetId]?.instagram ?? null) : null;
 
   const saveLabel = {
     saved: "Saved",
@@ -1027,6 +1083,9 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
           library={libraryList}
           music={timeline.music}
           uploading={musicUploading}
+          instagram={instagramSounds}
+          instagramBusyId={instagramBusy}
+          onPickInstagram={pickInstagramSound}
           onPick={(asset) =>
             apply((current) =>
               setMusic(current, { assetId: asset.id, sourceStartMs: 0, volume: current.music?.volume ?? 0.8, bpm: asset.bpm, beatOffsetMs: asset.beatOffsetMs }),
@@ -1085,6 +1144,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
           durationMs={totalMs}
           busy={exportState.busy}
           error={exportState.error}
+          instagramSound={musicInstagram ? instagramAudioLabel(musicInstagram) : null}
           onExport={confirmExport}
           onShowIssue={(issue) => {
             if (issue.textId) selectAndShow({ kind: "text", id: issue.textId });

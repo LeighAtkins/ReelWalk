@@ -14,7 +14,7 @@ import { formatDuration } from "@/lib/format";
 import { CheckIcon, CloseIcon, MusicIcon, PauseIcon, PlayIcon } from "./icons";
 import { Sheet } from "./sheet";
 
-const TABS: { type: InstagramAudioType; label: string; placeholder: string }[] = [
+export const SOUND_TABS: { type: InstagramAudioType; label: string; placeholder: string }[] = [
   { type: "music", label: "Music", placeholder: "Search Instagram's music" },
   { type: "original_sound", label: "Trending sounds", placeholder: "Search sounds or paste an audio link" },
 ];
@@ -83,17 +83,87 @@ export function InstagramSoundPicker({
 
 function SoundSheet({ value, onClose, onPick }: { value: InstagramAudioChoice | null; onClose(): void; onPick(choice: InstagramAudioChoice): void }) {
   const [type, setType] = useState<InstagramAudioType>("music");
-  const [query, setQuery] = useState("");
-  const [search, setSearch] = useState<Search>({ step: "loading" });
   const [selected, setSelected] = useState<{ audioId: string; title: string; artist: string | null } | null>(
     value ? { audioId: value.audioId, title: value.title, artist: value.artist } : null,
   );
   const [keepReelAudio, setKeepReelAudio] = useState(value ? value.videoVolume > 0 : false);
+  const keepId = useId();
+
+  function confirm() {
+    if (!selected) return;
+    onPick({ ...selected, ...instagramAudioMix(keepReelAudio) });
+  }
+
+  return (
+    <Sheet title="Instagram sound" onClose={onClose}>
+      <div className="segmented" role="group" aria-label="Kind of sound">
+        {SOUND_TABS.map((entry) => (
+          <button
+            key={entry.type}
+            type="button"
+            aria-pressed={entry.type === type}
+            onClick={() => setType(entry.type)}
+            data-testid={entry.type === "music" ? "sound-tab-music" : "sound-tab-trending"}
+          >
+            {entry.label}
+          </button>
+        ))}
+      </div>
+
+      <InstagramSoundBrowser
+        type={type}
+        selectedId={selected?.audioId ?? null}
+        onSelect={(track) => setSelected({ audioId: track.id, title: track.title, artist: track.artist })}
+        hint="Instagram adds the sound when it publishes; tap play to hear the sound on its own."
+      />
+
+      <label className="check" htmlFor={keepId}>
+        <input id={keepId} type="checkbox" checked={keepReelAudio} onChange={(event) => setKeepReelAudio(event.target.checked)} data-testid="sound-keep-reel" />
+        <span>
+          Keep my reel&apos;s own music under it
+          <span className="muted small" style={{ display: "block" }}>
+            {keepReelAudio ? "Your reel's soundtrack stays, quieter, under the Instagram sound." : "The Instagram sound replaces your reel's soundtrack."}
+          </span>
+        </span>
+      </label>
+
+      <button type="button" className="btn btn-signal btn-block sheet-sticky" onClick={confirm} disabled={!selected} data-testid="sound-confirm">
+        {selected ? `Use “${selected.title}”` : "Pick a sound"}
+      </button>
+    </Sheet>
+  );
+}
+
+/**
+ * Search box and results for one kind of Instagram sound, each with cover
+ * art, title, artist, length and a play button. Shared by the export
+ * screen's picker and the editor's Music sheet. Previews play Instagram's
+ * own preview link in an <audio> element (no CORS needed to play it); only
+ * one plays at a time, and nothing keeps playing once this is closed.
+ */
+export function InstagramSoundBrowser({
+  type,
+  selectedId,
+  busyId = null,
+  disabled = false,
+  onSelect,
+  hint,
+}: {
+  type: InstagramAudioType;
+  selectedId: string | null;
+  /** A sound being fetched after it was picked; its row says so. */
+  busyId?: string | null;
+  disabled?: boolean;
+  onSelect(track: InstagramAudioTrack): void;
+  /** One line under the search box about what picking does here. */
+  hint: string;
+}) {
+  const [query, setQuery] = useState("");
+  const [search, setSearch] = useState<Search>({ step: "loading" });
   const [playing, setPlaying] = useState<string | null>(null);
   const audio = useRef<HTMLAudioElement>(null);
   const request = useRef(0);
-  const keepId = useId();
-  const tab = TABS.find((entry) => entry.type === type)!;
+  const tab = SOUND_TABS.find((entry) => entry.type === type)!;
 
   // Searches after a short pause in typing; an answer to an older search is dropped.
   useEffect(() => {
@@ -110,7 +180,7 @@ function SoundSheet({ value, onClose, onPick }: { value: InstagramAudioChoice | 
     return () => clearTimeout(timer);
   }, [type, query]);
 
-  // Nothing keeps playing once the sheet is closed.
+  // Nothing keeps playing once the list is gone.
   useEffect(() => {
     const element = audio.current;
     return () => element?.pause();
@@ -132,27 +202,8 @@ function SoundSheet({ value, onClose, onPick }: { value: InstagramAudioChoice | 
     );
   }
 
-  function confirm() {
-    if (!selected) return;
-    onPick({ ...selected, ...instagramAudioMix(keepReelAudio) });
-  }
-
   return (
-    <Sheet title="Instagram sound" onClose={onClose}>
-      <div className="segmented" role="group" aria-label="Kind of sound">
-        {TABS.map((entry) => (
-          <button
-            key={entry.type}
-            type="button"
-            aria-pressed={entry.type === type}
-            onClick={() => setType(entry.type)}
-            data-testid={entry.type === "music" ? "sound-tab-music" : "sound-tab-trending"}
-          >
-            {entry.label}
-          </button>
-        ))}
-      </div>
-
+    <>
       <input
         className="text-input"
         type="search"
@@ -166,9 +217,8 @@ function SoundSheet({ value, onClose, onPick }: { value: InstagramAudioChoice | 
         data-testid="sound-search"
       />
 
-      <p className="muted small sound-hint" id={`${keepId}-hint`}>
-        {query.trim() ? "Results from Instagram's library." : type === "music" ? "Trending in Instagram's music for business accounts." : "Trending creator sounds."}{" "}
-        Instagram adds the sound when it publishes; tap play to hear the sound on its own.
+      <p className="muted small sound-hint">
+        {query.trim() ? "Results from Instagram's library." : type === "music" ? "Trending in Instagram's music for business accounts." : "Trending creator sounds."} {hint}
       </p>
 
       <audio ref={audio} preload="none" onEnded={() => setPlaying(null)} onPause={() => setPlaying(null)} hidden />
@@ -187,14 +237,17 @@ function SoundSheet({ value, onClose, onPick }: { value: InstagramAudioChoice | 
         ) : (
           <ul className="sound-list" aria-label={`${tab.label} results`}>
             {search.tracks.map((track) => {
-              const isSelected = selected?.audioId === track.id;
+              const isSelected = selectedId === track.id;
+              const isBusy = busyId === track.id;
               return (
                 <li key={track.id} className="sound-row" data-selected={isSelected || undefined}>
                   <button
                     type="button"
                     className="sound-pick"
                     aria-pressed={isSelected}
-                    onClick={() => setSelected({ audioId: track.id, title: track.title, artist: track.artist })}
+                    aria-busy={isBusy || undefined}
+                    disabled={disabled}
+                    onClick={() => onSelect(track)}
                     data-testid="sound-option"
                     data-audio-id={track.id}
                   >
@@ -209,8 +262,14 @@ function SoundSheet({ value, onClose, onPick }: { value: InstagramAudioChoice | 
                     <span className="sound-meta">
                       <span className="sound-title">{track.title}</span>
                       <span className="muted small sound-artist">
-                        {track.artist ?? "Unknown artist"}
-                        {track.durationMs ? <span className="timecode"> · {formatDuration(track.durationMs)}</span> : null}
+                        {isBusy ? (
+                          "Getting the sound…"
+                        ) : (
+                          <>
+                            {track.artist ?? "Unknown artist"}
+                            {track.durationMs ? <span className="timecode"> · {formatDuration(track.durationMs)}</span> : null}
+                          </>
+                        )}
                       </span>
                     </span>
                   </button>
@@ -231,20 +290,6 @@ function SoundSheet({ value, onClose, onPick }: { value: InstagramAudioChoice | 
           </ul>
         )}
       </div>
-
-      <label className="check" htmlFor={keepId}>
-        <input id={keepId} type="checkbox" checked={keepReelAudio} onChange={(event) => setKeepReelAudio(event.target.checked)} data-testid="sound-keep-reel" />
-        <span>
-          Keep my reel&apos;s own music under it
-          <span className="muted small" style={{ display: "block" }}>
-            {keepReelAudio ? "Your reel's soundtrack stays, quieter, under the Instagram sound." : "The Instagram sound replaces your reel's soundtrack."}
-          </span>
-        </span>
-      </label>
-
-      <button type="button" className="btn btn-signal btn-block sheet-sticky" onClick={confirm} disabled={!selected} data-testid="sound-confirm">
-        {selected ? `Use “${selected.title}”` : "Pick a sound"}
-      </button>
-    </Sheet>
+    </>
   );
 }

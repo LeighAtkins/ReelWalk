@@ -9,7 +9,8 @@ import { FeatureConsent } from "@/components/feature-consent";
 import { BackIcon, DownloadIcon } from "@/components/icons";
 import { ShareButton } from "@/components/share-button";
 import { ShareLink } from "@/components/share-link";
-import { outputSize, parseReelExportPayload } from "@reelwalk/core";
+import { instagramChoiceForSound, instagramSoundAssetId, outputSize, parseReelExportPayload } from "@reelwalk/core";
+import { ExportStage, ExportVideo } from "@/components/export-sound";
 import { InstagramPublishing } from "@/components/instagram-publishing";
 import { isFakeInstagram, isInstagramConfigured } from "@/lib/instagram";
 import { workspacePlan } from "@/lib/plans";
@@ -44,7 +45,19 @@ export default async function ExportPage({
     prisma.socialAccount.findUnique({ where: { workspaceId_provider: { workspaceId: user.workspaceId, provider: "instagram" } }, select: { username: true } }),
     workspacePlan(user.workspaceId),
   ]);
-  const output = parseReelExportPayload(job.payload).output;
+  const payload = parseReelExportPayload(job.payload);
+  const output = payload.output;
+  // The Instagram sound the reel was edited to (ADR 0019), from the asset's own record.
+  const soundAssetId = instagramSoundAssetId(payload);
+  const soundAsset = soundAssetId
+    ? await prisma.mediaAsset.findFirst({
+        where: { id: soundAssetId, workspaceId: user.workspaceId, instagramAudioId: { not: null } },
+        select: { instagramAudioId: true, instagramTitle: true, instagramArtist: true, fileName: true },
+      })
+    : null;
+  const reelSound = soundAsset?.instagramAudioId
+    ? instagramChoiceForSound({ audioId: soundAsset.instagramAudioId, title: soundAsset.instagramTitle ?? soundAsset.fileName, artist: soundAsset.instagramArtist })
+    : null;
   const active = isActive(job.status);
   const progress = exportProgressText(job, new Date());
 
@@ -59,87 +72,89 @@ export default async function ExportPage({
         <span className="muted small">{reel.title}</span>
       </header>
 
-      <section className="export" data-testid="export" data-status={job.status}>
-        <div className="export-frame">
+      <ExportStage>
+        <section className="export" data-testid="export" data-status={job.status}>
+          <div className="export-frame">
+            {urls ? (
+              <ExportVideo src={urls.playUrl} />
+            ) : (
+              <>
+                {cover ? <img src={cover} alt="" style={{ opacity: 0.35 }} /> : null}
+                {active ? <span className="export-fill" style={{ height: `${job.progress}%` }} /> : null}
+                <span className="export-figure" role="status">
+                  {active ? (
+                    <>
+                      <strong className="timecode">{job.progress}%</strong>
+                      <span>{progress.phase}</span>
+                      {progress.detail ? <span className="small muted">{progress.detail}</span> : null}
+                    </>
+                  ) : (
+                    <>
+                      <strong>Failed</strong>
+                      <span className="small">{job.error ?? "The render did not finish."}</span>
+                    </>
+                  )}
+                </span>
+              </>
+            )}
+          </div>
+  
           {urls ? (
-            <video src={urls.playUrl} controls playsInline autoPlay muted loop data-testid="export-video" />
-          ) : (
             <>
-              {cover ? <img src={cover} alt="" style={{ opacity: 0.35 }} /> : null}
-              {active ? <span className="export-fill" style={{ height: `${job.progress}%` }} /> : null}
-              <span className="export-figure" role="status">
-                {active ? (
-                  <>
-                    <strong className="timecode">{job.progress}%</strong>
-                    <span>{progress.phase}</span>
-                    {progress.detail ? <span className="small muted">{progress.detail}</span> : null}
-                  </>
-                ) : (
-                  <>
-                    <strong>Failed</strong>
-                    <span className="small">{job.error ?? "The render did not finish."}</span>
-                  </>
-                )}
-              </span>
-            </>
-          )}
-        </div>
-
-        {urls ? (
-          <>
-            <div>
-              <h1>Ready for Instagram</h1>
-              <p className="muted" style={{ marginTop: 6 }}>
-                {outputSize(output.width).width}×{outputSize(output.width).height} MP4, 30 fps. Share it to Instagram from your phone, download it, or send a link anyone can open.
-                {output.watermark ? " Free exports carry a small ReelWalk mark; the Agent plan removes it and exports at full size." : ""}
-              </p>
-            </div>
-            <div className="export-actions">
-              {instagram && plan.instagram ? (
-                <InstagramPublishing jobId={job.id} username={instagram.username} live={isInstagramConfigured() || isFakeInstagram()} />
-              ) : null}
-              {planId === "FREE" && isInstagramConfigured() ? (
-                <Link className="btn btn-quiet" href="/account#plan" prefetch={false}>
-                  Post straight to Instagram with Agent
+              <div>
+                <h1>Ready for Instagram</h1>
+                <p className="muted" style={{ marginTop: 6 }}>
+                  {outputSize(output.width).width}×{outputSize(output.width).height} MP4, 30 fps. Share it to Instagram from your phone, download it, or send a link anyone can open.
+                  {output.watermark ? " Free exports carry a small ReelWalk mark; the Agent plan removes it and exports at full size." : ""}
+                </p>
+              </div>
+              <div className="export-actions">
+                {instagram && plan.instagram ? (
+                  <InstagramPublishing jobId={job.id} username={instagram.username} live={isInstagramConfigured() || isFakeInstagram()} reelSound={reelSound} />
+                ) : null}
+                {planId === "FREE" && isInstagramConfigured() ? (
+                  <Link className="btn btn-quiet" href="/account#plan" prefetch={false}>
+                    Post straight to Instagram with Agent
+                  </Link>
+                ) : null}
+                <ShareButton url={urls.playUrl} fileName={`${reel.title}.mp4`} caption={reel.caption} />
+                <a className="btn btn-quiet" href={urls.downloadUrl} download>
+                  <DownloadIcon size={18} />
+                  Download
+                </a>
+                <ShareLink reelId={reel.id} initialUrl={reel.shareToken ? `${base}/r/${reel.shareToken}` : null} />
+                <Link className="btn btn-quiet" href={`/reels/${reel.id}`} prefetch={false}>
+                  Keep editing
                 </Link>
-              ) : null}
-              <ShareButton url={urls.playUrl} fileName={`${reel.title}.mp4`} caption={reel.caption} />
-              <a className="btn btn-quiet" href={urls.downloadUrl} download>
-                <DownloadIcon size={18} />
-                Download
-              </a>
-              <ShareLink reelId={reel.id} initialUrl={reel.shareToken ? `${base}/r/${reel.shareToken}` : null} />
-              <Link className="btn btn-quiet" href={`/reels/${reel.id}`} prefetch={false}>
-                Keep editing
-              </Link>
-            </div>
-          </>
-        ) : job.status === "FAILED" ? (
-          <form action={retryRenderJob} className="export-actions">
-            <input type="hidden" name="jobId" value={job.id} />
-            <button className="btn btn-signal" type="submit">
-              Retry export
-            </button>
-          </form>
-        ) : (
-          <p className="muted small" style={{ textAlign: "center" }}>
-            You can leave this screen. The export keeps going and appears under Exports.
-          </p>
-        )}
-
-        <CaptionEditor reelId={reel.id} initial={reel.caption} />
-
-        {urls ? (
-          <FeatureConsent
-            reelId={reel.id}
-            consent={reel.featureConsent}
-            handle={reel.featureHandle}
-            suggestedHandle={instagram?.username ?? null}
-            back={`/reels/${reel.id}/export#featured`}
-            status={featured}
-          />
-        ) : null}
-      </section>
+              </div>
+            </>
+          ) : job.status === "FAILED" ? (
+            <form action={retryRenderJob} className="export-actions">
+              <input type="hidden" name="jobId" value={job.id} />
+              <button className="btn btn-signal" type="submit">
+                Retry export
+              </button>
+            </form>
+          ) : (
+            <p className="muted small" style={{ textAlign: "center" }}>
+              You can leave this screen. The export keeps going and appears under Exports.
+            </p>
+          )}
+  
+          <CaptionEditor reelId={reel.id} initial={reel.caption} />
+  
+          {urls ? (
+            <FeatureConsent
+              reelId={reel.id}
+              consent={reel.featureConsent}
+              handle={reel.featureHandle}
+              suggestedHandle={instagram?.username ?? null}
+              back={`/reels/${reel.id}/export#featured`}
+              status={featured}
+            />
+          ) : null}
+        </section>
+      </ExportStage>
     </main>
   );
 }

@@ -25,9 +25,9 @@ test("make it for me: shots in, a rendered reel out", async ({ page }) => {
   await expect(page).toHaveURL(/\/export$/, { timeout: 120_000 });
   await expect(page.getByTestId("export")).toHaveAttribute("data-status", "SUCCEEDED", { timeout: 4 * 60_000 });
 
-  // The reel it made has music and a title (which words depends on the model or the rule cut).
+  // The reel it made has a title (which words depends on the model or the rule cut). Music
+  // is only there when the studio has songs; the e2e stack's demo studio may have none.
   await page.goto(page.url().replace(/\/export$/, ""));
   await expect(page.getByTestId("clip").first()).toBeVisible({ timeout: 30_000 });
-  await expect(page.locator(".bar-music")).toBeVisible();
   await expect(page.getByTestId("text-bar").first()).toBeVisible();
 });

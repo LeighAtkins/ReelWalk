@@ -139,7 +139,7 @@ export function MediaSheet({
 
   return (
     <Sheet title="Add photos and videos" onClose={onClose}>
-      <label className="btn btn-signal btn-block picker-btn">
+      <label className="btn btn-block picker-btn">
         <PlusIcon size={18} />
         Choose from your phone
         <input
@@ -355,7 +355,7 @@ export function PanoSheet({
     return (
       <Sheet title="360 view" onClose={onClose}>
         <p className="muted">This photo is shown flat. Turn on the 360 view to move a camera through the room.</p>
-        <button type="button" className="btn btn-signal btn-block" onClick={() => onChange(DEFAULT_PANO)}>
+        <button type="button" className="btn btn-block" onClick={() => onChange(DEFAULT_PANO)}>
           Show as 360
         </button>
       </Sheet>
@@ -618,7 +618,7 @@ export function TextSheet({
         ))}
       </div>
       <Range label="Size" value={draft.size} min={minTextSize(draft.style)} max={TEXT_SIZE_MAX} step={0.1} display={`${Math.round(draft.size * 100)}%`} onChange={(size) => setDraft({ ...draft, size })} />
-      <button type="button" className="btn btn-signal btn-block" disabled={!draft.text.trim()} onClick={() => onSave({ ...draft, text: draft.text.trim() })}>
+      <button type="button" className="btn btn-block" disabled={!draft.text.trim()} onClick={() => onSave({ ...draft, text: draft.text.trim() })}>
         {initial ? "Save text" : "Add text"}
       </button>
     </Sheet>
@@ -767,7 +767,7 @@ export function MusicSheet({
             />
           ) : null}
           {music.bpm ? (
-            <button type="button" className="btn btn-signal btn-block" onClick={onSnap} data-testid="snap-to-beat">
+            <button type="button" className="btn btn-block" onClick={onSnap} data-testid="snap-to-beat">
               Snap cuts to the beat ({Math.round(music.bpm)} bpm)
             </button>
           ) : (
@@ -923,6 +923,82 @@ export function ExportSheet({
       {error ? <p className="error" role="alert">{error}</p> : null}
       <button type="button" className="btn btn-signal btn-block" disabled={!ready || busy} onClick={onExport} data-testid="confirm-export">
         {busy ? "Starting export…" : "Export video"}
+      </button>
+    </Sheet>
+  );
+}
+
+// ── Asking for a change ─────────────────────────────────────────
+
+export type AskOutcome = { ok: true; note: string; applied: string[]; skipped: string[] } | { ok: false; message: string };
+
+const ASK_EXAMPLES = ["Make the kitchen clip longer", "Calmer music", "Warmer look on everything", "Add “Open Saturday” at the end"];
+
+/**
+ * Say what should change, in words (ADR 0020). The editor applies the answer
+ * as one step, so undo takes it back; when nothing could be changed the
+ * model's note stays here so the request can be put another way.
+ */
+export function AskSheet({ onAsk, onClose }: { onAsk(request: string): Promise<AskOutcome>; onClose(): void }) {
+  const [request, setRequest] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [outcome, setOutcome] = useState<AskOutcome | null>(null);
+  const ready = request.trim().length >= 3;
+
+  async function submit() {
+    if (!ready || busy) return;
+    setBusy(true);
+    setOutcome(null);
+    try {
+      setOutcome(await onAsk(request.trim()));
+    } catch {
+      setOutcome({ ok: false, message: "Could not reach ReelWalk. Check the connection and try again." });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Sheet title="Ask for a change" onClose={onClose}>
+      <p className="muted small">Say what you want different, the way you would to an editor. It changes this reel; undo takes it back.</p>
+      <div className="ask-examples" aria-label="Examples">
+        {ASK_EXAMPLES.map((example) => (
+          <button key={example} type="button" className="chip chip-btn" onClick={() => setRequest(example)}>
+            {example}
+          </button>
+        ))}
+      </div>
+      <textarea
+        className="text-area"
+        rows={3}
+        value={request}
+        maxLength={600}
+        placeholder="For example: cut the hallway, and put the price at the start in the thin serif"
+        onChange={(event) => setRequest(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) submit();
+        }}
+        data-testid="ask-input"
+      />
+      {outcome && !outcome.ok ? (
+        <p className="error" role="alert">
+          {outcome.message}
+        </p>
+      ) : null}
+      {outcome?.ok && outcome.applied.length === 0 ? (
+        <p role="status" data-testid="ask-note">
+          {outcome.note}
+        </p>
+      ) : null}
+      {outcome?.ok && outcome.skipped.length > 0 ? (
+        <ul className="muted small ask-skipped">
+          {outcome.skipped.map((line) => (
+            <li key={line}>{line}</li>
+          ))}
+        </ul>
+      ) : null}
+      <button type="button" className="btn btn-block" disabled={!ready || busy} onClick={submit} data-testid="ask-submit">
+        {busy ? "Working it out…" : "Make the change"}
       </button>
     </Sheet>
   );

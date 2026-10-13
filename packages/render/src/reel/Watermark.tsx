@@ -34,7 +34,7 @@ export const Watermark: React.FC = () => {
           opacity: 0.9,
         }}
       >
-        <span style={{ width: 14, height: 14, borderRadius: 999, background: "#f0442c" }} />
+        <span style={{ width: 14, height: 14, borderRadius: 999, background: "#c1272d" }} />
         {LABEL}
       </div>
     </AbsoluteFill>

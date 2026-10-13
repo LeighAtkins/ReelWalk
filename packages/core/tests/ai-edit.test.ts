@@ -1,0 +1,155 @@
+import { describe, expect, it } from "vitest";
+import { AI_EDIT_PLAN_JSON_SCHEMA, aiEditPlanSchema, applyAiEditPlan, describeReel, fakeAiEditPlan, type AiAsset, type AiEditOp, type AiSong } from "../src/ai-edit";
+import { clipDurationMs, parseTimeline, type Timeline } from "../src/timeline";
+
+const assets: Record<string, AiAsset> = {
+  k: { id: "k", kind: "VIDEO", title: "kitchen pan", durationMs: 12000, isPano: false, bpm: null, beatOffsetMs: null },
+  l: { id: "l", kind: "IMAGE", title: "lounge", durationMs: null, isPano: false, bpm: null, beatOffsetMs: null },
+  s1: { id: "s1", kind: "AUDIO", title: "Carefree", durationMs: 120000, isPano: false, bpm: 96, beatOffsetMs: 120 },
+  s2: { id: "s2", kind: "AUDIO", title: "Fretless", durationMs: 150000, isPano: false, bpm: 100, beatOffsetMs: 0 },
+};
+const songs: AiSong[] = [
+  { id: "s1", title: "Carefree", bpm: 96, mood: "light, bouncy ukulele; cheerful" },
+  { id: "s2", title: "Fretless", bpm: 100, mood: "slow and smooth; late-night, classy" },
+];
+
+function reel(): Timeline {
+  return parseTimeline({
+    version: 1,
+    clips: [
+      { id: "c1", assetId: "k", kind: "VIDEO", sourceStartMs: 0, sourceEndMs: 4000, room: "kitchen" },
+      { id: "c2", assetId: "l", kind: "IMAGE", sourceStartMs: 0, sourceEndMs: 3000, motion: "zoom-in", room: "living room" },
+    ],
+    texts: [{ id: "t1", text: "Just listed", startMs: 0, endMs: 3000, style: "headline" }],
+    music: { assetId: "s1", sourceStartMs: 0, volume: 0.8, bpm: 96, beatOffsetMs: 120 },
+    plan: null,
+    details: null,
+  });
+}
+
+const blank: Omit<AiEditOp, "op"> = {
+  clip: null, text: null, startMs: null, endMs: null, lengthMs: null, speed: null, filter: null, motion: null, transition: null, fit: null,
+  volume: null, toPosition: null, content: null, style: null, color: null, size: null, y: null, songId: null, on: null, details: null,
+};
+const op = (fields: Partial<AiEditOp> & { op: AiEditOp["op"] }): AiEditOp => ({ ...blank, ...fields });
+
+describe("describeReel", () => {
+  it("numbers clips and texts, names rooms and lists the songs with moods", () => {
+    const text = describeReel({ title: "City apartment", timeline: reel(), assets, songs });
+    expect(text).toContain('Reel "City apartment", 7.0 s long, 2 clips');
+    expect(text).toContain("1. video, kitchen, plays 4.0 s at 0.0 s; source 0.0 s–4.0 s of 12.0 s, speed 1x, sound 100%");
+    expect(text).toContain("2. photo, living room, plays 3.0 s at 4.0 s; look none; motion zoom-in; transition in cut");
+    expect(text).toContain('1. "Just listed", style headline');
+    expect(text).toContain('Music: "Carefree" (songId s1), 96 bpm, volume 80%');
+    expect(text).toContain('- s2: "Fretless", 100 bpm, slow and smooth; late-night, classy');
+  });
+});
+
+describe("applyAiEditPlan", () => {
+  it("lengthens a video clip by output length, within its source", () => {
+    const { timeline, applied, skipped } = applyAiEditPlan(reel(), { ops: [op({ op: "trim", clip: 1, lengthMs: 6000 })], note: "" }, { assets, songs });
+    expect(clipDurationMs(timeline.clips[0])).toBe(6000);
+    expect(applied).toEqual(["clip 1 (kitchen) now plays 6.0 s"]);
+    expect(skipped).toEqual([]);
+  });
+
+  it("cannot play more of a video than its source has", () => {
+    const { timeline } = applyAiEditPlan(reel(), { ops: [op({ op: "trim", clip: 1, lengthMs: 30000 })], note: "" }, { assets, songs });
+    expect(timeline.clips[0].sourceEndMs).toBe(12000);
+  });
+
+  it("applies a look to every clip with clip 0, and a speed only to videos", () => {
+    const plan = { ops: [op({ op: "look", clip: 0, filter: "warm" }), op({ op: "speed", clip: 0, speed: 2 })], note: "" };
+    const { timeline, applied } = applyAiEditPlan(reel(), plan, { assets, songs });
+    expect(timeline.clips.map((clip) => clip.filter)).toEqual(["warm", "warm"]);
+    expect(timeline.clips[0].speed).toBe(2);
+    expect(timeline.clips[1].speed).toBe(1);
+    expect(applied).toEqual(["every clip: look warm", "clip 1 (kitchen): speed 2x"]);
+  });
+
+  it("swaps the music for a listed song and refuses one that is not listed", () => {
+    const plan = { ops: [op({ op: "music", songId: "s2" }), op({ op: "music", songId: "nope" })], note: "" };
+    const { timeline, applied, skipped } = applyAiEditPlan(reel(), plan, { assets, songs });
+    expect(timeline.music).toMatchObject({ assetId: "s2", bpm: 100, beatOffsetMs: 0, volume: 0.8 });
+    expect(applied).toEqual(['music is now "Fretless"']);
+    expect(skipped).toEqual(["music: no song nope in the list"]);
+  });
+
+  it("resolves numbers against the reel as described, even after a removal", () => {
+    const plan = { ops: [op({ op: "remove", clip: 1 }), op({ op: "look", clip: 2, filter: "mono" })], note: "" };
+    const { timeline, applied } = applyAiEditPlan(reel(), plan, { assets, songs });
+    expect(timeline.clips).toHaveLength(1);
+    expect(timeline.clips[0]).toMatchObject({ id: "c2", filter: "mono" });
+    expect(applied).toEqual(["clip 1 (kitchen) removed", "clip 1 (living room): look mono"]);
+  });
+
+  it("adds, edits and removes text, keeping it inside the reel", () => {
+    const plan = {
+      ops: [
+        op({ op: "addText", content: "Open Saturday", style: "elegant", y: 0.8, startMs: 4000 }),
+        op({ op: "editText", text: 1, content: "Just listed in Austin" }),
+        op({ op: "addText", content: "Too late", startMs: 60000 }),
+      ],
+      note: "",
+    };
+    const { timeline, applied, skipped } = applyAiEditPlan(reel(), plan, { assets, songs, newId: () => "new" });
+    expect(timeline.texts.map((text) => text.text)).toEqual(["Just listed in Austin", "Open Saturday"]);
+    expect(timeline.texts[1]).toMatchObject({ id: "new", style: "elegant", y: 0.8, startMs: 4000, endMs: 7000 });
+    expect(applied).toEqual(['added text "Open Saturday"', 'text "Just listed" changed to "Just listed in Austin"']);
+    expect(skipped).toEqual(['addText: "Too late" would start after the reel ends']);
+  });
+
+  it("fills in and removes the details card", () => {
+    const details = { price: "$1,250,000", beds: "3", baths: null, area: null, address: null, contact: null, placement: null };
+    const first = applyAiEditPlan(reel(), { ops: [op({ op: "details", details })], note: "" }, { assets, songs });
+    expect(first.timeline.details).toMatchObject({ price: "$1,250,000", beds: "3", placement: "end" });
+    const second = applyAiEditPlan(first.timeline, { ops: [op({ op: "details", details: null })], note: "" }, { assets, songs });
+    expect(second.timeline.details).toBeNull();
+  });
+
+  it("skips what it cannot do and explains", () => {
+    const plan = {
+      ops: [op({ op: "trim", clip: 9, lengthMs: 1000 }), op({ op: "transition", clip: 1, transition: "fade" }), op({ op: "roomLabels", on: null })],
+      note: "",
+    };
+    const { timeline, applied, skipped } = applyAiEditPlan(reel(), plan, { assets, songs });
+    expect(timeline).toEqual(reel());
+    expect(applied).toEqual([]);
+    expect(skipped).toEqual(["trim: there is no clip 9", "transition: the first clip has nothing to transition from", "roomLabels: say on or off"]);
+  });
+
+  it("turns room labels on for clips that know their room", () => {
+    const { timeline } = applyAiEditPlan(reel(), { ops: [op({ op: "roomLabels", on: true })], note: "" }, { assets, songs });
+    expect(timeline.texts.filter((text) => text.id.startsWith("room-")).map((text) => text.text)).toEqual(["Kitchen", "Living room"]);
+  });
+});
+
+describe("the plan schema", () => {
+  it("accepts what the model sends and rejects values outside the vocabulary", () => {
+    expect(aiEditPlanSchema.safeParse({ ops: [op({ op: "look", clip: 0, filter: "warm" })], note: "Warmer." }).success).toBe(true);
+    expect(aiEditPlanSchema.safeParse({ ops: [{ ...op({ op: "look", clip: 0 }), filter: "sepia" }], note: "" }).success).toBe(false);
+    expect(aiEditPlanSchema.safeParse({ ops: [{ op: "explode" }], note: "" }).success).toBe(false);
+  });
+
+  it("the JSON schema for the API names every field the zod schema has", () => {
+    const item = AI_EDIT_PLAN_JSON_SCHEMA.properties.ops.items;
+    expect([...item.required].sort()).toEqual(Object.keys(blank).concat("op").sort());
+    expect(Object.keys(item.properties).sort()).toEqual([...item.required].sort());
+  });
+});
+
+describe("fakeAiEditPlan", () => {
+  it("handles a few plain requests end to end", () => {
+    const plan = fakeAiEditPlan("make the kitchen longer, warmer, and calmer music", reel(), songs);
+    const { timeline, applied } = applyAiEditPlan(reel(), plan, { assets, songs });
+    expect(clipDurationMs(timeline.clips[0])).toBe(6000);
+    expect(timeline.clips[1].filter).toBe("warm");
+    expect(timeline.music?.assetId).toBe("s2");
+    expect(applied).toHaveLength(3);
+    expect(plan.note).toContain("Fretless");
+  });
+
+  it("says so when it cannot tell what to change", () => {
+    expect(fakeAiEditPlan("hello", reel(), songs)).toMatchObject({ ops: [] });
+  });
+});

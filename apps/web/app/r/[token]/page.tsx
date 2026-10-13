@@ -99,7 +99,7 @@ export default async function SharedReelPage({
         </div>
         {urls ? (
           <div className="export-actions">
-            <a className="btn btn-signal" href={urls.downloadUrl} download>
+            <a className="btn" href={urls.downloadUrl} download>
               <DownloadIcon size={18} />
               Save video
             </a>

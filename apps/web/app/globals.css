@@ -1,27 +1,30 @@
 /*
  * ReelWalk: a reels editor for property listings, designed for a phone held
- * in one hand. The ground is a blueprint, because ReelWalk's subject is
- * floor plans; the one accent is sign red, used only for the playhead, the
- * current selection and Export.
+ * in one hand. The look is the brand mark's (docs/design/brand.md): ivory on
+ * noir, Bodoni for display, warm greys for every surface; the one colour is
+ * lacquer red, used only for the playhead, the current selection and Export.
+ * The token names are kept from the blueprint era so the 2,500 lines below
+ * still read: --ink is the ground, --paper the text.
  */
 
 :root {
   color-scheme: dark;
 
-  --ink: #0f2a44;        /* blueprint ground */
-  --ink-deep: #0b2036;   /* bars and sheets, one step below the ground */
-  --panel: #163a5c;      /* raised controls */
-  --rule: #8fb3d9;       /* drafting linework */
-  --paper: #eaf2fb;      /* text */
-  --muted: #9cb7d3;      /* secondary text */
-  --signal: #f0442c;     /* sign red */
-  --ok: #4fd1a5;
-  --warn: #ffd23f;
+  --ink: #0a0a0a;        /* noir, the mark's own black */
+  --ink-deep: #151412;   /* soot: bars and sheets, one step above the ground */
+  --panel: #262320;      /* umber: raised controls */
+  --rule: #6f675e;       /* linework and bullets */
+  --paper: #f3ede2;      /* ivory: text and primary buttons */
+  --muted: #a89f93;      /* stone: secondary text */
+  --signal: #c1272d;     /* lacquer */
+  --ok: #7fc8a4;
+  --warn: #e8c96a;
 
-  --line: rgb(143 179 217 / 0.2);
-  --line-strong: rgb(143 179 217 / 0.45);
+  --line: rgb(243 237 226 / 0.12);
+  --line-strong: rgb(243 237 226 / 0.28);
 
   --font: "Archivo Variable", "Noto Sans JP Variable", system-ui, sans-serif;
+  --display: "Bodoni Moda Variable", "Bodoni 72", Didot, "Times New Roman", serif;
 
   --radius-s: 6px;
   --radius-m: 12px;
@@ -44,17 +47,10 @@ body {
 
 body {
   background-color: var(--ink);
-  /* Drafting paper: a fine grid every 12px, a heavier one every 60px. */
-  background-image:
-    linear-gradient(var(--line) 1px, transparent 1px),
-    linear-gradient(90deg, var(--line) 1px, transparent 1px),
-    linear-gradient(rgb(143 179 217 / 0.07) 1px, transparent 1px),
-    linear-gradient(90deg, rgb(143 179 217 / 0.07) 1px, transparent 1px);
-  background-size: 60px 60px, 60px 60px, 12px 12px, 12px 12px;
   color: var(--paper);
   font-family: var(--font);
   font-size: 16px;
-  line-height: 1.45;
+  line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   -webkit-tap-highlight-color: transparent;
 }
@@ -96,27 +92,32 @@ a {
 
 /* ── Type ─────────────────────────────────────────────────────── */
 
+/* Display is Bodoni: weight 600 in the app's headings, the optical size
+   pinned high so the hairlines stay fine at every size. h3 is a UI heading
+   and stays in the sans. */
 h1,
-h2,
-h3 {
+h2 {
   margin: 0;
-  font-weight: 800;
-  font-stretch: 125%;
+  font-family: var(--display);
+  font-weight: 600;
+  font-variation-settings: "opsz" 72;
   line-height: 1.05;
-  letter-spacing: -0.01em;
+  letter-spacing: 0;
 }
 
 h1 {
-  font-size: 30px;
+  font-size: 32px;
 }
 
 h2 {
-  font-size: 20px;
+  font-size: 23px;
 }
 
 h3 {
+  margin: 0;
+  font-weight: 600;
   font-size: 16px;
-  font-stretch: 112%;
+  line-height: 1.25;
 }
 
 p {
@@ -155,14 +156,14 @@ p {
   border-radius: 999px;
   background: var(--paper);
   color: var(--ink);
-  font-weight: 700;
+  font-weight: 600;
   text-decoration: none;
   white-space: nowrap;
 }
 
+/* Lacquer on white text passes WCAG AA at 5.8:1. */
 .btn-signal {
-  /* A shade deeper than --signal, so white text passes WCAG AA (4.7:1). */
-  background: #d9361f;
+  background: var(--signal);
   color: #fff;
 }
 
@@ -218,16 +219,24 @@ p {
 .brand {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
-  font-weight: 800;
-  font-stretch: 125%;
-  font-size: 19px;
+  gap: 9px;
+  font-family: var(--display);
+  font-weight: 500;
+  font-variation-settings: "opsz" 48;
+  font-size: 22px;
+  letter-spacing: 0.005em;
   text-decoration: none;
 }
 
+/* The mark is one SVG in /brand, painted with the current text colour. */
 .brand-mark {
-  width: 20px;
-  height: 27px;
+  flex: none;
+  display: inline-block;
+  width: 27px;
+  height: 24px;
+  background: currentColor;
+  -webkit-mask: url("/brand/mark.svg") no-repeat center / contain;
+  mask: url("/brand/mark.svg") no-repeat center / contain;
 }
 
 .tabbar {
@@ -261,7 +270,7 @@ p {
 }
 
 .tab[aria-current="page"] .icon {
-  color: var(--signal);
+  color: var(--paper);
 }
 
 /* ── Reels home ───────────────────────────────────────────────── */
@@ -286,14 +295,14 @@ p {
   min-height: 84px;
   padding: 14px 18px;
   border-radius: var(--radius-l);
-  background: #d9361f;
-  color: #fff;
+  background: var(--paper);
+  color: var(--ink);
   cursor: pointer;
   transition: transform 120ms ease, background-color 120ms ease;
 }
 
 .start-primary:hover {
-  background: #c92f19;
+  background: #fff;
 }
 
 .start-primary:active {
@@ -325,14 +334,14 @@ p {
   width: 48px;
   height: 48px;
   background:
-    linear-gradient(#fff, #fff) left top / 13px 2px no-repeat,
-    linear-gradient(#fff, #fff) left top / 2px 13px no-repeat,
-    linear-gradient(#fff, #fff) right top / 13px 2px no-repeat,
-    linear-gradient(#fff, #fff) right top / 2px 13px no-repeat,
-    linear-gradient(#fff, #fff) left bottom / 13px 2px no-repeat,
-    linear-gradient(#fff, #fff) left bottom / 2px 13px no-repeat,
-    linear-gradient(#fff, #fff) right bottom / 13px 2px no-repeat,
-    linear-gradient(#fff, #fff) right bottom / 2px 13px no-repeat;
+    linear-gradient(currentColor, currentColor) left top / 13px 2px no-repeat,
+    linear-gradient(currentColor, currentColor) left top / 2px 13px no-repeat,
+    linear-gradient(currentColor, currentColor) right top / 13px 2px no-repeat,
+    linear-gradient(currentColor, currentColor) right top / 2px 13px no-repeat,
+    linear-gradient(currentColor, currentColor) left bottom / 13px 2px no-repeat,
+    linear-gradient(currentColor, currentColor) left bottom / 2px 13px no-repeat,
+    linear-gradient(currentColor, currentColor) right bottom / 13px 2px no-repeat,
+    linear-gradient(currentColor, currentColor) right bottom / 2px 13px no-repeat;
 }
 
 .start-text {
@@ -344,13 +353,12 @@ p {
 .start-title {
   font-size: 20px;
   font-weight: 800;
-  font-stretch: 125%;
   line-height: 1.1;
 }
 
 .start-sub {
   font-size: 13.5px;
-  color: rgb(255 255 255 / 0.86);
+  color: rgb(10 10 10 / 0.7);
 }
 
 .start-more {
@@ -417,7 +425,6 @@ p {
 .home-section {
   margin-bottom: 12px;
   font-size: 17px;
-  font-stretch: 112%;
 }
 
 .home-empty {
@@ -485,7 +492,7 @@ p {
   top: 8px;
   padding: 3px 9px 3px 8px;
   border-radius: 999px;
-  background: rgb(11 32 54 / 0.82);
+  background: rgb(21 20 18 / 0.82);
   backdrop-filter: blur(6px);
 }
 
@@ -502,7 +509,7 @@ p {
   display: grid;
   gap: 2px;
   padding: 28px 10px 10px;
-  background: linear-gradient(to top, rgb(8 22 38 / 0.92), rgb(8 22 38 / 0.6) 60%, transparent);
+  background: linear-gradient(to top, rgb(10 10 10 / 0.92), rgb(10 10 10 / 0.6) 60%, transparent);
 }
 
 .reel-card-title {
@@ -516,7 +523,7 @@ p {
 }
 
 .reel-card-when {
-  color: rgb(234 242 251 / 0.78);
+  color: rgb(243 237 226 / 0.78);
   font-size: 12px;
 }
 
@@ -526,7 +533,7 @@ p {
   gap: 4px;
   padding: 2px 8px;
   border-radius: 999px;
-  background: rgb(11 32 54 / 0.85);
+  background: rgb(21 20 18 / 0.85);
   color: var(--paper);
   font-size: 12px;
   font-weight: 600;
@@ -693,7 +700,6 @@ p {
   border-radius: var(--radius-s);
   background: transparent;
   font-weight: 700;
-  font-stretch: 112%;
   text-align: center;
   text-overflow: ellipsis;
 }
@@ -764,7 +770,7 @@ p {
   width: 64px;
   height: 64px;
   border-radius: 999px;
-  background: rgb(11 32 54 / 0.7);
+  background: rgb(21 20 18 / 0.7);
   transform: translate(-50%, -50%);
   pointer-events: none;
   backdrop-filter: blur(4px);
@@ -779,7 +785,7 @@ p {
 
 .guides span {
   position: absolute;
-  background: repeating-linear-gradient(-45deg, rgb(240 68 44 / 0.28) 0 6px, rgb(240 68 44 / 0.12) 6px 12px);
+  background: repeating-linear-gradient(-45deg, rgb(193 39 45 / 0.28) 0 6px, rgb(193 39 45 / 0.12) 6px 12px);
 }
 
 .guides .g-top {
@@ -925,7 +931,7 @@ p {
   /* Minor ticks every 0.25s, a longer one every second. Widths come from --pps. */
   background-image:
     linear-gradient(90deg, var(--rule) 1px, transparent 1px),
-    linear-gradient(90deg, rgb(143 179 217 / 0.55) 1px, transparent 1px);
+    linear-gradient(90deg, rgb(243 237 226 / 0.55) 1px, transparent 1px);
   background-size: var(--pps) 12px, calc(var(--pps) / 4) 6px;
   background-repeat: repeat-x;
   background-position: 0 bottom, 0 bottom;
@@ -954,7 +960,7 @@ p {
   padding: 0;
   border: 0;
   border-radius: 6px;
-  background: rgb(11 32 54 / 0.85);
+  background: rgb(21 20 18 / 0.85);
   color: var(--paper);
   font-size: 16px;
   font-weight: 700;
@@ -1041,7 +1047,7 @@ p {
   bottom: 3px;
   padding: 0 4px;
   border-radius: 4px;
-  background: rgb(11 32 54 / 0.75);
+  background: rgb(21 20 18 / 0.75);
   font-size: 10px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
@@ -1059,7 +1065,7 @@ p {
 }
 
 .clip-block[data-uploading="true"] {
-  background-image: repeating-linear-gradient(-45deg, var(--panel) 0 8px, #1d4870 8px 16px) !important;
+  background-image: repeating-linear-gradient(-45deg, var(--panel) 0 8px, #332f2a 8px 16px) !important;
 }
 
 .clip-block .upload-progress {
@@ -1099,12 +1105,12 @@ p {
 }
 
 .bar-text {
-  background: #e9d8a6;
+  background: var(--paper);
   color: var(--ink);
 }
 
 .bar-music {
-  background: #5b8fc4;
+  background: #5d564e;
   color: #fff;
 }
 
@@ -1367,7 +1373,7 @@ p {
   position: fixed;
   inset: 0;
   z-index: 40;
-  background: rgb(5 15 26 / 0.55);
+  background: rgb(0 0 0 / 0.55);
   animation: fade-in 140ms ease-out;
 }
 
@@ -1597,7 +1603,7 @@ input[type="range"] {
   padding: 8px;
   overflow: hidden;
   border-radius: var(--radius-s);
-  background: #3c5a78;
+  background: #2f2b27;
 }
 
 .trim-strip {
@@ -1615,7 +1621,7 @@ input[type="range"] {
   bottom: -3px;
   border: 3px solid var(--paper);
   border-radius: var(--radius-s);
-  box-shadow: 0 0 0 999px rgb(5 15 26 / 0.6);
+  box-shadow: 0 0 0 999px rgb(0 0 0 / 0.6);
   pointer-events: none;
 }
 
@@ -1796,7 +1802,7 @@ input[type="range"] {
 .export-fill {
   position: absolute;
   inset: auto 0 0;
-  background: linear-gradient(to top, rgb(240 68 44 / 0.85), rgb(240 68 44 / 0.55));
+  background: linear-gradient(to top, rgb(193 39 45 / 0.85), rgb(193 39 45 / 0.55));
   transition: height 600ms ease;
 }
 
@@ -1970,7 +1976,7 @@ input[type="range"] {
   inset: 0;
   display: grid;
   place-items: center;
-  background: rgb(11 32 54 / 0.6);
+  background: rgb(21 20 18 / 0.6);
   color: var(--paper);
 }
 
@@ -2100,9 +2106,6 @@ input[type="range"] {
 .auth-brand h1 {
   font-size: 32px;
   line-height: 1.1;
-  font-weight: 800;
-  font-stretch: 110%;
-  letter-spacing: -0.01em;
   margin: 8px 0 0;
 }
 
@@ -2297,13 +2300,13 @@ form + .card {
 
 /* Account deletion: set apart from the everyday settings. */
 .card-danger {
-  border-color: rgb(240 68 44 / 0.55);
+  border-color: rgb(193 39 45 / 0.55);
 }
 
 .btn-danger {
   background: transparent;
   color: #ffb4a8;
-  box-shadow: inset 0 0 0 1.5px rgb(240 68 44 / 0.75);
+  box-shadow: inset 0 0 0 1.5px rgb(193 39 45 / 0.75);
 }
 
 .check {
@@ -2371,7 +2374,7 @@ form + .card {
 }
 
 .start-primary.start-placeholder:hover {
-  background: #d9361f;
+  background: var(--paper);
 }
 
 .editor-top-placeholder {
@@ -2468,7 +2471,7 @@ form + .card {
   z-index: 1;
   display: grid;
   place-items: center;
-  background: rgb(8 22 38 / 0.6);
+  background: rgb(10 10 10 / 0.6);
   opacity: 0;
   pointer-events: none;
   transition: opacity 120ms ease;
@@ -2581,4 +2584,39 @@ video:-webkit-full-screen {
   object-fit: contain !important;
   background: #000;
   border-radius: 0;
+}
+
+/* ── Asking for a change (ADR 0020) ───────────────────────────── */
+
+.ask-examples {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip-btn {
+  border: 0;
+  padding: 6px 12px;
+  background: var(--panel);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.chip-btn:hover {
+  background: #332f2a;
+}
+
+.ask-skipped {
+  margin: 0;
+  padding-left: 18px;
+  line-height: 1.4;
+}
+
+.ask {
+  display: grid;
+  gap: 12px;
+}
+
+.ask .export-actions {
+  margin-top: 4px;
 }

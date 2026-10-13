@@ -11,7 +11,7 @@ const TRAVEL_FRAMES = 14;
 const CONE_DEGREES = 62;
 const CONE_LENGTH = 54;
 
-const COLORS = { card: "rgba(11, 32, 54, 0.82)", wall: "#eaf2fb", here: "#f0442c", seen: "rgba(234, 242, 251, 0.16)" };
+const COLORS = { card: "rgba(10, 10, 10, 0.82)", wall: "#f3ede2", here: "#c1272d", seen: "rgba(243, 237, 226, 0.16)" };
 
 const ease = (t: number) => t * t * (3 - 2 * t);
 

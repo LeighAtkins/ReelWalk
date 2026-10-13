@@ -32,7 +32,7 @@ export function ShareButton({ url, fileName, caption }: { url: string; fileName:
 
   return (
     <>
-      <button className="btn btn-signal" type="button" onClick={share} disabled={state === "busy"}>
+      <button className="btn" type="button" onClick={share} disabled={state === "busy"}>
         <ShareIcon size={18} />
         {state === "busy" ? "Preparing video…" : "Share to Instagram"}
       </button>

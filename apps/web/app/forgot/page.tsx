@@ -56,7 +56,7 @@ export default async function ForgotPage({ searchParams }: { searchParams: Promi
               That link has expired or was already used. Ask for a new one.
             </p>
           ) : null}
-          <SubmitButton className="btn btn-signal btn-block" pendingLabel="Sending…">
+          <SubmitButton className="btn btn-block" pendingLabel="Sending…">
             Send me a link
           </SubmitButton>
           <p className="muted small" style={{ textAlign: "center" }}>

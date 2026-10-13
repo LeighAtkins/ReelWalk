@@ -25,28 +25,30 @@ export function Landing({ samples }: { samples: SampleReel[] }) {
 
       <main className={styles.main}>
         <section className={styles.hero} aria-labelledby="hero-title">
-          <div className={styles.heroText}>
-            <h1 id="hero-title" data-testid="hero-title">
-              Listing reels, made between shoots.
-            </h1>
-            <p className={styles.lede}>
-              You shoot three or four houses a day and spend the rest of it driving. ReelWalk turns the photos and clips already on your
-              phone into a vertical reel for the listing: a few minutes of taps, a cloud render while you are on the road, and it is
-              ready to post before the next door.
-            </p>
-            <div className={styles.ctas}>
-              <Link href="/signup" className="btn btn-signal" data-testid="hero-cta">
-                Start free, no card
-              </Link>
-              <a href="#sample" className="btn btn-quiet" data-testid="see-sample">
-                See a finished reel
-              </a>
+          <h1 id="hero-title" data-testid="hero-title">
+            Listing reels, made between shoots.
+          </h1>
+          <div className={styles.heroRow}>
+            <div className={styles.heroText}>
+              <p className={styles.lede}>
+                You shoot three or four houses a day and spend the rest of it driving. ReelWalk turns the photos and clips already on
+                your phone into a vertical reel for the listing: a few minutes of taps, a cloud render while you are on the road, and
+                it is ready to post before the next door.
+              </p>
+              <div className={styles.ctas}>
+                <Link href="/signup" className="btn" data-testid="hero-cta">
+                  Start free, no card
+                </Link>
+                <a href="#sample" className="btn btn-quiet" data-testid="see-sample">
+                  See a finished reel
+                </a>
+              </div>
+              <p className={styles.fine}>
+                {PLANS.FREE.exportsPerMonth} reels a month free. Works in the browser on iPhone and Android, nothing to install.
+              </p>
             </div>
-            <p className={styles.fine}>
-              {PLANS.FREE.exportsPerMonth} reels a month free. Works in the browser on iPhone and Android, nothing to install.
-            </p>
+            <SampleReels samples={samples} />
           </div>
-          <SampleReels samples={samples} />
         </section>
 
         <section className={styles.how} aria-labelledby="how-title" id="how">
@@ -124,6 +126,25 @@ export function Landing({ samples }: { samples: SampleReel[] }) {
           </p>
         </section>
 
+        <section className={styles.ask} aria-labelledby="ask-title">
+          <div className={styles.sectionHead}>
+            <h2 id="ask-title">Or just say what you want changed</h2>
+            <p className={styles.lede}>
+              Watch the finished reel, type the change, and ReelWalk makes it and renders again. No timeline, no scrubbing, and undo takes
+              it back.
+            </p>
+          </div>
+          <ul className={styles.askList}>
+            <li>Make the kitchen shot longer and lose the hallway.</li>
+            <li>Calmer music, and start on the pool.</li>
+            <li>Put the price at the end, in the thin serif.</li>
+          </ul>
+          <p className={styles.fine}>
+            {PLANS.FREE.aiEditsPerMonth} requests a month free, {paid.aiEditsPerMonth} on {paid.name}. A change that is rendered again counts as
+            an export.
+          </p>
+        </section>
+
         <section className={styles.facts} aria-labelledby="facts-title">
           <div className={styles.sectionHead}>
             <h2 id="facts-title">What you are signing up for</h2>
@@ -194,7 +215,7 @@ export function Landing({ samples }: { samples: SampleReel[] }) {
           <p className={styles.lede}>
             Make a reel from a shoot you have already done. If it earns its keep, the Agent plan is ${paid.priceUsd} a month.
           </p>
-          <Link href="/signup" className="btn btn-signal">
+          <Link href="/signup" className="btn">
             Start free, no card
           </Link>
         </section>
@@ -217,7 +238,7 @@ export function SiteHeader({ plansHref = "#pricing" }: { plansHref?: string }) {
         <nav className={styles.topNav} aria-label="Site">
           <a href={plansHref}>Plans</a>
           <Link href="/login">Sign in</Link>
-          <Link href="/signup" className="btn btn-signal" data-testid="top-cta">
+          <Link href="/signup" className="btn" data-testid="top-cta">
             Start free
           </Link>
         </nav>

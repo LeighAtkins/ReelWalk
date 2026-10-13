@@ -1,5 +1,9 @@
 # Landing page references
 
+Superseded in part on 2026-10-13 by `brand.md`: the blueprint palette and
+the Archivo width-axis roles described below were replaced by the ivory R
+(noir ground, Bodoni display). The structural lessons still hold.
+
 What premium US paid products do on their marketing pages, read on 2026-10-12,
 and what ReelWalk's landing page takes from them. The page's rule is simple:
 it is the editor's visual system (`apps/web/app/globals.css`) applied to a

@@ -169,6 +169,8 @@ services:
       # A pretend Instagram connection (/api/dev/instagram) so the suite can
       # schedule and cancel posts; nothing is sent to Instagram.
       DEV_FAKE_INSTAGRAM: "true"
+      # Answers "ask for a change" from rules instead of a model (ADR 0020).
+      DEV_FAKE_AI: "true"
     ports:
       - "3000:3000"
     restart: unless-stopped

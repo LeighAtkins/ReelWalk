@@ -8,6 +8,7 @@ import { disconnectInstagram } from "@/app/instagram-actions";
 import { FeedbackForm } from "@/components/feedback-form";
 import { outputSize, PLANS } from "@reelwalk/core";
 import { isInstagramConfigured } from "@/lib/instagram";
+import { aiEditUsage } from "@/lib/ai-edit";
 import { exportsThisMonth, storageUsed, workspacePlan } from "@/lib/plans";
 import { isBillingConfigured } from "@/lib/stripe";
 import { SubmitButton } from "@/components/submit-button";
@@ -24,7 +25,7 @@ export default async function AccountPage({
 }) {
   const { saved, error, instagram: igStatus, billing, feedback, message } = await searchParams;
   const user = await getCurrentUser();
-  const [reels, exports, own, shared, sessions, instagram, current, usedThisMonth, usedBytes] = await Promise.all([
+  const [reels, exports, own, shared, sessions, instagram, current, usedThisMonth, usedBytes, aiUsage] = await Promise.all([
     prisma.reel.count({ where: { workspaceId: user.workspaceId } }),
     prisma.renderJob.count({ where: { workspaceId: user.workspaceId, status: "SUCCEEDED", kind: { not: "PREVIEW" } } }),
     prisma.mediaAsset.count({ where: { workspaceId: user.workspaceId, shared: false } }),
@@ -34,6 +35,7 @@ export default async function AccountPage({
     workspacePlan(user.workspaceId),
     exportsThisMonth(user.workspaceId),
     storageUsed(user.workspaceId),
+    aiEditUsage(user.workspaceId),
   ]);
   const { plan } = current;
   const usedGb = usedBytes / 1024 ** 3;
@@ -112,6 +114,14 @@ export default async function AccountPage({
               <dt>Post to Instagram</dt>
               <dd>{plan.instagram ? "One tap from the export screen" : "Share sheet or link"}</dd>
             </div>
+            {aiUsage ? (
+              <div>
+                <dt>Changes asked for in words</dt>
+                <dd data-testid="ai-usage">
+                  {aiUsage.used} of {aiUsage.allowed} this month
+                </dd>
+              </div>
+            ) : null}
           </dl>
           {billing === "welcome" ? (
             <p className="toast" role="status">
@@ -130,7 +140,7 @@ export default async function AccountPage({
                 {next.name}: {next.exportsPerMonth} exports a month at 1080×1920 with no mark, {next.storageGb} GB of uploads, one-tap posting to
                 Instagram{next.seats > 1 ? `, ${next.seats} people` : ""}. ${next.priceUsd}/month, cancel any time.
               </p>
-              <SubmitButton className="btn btn-signal btn-block" pendingLabel="Opening checkout…" testId="upgrade">
+              <SubmitButton className="btn btn-block" pendingLabel="Opening checkout…" testId="upgrade">
                 Upgrade to {next.name}
               </SubmitButton>
             </form>

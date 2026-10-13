@@ -1,0 +1,678 @@
+/**
+ * Asking for a change in words (ADR 0020). A studio looks at a finished reel
+ * and types "make the kitchen shot longer and swap the music for something
+ * calmer". A language model turns that into a short list of edit operations
+ * drawn from the editor's own vocabulary; this module describes the reel to
+ * the model, checks what comes back, and applies it with the same pure
+ * functions the editor uses, so the result is an ordinary timeline that the
+ * editor can undo. Nothing here talks to the network: the web app does that.
+ */
+import { z } from "zod";
+import { snapCutsToBeats } from "./beats";
+import {
+  FILTERS,
+  MIN_CLIP_MS,
+  MOTIONS,
+  SPEEDS,
+  TEXT_COLORS,
+  TEXT_STYLES,
+  TRANSITIONS,
+  addRoomLabels,
+  addText,
+  clipDurationMs,
+  clipStartsMs,
+  duplicateClip,
+  hasDetails,
+  hasRoomLabels,
+  listingDetailsSchema,
+  moveClip,
+  removeClip,
+  removeRoomLabels,
+  removeText,
+  setDetails,
+  setMusic,
+  timelineDurationMs,
+  trimClip,
+  updateClip,
+  updateText,
+  type Clip,
+  type Timeline,
+} from "./timeline";
+
+// ── What the model may ask for ──────────────────────────────────
+
+export const AI_EDIT_OPS = [
+  "trim",
+  "speed",
+  "look",
+  "motion",
+  "transition",
+  "fit",
+  "volume",
+  "move",
+  "remove",
+  "duplicate",
+  "addText",
+  "editText",
+  "removeText",
+  "music",
+  "musicVolume",
+  "snapToBeat",
+  "details",
+  "roomLabels",
+] as const;
+
+export type AiEditOpName = (typeof AI_EDIT_OPS)[number];
+
+const nullable = <T extends z.ZodTypeAny>(schema: T) => schema.nullable().default(null);
+
+const detailsPatchSchema = z.object({
+  price: nullable(z.string().max(24)),
+  beds: nullable(z.string().max(6)),
+  baths: nullable(z.string().max(6)),
+  area: nullable(z.string().max(16)),
+  address: nullable(z.string().max(80)),
+  contact: nullable(z.string().max(60)),
+  placement: nullable(z.enum(["end", "start", "both"])),
+});
+
+/**
+ * One operation. Flat on purpose: every field is present and null unless the
+ * operation uses it, which is what strict structured output wants and what
+ * keeps a small model from inventing shapes. Clips and texts are referred to
+ * by their 1-based position in the description the model was shown; clip 0
+ * means every clip, for look, motion, transition, fit and volume.
+ */
+export const aiEditOpSchema = z.object({
+  op: z.enum(AI_EDIT_OPS),
+  clip: nullable(z.number().int().min(0).max(100)),
+  text: nullable(z.number().int().min(1).max(50)),
+  startMs: nullable(z.number().min(0)),
+  endMs: nullable(z.number().min(0)),
+  lengthMs: nullable(z.number().min(0)),
+  speed: nullable(z.number().min(0.25).max(4)),
+  filter: nullable(z.enum(FILTERS)),
+  motion: nullable(z.enum(MOTIONS)),
+  transition: nullable(z.enum(TRANSITIONS)),
+  fit: nullable(z.enum(["cover", "contain"])),
+  volume: nullable(z.number().min(0).max(1)),
+  toPosition: nullable(z.number().int().min(1).max(100)),
+  content: nullable(z.string().trim().min(1).max(200)),
+  style: nullable(z.enum(TEXT_STYLES)),
+  color: nullable(z.string().regex(/^#[0-9a-f]{6}$/i)),
+  size: nullable(z.number().min(0.3).max(2.5)),
+  y: nullable(z.number().min(0).max(1)),
+  songId: nullable(z.string().min(1).max(64)),
+  on: nullable(z.boolean()),
+  details: nullable(detailsPatchSchema),
+});
+
+export const aiEditPlanSchema = z.object({
+  ops: z.array(aiEditOpSchema).max(30),
+  /** One or two plain sentences to the studio: what was done, or why nothing was. */
+  note: z.string().trim().max(400),
+});
+
+export type AiEditOp = z.infer<typeof aiEditOpSchema>;
+export type AiEditPlan = z.infer<typeof aiEditPlanSchema>;
+
+/** The same shape for OpenAI's strict structured output: every key required, nulls allowed. */
+export const AI_EDIT_PLAN_JSON_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["ops", "note"],
+  properties: {
+    ops: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: [
+          "op", "clip", "text", "startMs", "endMs", "lengthMs", "speed", "filter", "motion", "transition", "fit", "volume",
+          "toPosition", "content", "style", "color", "size", "y", "songId", "on", "details",
+        ],
+        properties: {
+          op: { type: "string", enum: [...AI_EDIT_OPS] },
+          clip: { type: ["integer", "null"], description: "Clip number from the description; 0 = every clip (look, motion, transition, fit, volume only)" },
+          text: { type: ["integer", "null"], description: "Text number from the description" },
+          startMs: { type: ["number", "null"] },
+          endMs: { type: ["number", "null"] },
+          lengthMs: { type: ["number", "null"], description: "trim: how long the clip should play, in ms" },
+          speed: { type: ["number", "null"], enum: [...SPEEDS, null] },
+          filter: { type: ["string", "null"], enum: [...FILTERS, null] },
+          motion: { type: ["string", "null"], enum: [...MOTIONS, null] },
+          transition: { type: ["string", "null"], enum: [...TRANSITIONS, null] },
+          fit: { type: ["string", "null"], enum: ["cover", "contain", null] },
+          volume: { type: ["number", "null"], description: "0 to 1" },
+          toPosition: { type: ["integer", "null"], description: "move: the clip's new number, 1 = first" },
+          content: { type: ["string", "null"], description: "addText/editText: the words" },
+          style: { type: ["string", "null"], enum: [...TEXT_STYLES, null] },
+          color: { type: ["string", "null"], description: "#rrggbb" },
+          size: { type: ["number", "null"], description: "0.3 to 2.5, 1 = normal" },
+          y: { type: ["number", "null"], description: "0 = top of frame, 1 = bottom" },
+          songId: { type: ["string", "null"], description: "music: a song id from the list, or null for no music" },
+          on: { type: ["boolean", "null"], description: "roomLabels" },
+          details: {
+            type: ["object", "null"],
+            additionalProperties: false,
+            required: ["price", "beds", "baths", "area", "address", "contact", "placement"],
+            properties: {
+              price: { type: ["string", "null"] },
+              beds: { type: ["string", "null"] },
+              baths: { type: ["string", "null"] },
+              area: { type: ["string", "null"] },
+              address: { type: ["string", "null"] },
+              contact: { type: ["string", "null"] },
+              placement: { type: ["string", "null"], enum: ["end", "start", "both", null] },
+            },
+          },
+        },
+      },
+    },
+    note: { type: "string" },
+  },
+} as const;
+
+// ── What the model is told ──────────────────────────────────────
+
+/** A clip's source, as much as the model needs to reason about it. */
+export type AiAsset = {
+  id: string;
+  kind: "VIDEO" | "IMAGE" | "AUDIO";
+  /** The file name without its extension, or the library title. */
+  title: string;
+  durationMs: number | null;
+  isPano: boolean;
+  bpm: number | null;
+  beatOffsetMs: number | null;
+};
+
+/** The songs the model may switch to, with a word on their mood. */
+export type AiSong = { id: string; title: string; bpm: number | null; mood: string | null };
+
+/** Moods of the bundled library songs, by title, so "calmer" and "livelier" mean something. */
+export const SONG_MOODS: Record<string, string> = {
+  carefree: "light, bouncy ukulele; cheerful",
+  wallpaper: "soft and ambient; calm, stays in the background",
+  "life of riley": "warm acoustic guitar; sunny, upbeat",
+  "bossa antigua": "relaxed bossa nova; cool, lounge",
+  inspired: "gentle piano that slowly builds; calm, hopeful",
+  "easy lemon": "laid-back guitar; easy, relaxed",
+  fretless: "slow and smooth; late-night, classy",
+  funkorama: "funky and energetic; playful",
+};
+
+export function songMood(title: string): string | null {
+  return SONG_MOODS[title.trim().toLowerCase()] ?? null;
+}
+
+export const AI_EDIT_SYSTEM_PROMPT = `You edit short vertical real-estate listing reels for ReelWalk. The user describes a change in plain words; you answer with the smallest list of operations that makes it, using only the operations and values given, and a note to the user.
+
+Rules:
+- Refer to clips and texts by the numbers in the description. Never invent clips, assets or songs; the only songs you may switch to are in the list.
+- Times are milliseconds. A clip must be at least ${MIN_CLIP_MS} ms. A video clip cannot show more than its source has; a photo can be any length.
+- "Longer" without a number means about 1.5x the current length; "shorter" about 0.7x; "much" doubles the change. "Slower" halves speed, "faster" doubles it, within 0.5 to 3.
+- Looks: warm, cool, vivid, mono (black and white), fade (soft, filmic), none. Use clip 0 to apply to every clip when the user means the whole reel.
+- Music requests like "calmer" or "more energy" pick the song whose mood fits best; say which in the note. "No music" is op music with songId null.
+- Text: keep it short; style "elegant" is a thin serif, "headline" is bold, "box" is text on a pill, "plain" is white text with a shadow. y is 0 at the top and 1 at the bottom; keep text between 0.12 and 0.88 so Instagram's own overlays do not cover it.
+- Room labels are the texts whose number is marked (room label); to turn them all off use roomLabels on=false rather than removing each.
+- The details card (price, beds, baths, area, address, contact) is op details; pass only the fields to change, null for the rest; to remove the card pass details null.
+- If the request is unclear, impossible with these operations, or not about the reel, return no operations and say so in the note in one sentence, without apologising.
+- The note is one or two short sentences in the second person, present tense, plain language, naming what changed ("The kitchen clip now runs 6 seconds and the music is Fretless."). No markdown.`;
+
+const ms = (value: number) => `${(value / 1000).toFixed(1)} s`;
+
+/** The reel, in text, for the model. Clips and texts are numbered from 1. */
+export function describeReel(input: { title: string; timeline: Timeline; assets: Record<string, AiAsset | undefined>; songs: AiSong[] }): string {
+  const { timeline, assets, songs } = input;
+  const starts = clipStartsMs(timeline);
+  const lines: string[] = [];
+  lines.push(`Reel "${input.title}", ${ms(timelineDurationMs(timeline))} long, ${timeline.clips.length} clips, vertical 1080x1920.`);
+  lines.push("");
+  lines.push("Clips, in order:");
+  timeline.clips.forEach((clip, index) => {
+    const asset = assets[clip.assetId];
+    const what = clip.kind === "VIDEO" ? "video" : asset?.isPano || clip.pano ? "360 photo" : "photo";
+    const name = clip.room ? `${clip.room}` : asset?.title ? `"${asset.title}"` : "untitled";
+    const parts = [
+      `${index + 1}. ${what}, ${name}, plays ${ms(clipDurationMs(clip))} at ${ms(starts[index])}`,
+      clip.kind === "VIDEO"
+        ? `source ${ms(clip.sourceStartMs)}–${ms(clip.sourceEndMs)}${asset?.durationMs ? ` of ${ms(asset.durationMs)}` : ""}, speed ${clip.speed}x, sound ${Math.round(clip.volume * 100)}%`
+        : null,
+      `look ${clip.filter}`,
+      clip.kind === "IMAGE" && !clip.pano ? `motion ${clip.motion}` : null,
+      index > 0 ? `transition in ${clip.transitionIn}` : null,
+      clip.fit === "contain" ? "fit contain" : null,
+    ].filter(Boolean);
+    lines.push(parts.join("; "));
+  });
+  lines.push("");
+  if (timeline.texts.length === 0) lines.push("Texts: none.");
+  else {
+    lines.push("Texts:");
+    timeline.texts.forEach((text, index) => {
+      const room = text.id.startsWith("room-") ? " (room label)" : "";
+      lines.push(
+        `${index + 1}. "${text.text}"${room}, style ${text.style}, color ${text.color}, size ${text.size}, y ${text.y.toFixed(2)}, shown ${ms(text.startMs)}–${ms(text.endMs)}`,
+      );
+    });
+  }
+  lines.push("");
+  const music = timeline.music;
+  if (!music) lines.push("Music: none.");
+  else {
+    const song = songs.find((entry) => entry.id === music.assetId);
+    const asset = assets[music.assetId];
+    const title = song?.title ?? asset?.title ?? "uploaded song";
+    const bpm = song?.bpm ?? asset?.bpm ?? music.bpm;
+    lines.push(
+      `Music: "${title}" (songId ${music.assetId})${bpm ? `, ${Math.round(bpm)} bpm` : ""}, volume ${Math.round(music.volume * 100)}%, starts ${ms(music.sourceStartMs)} into the song${music.instagramAudioId ? ", an Instagram sound (always plays from its start)" : ""}.`,
+    );
+  }
+  lines.push(`Room labels: ${hasRoomLabels(timeline) ? "on" : "off"}${timeline.clips.some((clip) => clip.room) ? "" : " (no clip knows its room, so they cannot be turned on)"}.`);
+  const details = timeline.details;
+  if (hasDetails(details)) {
+    const fields = (["price", "beds", "baths", "area", "address", "contact"] as const).filter((key) => details[key]).map((key) => `${key} ${details[key]}`);
+    lines.push(`Details card: ${fields.join(", ")}; shown at the ${details.placement}.`);
+  } else lines.push("Details card: none.");
+  lines.push("");
+  if (songs.length === 0) lines.push("Songs available: none besides the current one.");
+  else {
+    lines.push("Songs available (songId: title, tempo, mood):");
+    for (const song of songs) lines.push(`- ${song.id}: "${song.title}"${song.bpm ? `, ${Math.round(song.bpm)} bpm` : ""}${song.mood ? `, ${song.mood}` : ""}`);
+  }
+  lines.push("");
+  lines.push(`Text colors to prefer: ${TEXT_COLORS.join(", ")}.`);
+  return lines.join("\n");
+}
+
+// ── Applying a plan ─────────────────────────────────────────────
+
+export type AiEditResult = {
+  timeline: Timeline;
+  /** What each operation did, in order, for the studio and the log. */
+  applied: string[];
+  /** Operations that could not be done and why. */
+  skipped: string[];
+};
+
+type ApplyOptions = {
+  assets: Record<string, AiAsset | undefined>;
+  songs: AiSong[];
+  newId?: () => string;
+};
+
+const defaultId = () => `ai-${Math.random().toString(36).slice(2, 10)}`;
+
+function clipLabel(timeline: Timeline, clip: Clip, assets: ApplyOptions["assets"]): string {
+  const index = timeline.clips.findIndex((entry) => entry.id === clip.id) + 1;
+  const name = clip.room ?? assets[clip.assetId]?.title;
+  return `clip ${index}${name ? ` (${name})` : ""}`;
+}
+
+/**
+ * Applies the plan to the timeline, one operation at a time. A bad operation
+ * is skipped with a reason rather than failing the whole request, because the
+ * model is usually right about the rest. Clip and text numbers refer to the
+ * reel as it was described, so they are resolved to ids up front.
+ */
+export function applyAiEditPlan(timeline: Timeline, plan: AiEditPlan, options: ApplyOptions): AiEditResult {
+  const { assets, songs } = options;
+  const newId = options.newId ?? defaultId;
+  const clipIds = timeline.clips.map((clip) => clip.id);
+  const textIds = timeline.texts.map((text) => text.id);
+  const applied: string[] = [];
+  const skipped: string[] = [];
+  let current = timeline;
+
+  const clipsFor = (op: AiEditOp, allowAll: boolean): Clip[] | null => {
+    if (op.clip === null || op.clip === undefined) {
+      skipped.push(`${op.op}: no clip given`);
+      return null;
+    }
+    if (op.clip === 0) {
+      if (!allowAll) {
+        skipped.push(`${op.op}: needs one clip`);
+        return null;
+      }
+      return current.clips;
+    }
+    const id = clipIds[op.clip - 1];
+    const clip = id ? current.clips.find((entry) => entry.id === id) : undefined;
+    if (!clip) {
+      skipped.push(`${op.op}: there is no clip ${op.clip}`);
+      return null;
+    }
+    return [clip];
+  };
+
+  const textFor = (op: AiEditOp) => {
+    const id = op.text ? textIds[op.text - 1] : undefined;
+    const text = id ? current.texts.find((entry) => entry.id === id) : undefined;
+    if (!text) skipped.push(`${op.op}: there is no text ${op.text ?? ""}`.trim());
+    return text ?? null;
+  };
+
+  for (const op of plan.ops) {
+    switch (op.op) {
+      case "trim": {
+        const clips = clipsFor(op, false);
+        if (!clips) break;
+        const clip = clips[0];
+        const speed = clip.kind === "IMAGE" ? 1 : clip.speed;
+        const start = op.startMs ?? clip.sourceStartMs;
+        const end = op.endMs ?? (op.lengthMs !== null && op.lengthMs !== undefined ? start + Math.round(op.lengthMs * speed) : clip.sourceEndMs);
+        if (end <= start) {
+          skipped.push(`trim: ${clipLabel(current, clip, assets)} would have no length`);
+          break;
+        }
+        current = trimClip(current, clip.id, { sourceStartMs: start, sourceEndMs: end }, assets[clip.assetId]?.durationMs ?? undefined);
+        const after = current.clips.find((entry) => entry.id === clip.id)!;
+        applied.push(`${clipLabel(current, clip, assets)} now plays ${ms(clipDurationMs(after))}`);
+        break;
+      }
+      case "speed": {
+        const clips = clipsFor(op, true);
+        if (!clips) break;
+        if (op.speed === null || op.speed === undefined) {
+          skipped.push("speed: no speed given");
+          break;
+        }
+        const videos = clips.filter((clip) => clip.kind === "VIDEO");
+        if (videos.length === 0) {
+          skipped.push("speed: photos have no speed; use trim to change how long they show");
+          break;
+        }
+        for (const clip of videos) current = updateClip(current, clip.id, { speed: op.speed });
+        applied.push(`${videos.length === 1 ? clipLabel(current, videos[0], assets) : `${videos.length} video clips`}: speed ${op.speed}x`);
+        break;
+      }
+      case "look": {
+        const clips = clipsFor(op, true);
+        if (!clips) break;
+        if (!op.filter) {
+          skipped.push("look: no look given");
+          break;
+        }
+        for (const clip of clips) current = updateClip(current, clip.id, { filter: op.filter });
+        applied.push(`${op.clip === 0 ? "every clip" : clipLabel(current, clips[0], assets)}: look ${op.filter}`);
+        break;
+      }
+      case "motion": {
+        const clips = clipsFor(op, true);
+        if (!clips) break;
+        if (!op.motion) {
+          skipped.push("motion: no motion given");
+          break;
+        }
+        const photos = clips.filter((clip) => clip.kind === "IMAGE" && !clip.pano);
+        if (photos.length === 0) {
+          skipped.push("motion: only photos have motion");
+          break;
+        }
+        for (const clip of photos) current = updateClip(current, clip.id, { motion: op.motion });
+        applied.push(`${photos.length === 1 ? clipLabel(current, photos[0], assets) : `${photos.length} photos`}: motion ${op.motion}`);
+        break;
+      }
+      case "transition": {
+        const clips = clipsFor(op, true);
+        if (!clips) break;
+        if (!op.transition) {
+          skipped.push("transition: no transition given");
+          break;
+        }
+        const eligible = clips.filter((clip) => current.clips[0]?.id !== clip.id);
+        if (eligible.length === 0) {
+          skipped.push("transition: the first clip has nothing to transition from");
+          break;
+        }
+        for (const clip of eligible) current = updateClip(current, clip.id, { transitionIn: op.transition });
+        applied.push(`${eligible.length === 1 ? clipLabel(current, eligible[0], assets) : `${eligible.length} clips`}: transition ${op.transition}`);
+        break;
+      }
+      case "fit": {
+        const clips = clipsFor(op, true);
+        if (!clips) break;
+        if (!op.fit) {
+          skipped.push("fit: no fit given");
+          break;
+        }
+        for (const clip of clips) current = updateClip(current, clip.id, { fit: op.fit });
+        applied.push(`${op.clip === 0 ? "every clip" : clipLabel(current, clips[0], assets)}: fit ${op.fit}`);
+        break;
+      }
+      case "volume": {
+        const clips = clipsFor(op, true);
+        if (!clips) break;
+        if (op.volume === null || op.volume === undefined) {
+          skipped.push("volume: no level given");
+          break;
+        }
+        const videos = clips.filter((clip) => clip.kind === "VIDEO");
+        if (videos.length === 0) {
+          skipped.push("volume: photos have no sound");
+          break;
+        }
+        for (const clip of videos) current = updateClip(current, clip.id, { volume: op.volume });
+        applied.push(`${videos.length === 1 ? clipLabel(current, videos[0], assets) : `${videos.length} video clips`}: sound ${Math.round(op.volume * 100)}%`);
+        break;
+      }
+      case "move": {
+        const clips = clipsFor(op, false);
+        if (!clips) break;
+        if (!op.toPosition) {
+          skipped.push("move: no position given");
+          break;
+        }
+        const label = clipLabel(current, clips[0], assets);
+        current = moveClip(current, clips[0].id, op.toPosition - 1);
+        applied.push(`${label} moved to position ${Math.min(op.toPosition, current.clips.length)}`);
+        break;
+      }
+      case "remove": {
+        const clips = clipsFor(op, false);
+        if (!clips) break;
+        if (current.clips.length === 1) {
+          skipped.push("remove: that is the only clip");
+          break;
+        }
+        const label = clipLabel(current, clips[0], assets);
+        current = removeClip(current, clips[0].id);
+        applied.push(`${label} removed`);
+        break;
+      }
+      case "duplicate": {
+        const clips = clipsFor(op, false);
+        if (!clips) break;
+        current = duplicateClip(current, clips[0].id, newId());
+        applied.push(`${clipLabel(current, clips[0], assets)} duplicated`);
+        break;
+      }
+      case "addText": {
+        if (!op.content) {
+          skipped.push("addText: no words given");
+          break;
+        }
+        const style = op.style ?? "plain";
+        if ((op.startMs ?? 0) >= timelineDurationMs(current)) {
+          skipped.push(`addText: "${op.content}" would start after the reel ends`);
+          break;
+        }
+        const before = current.texts.length;
+        current = addText(current, {
+          id: newId(),
+          text: op.content,
+          startMs: op.startMs ?? 0,
+          endMs: op.endMs ?? undefined,
+          x: 0.5,
+          y: op.y ?? 0.4,
+          style,
+          color: op.color ?? "#ffffff",
+          size: op.size ?? 1,
+        });
+        if (current.texts.length === before) skipped.push(`addText: "${op.content}" would show outside the reel`);
+        else applied.push(`added text "${op.content}"`);
+        break;
+      }
+      case "editText": {
+        const text = textFor(op);
+        if (!text) break;
+        const patch = {
+          ...(op.content ? { text: op.content } : {}),
+          ...(op.style ? { style: op.style } : {}),
+          ...(op.color ? { color: op.color } : {}),
+          ...(op.size !== null && op.size !== undefined ? { size: op.size } : {}),
+          ...(op.y !== null && op.y !== undefined ? { y: op.y } : {}),
+          ...(op.startMs !== null && op.startMs !== undefined ? { startMs: op.startMs } : {}),
+          ...(op.endMs !== null && op.endMs !== undefined ? { endMs: op.endMs } : {}),
+        };
+        if (Object.keys(patch).length === 0) {
+          skipped.push(`editText: nothing to change on "${text.text}"`);
+          break;
+        }
+        current = updateText(current, text.id, patch);
+        applied.push(`text "${text.text}" changed${op.content ? ` to "${op.content}"` : ""}`);
+        break;
+      }
+      case "removeText": {
+        const text = textFor(op);
+        if (!text) break;
+        current = removeText(current, text.id);
+        applied.push(`text "${text.text}" removed`);
+        break;
+      }
+      case "music": {
+        if (op.songId === null || op.songId === undefined) {
+          if (!current.music) {
+            skipped.push("music: there is no music to remove");
+            break;
+          }
+          current = setMusic(current, null);
+          applied.push("music removed");
+          break;
+        }
+        const song = songs.find((entry) => entry.id === op.songId);
+        if (!song) {
+          skipped.push(`music: no song ${op.songId} in the list`);
+          break;
+        }
+        const asset = assets[song.id];
+        current = setMusic(current, {
+          assetId: song.id,
+          sourceStartMs: op.startMs ?? 0,
+          volume: op.volume ?? current.music?.volume ?? 0.8,
+          bpm: song.bpm ?? asset?.bpm ?? null,
+          beatOffsetMs: asset?.beatOffsetMs ?? null,
+        });
+        applied.push(`music is now "${song.title}"`);
+        break;
+      }
+      case "musicVolume": {
+        if (!current.music) {
+          skipped.push("musicVolume: there is no music");
+          break;
+        }
+        if (op.volume === null || op.volume === undefined) {
+          skipped.push("musicVolume: no level given");
+          break;
+        }
+        current = setMusic(current, { ...current.music, volume: op.volume });
+        applied.push(`music volume ${Math.round(op.volume * 100)}%`);
+        break;
+      }
+      case "snapToBeat": {
+        if (!current.music?.bpm) {
+          skipped.push("snapToBeat: the music has no known tempo");
+          break;
+        }
+        const durations = Object.fromEntries(Object.values(assets).map((asset) => [asset!.id, asset!.durationMs]));
+        const next = snapCutsToBeats(current, durations);
+        current = hasRoomLabels(next) ? addRoomLabels(next) : next;
+        applied.push("cuts moved onto the beat");
+        break;
+      }
+      case "details": {
+        if (op.details === null || op.details === undefined) {
+          if (!current.details) {
+            skipped.push("details: there is no details card");
+            break;
+          }
+          current = setDetails(current, null);
+          applied.push("details card removed");
+          break;
+        }
+        const base = current.details ?? listingDetailsSchema.parse({});
+        const patch = Object.fromEntries(Object.entries(op.details).filter(([, value]) => value !== null && value !== undefined));
+        const next = listingDetailsSchema.parse({ ...base, ...patch });
+        if (!hasDetails(next)) {
+          skipped.push("details: nothing to show on the card");
+          break;
+        }
+        current = setDetails(current, next);
+        applied.push(`details card updated (${Object.keys(patch).join(", ") || "unchanged"})`);
+        break;
+      }
+      case "roomLabels": {
+        if (op.on === null || op.on === undefined) {
+          skipped.push("roomLabels: say on or off");
+          break;
+        }
+        if (op.on && !current.clips.some((clip) => clip.room)) {
+          skipped.push("roomLabels: no clip knows its room");
+          break;
+        }
+        current = op.on ? addRoomLabels(current) : removeRoomLabels(current);
+        applied.push(`room labels ${op.on ? "on" : "off"}`);
+        break;
+      }
+    }
+  }
+  return { timeline: current, applied, skipped };
+}
+
+// ── A stand-in for the model ────────────────────────────────────
+
+/**
+ * A rule-based planner for local stacks and tests (DEV_FAKE_AI), covering a
+ * handful of phrasings so the whole path can be exercised without a key.
+ */
+export function fakeAiEditPlan(request: string, timeline: Timeline, songs: AiSong[]): AiEditPlan {
+  const text = request.toLowerCase();
+  const blank: Omit<AiEditOp, "op"> = {
+    clip: null, text: null, startMs: null, endMs: null, lengthMs: null, speed: null, filter: null, motion: null, transition: null, fit: null,
+    volume: null, toPosition: null, content: null, style: null, color: null, size: null, y: null, songId: null, on: null, details: null,
+  };
+  const ops: AiEditOp[] = [];
+  const notes: string[] = [];
+  const look = (["warm", "cool", "vivid", "mono", "fade"] as const).find((name) => text.includes(name)) ?? (/black and white/.test(text) ? "mono" : null);
+  if (look) {
+    ops.push({ ...blank, op: "look", clip: 0, filter: look });
+    notes.push(`Every clip now has the ${look} look.`);
+  }
+  if (/\b(mute|silent|no sound)\b/.test(text)) {
+    ops.push({ ...blank, op: "volume", clip: 0, volume: 0 });
+    notes.push("The clips' own sound is off.");
+  }
+  if (/\b(no|remove|drop) (the )?music\b/.test(text)) {
+    ops.push({ ...blank, op: "music", songId: null });
+    notes.push("The music is removed.");
+  } else if (/\b(calm|calmer|softer|quieter)\b/.test(text) && songs.length > 0) {
+    const song = songs.find((entry) => /calm|soft|smooth/.test(entry.mood ?? "")) ?? songs[0];
+    ops.push({ ...blank, op: "music", songId: song.id });
+    notes.push(`The music is now ${song.title}.`);
+  }
+  const longer = /\b(longer|shorter)\b/.exec(text);
+  if (longer && timeline.clips.length > 0) {
+    const clip = timeline.clips.findIndex((entry) => entry.room && text.includes(entry.room.toLowerCase()));
+    const index = clip >= 0 ? clip : 0;
+    const factor = longer[1] === "longer" ? 1.5 : 0.7;
+    ops.push({ ...blank, op: "trim", clip: index + 1, lengthMs: Math.round(clipDurationMs(timeline.clips[index]) * factor) });
+    notes.push(`Clip ${index + 1} is ${longer[1]}.`);
+  }
+  if (/\broom (labels|names)\b/.test(text)) {
+    const on = !/\b(off|remove|no|hide)\b/.test(text);
+    ops.push({ ...blank, op: "roomLabels", on });
+    notes.push(`Room labels are ${on ? "on" : "off"}.`);
+  }
+  return { ops, note: notes.join(" ") || "I could not tell what to change from that. Try naming a clip, the music, the text or the look." };
+}

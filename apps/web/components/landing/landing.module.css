@@ -1,11 +1,12 @@
 /*
- * The marketing page, in the app's own visual system. Nothing is remapped:
- * --ink is the ground, --paper the text, --signal the one red, exactly as in
- * the editor, so the shared classes (.btn, .brand, :focus-visible) and the
- * drawn screens (mocks.module.css) are the same thing here as in the app.
- * The blueprint grid on <body> is covered: a marketing page is a plain
- * surface, the drafting paper belongs to the editor. Signed-in /pricing
- * renders the same PricingSection inside the app's shell.
+ * The marketing page, in the app's own visual system (docs/design/brand.md).
+ * Nothing is remapped: --ink is the noir ground, --paper the ivory, exactly
+ * as in the editor, so the shared classes (.btn, .brand, :focus-visible) and
+ * the drawn screens (mocks.module.css) are the same thing here as in the app.
+ * It reads like a magazine spread: the headline in Bodoni runs the full
+ * width, and under it the copy sits left while the finished reels stand
+ * right in black frames. Lacquer stays in the app; every button here is
+ * ivory. Signed-in /pricing renders the same PricingSection in the shell.
  * Phone first; two columns from 880px.
  */
 
@@ -18,12 +19,11 @@
 }
 
 .page :global(.btn) {
-  font-weight: 700;
   transition: background-color 120ms ease, box-shadow 120ms ease;
 }
 
-.page :global(.btn-signal:hover) {
-  background: #e63d24;
+.page :global(.btn:not(.btn-quiet):hover) {
+  background: #fff;
 }
 
 .page :global(.btn-quiet:hover) {
@@ -37,7 +37,7 @@
   top: 0;
   z-index: 5;
   padding: calc(10px + var(--safe-top)) 20px 10px;
-  background: rgb(15 42 68 / 0.82);
+  background: rgb(10 10 10 / 0.82);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--line);
@@ -89,8 +89,10 @@
 }
 
 .main h2 {
-  font-size: clamp(28px, 4.5vw, 38px);
-  letter-spacing: -0.02em;
+  font-size: clamp(32px, 4.8vw, 46px);
+  font-weight: 500;
+  font-variation-settings: "opsz" 96;
+  line-height: 1.02;
 }
 
 .sectionHead {
@@ -116,43 +118,38 @@
 /* ── Hero ───────────────────────────────────────────────────────── */
 
 .hero {
-  position: relative;
+  display: grid;
+  gap: 36px;
+  padding: 40px 0 56px;
+}
+
+/* The headline is the page's one bold thing: Bodoni at its largest optical
+   size, weight 500, set as wide as the column allows and nothing behind it. */
+.hero h1 {
+  font-size: clamp(46px, 10vw, 108px);
+  font-weight: 500;
+  font-variation-settings: "opsz" 96;
+  line-height: 0.96;
+  letter-spacing: -0.012em;
+  max-width: 10.5em;
+  text-wrap: balance;
+}
+
+.heroRow {
   display: grid;
   gap: 40px;
-  padding: 44px 0 56px;
-}
-
-/* One light behind the phones, the way a screen lights the desk it sits on. */
-.hero::before {
-  content: "";
-  position: absolute;
-  z-index: 0;
-  inset: 40% -20px -10%;
-  background: radial-gradient(ellipse 60% 60% at 50% 60%, rgb(143 179 217 / 0.14), transparent 70%);
-  pointer-events: none;
-}
-
-.hero > * {
-  position: relative;
-  z-index: 1;
 }
 
 .heroText {
   display: grid;
-  gap: 20px;
+  gap: 22px;
   align-content: start;
-}
-
-.hero h1 {
-  font-size: clamp(38px, 9vw, 62px);
-  line-height: 0.98;
-  letter-spacing: -0.03em;
-  max-width: 10.5em;
 }
 
 .hero .lede {
   color: var(--paper);
   font-size: 18px;
+  max-width: 30em;
 }
 
 .ctas {
@@ -206,11 +203,11 @@
   width: min(68vw, 250px);
   aspect-ratio: 9 / 16;
   overflow: hidden;
-  border-radius: 24px;
-  background: #061120;
+  border-radius: 18px;
+  background: #000;
   box-shadow:
-    0 0 0 1px rgb(143 179 217 / 0.32),
-    0 30px 80px rgb(0 0 0 / 0.5);
+    0 0 0 1px rgb(243 237 226 / 0.2),
+    0 30px 80px rgb(0 0 0 / 0.6);
   scroll-snap-align: center;
 }
 
@@ -251,28 +248,22 @@
 .step h3 {
   display: flex;
   align-items: baseline;
-  gap: 12px;
-  font-size: clamp(22px, 3vw, 27px);
-  font-stretch: 118%;
-  line-height: 1.15;
+  gap: 14px;
+  font-family: var(--display);
+  font-weight: 500;
+  font-variation-settings: "opsz" 72;
+  font-size: clamp(24px, 3.2vw, 30px);
+  line-height: 1.12;
   max-width: 18em;
 }
 
-/* The step's number, drawn as the order badge the photographer taps onto
-   each photo: these four really are a sequence. */
+/* The step's figure: these four really are a sequence, and a Bodoni numeral
+   says so without a badge. */
 .stepNo {
   flex: none;
-  display: inline-grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 999px;
-  background: var(--signal);
-  color: #fff;
-  font-size: 14px;
-  font-stretch: 100%;
-  letter-spacing: 0;
-  transform: translateY(-3px);
+  color: var(--muted);
+  font-size: 1.1em;
+  font-variant-numeric: lining-nums;
 }
 
 .step p {
@@ -296,6 +287,42 @@
   box-shadow: inset 0 0 0 1px var(--line);
   font-size: 15.5px;
   line-height: 1.5;
+}
+
+/* ── Asking for a change ────────────────────────────────────────── */
+
+.ask {
+  padding: 56px 0;
+  border-top: 1px solid var(--line);
+}
+
+.ask .sectionHead {
+  margin-bottom: 28px;
+}
+
+/* The requests themselves, set in the display face: the words are the feature. */
+.askList {
+  display: grid;
+  gap: 14px;
+  margin: 0 0 24px;
+  padding: 0;
+  list-style: none;
+  font-family: var(--display);
+  font-weight: 500;
+  font-variation-settings: "opsz" 72;
+  font-size: clamp(24px, 3.4vw, 34px);
+  line-height: 1.15;
+  max-width: 20em;
+}
+
+.askList li::before {
+  content: "“";
+  color: var(--muted);
+}
+
+.askList li::after {
+  content: "”";
+  color: var(--muted);
 }
 
 /* ── The plain facts ────────────────────────────────────────────── */
@@ -434,14 +461,17 @@
   background: var(--ink-deep);
 }
 
-/* The plan most photographers want: the red edge, like Export. */
+/* The plan most photographers want is marked by its edge, in ivory. */
 .plan[data-featured="true"] {
-  border-color: rgb(240 68 44 / 0.7);
-  box-shadow: inset 0 3px 0 var(--signal);
+  border-color: rgb(243 237 226 / 0.75);
 }
 
 .plan h3 {
-  font-size: 22px;
+  font-family: var(--display);
+  font-weight: 500;
+  font-variation-settings: "opsz" 72;
+  font-size: 26px;
+  line-height: 1.1;
 }
 
 .who {
@@ -457,12 +487,12 @@
 }
 
 .amount {
-  font-size: 42px;
+  font-family: var(--display);
+  font-weight: 500;
+  font-variation-settings: "opsz" 96;
+  font-size: 46px;
   line-height: 1;
-  font-weight: 800;
-  font-stretch: 112%;
-  letter-spacing: -0.025em;
-  font-variant-numeric: tabular-nums;
+  font-variant-numeric: lining-nums tabular-nums;
 }
 
 .per {
@@ -519,7 +549,7 @@
 .faq summary {
   padding: 15px 0;
   font-size: 17px;
-  font-weight: 700;
+  font-weight: 600;
   cursor: pointer;
   list-style: none;
 }
@@ -532,8 +562,8 @@
   content: "+";
   display: inline-block;
   width: 22px;
-  color: var(--rule);
-  font-weight: 800;
+  color: var(--muted);
+  font-weight: 400;
 }
 
 .faq details[open] summary::before {
@@ -629,15 +659,14 @@
 
 @media (min-width: 880px) {
   .hero {
-    grid-template-columns: minmax(0, 1.05fr) auto;
-    align-items: center;
-    gap: 56px;
-    padding: 72px 0 88px;
+    gap: 48px;
+    padding: 64px 0 88px;
   }
 
-  .hero::before {
-    inset: -10% -10% -10% 45%;
-    background: radial-gradient(ellipse 55% 60% at 60% 50%, rgb(143 179 217 / 0.14), transparent 70%);
+  .heroRow {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 56px;
   }
 
   .phone {
@@ -668,8 +697,12 @@
 
   .step {
     grid-template-columns: minmax(0, 1fr) 340px;
-    align-items: center;
+    align-items: start;
     gap: 64px;
+  }
+
+  .stepText {
+    padding-top: 56px;
   }
 
   /* The screens alternate sides, as the eye reads down a page. */

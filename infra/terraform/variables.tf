@@ -136,6 +136,18 @@ variable "pixabay_api_key" {
   default   = ""
 }
 
+# Asking for a change in words (ADR 0020). Empty hides the feature.
+variable "openai_api_key" {
+  type      = string
+  sensitive = true
+  default   = ""
+}
+
+variable "openai_model" {
+  type    = string
+  default = "gpt-6-luna"
+}
+
 # Stripe billing (apps/web/lib/stripe.ts). Empty means no upgrade buttons.
 variable "stripe_secret_key" {
   type      = string

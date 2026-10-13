@@ -1,8 +1,8 @@
 /*
  * Drawn app screens for the landing page. The colors are the app's own
- * tokens from globals.css: the page around the phones is the same navy, so
- * the screens are set off by a dark bezel with a thin lit edge rather than
- * by a shadow, which is invisible dark on dark.
+ * tokens from globals.css: the page around the phones is the same noir, so
+ * the screens are set off by a black bezel with a thin ivory edge rather
+ * than by a shadow, which is invisible dark on dark.
  */
 
 .phone {
@@ -12,9 +12,9 @@
   margin: 0;
   padding: 10px;
   border-radius: 40px;
-  background: #061120;
+  background: #000;
   box-shadow:
-    0 0 0 1px rgb(143 179 217 / 0.32),
+    0 0 0 1px rgb(243 237 226 / 0.32),
     0 30px 80px rgb(0 0 0 / 0.5);
   color: var(--paper);
   font-size: 12px;
@@ -60,7 +60,7 @@
   display: grid;
   place-items: center;
   background:
-    linear-gradient(160deg, rgb(143 179 217 / 0.18), transparent 60%),
+    linear-gradient(160deg, rgb(243 237 226 / 0.18), transparent 60%),
     var(--panel);
 }
 
@@ -97,7 +97,6 @@
 
 .title {
   font-weight: 700;
-  font-stretch: 112%;
   font-size: 13px;
   white-space: nowrap;
   overflow: hidden;
@@ -125,7 +124,7 @@
 }
 
 .pillSignal {
-  background: #d9361f;
+  background: var(--signal);
   color: #fff;
 }
 
@@ -175,7 +174,6 @@
 .sheetTitle {
   font-size: 17px;
   font-weight: 800;
-  font-stretch: 125%;
 }
 
 .sheetNote {
@@ -233,7 +231,7 @@
   bottom: 5px;
   padding: 2px 5px;
   border-radius: 5px;
-  background: rgb(11 32 54 / 0.8);
+  background: rgb(21 20 18 / 0.8);
   font-size: 9px;
   font-weight: 700;
   font-stretch: 75%;
@@ -290,7 +288,7 @@
   transform: translateX(-50%);
   padding: 1.2cqw 4cqw;
   border-radius: 2cqw;
-  background: #e9d8a6;
+  background: var(--paper);
   color: var(--ink);
   font-size: 6cqw;
   font-weight: 700;
@@ -307,14 +305,13 @@
   gap: 1.8cqw;
   padding: 4.5cqw 5cqw;
   border-radius: 5cqw;
-  background: rgb(11 32 54 / 0.8);
+  background: rgb(21 20 18 / 0.8);
   color: var(--paper);
 }
 
 .details strong {
   font-size: 9cqw;
   font-weight: 850;
-  font-stretch: 110%;
   line-height: 1;
   letter-spacing: -0.01em;
 }
@@ -392,7 +389,7 @@
   color: var(--muted);
   background-image:
     linear-gradient(90deg, var(--rule) 1px, transparent 1px),
-    linear-gradient(90deg, rgb(143 179 217 / 0.55) 1px, transparent 1px);
+    linear-gradient(90deg, rgb(243 237 226 / 0.55) 1px, transparent 1px);
   background-size: var(--pps) 9px, calc(var(--pps) / 4) 4px;
   background-repeat: repeat-x;
   background-position: var(--offset) bottom, var(--offset) bottom;
@@ -441,7 +438,7 @@
   bottom: 4px;
   padding: 1px 4px;
   border-radius: 4px;
-  background: rgb(11 32 54 / 0.85);
+  background: rgb(21 20 18 / 0.85);
   font-size: 8px;
   font-weight: 600;
   font-stretch: 75%;
@@ -465,14 +462,14 @@
 }
 
 .barText {
-  background: #e9d8a6;
+  background: var(--paper);
   color: var(--ink);
 }
 
 .barMusic {
   /* The song starts before the visible window: its name sits at the window's edge. */
   padding-left: calc(8px - var(--offset));
-  background: #5b8fc4;
+  background: #5d564e;
   color: #fff;
 }
 
@@ -544,7 +541,7 @@
 .exportFill {
   position: absolute;
   inset: auto 0 0;
-  background: linear-gradient(to top, rgb(240 68 44 / 0.85), rgb(240 68 44 / 0.55));
+  background: linear-gradient(to top, rgb(193 39 45 / 0.85), rgb(193 39 45 / 0.55));
 }
 
 .exportFigure {
@@ -587,7 +584,6 @@
 .shareTitle {
   font-size: 19px;
   font-weight: 800;
-  font-stretch: 125%;
   line-height: 1.05;
 }
 

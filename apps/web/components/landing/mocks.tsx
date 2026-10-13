@@ -83,7 +83,7 @@ export function MediaSheetMock() {
           <span className={styles.sheetTitle}>Add photos and videos</span>
           <CloseIcon size={18} />
         </div>
-        <span className={`${styles.pill} ${styles.pillSignal} ${styles.pillBlock}`}>
+        <span className={`${styles.pill} ${styles.pillBlock}`}>
           <PlusIcon size={16} />
           Choose from your phone
         </span>

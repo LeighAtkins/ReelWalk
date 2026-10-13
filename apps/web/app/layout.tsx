@@ -1,5 +1,8 @@
 // Fonts ship as npm packages, so builds never fetch them from a font CDN.
-// Archivo's width axis carries the type: wide for headings, narrow for timecodes.
+// Bodoni Moda is the display face (wordmark, headings, prices), its optical
+// size axis keeping the hairlines fine; Archivo does body and UI, its width
+// axis used only to narrow timecodes.
+import "@fontsource-variable/bodoni-moda/opsz.css";
 import "@fontsource-variable/archivo/wdth.css";
 import "@fontsource-variable/noto-sans-jp/wght.css";
 // The serif of the "elegant" reel text style, also shown on its style chip.
@@ -15,7 +18,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#0f2a44",
+  themeColor: "#0a0a0a",
   colorScheme: "dark",
   width: "device-width",
   initialScale: 1,

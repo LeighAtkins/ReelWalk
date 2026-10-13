@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { exportProgressText, isActive } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
 import { retryRenderJob } from "@/app/actions";
+import { AskForChange } from "@/components/ask-for-change";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { CaptionEditor } from "@/components/caption-editor";
 import { FeatureConsent } from "@/components/feature-consent";
@@ -12,7 +13,9 @@ import { ShareLink } from "@/components/share-link";
 import { instagramChoiceForSound, instagramSoundAssetId, outputSize, parseReelExportPayload } from "@reelwalk/core";
 import { ExportStage, ExportVideo } from "@/components/export-sound";
 import { InstagramPublishing } from "@/components/instagram-publishing";
+import { aiEditUsage } from "@/lib/ai-edit";
 import { isFakeInstagram, isInstagramConfigured } from "@/lib/instagram";
+import { isAiAvailable } from "@/lib/openai";
 import { workspacePlan } from "@/lib/plans";
 import { appUrl } from "@/lib/app-url";
 import { outputUrls } from "@/lib/render-jobs";
@@ -38,12 +41,13 @@ export default async function ExportPage({
   const job = reel.renderJobs[0];
   if (!job) redirect(`/reels/${reel.id}`);
 
-  const [urls, [cover], base, instagram, { plan, id: planId }] = await Promise.all([
+  const [urls, [cover], base, instagram, { plan, id: planId }, aiUsage] = await Promise.all([
     outputUrls(job),
     coverUrls([readTimeline(reel.timeline)]),
     appUrl(),
     prisma.socialAccount.findUnique({ where: { workspaceId_provider: { workspaceId: user.workspaceId, provider: "instagram" } }, select: { username: true } }),
     workspacePlan(user.workspaceId),
+    aiEditUsage(user.workspaceId),
   ]);
   const payload = parseReelExportPayload(job.payload);
   const output = payload.output;
@@ -141,8 +145,10 @@ export default async function ExportPage({
             </p>
           )}
   
+          {urls && isAiAvailable() ? <AskForChange reelId={reel.id} usage={aiUsage} /> : null}
+
           <CaptionEditor reelId={reel.id} initial={reel.caption} />
-  
+
           {urls ? (
             <FeatureConsent
               reelId={reel.id}

@@ -38,6 +38,7 @@ import {
   type Issue,
   type Plan,
   type Timeline,
+  parseTimeline,
 } from "@reelwalk/core";
 import { ELEGANT_FADE_S, type ReelAsset } from "@reelwalk/render/reel";
 import { deleteReel, exportReel, readyPreviews } from "@/app/actions";
@@ -55,6 +56,7 @@ import {
   EditIcon,
   FilterIcon,
   FitIcon,
+  AskIcon,
   GuidesIcon,
   MotionIcon,
   MoveLeftIcon,
@@ -80,6 +82,7 @@ import { createClock, useClock, type Clock } from "./clock";
 import { Filmstrip, type PendingUpload, type Selection } from "./filmstrip";
 import { historyReducer, initHistory } from "./history";
 import {
+  AskSheet,
   CaptionSheet,
   DetailsSheet,
   ExportSheet,
@@ -127,7 +130,8 @@ type SheetName =
   | "timing"
   | "music"
   | "caption"
-  | "export";
+  | "export"
+  | "ask";
 
 export type EditorProps = {
   /** Open the media library straight away (a reel started from the library). */
@@ -137,6 +141,8 @@ export type EditorProps = {
   reel: { id: string; title: string; revision: number; caption: string };
   timeline: Timeline;
   library: LibraryAsset[];
+  /** Whether "Ask for a change" (ADR 0020) is offered on this deployment. */
+  askAvailable?: boolean;
   /** Whether the Music sheet offers Instagram's sounds (null: not on this deployment). */
   instagramSounds?: InstagramSoundAccess;
 };
@@ -200,7 +206,7 @@ function Tool({
   );
 }
 
-export function Editor({ reel, timeline: initialTimeline, library: initialLibrary, openLibrary, tours = {}, instagramSounds = null }: EditorProps) {
+export function Editor({ reel, timeline: initialTimeline, library: initialLibrary, openLibrary, tours = {}, instagramSounds = null, askAvailable = false }: EditorProps) {
   const router = useRouter();
   const [history, dispatch] = useReducer(historyReducer, initialTimeline, initHistory);
   const timeline = history.present;
@@ -786,6 +792,11 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         <Tool label="Music" disabled={!hasClips} onClick={() => setSheet("music")}>
           <MusicIcon />
         </Tool>
+        {askAvailable ? (
+          <Tool label="Ask" disabled={!hasClips} onClick={() => setSheet("ask")}>
+            <AskIcon />
+          </Tool>
+        ) : null}
         <Tool label="Split" disabled={!hasClips} onClick={split}>
           <SplitIcon />
         </Tool>
@@ -900,7 +911,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
                 <strong>Start with your listing&apos;s photos and videos.</strong>
               </p>
               <p className="muted small">They play in the order you pick them. Vertical video fills the frame best.</p>
-              <button type="button" className="btn btn-signal" onClick={() => setSheet("media")}>
+              <button type="button" className="btn" onClick={() => setSheet("media")}>
                 <PlusIcon size={18} />
                 Add media
               </button>
@@ -1137,6 +1148,31 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
       ) : null}
 
       {sheet === "caption" ? <CaptionSheet reelId={reel.id} caption={caption} onClose={closeSheet} onChange={setCaption} /> : null}
+
+      {sheet === "ask" ? (
+        <AskSheet
+          onAsk={async (request) => {
+            // The editor's own copy of the timeline goes along, so unsaved work counts.
+            const response = await fetch(`/api/reels/${reel.id}/ai-edit`, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ request, timeline }),
+            });
+            const data = (await response.json()) as
+              | { ok: true; timeline: unknown; note: string; applied: string[]; skipped: string[] }
+              | { ok: false; message: string };
+            if (!data.ok) return data;
+            if (data.applied.length > 0) {
+              const next = parseTimeline(data.timeline);
+              apply(() => next);
+              showToast(data.note, 6000);
+              setSheet(null);
+            }
+            return { ok: true, note: data.note, applied: data.applied, skipped: data.skipped };
+          }}
+          onClose={closeSheet}
+        />
+      ) : null}
 
       {sheet === "export" ? (
         <ExportSheet

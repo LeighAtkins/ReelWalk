@@ -76,6 +76,8 @@ type ResponsesOutput = {
 export async function structuredAnswer(options: {
   instructions: string;
   input: string;
+  /** Pictures for the model to look at, as data: URLs, sent at low detail. */
+  images?: string[];
   schemaName: string;
   schema: Record<string, unknown>;
   maxOutputTokens?: number;
@@ -87,7 +89,14 @@ export async function structuredAnswer(options: {
   const body: Record<string, unknown> = {
     model: providerModel(model),
     instructions: options.instructions,
-    input: options.input,
+    input: options.images?.length
+      ? [
+          {
+            role: "user",
+            content: [{ type: "input_text", text: options.input }, ...options.images.map((url) => ({ type: "input_image", image_url: url, detail: "low" }))],
+          },
+        ]
+      : options.input,
     text: { format: { type: "json_schema", name: options.schemaName, schema: options.schema, strict: true } },
     max_output_tokens: options.maxOutputTokens ?? 1200,
     store: false,

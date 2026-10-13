@@ -21,6 +21,7 @@ import { AiError, aiModel, isAiAvailable, isFakeAi, structuredAnswer, usageCostU
 import { workspacePlan } from "@/lib/plans";
 import { isUnlimited } from "@/lib/quotas";
 import { instagramSongs } from "@/lib/instagram-songs";
+import { labelRooms } from "@/lib/room-labels";
 import { toLibraryAsset, type LibraryAsset } from "@/lib/library";
 import { mediaScope } from "@/lib/workspace";
 
@@ -136,6 +137,14 @@ export async function askForChange(input: {
   if (request.length > maxLength) return { ok: false, message: `Keep the request under ${maxLength} characters.` };
   const blocked = await aiEditBlockedReason(input.user.workspaceId);
   if (blocked) return { ok: false, message: blocked.message, upgrade: blocked.upgrade };
+
+  // Shots that do not know their room are looked at once and named, so the
+  // walk can be ordered and room labels shown; the names go on the clips too.
+  const unnamed = [...new Set(input.timeline.clips.filter((clip) => !clip.room).map((clip) => clip.assetId))];
+  const named = isFakeAi() ? {} : await labelRooms(input.user.workspaceId, unnamed);
+  if (Object.keys(named).length > 0) {
+    input = { ...input, timeline: { ...input.timeline, clips: input.timeline.clips.map((clip) => (clip.room || !named[clip.assetId] ? clip : { ...clip, room: named[clip.assetId] })) } };
+  }
 
   const { assets, songs, unused } = await context(input.user.workspaceId, input.timeline);
   const description = describeReel({ title: input.reel.title, timeline: input.timeline, assets, songs, unused });

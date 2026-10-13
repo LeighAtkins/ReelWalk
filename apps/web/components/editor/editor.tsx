@@ -43,7 +43,8 @@ import {
 import { ELEGANT_FADE_S, type ReelAsset } from "@reelwalk/render/reel";
 import { deleteReel, exportReel, readyPreviews } from "@/app/actions";
 import { deleteBrief, saveBrief } from "@/app/ai-actions";
-import { analyseInstagramSound, chooseInstagramSound } from "@/app/instagram-audio-actions";
+import { analyseInstagramSound } from "@/app/instagram-audio-actions";
+import { chooseSound } from "@/lib/instagram-sounds-client";
 import { formatDuration } from "@/lib/format";
 import type { LibraryAsset } from "@/lib/library";
 import { takePendingFiles } from "@/lib/pending-files";
@@ -436,7 +437,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
     async (track: InstagramAudioTrack): Promise<boolean> => {
       setInstagramBusy(track.id);
       try {
-        const result = await chooseInstagramSound({ audioId: track.id, type: track.type, title: track.title, artist: track.artist });
+        const result = await chooseSound({ audioId: track.id, type: track.type, title: track.title, artist: track.artist });
         if (!result.ok) {
           showToast(result.error, 5000);
           return false;
@@ -671,10 +672,16 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         setAutopilotError({ message, upgrade });
       };
       try {
-        const response = await fetch(`/api/reels/${reel.id}/autopilot`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ timeline, style, info }),
+        // One more go if the connection drops (a deploy switching servers, a phone changing networks).
+        const send = () =>
+          fetch(`/api/reels/${reel.id}/autopilot`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ timeline, style, info }),
+          });
+        const response = await send().catch(async () => {
+          await new Promise((resolve) => setTimeout(resolve, 3000));
+          return send();
         });
         const data = (await response.json()) as { ok: true; timeline: unknown; note: string; assets?: LibraryAsset[]; instagramPick?: InstagramAudioTrack } | { ok: false; message: string };
         if (!data.ok) return fail(data.message);

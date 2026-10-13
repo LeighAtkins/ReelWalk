@@ -109,6 +109,18 @@ const SIGNED_URL_TTL_SECONDS = 3600;
 const signedUrls = new Map<string, { url: string; reuseUntil: number }>();
 
 /** URL the browser can play or download. CloudFront when configured, otherwise a presigned GET. */
+/** An object's bytes, for the server to look at (a shot's still for room labelling). Null when it is missing or too big. */
+export async function readObject(objectKey: string, maxBytes = 6 * 1024 * 1024): Promise<{ bytes: Buffer; contentType: string } | null> {
+  try {
+    const object = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: objectKey }));
+    if (!object.Body || (object.ContentLength ?? 0) > maxBytes) return null;
+    const bytes = Buffer.from(await object.Body.transformToByteArray());
+    return { bytes, contentType: object.ContentType ?? "image/jpeg" };
+  } catch {
+    return null;
+  }
+}
+
 export async function mediaUrl(objectKey: string, options: { downloadAs?: string } = {}): Promise<string> {
   if (/^https?:\/\//.test(cloudfrontBaseUrl) && !options.downloadAs) {
     return `${cloudfrontBaseUrl.replace(/\/$/, "")}/${objectKey}`;

@@ -40,6 +40,7 @@ function video(id: string, sourceStartMs: number, sourceEndMs: number, speed = 1
     sourceEndMs,
     speed,
     volume: 1,
+    zoom: 1,
     fit: "cover",
     filter: "none",
     motion: "none",
@@ -58,7 +59,7 @@ function reel(...clips: Clip[]): Timeline {
   return addClips(emptyTimeline(), clips);
 }
 
-const text = { id: "t1", text: "Just listed", startMs: 0, x: 0.5, y: 0.4, style: "plain" as const, color: "#ffffff", size: 1 };
+const text = { id: "t1", text: "Just listed", startMs: 0, x: 0.5, y: 0.4, style: "plain" as const, color: "#ffffff", size: 1, animation: "auto" as const };
 
 describe("durations", () => {
   it("divides the source window by the speed for video", () => {
@@ -220,7 +221,7 @@ describe("elegant text", () => {
   });
 
   it("keeps the old minimum for the other styles", () => {
-    for (const style of TEXT_STYLES.filter((style) => style !== "elegant")) {
+    for (const style of TEXT_STYLES.filter((style) => style !== "elegant" && style !== "tag")) {
       expect(textSchema.safeParse({ ...overlay, style, size: 0.5 }).success).toBe(true);
       expect(textSchema.safeParse({ ...overlay, style, size: 0.4 }).success).toBe(false);
     }

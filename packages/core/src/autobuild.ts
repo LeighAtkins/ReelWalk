@@ -173,6 +173,7 @@ function flyClips(route: TourShot[], plan: Plan, dwellMs: number): Clip[] {
       fit: "cover" as const,
       filter: "none" as const,
       motion: "none" as const,
+      zoom: 1,
       spot,
       // Only rooms the walk stops in are named.
       room: shot.passing ? null : shot.room,
@@ -235,6 +236,7 @@ export function buildTourReel(input: {
       volume: 1,
       fit: "cover",
       filter: "none",
+      zoom: 1,
       motion: shot.isPano ? "none" : "zoom-in",
       transitionIn: index === 0 ? "cut" : "fade",
       pano,

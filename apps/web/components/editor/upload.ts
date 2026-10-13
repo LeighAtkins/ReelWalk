@@ -19,10 +19,28 @@ function canvasToJpeg(source: CanvasImageSource, width: number, height: number):
   return new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.72));
 }
 
+/** Mean brightness (0-255) of a frame, from a small sample of its pixels. */
+function brightness(source: CanvasImageSource): number {
+  const canvas = document.createElement("canvas");
+  canvas.width = 32;
+  canvas.height = 32;
+  const context = canvas.getContext("2d");
+  if (!context) return 255;
+  context.drawImage(source, 0, 0, 32, 32);
+  const { data } = context.getImageData(0, 0, 32, 32);
+  let sum = 0;
+  for (let i = 0; i < data.length; i += 4) sum += 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+  return sum / (data.length / 4);
+}
+
+/** Darker than this and the frame is as good as black: a fade-in, a lens cap, a hand over the camera. */
+const DARK_FRAME = 28;
+
 function probeVideo(url: string): Promise<Omit<Probe, "kind">> {
   return new Promise((resolve) => {
     const video = document.createElement("video");
     const fail = () => resolve({ durationMs: null, width: null, height: null, thumb: null });
+    let tries = 0;
     video.muted = true;
     video.playsInline = true;
     video.preload = "auto";
@@ -34,9 +52,17 @@ function probeVideo(url: string): Promise<Omit<Probe, "kind">> {
     video.onseeked = async () => {
       const width = video.videoWidth || null;
       const height = video.videoHeight || null;
+      // Phone videos often open on a dark frame (a fade-in, the lens still
+      // covered); step further in, up to four times, until the frame has light in it.
+      const duration = Number.isFinite(video.duration) ? video.duration : 0;
+      if (width && height && duration > 1.5 && tries < 4 && brightness(video) < DARK_FRAME) {
+        tries += 1;
+        video.currentTime = Math.min(duration - 0.1, video.currentTime + Math.max(0.6, duration / 6));
+        return;
+      }
       const thumb = width && height ? await canvasToJpeg(video, width, height).catch(() => null) : null;
       resolve({
-        durationMs: Number.isFinite(video.duration) ? Math.round(video.duration * 1000) : null,
+        durationMs: duration ? Math.round(duration * 1000) : null,
         width,
         height,
         thumb,

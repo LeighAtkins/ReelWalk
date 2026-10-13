@@ -11,16 +11,21 @@ import { z } from "zod";
 import type { InstagramAudioTrack } from "./instagram-audio";
 import { beatPeriodMs, nearestBeatMs, snapCutsToBeats, type BeatGrid } from "./beats";
 import {
+  CORNERS,
   DEFAULT_IMAGE_MS,
   DEFAULT_PANO,
   DEFAULT_PANO_MS,
+  DETAILS_PLACEMENTS,
   FILTERS,
   MIN_CLIP_MS,
   MOTIONS,
   SPEEDS,
+  TAG_Y,
+  TEXT_ANIMATIONS,
   TEXT_COLORS,
   TEXT_STYLES,
   TRANSITIONS,
+  ZOOM_MAX,
   addClips,
   addRoomLabels,
   addText,
@@ -35,12 +40,16 @@ import {
   removeClip,
   removeRoomLabels,
   removeText,
+  setCover,
   setDetails,
+  setLogo,
   setMusic,
+  splitClip,
   timelineDurationMs,
   trimClip,
   updateClip,
   updateText,
+  coverMs,
   type Clip,
   type TextOverlay,
   type Timeline,
@@ -70,6 +79,10 @@ export const AI_EDIT_OPS = [
   "details",
   "roomLabels",
   "room",
+  "split",
+  "zoom",
+  "cover",
+  "logo",
 ] as const;
 
 export type AiEditOpName = (typeof AI_EDIT_OPS)[number];
@@ -83,7 +96,7 @@ const detailsPatchSchema = z.object({
   area: nullable(z.string().max(16)),
   address: nullable(z.string().max(80)),
   contact: nullable(z.string().max(60)),
-  placement: nullable(z.enum(["end", "start", "both"])),
+  placement: nullable(z.enum(DETAILS_PLACEMENTS)),
 });
 
 /**
@@ -110,7 +123,8 @@ export const aiEditOpSchema = z.object({
   content: nullable(z.string().trim().min(1).max(200)),
   style: nullable(z.enum(TEXT_STYLES)),
   color: nullable(z.string().regex(/^#[0-9a-f]{6}$/i)),
-  size: nullable(z.number().min(0.3).max(2.5)),
+  /** addText/editText: 0.3 to 2.5 of the normal text size; logo: 0.1 to 0.4 of the frame width. */
+  size: nullable(z.number().min(0.1).max(2.5)),
   y: nullable(z.number().min(0).max(1)),
   songId: nullable(z.string().min(1).max(64)),
   on: nullable(z.boolean()),
@@ -119,6 +133,15 @@ export const aiEditOpSchema = z.object({
   assetId: nullable(z.string().min(1).max(64)),
   /** order: every clip's number, in the new order. */
   order: nullable(z.array(z.number().int().min(1).max(100)).max(100)),
+  /** split: how many shots to cut a video into. */
+  pieces: nullable(z.number().int().min(2).max(4)),
+  /** addText/editText: the clip the text shows over, start to end. */
+  atClip: nullable(z.number().int().min(1).max(100)),
+  animation: nullable(z.enum(TEXT_ANIMATIONS)),
+  /** zoom: 1 shows the whole picture, 2 the middle half. */
+  zoom: nullable(z.number().min(1).max(ZOOM_MAX)),
+  /** logo: which corner. */
+  corner: nullable(z.enum(CORNERS)),
 });
 
 export const aiEditPlanSchema = z.object({
@@ -131,6 +154,8 @@ export const aiEditPlanSchema = z.object({
    * and the studio answers in the same sheet.
    */
   questions: z.array(z.string().trim().min(1).max(160)).max(3).default([]),
+  /** The Instagram post text, when the user asked for one; otherwise null. */
+  caption: z.string().trim().max(2200).nullable().default(null),
 });
 
 export type AiEditOp = z.infer<typeof aiEditOpSchema>;
@@ -140,9 +165,10 @@ export type AiEditPlan = z.infer<typeof aiEditPlanSchema>;
 export const AI_EDIT_PLAN_JSON_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["ops", "note", "questions"],
+  required: ["ops", "note", "questions", "caption"],
   properties: {
     questions: { type: "array", items: { type: "string" }, description: "At most three, only when the reel cannot be cut without the answer; then ops is empty" },
+    caption: { type: ["string", "null"], description: "The Instagram caption, only when the user asks for one (the post text, hashtags); otherwise null" },
     ops: {
       type: "array",
       items: {
@@ -151,6 +177,7 @@ export const AI_EDIT_PLAN_JSON_SCHEMA = {
         required: [
           "op", "clip", "text", "startMs", "endMs", "lengthMs", "speed", "filter", "motion", "transition", "fit", "volume",
           "toPosition", "content", "style", "color", "size", "y", "songId", "on", "details", "assetId", "order",
+          "pieces", "atClip", "animation", "zoom", "corner",
         ],
         properties: {
           op: { type: "string", enum: [...AI_EDIT_OPS] },
@@ -167,12 +194,17 @@ export const AI_EDIT_PLAN_JSON_SCHEMA = {
           volume: { type: ["number", "null"], description: "0 to 1" },
           toPosition: { type: ["integer", "null"], description: "move: the clip's new number, 1 = first" },
           content: { type: ["string", "null"], description: "addText/editText: the words; room: the room's name, lower case (kitchen, living room, primary bedroom, pool)" },
+          pieces: { type: ["integer", "null"], description: "split: 2 to 4 shots from different parts of the video" },
+          atClip: { type: ["integer", "null"], description: "addText/editText: the clip number the text shows over, from its start to its end" },
+          animation: { type: ["string", "null"], enum: [...TEXT_ANIMATIONS, null], description: "addText/editText: how the text arrives" },
+          zoom: { type: ["number", "null"], description: "zoom: 1 = the whole picture, 1.3 a little closer, 2 = the middle half" },
+          corner: { type: ["string", "null"], enum: [...CORNERS, null], description: "logo: where it sits" },
           style: { type: ["string", "null"], enum: [...TEXT_STYLES, null] },
           color: { type: ["string", "null"], description: "#rrggbb" },
-          size: { type: ["number", "null"], description: "0.3 to 2.5, 1 = normal" },
+          size: { type: ["number", "null"], description: "text: 0.3 to 2.5, 1 = normal; logo: 0.1 to 0.4 of the frame width" },
           y: { type: ["number", "null"], description: "0 = top of frame, 1 = bottom" },
           songId: { type: ["string", "null"], description: "music: a song id from the list, or null for no music" },
-          assetId: { type: ["string", "null"], description: "add: an id from the unused media list; the clip goes at toPosition, or the end" },
+          assetId: { type: ["string", "null"], description: "add: an id from the unused media list; the clip goes at toPosition, or the end. logo: an unused image to show as the logo, null to remove the logo" },
           order: { type: ["array", "null"], items: { type: "integer" }, description: "order: every clip's number, first to last" },
           on: { type: ["boolean", "null"], description: "roomLabels" },
           details: {
@@ -186,7 +218,7 @@ export const AI_EDIT_PLAN_JSON_SCHEMA = {
               area: { type: ["string", "null"] },
               address: { type: ["string", "null"] },
               contact: { type: ["string", "null"] },
-              placement: { type: ["string", "null"], enum: ["end", "start", "both", null] },
+              placement: { type: ["string", "null"], enum: [...DETAILS_PLACEMENTS, null], description: "end/start/both: a card; throughout: a thin strip at the top for the whole reel; none: keep the facts, show nothing" },
             },
           },
         },
@@ -315,12 +347,20 @@ Rules:
 - Refer to clips and texts by the numbers in the description. Never invent clips, assets or songs; the only songs you may switch to are in the list.
 - Times are milliseconds. A clip must be at least ${MIN_CLIP_MS} ms. A video clip cannot show more than its source has; a photo can be any length.
 - "Longer" without a number means about 1.5x the current length; "shorter" about 0.7x; "much" doubles the change. "Slower" halves speed, "faster" doubles it, within 0.5 to 3.
-- Looks: warm, cool, vivid, mono (black and white), fade (soft, filmic), none. Use clip 0 to apply to every clip when the user means the whole reel.
+- Looks: warm, cool, vivid, mono (black and white), fade (soft, filmic), golden (golden hour, late low sun), dusk (twilight, blue hour), crisp (bright, clean, the look of listing photography), none. Use clip 0 to apply to every clip when the user means the whole reel.
+- Zoom: op zoom (clip, zoom) crops closer into a shot about its centre: 1.3 is "a bit closer", 1.6 "much closer", 1 is the whole picture; clip 0 is every clip. It adds to any motion a photo has.
+- More cuts from one video: op split (clip, pieces 2 to 4) replaces the clip with that many shots from different parts of its source, in order. Use duplicate only with startMs and lengthMs so the copy shows another part of the video; a duplicate without them repeats the same seconds, which nobody wants. A photo cannot be split.
+- The cover: op cover (clip, startMs = how far into that clip, 0 for its first frame) picks the frame Instagram shows in the grid and feed. Without one the cover is 0.7 s into the reel.
+- A logo: op logo with assetId of an unused image whose name suggests a logo, a brand, a mark or a headshot puts it in a corner (corner, default top-right; size as a fraction of the frame's width, 0.2 is usual, 0.12 small, 0.3 large) for the whole reel; assetId null removes it. When no such image exists, do nothing and say the logo must be uploaded first.
 - Music requests like "calmer" or "more energy" pick the song whose mood fits best; say which in the note. Songs marked "from Instagram" come from Instagram's library for business accounts and are the ones to use; their mood says which search found them, and "popular with business accounts right now" is the safest pick when nothing more specific fits. Bright listings suit house and nu disco, slow luxury suits piano, luxury and soft house, walkthroughs suit real estate, soft house and lo-fi. Songs marked "the studio's own" were chosen by the studio: prefer one of them when its mood fits, ahead of stock songs. Never pick the song already playing. Leave the music alone unless the user asks about it (the song, the mood, "calmer", "more energy") or the reel has none: a request about clips, text, the look or the order keeps the song it has, and so does cutting a whole reel that already has music. "No music" is op music with songId null.
-- Text: keep it short; style "elegant" is a thin serif, "headline" is bold, "box" is text on a pill, "plain" is white text with a shadow. y is 0 at the top and 1 at the bottom. Where text goes: the opening hook at y 0.42 (the middle, where the eye is), size 1.1 to 1.3; a second line or caption-style text at y 0.6; never above 0.3 or below 0.72, because Instagram's name, caption and buttons cover the top fifth and the bottom quarter. Room labels and the details card place themselves. A hook shows over the whole first clip: start 0, end where the first clip ends.
+- Text: keep it short; style "elegant" is a thin serif, "headline" is bold, "box" is text on a pill, "plain" is white text with a shadow. y is 0 at the top and 1 at the bottom. Where text goes: the opening hook at y 0.42 (the middle, where the eye is), size 1.1 to 1.3; a second line or caption-style text at y 0.6; never above 0.3 or below 0.72, because Instagram's name, caption and buttons cover the top fifth and the bottom quarter. Room labels and the details card place themselves. A hook shows over the whole first clip. To put text over a particular shot give atClip (the clip's number): the text then starts and ends with that shot, which is how "at the start" (atClip 1), "at the end" (the last clip's number) and "over the kitchen" are done; prefer atClip to startMs and endMs.
+- A status sticker (JUST LISTED, PRICE DROP, NEW PRICE, SOLD, UNDER CONTRACT, OPEN HOUSE, COMING SOON) is addText with style "tag": two or three words in capitals, size 0.6 to 0.8; it places itself at the top of the safe area, over the first clip unless atClip says otherwise. One sticker at a time: change an existing tag with editText rather than adding a second.
+- How text arrives (animation on addText or editText): pop (a quick pop, the bold styles' own), fade (a slow fade, the elegant style's own), rise (drifts up as it fades in), type (letter by letter, like typing), none (simply there); auto is the style's own.
 - Room labels are the texts whose number is marked (room label); to turn them all off use roomLabels on=false rather than removing each.
 - When clips are trimmed, moved or removed, the other texts follow their clips, cuts that were on the beat stay on it, and room labels are redrawn, all by themselves: do not re-time texts or snap to the beat to compensate for your own edits.
-- The details card (price, beds, baths, area, address, contact) is op details; pass only the fields to change, null for the rest; to remove the card pass details null.
+- The details card (price, beds, baths, area, address, contact) is op details; pass only the fields to change, null for the rest; to remove the card pass details null. placement: end, start or both show it as a card; "throughout" shows the facts as a thin strip at the top for the whole reel ("keep the price on screen the whole time"); "none" keeps the facts without showing them. Facts the description lists as known but not shown may be used for text, the caption and the card without asking.
+- The caption: when the user asks for the caption, the post text or hashtags, write it in "caption": two to four short lines in the voice of the listing agent, the facts you know (never invented ones), a call to action, then a line of at most five hashtags, #realestate and the city's among them when the address is known; otherwise caption is null. Writing a caption needs no operations.
+- A new brief or whole-reel cut on a reel that already has a cut replaces the earlier styling: remove the earlier hook texts and stickers and write the brief's own, re-trim every shot to the pace the brief asks, and set room labels and the details card as the brief says; keep the clips and the music.
 - Cutting a whole reel ("cut it", "make something from these", a brief): the clips already in the reel are the user's shoot of this property; build the reel from them. Never remove them to make room for other media. Use "unused media" only when the user asks for it, or when the reel has fewer than three clips. Order them with op order, then cut fast: a reel is 1.5 to 2.5 s a shot unless the brief says slower (luxury, slow: 3 to 4 s); a photo 2 s with motion zoom-in, a 360 photo 4 s. A video longer than 6 s can give two or three shots: duplicate it and trim each copy to a different part (startMs, lengthMs) so the reel has more cuts instead of longer ones. Aim for 8 to 14 cuts in a 20 to 30 s reel. If the user names a length (15 seconds, 10 seconds), make the reel that long; never refuse a length. Pick a song, snapToBeat, add the hook, and the details card as the brief says. Lead with the strongest exterior or wide shot and end on an outdoor or view shot.
 - Rooms: when room labels are wanted and a clip does not know its room, name it with op room (clip, content: the room in lower case) from its file name or your best reading of it, before turning room labels on.
 - Questions: if, and only if, a brief needs a fact you do not have (an address, a price, an open-house time) return up to three short questions in "questions", no operations, and a note saying what you will do once you know. Otherwise decide for yourself and never ask. You may ask once: if the user has given answers, cut the reel with what you have, leave unknown details-card fields empty, use only the shots that exist, and do not ask again.
@@ -354,6 +394,7 @@ export function describeReel(input: {
         ? `source ${ms(clip.sourceStartMs)}–${ms(clip.sourceEndMs)}${asset?.durationMs ? ` of ${ms(asset.durationMs)}` : ""}, speed ${clip.speed}x, sound ${Math.round(clip.volume * 100)}%`
         : null,
       `look ${clip.filter}`,
+      clip.zoom !== 1 ? `zoom ${clip.zoom}` : null,
       clip.kind === "IMAGE" && !clip.pano ? `motion ${clip.motion}` : null,
       index > 0 ? `transition in ${clip.transitionIn}` : null,
       clip.fit === "contain" ? "fit contain" : null,
@@ -367,7 +408,7 @@ export function describeReel(input: {
     timeline.texts.forEach((text, index) => {
       const room = text.id.startsWith("room-") ? " (room label)" : "";
       lines.push(
-        `${index + 1}. "${text.text}"${room}, style ${text.style}, color ${text.color}, size ${text.size}, y ${text.y.toFixed(2)}, shown ${ms(text.startMs)}–${ms(text.endMs)}`,
+        `${index + 1}. "${text.text}"${room}, style ${text.style}, color ${text.color}, size ${text.size}, y ${text.y.toFixed(2)}${text.animation !== "auto" ? `, animation ${text.animation}` : ""}, shown ${ms(text.startMs)}–${ms(text.endMs)}`,
       );
     });
   }
@@ -387,8 +428,14 @@ export function describeReel(input: {
   const details = timeline.details;
   if (hasDetails(details)) {
     const fields = (["price", "beds", "baths", "area", "address", "contact"] as const).filter((key) => details[key]).map((key) => `${key} ${details[key]}`);
-    lines.push(`Details card: ${fields.join(", ")}; shown at the ${details.placement}.`);
-  } else lines.push("Details card: none.");
+    const where =
+      details.placement === "none" ? "known but not shown (placement none)" : details.placement === "throughout" ? "shown as a strip at the top throughout" : `shown as a card at the ${details.placement}`;
+    lines.push(`Details: ${fields.join(", ")}; ${where}.`);
+  } else lines.push("Details: none known.");
+  const logoAsset = timeline.logo ? assets[timeline.logo.assetId] : undefined;
+  lines.push(timeline.logo ? `Logo: "${logoAsset?.title ?? "image"}" at the ${timeline.logo.corner}, size ${timeline.logo.size}.` : "Logo: none.");
+  const coverIndex = timeline.cover ? timeline.clips.findIndex((clip) => clip.id === timeline.cover!.clipId) : -1;
+  lines.push(coverIndex >= 0 ? `Cover: clip ${coverIndex + 1}, ${ms(timeline.cover!.offsetMs)} in (${ms(coverMs(timeline))} into the reel).` : `Cover: the usual frame, ${ms(coverMs(timeline))} in.`);
   lines.push("");
   if (songs.length === 0) lines.push("Songs available: none besides the current one.");
   else {
@@ -418,6 +465,8 @@ export type AiEditResult = {
   timeline: Timeline;
   /** An Instagram sound the plan chose: the editor fetches it, sets it as the music and snaps the cuts to it. */
   instagramPick?: InstagramAudioTrack;
+  /** A caption the plan wrote, for the reel's post text. */
+  caption?: string;
   /** What each operation did, in order, for the studio and the log. */
   applied: string[];
   /** Operations that could not be done and why. */
@@ -499,7 +548,7 @@ export function cutsOnBeat(timeline: Timeline, toleranceMs = 60): boolean {
   return starts.slice(1).every((start) => Math.abs(nearestBeatMs(start, grid, music.sourceStartMs) - start) <= toleranceMs);
 }
 
-const STRUCTURAL_OPS: ReadonlySet<AiEditOpName> = new Set(["add", "order", "trim", "speed", "move", "remove", "duplicate", "snapToBeat"]);
+const STRUCTURAL_OPS: ReadonlySet<AiEditOpName> = new Set(["add", "order", "trim", "speed", "move", "remove", "duplicate", "split", "snapToBeat"]);
 
 /**
  * Applies the plan to the timeline, one operation at a time. A bad operation
@@ -713,8 +762,80 @@ export function applyAiEditPlan(timeline: Timeline, plan: Pick<AiEditPlan, "ops"
       case "duplicate": {
         const clips = clipsFor(op, false);
         if (!clips) break;
-        current = duplicateClip(current, clips[0].id, newId());
-        applied.push(`${clipLabel(current, clips[0], assets)} duplicated`);
+        const copyId = newId();
+        current = duplicateClip(current, clips[0].id, copyId);
+        added.push(copyId);
+        const copy = current.clips.find((entry) => entry.id === copyId)!;
+        const wantsWindow = op.startMs !== null && op.startMs !== undefined || op.lengthMs !== null && op.lengthMs !== undefined || op.endMs !== null && op.endMs !== undefined;
+        if (wantsWindow && copy.kind === "VIDEO") {
+          // The copy shows another part of the video, as asked.
+          const speed = copy.speed;
+          const start = op.startMs ?? copy.sourceStartMs;
+          const end = op.endMs ?? (op.lengthMs !== null && op.lengthMs !== undefined ? start + Math.round(op.lengthMs * speed) : copy.sourceEndMs);
+          current = trimClip(current, copyId, { sourceStartMs: start, sourceEndMs: end }, assets[copy.assetId]?.durationMs ?? undefined);
+        }
+        if (op.toPosition) current = moveClip(current, copyId, op.toPosition - 1);
+        const after = current.clips.find((entry) => entry.id === copyId)!;
+        applied.push(`${clipLabel(current, clips[0], assets)} duplicated${wantsWindow && copy.kind === "VIDEO" ? ` (${ms(after.sourceStartMs)}–${ms(after.sourceEndMs)} of the source)` : ""}`);
+        break;
+      }
+      case "split": {
+        const clips = clipsFor(op, false);
+        if (!clips) break;
+        const clip = clips[0];
+        if (clip.kind !== "VIDEO") {
+          skipped.push(`split: ${clipLabel(current, clip, assets)} is a photo; duplicate it instead`);
+          break;
+        }
+        const pieces = op.pieces ?? 2;
+        const before = current.clips.length;
+        const ids = new Set(current.clips.map((entry) => entry.id));
+        current = splitClip(current, clip.id, pieces, newId, assets[clip.assetId]?.durationMs);
+        if (current.clips.length === before) {
+          skipped.push(`split: ${clipLabel(current, clip, assets)} is too short to cut into ${pieces}`);
+          break;
+        }
+        for (const entry of current.clips) if (!ids.has(entry.id)) added.push(entry.id);
+        applied.push(`${clipLabel(current, clip, assets)} cut into ${current.clips.length - before + 1} shots`);
+        break;
+      }
+      case "zoom": {
+        const clips = clipsFor(op, true);
+        if (!clips) break;
+        if (op.zoom === null || op.zoom === undefined) {
+          skipped.push("zoom: no zoom given");
+          break;
+        }
+        const zoom = Math.round(op.zoom * 100) / 100;
+        for (const clip of clips) current = updateClip(current, clip.id, { zoom });
+        applied.push(`${op.clip === 0 ? "every clip" : clipLabel(current, clips[0], assets)}: zoom ${zoom}x`);
+        break;
+      }
+      case "cover": {
+        const clips = clipsFor(op, false);
+        if (!clips) break;
+        const offsetMs = Math.max(0, Math.round(op.startMs ?? 0));
+        current = setCover(current, { clipId: clips[0].id, offsetMs });
+        applied.push(`cover: ${clipLabel(current, clips[0], assets)}, ${ms(offsetMs)} in`);
+        break;
+      }
+      case "logo": {
+        if (op.assetId === null || op.assetId === undefined) {
+          if (!current.logo) {
+            skipped.push("logo: there is no logo to remove");
+            break;
+          }
+          current = setLogo(current, null);
+          applied.push("logo removed");
+          break;
+        }
+        const asset = options.unused?.find((entry) => entry.id === op.assetId) ?? assets[op.assetId];
+        if (!asset || asset.kind !== "IMAGE") {
+          skipped.push(`logo: no image ${op.assetId}`);
+          break;
+        }
+        current = setLogo(current, { assetId: asset.id, corner: op.corner ?? current.logo?.corner ?? "top-right", size: Math.max(0.1, Math.min(0.4, op.size ?? current.logo?.size ?? 0.2)) });
+        applied.push(`logo "${asset.title}" at the ${current.logo!.corner}`);
         break;
       }
       case "addText": {
@@ -723,21 +844,34 @@ export function applyAiEditPlan(timeline: Timeline, plan: Pick<AiEditPlan, "ops"
           break;
         }
         const style = op.style ?? "plain";
-        if ((op.startMs ?? 0) >= timelineDurationMs(current)) {
+        // Over one shot: from its first frame to its last.
+        let window: { startMs: number; endMs?: number } = { startMs: op.startMs ?? 0, endMs: op.endMs ?? undefined };
+        if (op.atClip) {
+          const id = numberOf(op.atClip);
+          const index = current.clips.findIndex((entry) => entry.id === id);
+          if (index === -1) {
+            skipped.push(`addText: there is no clip ${op.atClip}`);
+            break;
+          }
+          const starts = clipStartsMs(current);
+          window = { startMs: starts[index], endMs: starts[index] + clipDurationMs(current.clips[index]) };
+        } else if (style === "tag" && current.clips.length > 0) window = { startMs: 0, endMs: clipDurationMs(current.clips[0]) };
+        if (window.startMs >= timelineDurationMs(current)) {
           skipped.push(`addText: "${op.content}" would start after the reel ends`);
           break;
         }
         const before = current.texts.length;
         current = addText(current, {
           id: newId(),
-          text: op.content,
-          startMs: op.startMs ?? 0,
-          endMs: op.endMs ?? undefined,
+          text: style === "tag" ? op.content.toUpperCase() : op.content,
+          startMs: window.startMs,
+          endMs: window.endMs,
           x: 0.5,
-          y: op.y ?? 0.4,
+          y: style === "tag" ? TAG_Y : op.y ?? 0.4,
           style,
           color: op.color ?? "#ffffff",
-          size: op.size ?? 1,
+          size: op.size ?? (style === "tag" ? 0.7 : 1),
+          animation: op.animation ?? "auto",
         });
         if (current.texts.length === before) skipped.push(`addText: "${op.content}" would show outside the reel`);
         else applied.push(`added text "${op.content}"`);
@@ -746,14 +880,19 @@ export function applyAiEditPlan(timeline: Timeline, plan: Pick<AiEditPlan, "ops"
       case "editText": {
         const text = textFor(op);
         if (!text) break;
+        const over = op.atClip ? current.clips.findIndex((entry) => entry.id === numberOf(op.atClip!)) : -1;
+        const overStart = over >= 0 ? clipStartsMs(current)[over] : null;
+        const tag = (op.style ?? text.style) === "tag";
         const patch = {
-          ...(op.content ? { text: op.content } : {}),
+          ...(op.content ? { text: tag ? op.content.toUpperCase() : op.content } : {}),
           ...(op.style ? { style: op.style } : {}),
           ...(op.color ? { color: op.color } : {}),
           ...(op.size !== null && op.size !== undefined ? { size: op.size } : {}),
-          ...(op.y !== null && op.y !== undefined ? { y: op.y } : {}),
-          ...(op.startMs !== null && op.startMs !== undefined ? { startMs: op.startMs } : {}),
-          ...(op.endMs !== null && op.endMs !== undefined ? { endMs: op.endMs } : {}),
+          ...(op.y !== null && op.y !== undefined ? { y: op.y } : op.style === "tag" ? { y: TAG_Y } : {}),
+          ...(op.animation ? { animation: op.animation } : {}),
+          ...(overStart !== null ? { startMs: overStart, endMs: overStart + clipDurationMs(current.clips[over]) } : {}),
+          ...(overStart === null && op.startMs !== null && op.startMs !== undefined ? { startMs: op.startMs } : {}),
+          ...(overStart === null && op.endMs !== null && op.endMs !== undefined ? { endMs: op.endMs } : {}),
         };
         if (Object.keys(patch).length === 0) {
           skipped.push(`editText: nothing to change on "${text.text}"`);
@@ -903,7 +1042,9 @@ export function applyAiEditPlan(timeline: Timeline, plan: Pick<AiEditPlan, "ops"
       return Math.abs(nearest - text.endMs) <= 800 && nearest > text.startMs + 300 ? { ...text, endMs: nearest } : text;
     }),
   };
-  return { timeline: current, applied, skipped, instagramPick };
+  const caption = plan.caption?.trim() || undefined;
+  if (caption) applied.push("caption written");
+  return { timeline: current, applied, skipped, instagramPick, caption };
 }
 
 // ── A stand-in for the model ────────────────────────────────────
@@ -912,16 +1053,17 @@ export function applyAiEditPlan(timeline: Timeline, plan: Pick<AiEditPlan, "ops"
  * A rule-based planner for local stacks and tests (DEV_FAKE_AI), covering a
  * handful of phrasings so the whole path can be exercised without a key.
  */
-export function fakeAiEditPlan(request: string, timeline: Timeline, songs: AiSong[]): AiEditPlan {
+export function fakeAiEditPlan(request: string, timeline: Timeline, songs: AiSong[], unused: AiAsset[] = []): AiEditPlan {
   const text = request.toLowerCase();
   const blank: Omit<AiEditOp, "op"> = {
     clip: null, text: null, startMs: null, endMs: null, lengthMs: null, speed: null, filter: null, motion: null, transition: null, fit: null,
     volume: null, toPosition: null, content: null, style: null, color: null, size: null, y: null, songId: null, on: null, details: null,
-    assetId: null, order: null,
+    assetId: null, order: null, pieces: null, atClip: null, animation: null, zoom: null, corner: null,
   };
   const ops: AiEditOp[] = [];
   const notes: string[] = [];
-  const look = (["warm", "cool", "vivid", "mono", "fade"] as const).find((name) => text.includes(name)) ?? (/black and white/.test(text) ? "mono" : null);
+  let caption: string | null = null;
+  const look = FILTERS.filter((name) => name !== "none").find((name) => text.includes(name)) ?? (/black and white/.test(text) ? "mono" : /golden hour/.test(text) ? "golden" : null);
   if (look) {
     ops.push({ ...blank, op: "look", clip: 0, filter: look });
     notes.push(`Every clip now has the ${look} look.`);
@@ -957,5 +1099,59 @@ export function fakeAiEditPlan(request: string, timeline: Timeline, songs: AiSon
     ops.push({ ...blank, op: "roomLabels", on });
     notes.push(`Room labels are ${on ? "on" : "off"}.`);
   }
-  return { ops, questions: [], note: notes.join(" ") || "I could not tell what to change from that. Try naming a clip, the music, the text or the look." };
+  const sticker = /\b(sold|price drop|under contract|open house|coming soon|new price|just listed)\b/.exec(text);
+  if (sticker && /\b(sticker|tag|badge|mark it|label it)\b/.test(text)) {
+    ops.push({ ...blank, op: "addText", style: "tag", content: sticker[1].toUpperCase() });
+    notes.push(`A ${sticker[1]} sticker is on the first shot.`);
+  }
+  const ending = /\b(at the end|over the last shot)\b/.test(text) && /["“]([^"”]+)["”]/.exec(request);
+  if (ending && timeline.clips.length > 0) {
+    ops.push({ ...blank, op: "addText", content: ending[1], atClip: timeline.clips.length, style: "box", y: 0.6 });
+    notes.push(`"${ending[1]}" shows over the last shot.`);
+  }
+  const zoom = /\bzoom (in|closer)\b/.test(text) && !/\bzoom-?(in|out)\b.*motion/.test(text);
+  if (zoom && timeline.clips.length > 0) {
+    const index = timeline.clips.findIndex((entry) => entry.room && text.includes(entry.room.toLowerCase()));
+    ops.push({ ...blank, op: "zoom", clip: index >= 0 ? index + 1 : 0, zoom: /\bmuch\b/.test(text) ? 1.6 : 1.3 });
+    notes.push("The picture is cropped closer.");
+  }
+  const split = /\b(more cuts|more shots|split|cut (it|the [\w ]+?) into)\b/.exec(text);
+  if (split && timeline.clips.some((entry) => entry.kind === "VIDEO")) {
+    const index = timeline.clips.findIndex((entry) => entry.kind === "VIDEO" && (!entry.room || text.includes(entry.room.toLowerCase()) || !/\b(kitchen|living|bedroom|pool|exterior)\b/.test(text)));
+    const clip = index >= 0 ? index : timeline.clips.findIndex((entry) => entry.kind === "VIDEO");
+    const pieces = /\b(three|3)\b/.test(text) ? 3 : /\b(four|4)\b/.test(text) ? 4 : 2;
+    ops.push({ ...blank, op: "split", clip: clip + 1, pieces });
+    notes.push(`Clip ${clip + 1} is now ${pieces} shots.`);
+  }
+  if (/\bcover\b/.test(text) && timeline.clips.length > 0) {
+    const index = timeline.clips.findIndex((entry) => entry.room && text.includes(entry.room.toLowerCase()));
+    ops.push({ ...blank, op: "cover", clip: (index >= 0 ? index : 0) + 1, startMs: 500 });
+    notes.push(`The cover is clip ${(index >= 0 ? index : 0) + 1}.`);
+  }
+  if (/\blogo\b/.test(text)) {
+    if (/\b(remove|no|drop|without)\b/.test(text)) ops.push({ ...blank, op: "logo", assetId: null });
+    else {
+      const logo = unused.find((asset) => asset.kind === "IMAGE" && /logo|brand|mark/i.test(asset.title));
+      if (logo) ops.push({ ...blank, op: "logo", assetId: logo.id, corner: /bottom/.test(text) ? (/left/.test(text) ? "bottom-left" : "bottom-right") : /left/.test(text) ? "top-left" : "top-right" });
+      else notes.push("Upload your logo first, then ask again.");
+    }
+    if (ops.some((entry) => entry.op === "logo")) notes.push("The logo is in the corner.");
+  }
+  const typed = /\b(type|typewriter|letter by letter|fade in|rise)\b/.exec(text);
+  if (typed && timeline.texts.some((entry) => !entry.id.startsWith("room-"))) {
+    const index = timeline.texts.findIndex((entry) => !entry.id.startsWith("room-"));
+    const animation = /fade/.test(typed[1]) ? "fade" : typed[1] === "rise" ? "rise" : "type";
+    ops.push({ ...blank, op: "editText", text: index + 1, animation });
+    notes.push(`The title now arrives with a ${animation}.`);
+  }
+  if (/\b(whole time|throughout|the whole reel|on screen all the time)\b/.test(text) && timeline.details) {
+    ops.push({ ...blank, op: "details", details: { price: null, beds: null, baths: null, area: null, address: null, contact: null, placement: "throughout" } });
+    notes.push("The facts stay on screen as a strip at the top.");
+  }
+  if (/\bcaption\b/.test(text)) {
+    const facts = timeline.details ? [timeline.details.price, timeline.details.address].filter(Boolean).join(" · ") : "";
+    caption = `${facts || "Just listed"}\nDM for a private tour.\n\n#realestate #justlisted #housetour #dreamhome #newlisting`;
+    notes.push("The caption is written.");
+  }
+  return { ops, questions: [], caption, note: notes.join(" ") || "I could not tell what to change from that. Try naming a clip, the music, the text or the look." };
 }

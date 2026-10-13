@@ -5,6 +5,7 @@ import {
   acceptFor,
   canExport,
   captionFromDetails,
+  CORNERS,
   DETAILS_PLACEMENTS,
   fitTextSize,
   hasDetails,
@@ -21,11 +22,15 @@ import {
   minTextSize,
   MOTIONS,
   SPEEDS,
+  TEXT_ANIMATIONS,
   TEXT_COLORS,
   TEXT_SIZE_MAX,
   TEXT_STYLES,
+  ZOOM_MAX,
   type Clip,
+  type Corner,
   type Filter,
+  type Logo,
   type InstagramAudioTrack,
   type InstagramAudioType,
   type Issue,
@@ -34,10 +39,11 @@ import {
   type Music,
   type PanoView,
   type PlanOverlay,
+  type TextAnimation,
   type TextOverlay,
   type TextStyle,
 } from "@reelwalk/core";
-import { ELEGANT_FONT_FAMILY, FILTER_CSS, FILTER_LABELS, TEXT_STYLE_LABELS, textCss } from "@reelwalk/render/reel";
+import { ELEGANT_FONT_FAMILY, FILTER_CSS, FILTER_LABELS, TEXT_ANIMATION_LABELS, TEXT_STYLE_LABELS, textCss } from "@reelwalk/render/reel";
 import { formatDuration } from "@/lib/format";
 import type { LibraryAsset } from "@/lib/library";
 import Link from "next/link";
@@ -327,6 +333,94 @@ export function LookSheet({
 
 const MOTION_LABELS: Record<Motion, string> = { none: "Still", "zoom-in": "Zoom in", "zoom-out": "Zoom out", pan: "Pan" };
 
+/** A closer crop of one shot, about its centre. */
+export function ZoomSheet({ clip, onChange, onClose }: { clip: Clip; onChange(zoom: number): void; onClose(): void }) {
+  return (
+    <Sheet title="Zoom" onClose={onClose}>
+      <Range label="Closer" value={clip.zoom} min={1} max={ZOOM_MAX} step={0.05} display={clip.zoom === 1 ? "Whole picture" : `${Math.round(clip.zoom * 100)}%`} onChange={onChange} />
+      <p className="muted small">Crops into the middle of the shot. Any zoom or pan motion still plays on top of it.</p>
+      <button type="button" className="btn btn-quiet btn-block" disabled={clip.zoom === 1} onClick={() => onChange(1)}>
+        Show the whole picture
+      </button>
+    </Sheet>
+  );
+}
+
+const CORNER_NAMES: Record<Corner, string> = { "top-left": "Top left", "top-right": "Top right", "bottom-left": "Bottom left", "bottom-right": "Bottom right" };
+
+/** The agency's or agent's logo in a corner for the whole reel: pick an image from the library or upload one. */
+export function LogoSheet({
+  library,
+  logo,
+  onChange,
+  onUpload,
+  onClose,
+}: {
+  library: LibraryAsset[];
+  logo: Logo | null;
+  onChange(logo: Logo | null): void;
+  onUpload(file: File): Promise<LibraryAsset>;
+  onClose(): void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // Your own stills (library media with a credit line belongs to someone else).
+  const images = library.filter((asset) => asset.kind === "IMAGE" && !asset.isPano && !asset.credit);
+  const current = logo ?? { assetId: "", corner: "top-right" as Corner, size: 0.2 };
+  return (
+    <Sheet title="Logo" onClose={onClose}>
+      <p className="muted small">A logo or headshot stays in one corner for the whole reel, inside the area Instagram leaves clear. A PNG with a transparent background looks best.</p>
+      <label className="btn btn-quiet btn-block">
+        {busy ? "Uploading…" : "Upload a logo"}
+        <input
+          type="file"
+          accept="image/png,image/jpeg,image/webp"
+          hidden
+          disabled={busy}
+          data-testid="logo-input"
+          onChange={async (event) => {
+            const file = event.target.files?.[0];
+            if (!file) return;
+            setBusy(true);
+            setError(null);
+            try {
+              const asset = await onUpload(file);
+              onChange({ ...current, assetId: asset.id });
+            } catch (caught) {
+              setError(caught instanceof Error ? caught.message : "Could not upload that.");
+            } finally {
+              setBusy(false);
+            }
+          }}
+        />
+      </label>
+      {error ? <p className="error small">{error}</p> : null}
+      {images.length > 0 ? (
+        <div className="look-strip" role="group" aria-label="Your images">
+          {images.slice(0, 24).map((asset) => (
+            <button key={asset.id} type="button" className="look" aria-pressed={logo?.assetId === asset.id} onClick={() => onChange({ ...current, assetId: asset.id })} data-testid="logo-pick">
+              <span className="look-preview">{asset.thumbUrl ? <img src={asset.thumbUrl} alt="" /> : null}</span>
+              {asset.fileName.replace(/\.[a-z0-9]+$/i, "").slice(0, 14)}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {logo ? (
+        <>
+          <div className="field">
+            Corner
+            <Segmented<Corner> label="Corner" options={CORNERS} value={logo.corner} onChange={(corner) => onChange({ ...logo, corner })} format={(corner) => CORNER_NAMES[corner]} />
+          </div>
+          <Range label="Size" value={logo.size} min={0.1} max={0.4} step={0.02} display={`${Math.round(logo.size * 100)}%`} onChange={(size) => onChange({ ...logo, size })} />
+          <button type="button" className="btn btn-quiet btn-block" onClick={() => onChange(null)}>
+            Remove the logo
+          </button>
+        </>
+      ) : null}
+    </Sheet>
+  );
+}
+
 export function MotionSheet({ clip, onChange, onClose }: { clip: Clip; onChange(motion: Motion): void; onClose(): void }) {
   return (
     <Sheet title="Photo motion" onClose={onClose}>
@@ -456,7 +550,7 @@ export function TransitionSheet({
 
 // ── Property details ────────────────────────────────────────────
 
-const PLACEMENT_NAMES: Record<ListingDetails["placement"], string> = { end: "At the end", start: "At the start", both: "Both" };
+const PLACEMENT_NAMES: Record<ListingDetails["placement"], string> = { end: "At the end", start: "At the start", both: "Both", throughout: "Strip, whole reel", none: "Keep, don't show" };
 
 export function DetailsSheet({
   reelId,
@@ -482,7 +576,7 @@ export function DetailsSheet({
 
   return (
     <Sheet title="Property details" onClose={onClose}>
-      <p className="muted small">Shown as a card over the video. Leave a field empty to leave it off the card.</p>
+      <p className="muted small">Shown as a card over the video, or as a thin strip at the top for the whole reel. Leave a field empty to leave it off.</p>
       {field("price", "Price", "¥48,000,000", 24)}
       <div className="field-grid">
         {field("beds", "Beds", "3", 6, "numeric")}
@@ -569,7 +663,7 @@ export function PlanSheet({
 
 // ── Text ────────────────────────────────────────────────────────
 
-export type TextDraft = Pick<TextOverlay, "text" | "style" | "color" | "size">;
+export type TextDraft = Pick<TextOverlay, "text" | "style" | "color" | "size" | "animation">;
 
 /** The "Elegant" style chip, set in the serif it puts on the reel. */
 const ELEGANT_CHIP: CSSProperties = { fontFamily: ELEGANT_FONT_FAMILY, fontWeight: 500, fontSize: "1.12em", letterSpacing: "0.06em" };
@@ -583,7 +677,7 @@ export function TextSheet({
   onSave(draft: TextDraft): void;
   onClose(): void;
 }) {
-  const [draft, setDraft] = useState<TextDraft>(initial ?? { text: "", style: "plain", color: "#ffffff", size: 1 });
+  const [draft, setDraft] = useState<TextDraft>(initial ?? { text: "", style: "plain", color: "#ffffff", size: 1, animation: "auto" });
   const previewCss = textCss(draft.style, draft.color, draft.size);
 
   return (
@@ -622,6 +716,7 @@ export function TextSheet({
         ))}
       </div>
       <Range label="Size" value={draft.size} min={minTextSize(draft.style)} max={TEXT_SIZE_MAX} step={0.1} display={`${Math.round(draft.size * 100)}%`} onChange={(size) => setDraft({ ...draft, size })} />
+      <Segmented<TextAnimation> label="Arrives" options={TEXT_ANIMATIONS} value={draft.animation} onChange={(animation) => setDraft({ ...draft, animation })} format={(animation) => TEXT_ANIMATION_LABELS[animation]} />
       <button type="button" className="btn btn-block" disabled={!draft.text.trim()} onClick={() => onSave({ ...draft, text: draft.text.trim() })}>
         {initial ? "Save text" : "Add text"}
       </button>
@@ -899,18 +994,49 @@ export function MusicSheet({
 export function CaptionSheet({
   reelId,
   caption,
+  askAvailable = false,
   onChange,
   onClose,
 }: {
   reelId: string;
   caption: string;
+  /** Whether the AI may write it (ADR 0020). */
+  askAvailable?: boolean;
   onChange(caption: string): void;
   onClose(): void;
 }) {
+  // The editor keeps its own text; a caption written for you re-mounts it with the new words.
+  const [seed, setSeed] = useState(caption);
+  const [writing, setWriting] = useState<"idle" | "busy" | string>("idle");
   return (
     <Sheet title="Post caption" onClose={onClose}>
       <p className="muted small">The text for your Instagram post. It is copied for you when you share the video.</p>
-      <CaptionEditor reelId={reelId} initial={caption} onChange={onChange} />
+      <CaptionEditor key={seed} reelId={reelId} initial={seed} onChange={onChange} />
+      {askAvailable ? (
+        <button
+          type="button"
+          className="btn btn-quiet btn-block"
+          disabled={writing === "busy"}
+          data-testid="caption-write"
+          onClick={async () => {
+            setWriting("busy");
+            const result = await fetch(`/api/reels/${reelId}/ideas`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ kind: "caption" }) })
+              .then((response) => response.json() as Promise<{ ok: true; caption: string } | { ok: false; message: string }>)
+              .catch(() => ({ ok: false as const, message: "Could not reach ReelWalk. Try again." }));
+            if (!result.ok) {
+              setWriting(result.message);
+              return;
+            }
+            await saveCaption({ id: reelId, caption: result.caption });
+            onChange(result.caption);
+            setSeed(result.caption);
+            setWriting("idle");
+          }}
+        >
+          {writing === "busy" ? "Writing…" : "Write it for me"}
+        </button>
+      ) : null}
+      {writing !== "idle" && writing !== "busy" ? <p className="error small">{writing}</p> : null}
     </Sheet>
   );
 }
@@ -1178,6 +1304,7 @@ export function AutopilotSheet({
   uploading,
   shots,
   pending,
+  naming = false,
   onRoom,
   error,
   upgrade,
@@ -1191,6 +1318,8 @@ export function AutopilotSheet({
   shots: { id: string; thumbUrl: string | null; room: string | null }[];
   /** Shots still uploading. */
   pending: { key: string; thumbUrl: string | null; progress: number }[];
+  /** Whether the AI is still looking at the shots to name them. */
+  naming?: boolean;
   onRoom(clipId: string, room: string | null): void;
   error: string | null;
   upgrade: boolean;
@@ -1292,7 +1421,7 @@ export function AutopilotSheet({
                         aria-label={`Room in shot ${index + 1}`}
                         data-testid="autopilot-room"
                       >
-                        <option value="">{uploading > 0 || !shot.room ? "Naming…" : "No room"}</option>
+                        <option value="">{shot.room ? "No room" : uploading > 0 || naming ? "Naming…" : "Name the room"}</option>
                         {ROOM_NAMES.map((room) => (
                           <option key={room} value={room}>
                             {room[0].toUpperCase() + room.slice(1)}

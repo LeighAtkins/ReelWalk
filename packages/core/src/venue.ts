@@ -219,6 +219,7 @@ export function buildVenueReel(input: {
       sourceStartMs: 0,
       sourceEndMs: Math.round(length),
       speed: 1,
+      zoom: 1,
       // The song carries the reel; kitchen noise stays low under it.
       volume: input.music ? 0.15 : 1,
       fit: "cover",

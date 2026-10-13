@@ -123,7 +123,11 @@ export function autopilotRequest(styleId: string, info: ListingInfo): string {
   ].join(" ");
 }
 
-/** The listing facts as a details card, or null when there are none. */
+/**
+ * The listing facts as a details card, or null when there are none. A style
+ * without a card keeps the facts on the reel unseen (placement "none"), so a
+ * later request ("add the details card", "write the caption") has them.
+ */
 export function detailsFromInfo(info: ListingInfo, style: AutopilotStyle): ListingDetails | null {
   const contact = clean(info.contact) || (clean(info.openHouse) && style.id === "open-house" ? `Open house ${clean(info.openHouse)}` : "");
   const details = listingDetailsSchema.parse({
@@ -133,7 +137,7 @@ export function detailsFromInfo(info: ListingInfo, style: AutopilotStyle): Listi
     area: clean(info.area).slice(0, 16),
     address: clean(info.address).slice(0, 80),
     contact: contact.slice(0, 60),
-    placement: "end",
+    placement: style.detailsCard ? "end" : "none",
   });
   return hasDetails(details) ? details : null;
 }
@@ -201,9 +205,11 @@ export function finishAutopilot(
     }
   }
 
-  const details = style.detailsCard ? detailsFromInfo(info, style) : null;
+  const details = detailsFromInfo(info, style);
   if (details) {
-    const merged = listingDetailsSchema.parse({ ...details, ...Object.fromEntries(Object.entries(current.details ?? {}).filter(([, value]) => value)) });
+    // The model's own fields win, except that a style without a card keeps the card hidden.
+    const theirs = Object.fromEntries(Object.entries(current.details ?? {}).filter(([key, value]) => value && (style.detailsCard || key !== "placement")));
+    const merged = listingDetailsSchema.parse({ ...details, ...theirs });
     if (JSON.stringify(merged) !== JSON.stringify(current.details)) {
       current = setDetails(current, merged);
       added.push("details card");

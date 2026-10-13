@@ -10,6 +10,7 @@ function photo(id: string, durationMs: number): Clip {
     sourceEndMs: durationMs,
     speed: 1,
     volume: 1,
+    zoom: 1,
     fit: "cover",
     filter: "none",
     motion: "none",
@@ -37,7 +38,7 @@ describe("instagramIssues", () => {
 
   it("warns, without blocking, about text under Instagram's UI", () => {
     const base = addClips(emptyTimeline(), [photo("a", 5000)]);
-    const text = { id: "t", text: "Price", startMs: 0, endMs: 1000, style: "plain" as const, color: "#ffffff", size: 1 };
+    const text = { id: "t", text: "Price", startMs: 0, endMs: 1000, style: "plain" as const, color: "#ffffff", size: 1, animation: "auto" as const };
     const timeline: Timeline = { ...base, texts: [{ ...text, x: 0.5, y: 0.9 }, { ...text, id: "ok", x: 0.5, y: 0.5 }] };
     const issues = instagramIssues(timeline);
     expect(issues).toEqual([expect.objectContaining({ code: "text-unsafe", textId: "t", level: "warning" })]);

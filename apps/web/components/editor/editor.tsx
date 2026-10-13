@@ -42,10 +42,12 @@ import {
   retime,
   retimeToLength,
   setClipRoom,
+  setCover,
+  setLogo,
   setLook,
 } from "@reelwalk/core";
 import { ELEGANT_FADE_S, type ReelAsset } from "@reelwalk/render/reel";
-import { deleteReel, exportReel, readyPreviews } from "@/app/actions";
+import { deleteReel, exportReel, readyPreviews, saveCaption } from "@/app/actions";
 import { deleteBrief, saveBrief } from "@/app/ai-actions";
 import { analyseInstagramSound } from "@/app/instagram-audio-actions";
 import { runAiJob } from "@/lib/ai-jobs-client";
@@ -59,6 +61,7 @@ import {
   CheckIcon,
   ClockIcon,
   CloseIcon,
+  CoverIcon,
   DetailsIcon,
   DuplicateIcon,
   EditIcon,
@@ -66,7 +69,9 @@ import {
   FitIcon,
   AskIcon,
   GuidesIcon,
+  LogoIcon,
   MotionIcon,
+  ZoomIcon,
   MoveLeftIcon,
   MoveRightIcon,
   MusicIcon,
@@ -98,6 +103,7 @@ import {
   CaptionSheet,
   DetailsSheet,
   ExportSheet,
+  LogoSheet,
   LookSheet,
   MediaSheet,
   MotionSheet,
@@ -110,6 +116,7 @@ import {
   TransitionSheet,
   TrimSheet,
   VolumeSheet,
+  ZoomSheet,
   type InstagramSoundAccess,
   type TextDraft,
 } from "./sheets";
@@ -141,6 +148,8 @@ type SheetName =
   | "text-edit"
   | "timing"
   | "music"
+  | "zoom"
+  | "logo"
   | "caption"
   | "export"
   | "ask"
@@ -189,6 +198,7 @@ function clipFromAsset(asset: LibraryAsset): Clip {
     sourceEndMs: asset.isPano ? DEFAULT_PANO_MS : isImage ? DEFAULT_IMAGE_MS : Math.max(500, asset.durationMs ?? 5000),
     speed: 1,
     volume: 1,
+    zoom: 1,
     fit: "cover",
     filter: "none",
     // A slow push-in is the default for listing photos.
@@ -710,11 +720,13 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
 
   // Rooms named as soon as the shots are up, so they show (and can be changed) before the reel is made.
   const roomsAsked = useRef(new Set<string>());
+  const [naming, setNaming] = useState(0);
   useEffect(() => {
     if (sheet !== "autopilot" || uploads.length > 0) return;
     const ids = [...new Set(timeline.clips.filter((clip) => !clip.room && !roomsAsked.current.has(clip.assetId)).map((clip) => clip.assetId))];
     if (ids.length === 0) return;
     ids.forEach((id) => roomsAsked.current.add(id));
+    setNaming((count) => count + 1);
     void fetch(`/api/reels/${reel.id}/rooms`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ assetIds: ids }) })
       .then((response) => response.json() as Promise<{ ok: boolean; rooms?: Record<string, string> }>)
       .then((result) => {
@@ -722,7 +734,9 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         if (Object.keys(rooms).length === 0) return;
         apply((current) => ({ ...current, clips: current.clips.map((clip) => (clip.room || !rooms[clip.assetId] ? clip : { ...clip, room: rooms[clip.assetId] })) }));
       })
-      .catch(() => undefined);
+      .catch(() => undefined)
+      // A shot the AI could not name (a black frame, a blur) is offered for naming by hand.
+      .finally(() => setNaming((count) => count - 1));
   }, [sheet, uploads.length, timeline.clips, reel.id, apply]);
 
   const close = useCallback(async () => {
@@ -841,6 +855,27 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         <Tool label="Look" onClick={() => setSheet("look")}>
           <FilterIcon />
         </Tool>
+        <Tool label="Zoom" onClick={() => setSheet("zoom")}>
+          <ZoomIcon />
+        </Tool>
+        <Tool
+          label="Cover"
+          pressed={timeline.cover?.clipId === selectedClip.id}
+          onClick={() => {
+            // The frame under the playhead, inside this clip, is the cover Instagram shows; pressing again lets it go.
+            if (timeline.cover?.clipId === selectedClip.id) {
+              apply((current) => setCover(current, null));
+              showToast("The cover is the usual frame again.");
+              return;
+            }
+            const start = clipStartsMs(timeline)[index];
+            const offsetMs = Math.max(0, Math.min(clock.get() - start, clipDurationMs(selectedClip) - 100));
+            apply((current) => setCover(current, { clipId: selectedClip.id, offsetMs }));
+            showToast("This frame is the cover Instagram shows.");
+          }}
+        >
+          <CoverIcon />
+        </Tool>
         <Tool
           label={selectedClip.fit === "cover" ? "Fit" : "Fill"}
           onClick={() => apply((current) => updateClip(current, selectedClip.id, { fit: selectedClip.fit === "cover" ? "contain" : "cover" }))}
@@ -913,6 +948,9 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         ) : null}
         <Tool label="Details" onClick={() => setSheet("details")}>
           <DetailsIcon />
+        </Tool>
+        <Tool label="Logo" disabled={!hasClips} pressed={timeline.logo !== null} onClick={() => setSheet("logo")}>
+          <LogoIcon />
         </Tool>
         <Tool label="Caption" onClick={() => setSheet("caption")}>
           <CaptionIcon />
@@ -1268,7 +1306,23 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         />
       ) : null}
 
-      {sheet === "caption" ? <CaptionSheet reelId={reel.id} caption={caption} onClose={closeSheet} onChange={setCaption} /> : null}
+      {sheet === "caption" ? <CaptionSheet reelId={reel.id} caption={caption} askAvailable={askAvailable} onClose={closeSheet} onChange={setCaption} /> : null}
+      {sheet === "zoom" && selectedClip ? (
+        <ZoomSheet clip={selectedClip} onChange={(zoom) => apply((current) => updateClip(current, selectedClip.id, { zoom }), `zoom-${selectedClip.id}`)} onClose={closeSheet} />
+      ) : null}
+      {sheet === "logo" ? (
+        <LogoSheet
+          library={libraryList}
+          logo={timeline.logo}
+          onChange={(logo) => apply((current) => setLogo(current, logo), "logo")}
+          onUpload={async (file) => {
+            const asset = await uploadFile(file, () => undefined);
+            setLibrary((current) => ({ ...current, [asset.id]: asset }));
+            return asset;
+          }}
+          onClose={closeSheet}
+        />
+      ) : null}
 
       {sheet === "ask" ? (
         <AskSheet
@@ -1277,12 +1331,17 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
           onAsk={async (request, answers) => {
             // The editor's own copy of the timeline goes along, so unsaved work counts.
             const data = await runAiJob<
-              | { ok: true; timeline: unknown; note: string; applied: string[]; skipped: string[]; questions: string[]; assets?: LibraryAsset[]; instagramPick?: InstagramAudioTrack }
+              | { ok: true; timeline: unknown; note: string; applied: string[]; skipped: string[]; questions: string[]; assets?: LibraryAsset[]; instagramPick?: InstagramAudioTrack; caption?: string }
               | { ok: false; message: string; upgrade?: boolean }
             >(`/api/reels/${reel.id}/ai-edit`, { request, timeline, answers });
             if (!data.ok) return data;
             // A song or shot the AI brought in joins the library first, so the preview can play it.
             if (data.assets?.length) setLibrary((current) => ({ ...current, ...Object.fromEntries(data.assets!.map((asset) => [asset.id, asset])) }));
+            // A caption written for the post is kept with the reel (it is not part of the edit).
+            if (data.caption) {
+              setCaption(data.caption);
+              void saveCaption({ id: reel.id, caption: data.caption }).catch(() => undefined);
+            }
             if (data.applied.length > 0) {
               const next = parseTimeline(data.timeline);
               apply(() => next);
@@ -1347,6 +1406,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
           uploading={uploads.length}
           shots={timeline.clips.map((clip) => ({ id: clip.id, thumbUrl: library[clip.assetId]?.thumbUrl ?? null, room: clip.room }))}
           pending={uploads.map((upload) => ({ key: upload.key, thumbUrl: upload.thumbUrl, progress: upload.progress }))}
+          naming={naming > 0}
           onRoom={(clipId, room) => apply((current) => setClipRoom(current, clipId, room))}
           error={autopilotError?.message ?? null}
           upgrade={autopilotError?.upgrade ?? false}

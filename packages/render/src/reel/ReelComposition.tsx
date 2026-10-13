@@ -15,7 +15,7 @@ import {
 // WebCodecs-based video, used when the worker renders: about twice as fast as
 // OffthreadVideo here, and it falls back to it for files it cannot decode.
 import { Video as RenderVideo } from "@remotion/media";
-import { cameraAt, framePlan, isInstagramMusic, REEL_FORMAT, timelineDurationMs, walkInto, type Clip, type Plan, type TextOverlay, type Timeline } from "@reelwalk/core";
+import { cameraAt, framePlan, INSTAGRAM, isInstagramMusic, REEL_FORMAT, timelineDurationMs, walkInto, type Clip, type Logo, type Plan, type TextOverlay, type Timeline } from "@reelwalk/core";
 import { useFontsFor } from "./fonts";
 import { ELEGANT_FADE_S, FILTER_CSS, textCss } from "./look";
 import { DetailsCardView } from "./DetailsCardView";
@@ -31,16 +31,18 @@ function resolveSrc(src: string): string {
   return /^(https?:|blob:|data:)/.test(src) ? src : staticFile(src);
 }
 
-function motionTransform(motion: Clip["motion"], progress: number): string | undefined {
+/** The Ken Burns move and the clip's own zoom, as one CSS transform about the centre. */
+function motionTransform(motion: Clip["motion"], progress: number, zoom: number): string | undefined {
+  const base = zoom !== 1 ? `scale(${zoom}) ` : "";
   switch (motion) {
     case "zoom-in":
-      return `scale(${1 + 0.14 * progress})`;
+      return `${base}scale(${1 + 0.14 * progress})`;
     case "zoom-out":
-      return `scale(${1.14 - 0.14 * progress})`;
+      return `${base}scale(${1.14 - 0.14 * progress})`;
     case "pan":
-      return `scale(1.16) translateX(${interpolate(progress, [0, 1], [-5, 5])}%)`;
+      return `${base}scale(1.16) translateX(${interpolate(progress, [0, 1], [-5, 5])}%)`;
     default:
-      return undefined;
+      return base || undefined;
   }
 }
 
@@ -102,7 +104,7 @@ const ClipView: React.FC<{
 
   // Clamped: a clip is mounted a second early (premount) with negative frames.
   const progress = durationInFrames > 1 ? Math.min(1, Math.max(0, frame / (durationInFrames - 1))) : 0;
-  const transform = asset.kind === "IMAGE" ? motionTransform(clip.motion, progress) : undefined;
+  const transform = motionTransform(asset.kind === "IMAGE" ? clip.motion : "none", progress, clip.zoom);
   const fadeIn = clip.transitionIn === "fade" ? interpolate(frame, [0, FADE_FRAMES], [0, 1], { extrapolateRight: "clamp" }) : 1;
   const fadeOutValue = fadeOut
     ? interpolate(frame, [durationInFrames - FADE_FRAMES, durationInFrames - 1], [1, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" })
@@ -144,22 +146,44 @@ const ClipView: React.FC<{
   );
 };
 
-/** Scale and opacity of a text overlay at a frame of its own sequence. */
-function textMotion(style: TextOverlay["style"], frame: number, fps: number, durationInFrames: number): { scale: number; opacity: number } {
-  if (style === "elegant") {
-    // A slow fade in and out, no movement: the words settle onto the picture.
-    const fade = Math.max(1, Math.min(Math.round(ELEGANT_FADE_S * fps), Math.floor(durationInFrames / 2)));
-    const clamp = { extrapolateLeft: "clamp", extrapolateRight: "clamp" } as const;
-    const fadeIn = interpolate(frame, [0, fade], [0, 1], clamp);
-    const fadeOut = interpolate(frame, [durationInFrames - fade, durationInFrames], [1, 0], clamp);
-    return { scale: 1, opacity: Math.min(fadeIn, fadeOut) };
+/** Seconds the typewriter takes to write the whole text: a short line in about a second, never more than half the text's time. */
+const TYPE_CHARS_PER_S = 14;
+
+/**
+ * How a text arrives: scale, opacity, a vertical drift and, for the
+ * typewriter, how many characters are written yet. "auto" is the style's own
+ * way in: the slow fade of the elegant serif, a pop for everything else.
+ */
+function textMotion(text: TextOverlay, frame: number, fps: number, durationInFrames: number): { scale: number; opacity: number; rise: number; chars: number | null } {
+  const animation = text.animation === "auto" ? (text.style === "elegant" ? "fade" : "pop") : text.animation;
+  const clamp = { extrapolateLeft: "clamp", extrapolateRight: "clamp" } as const;
+  const still = { scale: 1, opacity: 1, rise: 0, chars: null };
+  switch (animation) {
+    case "fade": {
+      // A slow fade in and out, no movement: the words settle onto the picture.
+      const fade = Math.max(1, Math.min(Math.round(ELEGANT_FADE_S * fps), Math.floor(durationInFrames / 2)));
+      const fadeIn = interpolate(frame, [0, fade], [0, 1], clamp);
+      const fadeOut = interpolate(frame, [durationInFrames - fade, durationInFrames], [1, 0], clamp);
+      return { ...still, opacity: Math.min(fadeIn, fadeOut) };
+    }
+    case "rise": {
+      const rise = Math.max(1, Math.min(Math.round(0.5 * fps), Math.floor(durationInFrames / 2)));
+      return { ...still, opacity: interpolate(frame, [0, rise], [0, 1], clamp), rise: interpolate(frame, [0, rise], [1, 0], clamp) };
+    }
+    case "type": {
+      const length = text.text.length;
+      const seconds = Math.min(length / TYPE_CHARS_PER_S, durationInFrames / fps / 2);
+      const chars = Math.min(length, Math.ceil(interpolate(frame, [0, Math.max(1, seconds * fps)], [0, length], clamp)));
+      return { ...still, chars };
+    }
+    case "none":
+      return still;
+    default: {
+      // A short pop on entry, the way Instagram animates text in.
+      const pop = spring({ frame, fps, config: { damping: 14, stiffness: 180 }, durationInFrames: 10 });
+      return { ...still, scale: interpolate(pop, [0, 1], [0.86, 1]), opacity: interpolate(frame, [0, 3], [0, 1], { extrapolateRight: "clamp" }) };
+    }
   }
-  // A short pop on entry, the way Instagram animates text in.
-  const pop = spring({ frame, fps, config: { damping: 14, stiffness: 180 }, durationInFrames: 10 });
-  return {
-    scale: interpolate(pop, [0, 1], [0.86, 1]),
-    opacity: interpolate(frame, [0, 3], [0, 1], { extrapolateRight: "clamp" }),
-  };
 }
 
 const TextView: React.FC<{ text: TextOverlay; durationInFrames: number }> = ({ text, durationInFrames }) => {
@@ -167,7 +191,10 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number }> = ({ t
   const { fps, width, height } = useVideoConfig();
   const css = textCss(text.style, text.color, text.size);
   useFontsFor(text.text, Number(css.fontWeight ?? 600));
-  const { scale, opacity } = textMotion(text.style, frame, fps, durationInFrames);
+  const { scale, opacity, rise, chars } = textMotion(text, frame, fps, durationInFrames);
+  // The typewriter keeps the full text in place, invisible, so the box never changes size while it writes.
+  const written = chars === null ? text.text : text.text.slice(0, chars);
+  const cursor = chars !== null && chars < text.text.length && Math.floor(frame / (fps / 4)) % 2 === 0;
 
   return (
     <AbsoluteFill style={{ pointerEvents: "none" }}>
@@ -179,12 +206,47 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number }> = ({ t
           width: width * 0.86,
           display: "flex",
           justifyContent: "center",
-          transform: `translate(-50%, -50%) scale(${scale})`,
+          transform: `translate(-50%, calc(-50% + ${rise * 40}px)) scale(${scale})`,
           opacity,
         }}
       >
-        <span style={css}>{text.text}</span>
+        {chars === null ? (
+          <span style={css}>{text.text}</span>
+        ) : (
+          <span style={{ ...css, position: "relative" }}>
+            <span style={{ visibility: "hidden" }}>{text.text}</span>
+            <span style={{ position: "absolute", left: css.padding ? undefined : 0, top: css.padding ? undefined : 0, inset: css.padding ? css.padding : undefined, textAlign: "inherit" }}>
+              {written}
+              {cursor ? "|" : ""}
+            </span>
+          </span>
+        )}
       </div>
+    </AbsoluteFill>
+  );
+};
+
+/** A logo kept in one corner of the safe area for the whole reel, with a soft shadow so it holds on any picture. */
+const LogoView: React.FC<{ logo: Logo; asset: ReelAsset | undefined }> = ({ logo, asset }) => {
+  const { width } = useVideoConfig();
+  if (!asset || asset.kind !== "IMAGE") return null;
+  const safe = INSTAGRAM.safeZonePx;
+  const [vertical, horizontal] = logo.corner.split("-") as ["top" | "bottom", "left" | "right"];
+  return (
+    <AbsoluteFill style={{ pointerEvents: "none" }}>
+      <Img
+        src={resolveSrc(asset.src)}
+        style={{
+          position: "absolute",
+          [vertical]: vertical === "top" ? safe.top : safe.bottom + 16,
+          [horizontal]: horizontal === "left" ? safe.left : safe.right,
+          width: width * logo.size,
+          maxHeight: width * logo.size,
+          objectFit: "contain",
+          objectPosition: `${horizontal} ${vertical}`,
+          filter: "drop-shadow(0 4px 16px rgba(0, 0, 0, 0.45))",
+        }}
+      />
     </AbsoluteFill>
   );
 };
@@ -243,6 +305,7 @@ export const ReelComposition: React.FC<ReelProps> = ({ timeline, assets, waterma
         </Sequence>
       ))}
       <DetailsCardView timeline={timeline} />
+      {timeline.logo ? <LogoView logo={timeline.logo} asset={assets[timeline.logo.assetId]} /> : null}
       {watermark ? <Watermark /> : null}
       {musicAsset ? <MusicTrack timeline={timeline} asset={musicAsset} /> : null}
     </AbsoluteFill>

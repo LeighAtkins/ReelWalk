@@ -23,24 +23,43 @@ export const DEFAULT_IMAGE_MS = 3000;
 export const DEFAULT_TEXT_MS = 3000;
 
 export const SPEEDS = [0.5, 1, 1.5, 2, 3] as const;
-export const FILTERS = ["none", "warm", "cool", "vivid", "mono", "fade"] as const;
+/** "golden" is late-afternoon light, "dusk" a twilight cast, "crisp" the bright, clean look of listing photography. */
+export const FILTERS = ["none", "warm", "cool", "vivid", "mono", "fade", "golden", "dusk", "crisp"] as const;
 export const MOTIONS = ["none", "zoom-in", "zoom-out", "pan"] as const;
 /** "walk" moves the camera between two 360 photos of the same home (see walk.ts). */
 export const TRANSITIONS = ["cut", "fade", "walk"] as const;
-/** "elegant" is a thin white serif that fades in, for luxury reels where the imagery leads. */
-export const TEXT_STYLES = ["plain", "box", "outline", "headline", "elegant"] as const;
+/**
+ * "elegant" is a thin white serif that fades in, for luxury reels where the
+ * imagery leads. "tag" is a small lacquer sticker for a status (JUST LISTED,
+ * PRICE DROP, SOLD) that sits at the top of the safe area.
+ */
+export const TEXT_STYLES = ["plain", "box", "outline", "headline", "elegant", "tag"] as const;
+/**
+ * How a text arrives: "auto" is the style's own way in (a pop for the bold
+ * styles, a slow fade for the elegant serif), "type" writes it out letter by
+ * letter, "rise" drifts up as it fades in, "none" is simply there.
+ */
+export const TEXT_ANIMATIONS = ["auto", "pop", "fade", "rise", "type", "none"] as const;
+/** Where a logo may sit. */
+export const CORNERS = ["top-left", "top-right", "bottom-left", "bottom-right"] as const;
+/** Where the status tag sits: the top of the safe area, above the hook. */
+export const TAG_Y = 0.3;
 export const TEXT_COLORS = ["#ffffff", "#111111", "#ffd23f", "#ff5a5f", "#3ddc97", "#4da3ff"] as const;
 
 export type Filter = (typeof FILTERS)[number];
 export type Motion = (typeof MOTIONS)[number];
 export type Transition = (typeof TRANSITIONS)[number];
 export type TextStyle = (typeof TEXT_STYLES)[number];
+export type TextAnimation = (typeof TEXT_ANIMATIONS)[number];
+export type Corner = (typeof CORNERS)[number];
 
 /** Allowed `size` of a text overlay. The elegant serif may go smaller than the bold styles. */
 export const TEXT_SIZE_MAX = 2.5;
 export function minTextSize(style: TextStyle): number {
-  return style === "elegant" ? 0.3 : 0.5;
+  return style === "elegant" || style === "tag" ? 0.3 : 0.5;
 }
+/** Longest zoom into a clip: twice, a tight crop of a 4K phone video without going soft. */
+export const ZOOM_MAX = 2;
 
 const ms = z.number().int().min(0);
 const unit = z.number().min(0).max(1);
@@ -106,6 +125,8 @@ export const clipSchema = z
     room: z.string().max(40).nullable().default(null),
     /** How this clip enters from the previous one. */
     transitionIn: z.enum(TRANSITIONS).default("cut"),
+    /** A closer crop of the picture about its centre: 1 shows it all, 2 the middle half. Added to any motion. */
+    zoom: z.number().min(1).max(ZOOM_MAX).default(1),
   })
   .refine((clip) => clip.sourceEndMs > clip.sourceStartMs, { message: "Clip must have a positive length" });
 
@@ -122,6 +143,7 @@ export const textSchema = z
     color: z.string().regex(/^#[0-9a-f]{6}$/i).default("#ffffff"),
     /** Scale relative to the default size. */
     size: z.number().min(minTextSize("elegant")).max(TEXT_SIZE_MAX).default(1),
+    animation: z.enum(TEXT_ANIMATIONS).default("auto"),
   })
   .refine((text) => text.endMs > text.startMs, { message: "Text must be on screen for a positive time" })
   .refine((text) => text.size >= minTextSize(text.style), { message: "Text is too small for this style", path: ["size"] });
@@ -151,7 +173,12 @@ export function isInstagramMusic(music: { instagramAudioId?: string | null } | n
   return Boolean(music?.instagramAudioId);
 }
 
-export const DETAILS_PLACEMENTS = ["end", "start", "both"] as const;
+/**
+ * Where the facts show: a card over the end, the start or both; a thin strip
+ * at the top for the whole reel ("throughout"); or kept but not shown
+ * ("none": the facts stay with the reel for a later caption or card).
+ */
+export const DETAILS_PLACEMENTS = ["end", "start", "both", "throughout", "none"] as const;
 /** How long the details card stays on screen. */
 export const DETAILS_CARD_MS = 3500;
 
@@ -171,6 +198,27 @@ export type ListingDetails = z.infer<typeof listingDetailsSchema>;
 export function hasDetails(details: ListingDetails | null | undefined): details is ListingDetails {
   return !!details && [details.price, details.beds, details.baths, details.area, details.address, details.contact].some((value) => value !== "");
 }
+
+/** Whether the facts are drawn on the reel as a card (not the strip, not hidden). */
+export function showsDetailsCard(details: ListingDetails | null | undefined): details is ListingDetails {
+  return hasDetails(details) && details.placement !== "throughout" && details.placement !== "none";
+}
+
+/** A logo (the agency's, the agent's) kept in one corner for the whole reel. */
+export const logoSchema = z.object({
+  assetId: z.string().min(1),
+  corner: z.enum(CORNERS).default("top-right"),
+  /** Width as a fraction of the frame. */
+  size: z.number().min(0.1).max(0.4).default(0.2),
+});
+export type Logo = z.infer<typeof logoSchema>;
+
+/** The frame Instagram shows as the reel's cover: a clip and how far into it. */
+export const coverSchema = z.object({
+  clipId: z.string().min(1),
+  offsetMs: ms.default(0),
+});
+export type Cover = z.infer<typeof coverSchema>;
 
 /** "3 bed", "2 bath", "92 m²": the short facts row, skipping anything left empty. */
 export function detailFacts(details: ListingDetails): string[] {
@@ -203,6 +251,10 @@ export const timelineSchema = z.object({
   plan: planOverlaySchema.nullable().default(null),
   /** Price, rooms and contact, shown as a card. Null when not filled in. */
   details: listingDetailsSchema.nullable().default(null),
+  /** A logo in a corner for the whole reel. Null for none. */
+  logo: logoSchema.nullable().default(null),
+  /** The cover frame. Null means the usual one, 0.7 s into the reel. */
+  cover: coverSchema.nullable().default(null),
 });
 
 export type Clip = z.infer<typeof clipSchema>;
@@ -211,7 +263,7 @@ export type Music = z.infer<typeof musicSchema>;
 export type Timeline = z.infer<typeof timelineSchema>;
 
 export function emptyTimeline(): Timeline {
-  return { version: 1, clips: [], texts: [], music: null, plan: null, details: null };
+  return { version: 1, clips: [], texts: [], music: null, plan: null, details: null, logo: null, cover: null };
 }
 
 /** Validates untrusted JSON (a save from the browser, a row from the database). */
@@ -301,7 +353,8 @@ export function addClips(timeline: Timeline, clips: Clip[], atIndex = timeline.c
 }
 
 export function removeClip(timeline: Timeline, id: string): Timeline {
-  return fitTexts({ ...timeline, clips: timeline.clips.filter((clip) => clip.id !== id) });
+  const next = fitTexts({ ...timeline, clips: timeline.clips.filter((clip) => clip.id !== id) });
+  return next.cover?.clipId === id ? { ...next, cover: null } : next;
 }
 
 export function moveClip(timeline: Timeline, id: string, toIndex: number): Timeline {
@@ -341,6 +394,35 @@ export function splitAt(timeline: Timeline, atMs: number, newId: string): Timeli
 }
 
 /**
+ * Cuts a video clip into `pieces` shots of equal length taken from different
+ * parts of its source, spread evenly from its start to its end, so a long
+ * walkthrough gives several cuts instead of one long take. Each piece plays
+ * about as long as the clip did divided by the pieces, never less than
+ * MIN_CLIP_MS, and never more than the source allows. A photo is left alone.
+ */
+export function splitClip(timeline: Timeline, id: string, pieces: number, newId: () => string, sourceDurationMs?: number | null): Timeline {
+  const index = timeline.clips.findIndex((clip) => clip.id === id);
+  const clip = timeline.clips[index];
+  if (!clip || clip.kind !== "VIDEO" || pieces < 2) return timeline;
+  const source = sourceDurationMs ?? clip.sourceEndMs;
+  const count = Math.min(4, Math.max(2, Math.round(pieces)));
+  const minimum = Math.ceil(MIN_CLIP_MS * clip.speed);
+  const want = Math.max(minimum, Math.round((clip.sourceEndMs - clip.sourceStartMs) / count));
+  const length = Math.min(want, Math.floor(source / count));
+  if (length < minimum) return timeline;
+  const share = source / count;
+  const shots: Clip[] = [];
+  for (let piece = 0; piece < count; piece++) {
+    // Each window sits in the middle of its share of the source.
+    const start = Math.max(0, Math.min(source - length, Math.round(share * piece + (share - length) / 2)));
+    shots.push({ ...clip, id: piece === 0 ? clip.id : newId(), sourceStartMs: start, sourceEndMs: start + length, transitionIn: piece === 0 ? clip.transitionIn : "cut" });
+  }
+  const clips = [...timeline.clips];
+  clips.splice(index, 1, ...shots);
+  return fitTexts({ ...timeline, clips });
+}
+
+/**
  * Sets the source window of a clip. For video it is clamped to the source
  * length; for a photo only the length matters.
  */
@@ -366,7 +448,7 @@ export function trimClip(
   return fitTexts(updated);
 }
 
-export type ClipSettings = Partial<Pick<Clip, "speed" | "volume" | "fit" | "filter" | "motion" | "transitionIn" | "pano">>;
+export type ClipSettings = Partial<Pick<Clip, "speed" | "volume" | "fit" | "filter" | "motion" | "transitionIn" | "pano" | "zoom">>;
 
 export function updateClip(timeline: Timeline, id: string, settings: ClipSettings): Timeline {
   return fitTexts(replaceClip(timeline, id, (clip) => clipSchema.parse({ ...clip, ...settings })));
@@ -379,7 +461,7 @@ export function fitTextSize(style: TextStyle, size: number): number {
   return Math.max(minTextSize(style), Math.min(TEXT_SIZE_MAX, size));
 }
 
-export function addText(timeline: Timeline, text: Omit<TextOverlay, "endMs"> & { endMs?: number }): Timeline {
+export function addText(timeline: Timeline, text: Omit<TextOverlay, "endMs" | "animation"> & { endMs?: number; animation?: TextAnimation }): Timeline {
   const total = timelineDurationMs(timeline);
   const startMs = Math.max(0, Math.min(Math.round(text.startMs), Math.max(0, total - MIN_CLIP_MS)));
   const endMs = Math.min(total, Math.round(text.endMs ?? startMs + DEFAULT_TEXT_MS));
@@ -421,6 +503,31 @@ export function setPlan(timeline: Timeline, plan: PlanOverlay | null): Timeline 
   return { ...timeline, plan: plan ? planOverlaySchema.parse(plan) : null };
 }
 
+export function setLogo(timeline: Timeline, logo: Logo | null): Timeline {
+  return { ...timeline, logo: logo ? logoSchema.parse(logo) : null };
+}
+
+/** The cover: a clip and a moment in it. Null goes back to the usual frame. */
+export function setCover(timeline: Timeline, cover: Cover | null): Timeline {
+  if (cover && !timeline.clips.some((clip) => clip.id === cover.clipId)) return timeline;
+  return { ...timeline, cover: cover ? coverSchema.parse(cover) : null };
+}
+
+/** The usual cover frame: 0.7 s in, when the hook has popped in and the first shot has barely moved. */
+export const DEFAULT_COVER_MS = 700;
+
+/** Where the cover frame is on the finished reel, in milliseconds. */
+export function coverMs(timeline: Timeline): number {
+  const total = timelineDurationMs(timeline);
+  const usual = Math.min(DEFAULT_COVER_MS, Math.max(0, total - 100));
+  if (!timeline.cover) return usual;
+  const index = timeline.clips.findIndex((clip) => clip.id === timeline.cover!.clipId);
+  if (index === -1) return usual;
+  const clip = timeline.clips[index];
+  const start = clipStartsMs(timeline)[index];
+  return Math.min(start + Math.min(timeline.cover.offsetMs, Math.max(0, clipDurationMs(clip) - 100)), Math.max(0, total - 100));
+}
+
 /** Ids of the text overlays that addRoomLabels manages. */
 const roomLabelId = (clipId: string) => `room-${clipId}`;
 
@@ -433,7 +540,7 @@ export function addRoomLabels(timeline: Timeline): Timeline {
   const starts = clipStartsMs(timeline);
   // The details card sits where the labels do, so labels make way for it.
   const total = timelineDurationMs(timeline);
-  const card = hasDetails(timeline.details) ? Math.min(DETAILS_CARD_MS, Math.floor(total * 0.4)) : 0;
+  const card = showsDetailsCard(timeline.details) ? Math.min(DETAILS_CARD_MS, Math.floor(total * 0.4)) : 0;
   const clearFrom = card > 0 && timeline.details!.placement !== "end" ? card : 0;
   const clearUntil = card > 0 && timeline.details!.placement !== "start" ? total - card : total;
   const managed = new Set(timeline.clips.map((clip) => roomLabelId(clip.id)));
@@ -479,5 +586,6 @@ export function hasRoomLabels(timeline: Timeline): boolean {
 export function referencedAssetIds(timeline: Timeline): string[] {
   const ids = new Set(timeline.clips.map((clip) => clip.assetId));
   if (timeline.music) ids.add(timeline.music.assetId);
+  if (timeline.logo) ids.add(timeline.logo.assetId);
   return [...ids];
 }

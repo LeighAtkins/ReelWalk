@@ -10,8 +10,10 @@
  */
 
 import {
+  coverMs,
   instagramAudioConfiguration,
   parseInstagramAudioSearch,
+  parseTimeline,
   type InstagramAudioTrack,
   type InstagramAudioType,
 } from "@reelwalk/core";
@@ -151,6 +153,15 @@ export type ContainerStatus = "IN_PROGRESS" | "FINISHED" | "ERROR" | "EXPIRED" |
  * Explore, grid and feed tiles show the price line, not a blank room.
  */
 export const COVER_FRAME_MS = 700;
+
+/** The cover frame the reel chose (ADR 0023), or undefined for the usual one; a reel whose edit cannot be read gets the usual frame. */
+export function reelCoverMs(timeline: unknown): number | undefined {
+  try {
+    return timeline ? coverMs(parseTimeline(timeline)) : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 /** A sound from Instagram's library to mix in (ADR 0018); volumes are 0-100. */
 export type ReelAudio = { audioId: string; audioVolume: number; videoVolume: number };

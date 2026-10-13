@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation";
 import { prisma } from "@reelwalk/db";
 import { instagramAudioLabel, parseInstagramAudioChoice } from "@reelwalk/core";
-import { containerStatus, createReelContainer, isInstagramConfigured, isTransientInstagramError, publishContainer } from "@/lib/instagram";
+import { containerStatus, createReelContainer, isInstagramConfigured, isTransientInstagramError, publishContainer, reelCoverMs } from "@/lib/instagram";
 import { outputUrls } from "@/lib/render-jobs";
 import { workspacePlan } from "@/lib/plans";
 import { getCurrentUser } from "@/lib/workspace";
@@ -42,7 +42,7 @@ export async function startInstagramPost(input: { jobId: string; audio?: unknown
 
   const job = await prisma.renderJob.findFirst({
     where: { id: input.jobId, workspaceId: user.workspaceId, status: "SUCCEEDED" },
-    include: { output: true, reel: { select: { id: true, caption: true, featureConsent: true, featureHandle: true } } },
+    include: { output: true, reel: { select: { id: true, caption: true, featureConsent: true, featureHandle: true, timeline: true } } },
   });
   const urls = job ? await outputUrls(job) : null;
   if (!job || !urls) return { state: "failed", error: "This export has not finished." };
@@ -56,6 +56,7 @@ export async function startInstagramPost(input: { jobId: string; audio?: unknown
       token: account.accessToken,
       videoUrl: urls.playUrl,
       caption: job.reel?.caption ?? "",
+      coverMs: reelCoverMs(job.reel?.timeline),
       audio,
     });
     // A reel offered for featuring without a handle is credited to the account it was posted from.

@@ -2520,6 +2520,33 @@ form + .card {
 }
 
 
+/* Editor preview in full screen (browser full screen, or a full-window overlay on iPhone). */
+.stage-theater {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  background: #000;
+}
+.stage-theater .stage-frame {
+  height: 100%;
+  max-height: 100dvh;
+  border-radius: 0;
+  box-shadow: none;
+}
+.theater-close {
+  position: absolute;
+  top: calc(env(safe-area-inset-top) + 12px);
+  right: calc(env(safe-area-inset-right) + 12px);
+  z-index: 2;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 50%;
+  background: rgb(0 0 0 / 0.55);
+  color: #fff;
+  font-size: 28px;
+  line-height: 1;
 /* Fullscreen keeps a video's own styles, so a frame that crops to fill
    (object-fit: cover) would crop a vertical reel to the screen's width.
    In fullscreen every video shows the whole frame on black instead. */

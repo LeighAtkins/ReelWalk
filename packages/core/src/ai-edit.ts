@@ -321,7 +321,7 @@ Rules:
 - Room labels are the texts whose number is marked (room label); to turn them all off use roomLabels on=false rather than removing each.
 - When clips are trimmed, moved or removed, the other texts follow their clips, cuts that were on the beat stay on it, and room labels are redrawn, all by themselves: do not re-time texts or snap to the beat to compensate for your own edits.
 - The details card (price, beds, baths, area, address, contact) is op details; pass only the fields to change, null for the rest; to remove the card pass details null.
-- Cutting a whole reel ("cut it", "make something from these", a brief): the clips already in the reel are the user's shoot of this property; build the reel from them. Never remove them to make room for other media. Use "unused media" only when the user asks for it, or when the reel has fewer than three clips. Order them with op order, then cut fast: a reel is 1.5 to 2.5 s a shot unless the brief says slower (luxury, slow: 3 to 4 s); a photo 2 s with motion zoom-in, a 360 photo 4 s. A video longer than 6 s can give two or three shots: duplicate it and trim each copy to a different part (startMs, lengthMs) so the reel has more cuts instead of longer ones. Aim for 8 to 14 cuts in a 20 to 30 s reel. Pick a song, snapToBeat, add the hook, and the details card as the brief says. Lead with the strongest exterior or wide shot and end on an outdoor or view shot.
+- Cutting a whole reel ("cut it", "make something from these", a brief): the clips already in the reel are the user's shoot of this property; build the reel from them. Never remove them to make room for other media. Use "unused media" only when the user asks for it, or when the reel has fewer than three clips. Order them with op order, then cut fast: a reel is 1.5 to 2.5 s a shot unless the brief says slower (luxury, slow: 3 to 4 s); a photo 2 s with motion zoom-in, a 360 photo 4 s. A video longer than 6 s can give two or three shots: duplicate it and trim each copy to a different part (startMs, lengthMs) so the reel has more cuts instead of longer ones. Aim for 8 to 14 cuts in a 20 to 30 s reel. If the user names a length (15 seconds, 10 seconds), make the reel that long; never refuse a length. Pick a song, snapToBeat, add the hook, and the details card as the brief says. Lead with the strongest exterior or wide shot and end on an outdoor or view shot.
 - Rooms: when room labels are wanted and a clip does not know its room, name it with op room (clip, content: the room in lower case) from its file name or your best reading of it, before turning room labels on.
 - Questions: if, and only if, a brief needs a fact you do not have (an address, a price, an open-house time) return up to three short questions in "questions", no operations, and a note saying what you will do once you know. Otherwise decide for yourself and never ask. You may ask once: if the user has given answers, cut the reel with what you have, leave unknown details-card fields empty, use only the shots that exist, and do not ask again.
 - If the request is unclear, impossible with these operations, or not about the reel, return no operations and say so in the note in one sentence, without apologising.
@@ -817,7 +817,9 @@ export function applyAiEditPlan(timeline: Timeline, plan: Pick<AiEditPlan, "ops"
       }
       case "snapToBeat": {
         if (!current.music?.bpm) {
-          skipped.push("snapToBeat: the music has no known tempo");
+          // An Instagram sound chosen in this plan is fetched by the editor, which snaps the cuts to it then.
+          if (instagramPick) applied.push("cuts go on the beat once the Instagram sound loads");
+          else skipped.push("snapToBeat: the music has no known tempo");
           break;
         }
         const durations = Object.fromEntries(Object.values(assets).map((asset) => [asset!.id, asset!.durationMs]));

@@ -1,6 +1,7 @@
 import { autopilotRequest, autopilotStyle, finishAutopilot, ruleCutWithPick, usableCut, type InstagramAudioTrack, type ListingInfo, type Timeline } from "@reelwalk/core";
 import { askForChange, context } from "@/lib/ai-edit";
-import { isAiAvailable } from "@/lib/openai";
+import { isAiAvailable, isFakeAi } from "@/lib/openai";
+import { labelRooms } from "@/lib/room-labels";
 
 /**
  * "Make it for me" (ADR 0021): the studio's picked shots, a style and any
@@ -21,6 +22,11 @@ export async function makeItForMe(input: {
 }): Promise<AutopilotResult> {
   if (input.timeline.clips.length === 0) return { ok: false, message: "Pick some photos or videos first." };
   const style = autopilotStyle(input.styleId);
+  // Name the shots' rooms by looking at them first, so even a cut by rule can order the walk and label rooms.
+  const named = isFakeAi() ? {} : await labelRooms(input.user.workspaceId, [...new Set(input.timeline.clips.filter((clip) => !clip.room).map((clip) => clip.assetId))]);
+  if (Object.keys(named).length > 0) {
+    input = { ...input, timeline: { ...input.timeline, clips: input.timeline.clips.map((clip) => (clip.room || !named[clip.assetId] ? clip : { ...clip, room: named[clip.assetId] })) } };
+  }
   const { assets, songs } = await context(input.user.workspaceId, input.timeline);
   const local = { assets, songs, info: input.info, style, newId: () => crypto.randomUUID() };
 

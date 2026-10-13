@@ -38,18 +38,26 @@ export function Sheet({ title, onClose, children }: { title: string; onClose(): 
     window.addEventListener("pointercancel", end);
   }
 
+  // The latest onClose, without making the focus effect below re-run: a parent
+  // that passes a new function on every render (the editor re-renders on each
+  // upload progress tick) would otherwise pull focus out of a field being typed in.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  // Once, when the sheet opens: focus its first control, close on Escape, and
+  // hand focus back where it was when it closes.
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
     panel.current?.querySelector<HTMLElement>("input, textarea, button:not(.sheet-close)")?.focus({ preventScroll: true });
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") onCloseRef.current();
     };
     document.addEventListener("keydown", onKey);
     return () => {
       document.removeEventListener("keydown", onKey);
       previous?.focus?.({ preventScroll: true });
     };
-  }, [onClose]);
+  }, []);
 
   return (
     <>

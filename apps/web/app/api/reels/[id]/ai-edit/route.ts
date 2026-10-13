@@ -1,6 +1,7 @@
 import { parseTimeline, referencedAssetIds } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
 import { askForChange, newAssets } from "@/lib/ai-edit";
+import { startAiJob } from "@/lib/ai-jobs";
 import { getSessionUser } from "@/lib/auth";
 import { mediaScope } from "@/lib/workspace";
 
@@ -48,7 +49,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         .filter((entry): entry is { question: string; answer: string } => typeof entry?.question === "string" && typeof entry?.answer === "string")
         .slice(0, 3)
     : [];
-  const result = await askForChange({ user, reel, timeline, request: body.request, answers });
-  if (!result.ok) return Response.json(result, { status: 422 });
-  return Response.json({ ...result, assets: await newAssets(user.workspaceId, timeline, result.timeline) });
+  const request_ = body.request;
+  // A whole-reel brief can take over a minute: run it in the background and let the browser check back.
+  const jobId = await startAiJob({ workspaceId: user.workspaceId, reelId: reel.id, kind: "ask" }, async () => {
+    const result = await askForChange({ user, reel, timeline, request: request_, answers });
+    return result.ok ? { ...result, assets: await newAssets(user.workspaceId, timeline, result.timeline) } : result;
+  });
+  return Response.json({ ok: true, jobId });
 }

@@ -9,7 +9,7 @@ import {
   type InstagramAudioTrack,
   type InstagramAudioType,
 } from "@reelwalk/core";
-import { searchInstagramSounds } from "@/app/instagram-audio-actions";
+import { searchSounds } from "@/lib/instagram-sounds-client";
 import { formatDuration } from "@/lib/format";
 import { CheckIcon, CloseIcon, MusicIcon, PauseIcon, PlayIcon } from "./icons";
 import { Sheet } from "./sheet";
@@ -178,7 +178,7 @@ export function InstagramSoundBrowser({
     setSearch({ step: "loading" });
     const timer = setTimeout(
       async () => {
-        const result = await searchInstagramSounds({ type, query }).catch(() => ({ ok: false as const, error: "Could not reach ReelWalk. Try again." }));
+        const result = await searchSounds({ type, query });
         if (id !== request.current) return;
         setSearch(result.ok ? { step: "ready", tracks: result.tracks } : { step: "error", error: result.error });
       },

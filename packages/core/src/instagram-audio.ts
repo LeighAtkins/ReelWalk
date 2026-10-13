@@ -30,6 +30,26 @@ export type InstagramAudioTrack = {
   previewUrl: string | null;
 };
 
+/**
+ * Search words for Instagram's business music library that return good
+ * listing music, tested against the library on 2026-10-13: its search
+ * matches titles more than moods, so these are the words that do work.
+ * The empty query is Instagram's own popular list for business accounts.
+ * `mood` is what the model is told the results are good for.
+ */
+export const INSTAGRAM_MUSIC_SUGGESTIONS: { label: string; query: string; mood: string }[] = [
+  { label: "Popular", query: "", mood: "popular with business accounts right now" },
+  { label: "Real estate", query: "real estate", mood: "made for home and listing videos" },
+  { label: "Luxury", query: "luxury", mood: "luxury, polished" },
+  { label: "Soft house", query: "soft house", mood: "soft house, warm and steady" },
+  { label: "Nu disco", query: "nu disco", mood: "nu disco, bright and fun" },
+  { label: "Upbeat house", query: "upbeat house", mood: "upbeat house, energetic" },
+  { label: "Piano", query: "piano", mood: "piano, calm and elegant" },
+  { label: "Relaxing", query: "relaxing", mood: "relaxing, calm" },
+  { label: "Lo-fi", query: "lofi", mood: "lo-fi, laid back" },
+  { label: "Aesthetic", query: "aesthetic", mood: "aesthetic, soft and dreamy" },
+];
+
 /** Longest search text sent to Instagram. */
 export const INSTAGRAM_AUDIO_QUERY_MAX = 100;
 

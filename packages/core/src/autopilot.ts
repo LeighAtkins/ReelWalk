@@ -7,6 +7,7 @@
  * cuts the reel by rule instead, so the first reel anyone makes is finished.
  */
 import { AI_BRIEFS, type AiAsset, type AiBrief, type AiSong } from "./ai-edit";
+import type { InstagramAudioTrack } from "./instagram-audio";
 import { snapCutsToBeats } from "./beats";
 import {
   MIN_CLIP_MS,
@@ -55,7 +56,7 @@ export const AUTOPILOT_STYLES: Record<string, AutopilotStyle> = {
     id: "just-listed",
     shotMs: 2000,
     maxMs: 26000,
-    mood: /cheerful|upbeat|sunny|bouncy/,
+    mood: /popular|nu disco|upbeat house|cheerful|upbeat|sunny|bouncy/,
     filter: "none",
     hook: () => ({ text: "Just listed", style: "headline", size: 1.2 }),
     roomLabels: true,
@@ -65,7 +66,7 @@ export const AUTOPILOT_STYLES: Record<string, AutopilotStyle> = {
     id: "privacy",
     shotMs: 3500,
     maxMs: 24000,
-    mood: /calm|soft|smooth|classy/,
+    mood: /piano|luxury|soft house|calm|soft|smooth|classy/,
     filter: "none",
     hook: () => ({ text: "the privacy I want", style: "elegant", size: 1.1 }),
     roomLabels: false,
@@ -75,7 +76,7 @@ export const AUTOPILOT_STYLES: Record<string, AutopilotStyle> = {
     id: "open-house",
     shotMs: 2000,
     maxMs: 24000,
-    mood: /cheerful|upbeat|sunny|bouncy/,
+    mood: /popular|real estate|soft house|cheerful|upbeat|sunny|bouncy/,
     filter: "none",
     hook: (info) => ({ text: info.openHouse ? `Open house\n${info.openHouse}` : "Open house", style: "box", size: 1.1 }),
     roomLabels: true,
@@ -85,7 +86,7 @@ export const AUTOPILOT_STYLES: Record<string, AutopilotStyle> = {
     id: "walkthrough",
     shotMs: 2600,
     maxMs: 36000,
-    mood: /warm|relaxed|easy|gentle|hopeful/,
+    mood: /real estate|soft house|lo-fi|warm|relaxed|easy|gentle|hopeful/,
     filter: "warm",
     hook: (info) => ({ text: info.address?.trim() || "Take a look inside", style: "plain", size: 1 }),
     roomLabels: true,
@@ -137,8 +138,10 @@ export function detailsFromInfo(info: ListingInfo, style: AutopilotStyle): Listi
   return hasDetails(details) ? details : null;
 }
 
-/** The library song that fits the style best: its mood first, then any song whose tempo is known. */
+/** The song that fits the style best: an Instagram sound by its mood first, then a library song whose tempo is known. */
 export function pickSong(songs: AiSong[], style: AutopilotStyle): AiSong | null {
+  const instagram = songs.filter((song) => song.instagram);
+  if (instagram.length) return instagram.find((song) => style.mood.test(song.mood ?? "")) ?? instagram[0];
   const withBeat = songs.filter((song) => song.bpm);
   return withBeat.find((song) => style.mood.test(song.mood ?? "")) ?? withBeat[0] ?? songs[0] ?? null;
 }
@@ -161,11 +164,15 @@ function durations(assets: Context["assets"]): Record<string, number | null> {
  * the first shot, the facts on the details card, room labels when the
  * style wants them. Leaves alone whatever the model already did.
  */
-export function finishAutopilot(timeline: Timeline, context: Context): { timeline: Timeline; added: string[] } {
+export function finishAutopilot(
+  timeline: Timeline,
+  context: Context & { instagramPick?: InstagramAudioTrack },
+): { timeline: Timeline; added: string[]; instagramPick?: InstagramAudioTrack } {
   const { songs, style, info, newId } = context;
   const added: string[] = [];
   let current = timeline;
-  if (current.clips.length === 0) return { timeline: current, added };
+  let instagramPick = context.instagramPick;
+  if (current.clips.length === 0) return { timeline: current, added, instagramPick };
 
   // A photo shown twice reads as padding: keep its first appearance only.
   const seen = new Set<string>();
@@ -181,9 +188,12 @@ export function finishAutopilot(timeline: Timeline, context: Context): { timelin
     if (current.music?.bpm) current = snapCutsToBeats(current, durations(context.assets));
   }
 
-  if (!current.music) {
+  if (!current.music && !instagramPick) {
     const song = pickSong(songs, style);
-    if (song) {
+    if (song?.instagram) {
+      instagramPick = song.instagram;
+      added.push(`music: ${song.title} from Instagram`);
+    } else if (song) {
       const asset = context.assets[song.id];
       current = setMusic(current, { assetId: song.id, sourceStartMs: 0, volume: 0.8, bpm: song.bpm ?? asset?.bpm ?? null, beatOffsetMs: asset?.beatOffsetMs ?? null });
       current = snapCutsToBeats(current, durations(context.assets));
@@ -211,7 +221,7 @@ export function finishAutopilot(timeline: Timeline, context: Context): { timelin
     current = addRoomLabels(current);
     added.push("room labels");
   }
-  return { timeline: current, added };
+  return { timeline: current, added, instagramPick };
 }
 
 /**
@@ -251,6 +261,14 @@ export function ruleCut(timeline: Timeline, context: Context): Timeline {
   }
   const base: Timeline = { ...timeline, clips: shots, texts: [], music: null, details: null };
   return finishAutopilot(base, context).timeline;
+}
+
+/** ruleCut, and the Instagram sound it chose when the songs offered were Instagram's. */
+export function ruleCutWithPick(timeline: Timeline, context: Context): { timeline: Timeline; instagramPick?: InstagramAudioTrack } {
+  const cut = ruleCut(timeline, context);
+  if (cut.music) return { timeline: cut };
+  const song = pickSong(context.songs, context.style);
+  return { timeline: cut, instagramPick: song?.instagram };
 }
 
 /** Whether the model's cut can be shown as the reel: clips, a sensible length, nothing absurdly short. */

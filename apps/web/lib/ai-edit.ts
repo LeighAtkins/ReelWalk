@@ -13,12 +13,14 @@ import {
   type AiAsset,
   type AiEditPlan,
   type AiSong,
+  type InstagramAudioTrack,
   type Timeline,
 } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
 import { AiError, aiModel, isAiAvailable, isFakeAi, structuredAnswer, usageCostUsd } from "@/lib/openai";
 import { workspacePlan } from "@/lib/plans";
 import { isUnlimited } from "@/lib/quotas";
+import { instagramSongs } from "@/lib/instagram-songs";
 import { toLibraryAsset, type LibraryAsset } from "@/lib/library";
 import { mediaScope } from "@/lib/workspace";
 
@@ -39,7 +41,7 @@ export async function newAssets(workspaceId: string, before: Timeline, after: Ti
  */
 
 export type AskResult =
-  | { ok: true; timeline: Timeline; note: string; applied: string[]; skipped: string[]; questions: string[]; editId: string; assets?: LibraryAsset[] }
+  | { ok: true; timeline: Timeline; note: string; applied: string[]; skipped: string[]; questions: string[]; editId: string; assets?: LibraryAsset[]; instagramPick?: InstagramAudioTrack }
   | { ok: false; message: string; upgrade?: boolean };
 
 /** The studio's answers to the model's questions, sent back with the same request. */
@@ -111,6 +113,9 @@ export async function context(workspaceId: string, timeline: Timeline): Promise<
   }
   songs.sort((a, b) => Number(b.own ?? false) - Number(a.own ?? false));
   songs.splice(30);
+  // Instagram only, where the studio can use it: the model picks from Instagram's library.
+  const fromInstagram = await instagramSongs(workspaceId);
+  if (fromInstagram.length > 0) songs.splice(0, songs.length, ...fromInstagram);
   const unused = own.map(toAsset);
   for (const asset of unused) assets[asset.id] = asset;
   return { assets, songs, unused };
@@ -192,7 +197,7 @@ export async function askForChange(input: {
   if (model !== "fake") {
     console.log(`ai edit ${record.id}: ${model}, ${usage.inputTokens} in (${usage.cachedTokens} cached), ${usage.outputTokens} out, $${usageCostUsd(aiModel(), usage).toFixed(4)}, ${result.applied.length} applied, ${result.skipped.length} skipped`);
   }
-  return { ok: true, timeline: result.timeline, note: plan.note, applied: result.applied, skipped: result.skipped, questions: plan.questions, editId: record.id };
+  return { ok: true, timeline: result.timeline, note: plan.note, applied: result.applied, skipped: result.skipped, questions: plan.questions, editId: record.id, instagramPick: result.instagramPick };
 }
 
 /** One line for the account page: "4 of 60 this month". */

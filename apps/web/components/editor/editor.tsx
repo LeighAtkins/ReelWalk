@@ -430,14 +430,16 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
   // Editing to an Instagram sound (ADR 0019): the server keeps a private copy
   // of its preview; its length and tempo are found here, like an upload's.
   const [instagramBusy, setInstagramBusy] = useState<string | null>(null);
+  const libraryRef = useRef(library);
+  libraryRef.current = library;
   const pickInstagramSound = useCallback(
-    async (track: InstagramAudioTrack) => {
+    async (track: InstagramAudioTrack): Promise<boolean> => {
       setInstagramBusy(track.id);
       try {
         const result = await chooseInstagramSound({ audioId: track.id, type: track.type, title: track.title, artist: track.artist });
         if (!result.ok) {
           showToast(result.error, 5000);
-          return;
+          return false;
         }
         let asset = result.asset;
         // Measured once per copy; a sound chosen again already knows its tempo.
@@ -466,9 +468,21 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
             instagramAudioId: chosen.instagram?.audioId ?? track.id,
           }),
         );
+        // The cuts follow the new song's beat straight away, room labels with them.
+        if (chosen.bpm) {
+          const durations = Object.fromEntries(Object.values(libraryRef.current).map((entry) => [entry.id, entry.durationMs]));
+          apply((current) => {
+            if (current.clips.length < 2) return current;
+            const next = snapCutsToBeats(current, durations);
+            return hasRoomLabels(next) ? addRoomLabels(next) : next;
+          });
+        }
         setSelection({ kind: "music" });
+        showToast(`“${track.title}” added${chosen.bpm ? ", cuts on the beat" : ""}.`);
+        return true;
       } catch {
         showToast("Could not get that sound from Instagram. Try again.");
+        return false;
       } finally {
         setInstagramBusy(null);
       }
@@ -662,11 +676,13 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ timeline, style, info }),
         });
-        const data = (await response.json()) as { ok: true; timeline: unknown; note: string; assets?: LibraryAsset[] } | { ok: false; message: string };
+        const data = (await response.json()) as { ok: true; timeline: unknown; note: string; assets?: LibraryAsset[]; instagramPick?: InstagramAudioTrack } | { ok: false; message: string };
         if (!data.ok) return fail(data.message);
         if (data.assets?.length) setLibrary((current) => ({ ...current, ...Object.fromEntries(data.assets!.map((asset) => [asset.id, asset])) }));
         const next = parseTimeline(data.timeline);
         apply(() => next);
+        // An Instagram sound is fetched and the cuts snapped to it before the render starts.
+        if (data.instagramPick) await pickInstagramSound(data.instagramPick);
         setAutopilotPhase("exporting");
         // Give the autosave the new timeline before the export reads it.
         await new Promise((resolve) => setTimeout(resolve, 50));
@@ -681,7 +697,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         fail("Could not reach ReelWalk. Check the connection and try again.");
       }
     })();
-  }, [autopilotPhase, uploads.length, timeline, reel.id, apply, autosave, showToast]);
+  }, [autopilotPhase, uploads.length, timeline, reel.id, apply, autosave, showToast, pickInstagramSound]);
 
   const close = useCallback(async () => {
     await autosave.flush();
@@ -1225,7 +1241,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
               body: JSON.stringify({ request, timeline, answers }),
             });
             const data = (await response.json()) as
-              | { ok: true; timeline: unknown; note: string; applied: string[]; skipped: string[]; questions: string[]; assets?: LibraryAsset[] }
+              | { ok: true; timeline: unknown; note: string; applied: string[]; skipped: string[]; questions: string[]; assets?: LibraryAsset[]; instagramPick?: InstagramAudioTrack }
               | { ok: false; message: string; upgrade?: boolean };
             if (!data.ok) return data;
             // A song or shot the AI brought in joins the library first, so the preview can play it.
@@ -1235,6 +1251,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
               apply(() => next);
               showToast(data.note, 6000);
               setSheet(null);
+              if (data.instagramPick) await pickInstagramSound(data.instagramPick);
             }
             return { ok: true, note: data.note, applied: data.applied, skipped: data.skipped, questions: data.questions ?? [] };
           }}

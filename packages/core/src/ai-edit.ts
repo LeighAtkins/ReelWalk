@@ -8,6 +8,7 @@
  * editor can undo. Nothing here talks to the network: the web app does that.
  */
 import { z } from "zod";
+import type { InstagramAudioTrack } from "./instagram-audio";
 import { beatPeriodMs, nearestBeatMs, snapCutsToBeats, type BeatGrid } from "./beats";
 import {
   DEFAULT_IMAGE_MS,
@@ -269,6 +270,8 @@ export type AiSong = {
   mood: string | null;
   /** Uploaded by the studio itself: its own taste, preferred when the mood fits. */
   own?: boolean;
+  /** A sound from Instagram's library: the editor fetches it and cuts to it (ADR 0019). */
+  instagram?: InstagramAudioTrack;
 };
 
 /** Moods of the bundled library songs, by title, so "calmer" and "livelier" mean something. */
@@ -313,7 +316,7 @@ Rules:
 - Times are milliseconds. A clip must be at least ${MIN_CLIP_MS} ms. A video clip cannot show more than its source has; a photo can be any length.
 - "Longer" without a number means about 1.5x the current length; "shorter" about 0.7x; "much" doubles the change. "Slower" halves speed, "faster" doubles it, within 0.5 to 3.
 - Looks: warm, cool, vivid, mono (black and white), fade (soft, filmic), none. Use clip 0 to apply to every clip when the user means the whole reel.
-- Music requests like "calmer" or "more energy" pick the song whose mood fits best; say which in the note. Songs marked "the studio's own" were chosen by the studio: prefer one of them when its mood fits, ahead of the stock songs. Never pick the song already playing. Leave the music alone unless the user asks about it (the song, the mood, "calmer", "more energy") or the reel has none: a request about clips, text, the look or the order keeps the song it has, and so does cutting a whole reel that already has music. "No music" is op music with songId null.
+- Music requests like "calmer" or "more energy" pick the song whose mood fits best; say which in the note. Songs marked "from Instagram" come from Instagram's library for business accounts and are the ones to use; their mood says which search found them, and "popular with business accounts right now" is the safest pick when nothing more specific fits. Bright listings suit house and nu disco, slow luxury suits piano, luxury and soft house, walkthroughs suit real estate, soft house and lo-fi. Songs marked "the studio's own" were chosen by the studio: prefer one of them when its mood fits, ahead of stock songs. Never pick the song already playing. Leave the music alone unless the user asks about it (the song, the mood, "calmer", "more energy") or the reel has none: a request about clips, text, the look or the order keeps the song it has, and so does cutting a whole reel that already has music. "No music" is op music with songId null.
 - Text: keep it short; style "elegant" is a thin serif, "headline" is bold, "box" is text on a pill, "plain" is white text with a shadow. y is 0 at the top and 1 at the bottom. Where text goes: the opening hook at y 0.42 (the middle, where the eye is), size 1.1 to 1.3; a second line or caption-style text at y 0.6; never above 0.3 or below 0.72, because Instagram's name, caption and buttons cover the top fifth and the bottom quarter. Room labels and the details card place themselves. A hook shows over the whole first clip: start 0, end where the first clip ends.
 - Room labels are the texts whose number is marked (room label); to turn them all off use roomLabels on=false rather than removing each.
 - When clips are trimmed, moved or removed, the other texts follow their clips, cuts that were on the beat stay on it, and room labels are redrawn, all by themselves: do not re-time texts or snap to the beat to compensate for your own edits.
@@ -390,7 +393,10 @@ export function describeReel(input: {
   if (songs.length === 0) lines.push("Songs available: none besides the current one.");
   else {
     lines.push("Songs available (songId: title, tempo, mood):");
-    for (const song of songs) lines.push(`- ${song.id}: "${song.title}"${song.bpm ? `, ${Math.round(song.bpm)} bpm` : ""}${song.mood ? `, ${song.mood}` : ""}${song.own ? ", the studio's own" : ""}`);
+    for (const song of songs)
+      lines.push(
+        `- ${song.id}: "${song.title}"${song.instagram?.artist ? ` by ${song.instagram.artist}` : ""}${song.bpm ? `, ${Math.round(song.bpm)} bpm` : ""}${song.mood ? `, ${song.mood}` : ""}${song.own ? ", the studio's own" : ""}${song.instagram ? ", from Instagram" : ""}`,
+      );
   }
   const unused = (input.unused ?? []).filter((asset) => asset.kind !== "AUDIO");
   if (unused.length > 0) {
@@ -410,6 +416,8 @@ export function describeReel(input: {
 
 export type AiEditResult = {
   timeline: Timeline;
+  /** An Instagram sound the plan chose: the editor fetches it, sets it as the music and snaps the cuts to it. */
+  instagramPick?: InstagramAudioTrack;
   /** What each operation did, in order, for the studio and the log. */
   applied: string[];
   /** Operations that could not be done and why. */
@@ -511,6 +519,7 @@ export function applyAiEditPlan(timeline: Timeline, plan: Pick<AiEditPlan, "ops"
   const anchors = anchorTexts(timeline);
   const onBeat = cutsOnBeat(timeline);
   const removedTexts = new Set<string>();
+  let instagramPick: InstagramAudioTrack | undefined;
   // Clips added by this plan get numbers after the ones the model was shown.
   const added: string[] = [];
   const numberOf = (n: number) => clipIds[n - 1] ?? added[n - 1 - clipIds.length];
@@ -777,6 +786,11 @@ export function applyAiEditPlan(timeline: Timeline, plan: Pick<AiEditPlan, "ops"
           skipped.push(`music: no song ${op.songId} in the list`);
           break;
         }
+        if (song.instagram) {
+          instagramPick = song.instagram;
+          applied.push(`music is now "${song.title}" from Instagram`);
+          break;
+        }
         const asset = assets[song.id];
         current = setMusic(current, {
           assetId: song.id,
@@ -887,7 +901,7 @@ export function applyAiEditPlan(timeline: Timeline, plan: Pick<AiEditPlan, "ops"
       return Math.abs(nearest - text.endMs) <= 800 && nearest > text.startMs + 300 ? { ...text, endMs: nearest } : text;
     }),
   };
-  return { timeline: current, applied, skipped };
+  return { timeline: current, applied, skipped, instagramPick };
 }
 
 // ── A stand-in for the model ────────────────────────────────────

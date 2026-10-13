@@ -46,7 +46,7 @@ export default async function SignupPage({ searchParams }: { searchParams: Promi
             {error}
           </p>
         ) : null}
-        <SubmitButton className="btn btn-signal btn-block" pendingLabel="Creating your studio…">
+        <SubmitButton className="btn btn-block" pendingLabel="Creating your studio…">
           Create studio
         </SubmitButton>
         <p className="muted small" style={{ textAlign: "center" }}>

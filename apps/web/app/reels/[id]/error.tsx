@@ -11,7 +11,7 @@ export default function EditorError({ error, reset }: { error: Error & { digest?
         <h1 style={{ fontSize: "1.25rem", margin: 0 }}>The editor hit a snag</h1>
         <p className="muted small">Your last saved version is safe. Reloading brings it back.</p>
         <p className="muted small" style={{ wordBreak: "break-word" }}>{error.message}</p>
-        <button type="button" className="btn btn-signal btn-block" onClick={() => window.location.reload()}>
+        <button type="button" className="btn btn-block" onClick={() => window.location.reload()}>
           Reload the editor
         </button>
         <button type="button" className="btn btn-quiet btn-block" onClick={reset}>

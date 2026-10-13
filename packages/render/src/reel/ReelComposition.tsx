@@ -97,7 +97,7 @@ const ClipView: React.FC<{
   const { fps } = useVideoConfig();
   if (!asset) {
     // The source was deleted. Show a neutral frame instead of failing the whole render.
-    return <AbsoluteFill style={{ backgroundColor: "#163a5c" }} />;
+    return <AbsoluteFill style={{ backgroundColor: "#262320" }} />;
   }
 
   // Clamped: a clip is mounted a second early (premount) with negative frames.

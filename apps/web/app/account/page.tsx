@@ -130,7 +130,7 @@ export default async function AccountPage({
                 {next.name}: {next.exportsPerMonth} exports a month at 1080×1920 with no mark, {next.storageGb} GB of uploads, one-tap posting to
                 Instagram{next.seats > 1 ? `, ${next.seats} people` : ""}. ${next.priceUsd}/month, cancel any time.
               </p>
-              <SubmitButton className="btn btn-signal btn-block" pendingLabel="Opening checkout…" testId="upgrade">
+              <SubmitButton className="btn btn-block" pendingLabel="Opening checkout…" testId="upgrade">
                 Upgrade to {next.name}
               </SubmitButton>
             </form>

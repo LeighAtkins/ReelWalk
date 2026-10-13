@@ -139,7 +139,7 @@ export function MediaSheet({
 
   return (
     <Sheet title="Add photos and videos" onClose={onClose}>
-      <label className="btn btn-signal btn-block picker-btn">
+      <label className="btn btn-block picker-btn">
         <PlusIcon size={18} />
         Choose from your phone
         <input
@@ -355,7 +355,7 @@ export function PanoSheet({
     return (
       <Sheet title="360 view" onClose={onClose}>
         <p className="muted">This photo is shown flat. Turn on the 360 view to move a camera through the room.</p>
-        <button type="button" className="btn btn-signal btn-block" onClick={() => onChange(DEFAULT_PANO)}>
+        <button type="button" className="btn btn-block" onClick={() => onChange(DEFAULT_PANO)}>
           Show as 360
         </button>
       </Sheet>
@@ -618,7 +618,7 @@ export function TextSheet({
         ))}
       </div>
       <Range label="Size" value={draft.size} min={minTextSize(draft.style)} max={TEXT_SIZE_MAX} step={0.1} display={`${Math.round(draft.size * 100)}%`} onChange={(size) => setDraft({ ...draft, size })} />
-      <button type="button" className="btn btn-signal btn-block" disabled={!draft.text.trim()} onClick={() => onSave({ ...draft, text: draft.text.trim() })}>
+      <button type="button" className="btn btn-block" disabled={!draft.text.trim()} onClick={() => onSave({ ...draft, text: draft.text.trim() })}>
         {initial ? "Save text" : "Add text"}
       </button>
     </Sheet>
@@ -767,7 +767,7 @@ export function MusicSheet({
             />
           ) : null}
           {music.bpm ? (
-            <button type="button" className="btn btn-signal btn-block" onClick={onSnap} data-testid="snap-to-beat">
+            <button type="button" className="btn btn-block" onClick={onSnap} data-testid="snap-to-beat">
               Snap cuts to the beat ({Math.round(music.bpm)} bpm)
             </button>
           ) : (

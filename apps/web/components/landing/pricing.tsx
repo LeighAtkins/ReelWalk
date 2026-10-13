@@ -90,7 +90,7 @@ function PlanAction({ plan, viewer, yearlyOn }: { plan: PlanDef; viewer: Pricing
   const paid = plan.priceUsd > 0;
   if (!viewer.signedIn) {
     return (
-      <Link href="/signup" className={`btn btn-block ${plan.id === "AGENT" ? "btn-signal" : "btn-quiet"}`} data-testid={`cta-${plan.id.toLowerCase()}`}>
+      <Link href="/signup" className={`btn btn-block ${plan.id === "AGENT" ? "" : "btn-quiet"}`} data-testid={`cta-${plan.id.toLowerCase()}`}>
         {paid ? `Start free, then ${plan.name}` : "Start free, no card"}
       </Link>
     );
@@ -114,7 +114,7 @@ function PlanAction({ plan, viewer, yearlyOn }: { plan: PlanDef; viewer: Pricing
         <form key={interval} action={startCheckout} className={interval === "year" ? styles.yearly : styles.monthly}>
           <input type="hidden" name="plan" value={plan.id} />
           <input type="hidden" name="interval" value={interval} />
-          <SubmitButton className={`btn btn-block ${plan.id === "AGENT" ? "btn-signal" : "btn-quiet"}`} pendingLabel="Opening checkout…">
+          <SubmitButton className={`btn btn-block ${plan.id === "AGENT" ? "" : "btn-quiet"}`} pendingLabel="Opening checkout…">
             {interval === "year" ? `Get ${plan.name}, yearly` : `Get ${plan.name}`}
           </SubmitButton>
         </form>

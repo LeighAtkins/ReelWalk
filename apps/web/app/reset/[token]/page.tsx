@@ -30,7 +30,7 @@ export default async function ResetPage({ params }: { params: Promise<{ token: s
             New password <span className="muted small">(8+ characters)</span>
             <input className="text-input" name="password" type="password" autoComplete="new-password" minLength={8} required autoFocus />
           </label>
-          <SubmitButton className="btn btn-signal btn-block" pendingLabel="Saving…">
+          <SubmitButton className="btn btn-block" pendingLabel="Saving…">
             Save and sign in
           </SubmitButton>
         </form>

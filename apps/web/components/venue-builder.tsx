@@ -207,7 +207,7 @@ export function VenueBuilder({ library, stockConfigured }: { library: LibraryAss
         </div>
 
         {source === "upload" ? (
-          <label className="btn btn-signal btn-block picker-btn">
+          <label className="btn btn-block picker-btn">
             <PlusIcon size={18} />
             Choose photos and videos
             <input

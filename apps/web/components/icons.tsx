@@ -21,15 +21,14 @@ function Icon({ children, size = 22 }: { children: ReactNode; size?: number }) {
 
 type IconProps = { size?: number };
 
-/** A 9:16 frame on a drafting grid: the reel, drawn like a plan. */
+/**
+ * The ivory R (docs/design/brand.md): a Bodoni capital whose stem is a strip
+ * of film spooling out along the baseline and whose leg ends in a boot. The
+ * SVG lives in public/brand/mark.svg and .brand-mark paints it with the
+ * current text colour through a mask, so it follows the text it sits by.
+ */
 export function BrandMark() {
-  return (
-    <svg className="brand-mark" viewBox="0 0 24 32" aria-hidden="true">
-      <rect x="1.5" y="1.5" width="21" height="29" rx="3" fill="none" stroke="currentColor" strokeWidth="2.2" />
-      <path d="M1.5 12h11v18.5M12.5 12V1.5" fill="none" stroke="currentColor" strokeWidth="1.4" />
-      <path d="M15 17.5v7l5.5-3.5Z" fill="#f0442c" />
-    </svg>
-  );
+  return <span className="brand-mark" aria-hidden="true" />;
 }
 
 export const PlusIcon = ({ size }: IconProps) => <Icon size={size}><path d="M12 5v14M5 12h14" /></Icon>;

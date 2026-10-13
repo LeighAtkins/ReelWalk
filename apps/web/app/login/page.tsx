@@ -55,7 +55,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
             The demo studio is not available right now.
           </p>
         ) : null}
-        <SubmitButton className="btn btn-signal btn-block" pendingLabel="Signing in…">
+        <SubmitButton className="btn btn-block" pendingLabel="Signing in…">
           Sign in
         </SubmitButton>
         <p className="muted small" style={{ textAlign: "center" }}>

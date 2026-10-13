@@ -4,7 +4,7 @@ import { DETAILS_CARD_MS, detailFacts, hasDetails, INSTAGRAM, type ListingDetail
 import { useFontsFor } from "./fonts";
 import { REEL_FONT_FAMILY } from "./look";
 
-const COLORS = { card: "rgba(11, 32, 54, 0.9)", paper: "#eaf2fb", muted: "#9cb7d3", signal: "#f0442c" };
+const COLORS = { card: "rgba(21, 20, 18, 0.9)", paper: "#f3ede2", muted: "#a89f93", signal: "#c1272d" };
 
 /** Frames the card takes to arrive and to leave. */
 const ENTER_FRAMES = 12;

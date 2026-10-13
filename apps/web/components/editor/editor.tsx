@@ -900,7 +900,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
                 <strong>Start with your listing&apos;s photos and videos.</strong>
               </p>
               <p className="muted small">They play in the order you pick them. Vertical video fills the frame best.</p>
-              <button type="button" className="btn btn-signal" onClick={() => setSheet("media")}>
+              <button type="button" className="btn" onClick={() => setSheet("media")}>
                 <PlusIcon size={18} />
                 Add media
               </button>

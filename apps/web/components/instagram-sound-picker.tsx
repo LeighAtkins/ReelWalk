@@ -127,7 +127,7 @@ function SoundSheet({ value, onClose, onPick }: { value: InstagramAudioChoice | 
         </span>
       </label>
 
-      <button type="button" className="btn btn-signal btn-block sheet-sticky" onClick={confirm} disabled={!selected} data-testid="sound-confirm">
+      <button type="button" className="btn btn-block sheet-sticky" onClick={confirm} disabled={!selected} data-testid="sound-confirm">
         {selected ? `Use “${selected.title}”` : "Pick a sound"}
       </button>
     </Sheet>

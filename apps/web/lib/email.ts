@@ -79,9 +79,9 @@ export function escapeHtml(value: string): string {
 export function emailHtml(input: { heading: string; paragraphs: string[]; button?: { label: string; url: string } }): string {
   const paragraphs = input.paragraphs.map((p) => `<p style="margin:0 0 14px;line-height:1.5">${escapeHtml(p)}</p>`).join("");
   const button = input.button
-    ? `<p style="margin:22px 0"><a href="${escapeHtml(input.button.url)}" style="display:inline-block;padding:12px 22px;border-radius:999px;background:#d9361f;color:#fff;font-weight:700;text-decoration:none">${escapeHtml(input.button.label)}</a></p>`
+    ? `<p style="margin:22px 0"><a href="${escapeHtml(input.button.url)}" style="display:inline-block;padding:12px 22px;border-radius:999px;background:#0a0a0a;color:#f3ede2;font-weight:600;text-decoration:none">${escapeHtml(input.button.label)}</a></p>`
     : "";
-  return `<!doctype html><html><body style="margin:0;padding:24px;background:#f6f4ef;font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#0f2a44">
+  return `<!doctype html><html><body style="margin:0;padding:24px;background:#f6f4ef;font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#1b1915">
 <div style="max-width:520px;margin:0 auto;background:#fff;border-radius:16px;padding:28px">
 <p style="margin:0 0 18px;font-weight:800;font-size:18px">ReelWalk</p>
 <h1 style="margin:0 0 16px;font-size:22px">${escapeHtml(input.heading)}</h1>

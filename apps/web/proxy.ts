@@ -20,6 +20,8 @@ const PUBLIC_PATHS = [
   /^\/(privacy|terms|data-deletion)$/,
   /^\/api\//,
   /^\/icon\.svg$/,
+  // The brand mark, painted through a CSS mask on every page including sign-in.
+  /^\/brand\//,
   // The landing page's photos and drawn screens.
   /^\/landing\//,
   /^\/robots\.txt$/,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AI_EDIT_PLAN_JSON_SCHEMA, aiEditPlanSchema, applyAiEditPlan, cutsOnBeat, describeReel, fakeAiEditPlan, type AiAsset, type AiEditOp, type AiSong } from "../src/ai-edit";
+import { AI_BRIEFS, AI_EDIT_PLAN_JSON_SCHEMA, aiEditPlanSchema, applyAiEditPlan, cutsOnBeat, describeReel, fakeAiEditPlan, type AiAsset, type AiEditOp, type AiSong } from "../src/ai-edit";
 import { clipDurationMs, parseTimeline, type Timeline } from "../src/timeline";
 
 const assets: Record<string, AiAsset> = {
@@ -190,6 +190,31 @@ describe("cutting from unused media", () => {
   it("carries questions through the schema with no operations", () => {
     const parsed = aiEditPlanSchema.parse({ ops: [], note: "Tell me the open-house time and I will cut it.", questions: ["What day and time is the open house?"] });
     expect(parsed.questions).toHaveLength(1);
+  });
+});
+
+describe("whole-reel cuts", () => {
+  it("names a clip's room so room labels can go on", () => {
+    const base = parseTimeline({ ...reel(), clips: reel().clips.map((clip) => ({ ...clip, room: null })), texts: [] });
+    const plan = { ops: [op({ op: "room", clip: 1, content: "Kitchen" }), op({ op: "roomLabels", on: true })], note: "", questions: [] };
+    const { timeline, applied, skipped } = applyAiEditPlan(base, plan, { assets, songs });
+    expect(timeline.clips[0].room).toBe("kitchen");
+    expect(timeline.texts.map((text) => text.text)).toEqual(["Kitchen"]);
+    expect(applied[0]).toBe("clip 1 (kitchen pan) is the kitchen");
+    expect(skipped).toEqual([]);
+  });
+
+  it("a hook added with the plan ends on the cut after the beat moved it", () => {
+    // 96 bpm: a 4.0 s first clip snaps to 4.375 s; the hook asked to end at 4.0 s follows.
+    const plan = { ops: [op({ op: "addText", content: "Open Sunday", style: "box", startMs: 0, endMs: 4000, y: 0.42 }), op({ op: "snapToBeat" })], note: "", questions: [] };
+    const { timeline } = applyAiEditPlan(reel(), plan, { assets, songs, newId: () => "hook" });
+    const cut = clipDurationMs(timeline.clips[0]);
+    expect(cut).not.toBe(4000);
+    expect(timeline.texts.find((text) => text.id === "hook")!.endMs).toBe(cut);
+  });
+
+  it("the briefs ask for shots fast enough to read as a reel", () => {
+    expect(AI_BRIEFS.find((brief) => brief.id === "just-listed")!.text).toContain("1.5 to 2.5 seconds");
   });
 });
 

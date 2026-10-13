@@ -230,7 +230,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
   const [playing, setPlaying] = useState(false);
   const [guides, setGuides] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
-  const [exportState, setExportState] = useState<{ busy: boolean; error: string | null; issues: Issue[] | null }>({ busy: false, error: null, issues: null });
+  const [exportState, setExportState] = useState<{ busy: boolean; error: string | null; issues: Issue[] | null; upgrade?: boolean }>({ busy: false, error: null, issues: null });
   const clock = useMemo(() => createClock(), []);
   const [theater, setTheater] = useState(false);
   const exitTheater = useCallback(() => setTheater(false), []);
@@ -626,7 +626,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
     }
     // On success the action redirects to the export screen.
     const result = await exportReel({ id: reel.id });
-    if (result && !result.ok) setExportState({ busy: false, error: result.message ?? null, issues: result.issues });
+    if (result && !result.ok) setExportState({ busy: false, error: result.message ?? null, issues: result.issues, upgrade: result.upgrade });
   }, [autosave, reel.id]);
 
   const close = useCallback(async () => {
@@ -1172,7 +1172,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
             });
             const data = (await response.json()) as
               | { ok: true; timeline: unknown; note: string; applied: string[]; skipped: string[]; questions: string[] }
-              | { ok: false; message: string };
+              | { ok: false; message: string; upgrade?: boolean };
             if (!data.ok) return data;
             if (data.applied.length > 0) {
               const next = parseTimeline(data.timeline);
@@ -1201,6 +1201,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
           durationMs={totalMs}
           busy={exportState.busy}
           error={exportState.error}
+          upgrade={exportState.upgrade}
           instagramSound={musicInstagram ? instagramAudioLabel(musicInstagram) : null}
           onExport={confirmExport}
           onShowIssue={(issue) => {

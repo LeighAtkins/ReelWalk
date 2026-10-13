@@ -32,6 +32,8 @@ export type PlanDef = {
   priceUsdYearly: number;
   /** Exports started in a calendar month (UTC). Failed renders do not count. */
   exportsPerMonth: number;
+  /** Exports started in any 24 hours: keeps one account from running up the render bill in an afternoon. */
+  exportsPerDay: number;
   /** Exports queued or rendering at once. */
   activeExports: number;
   storageGb: number;
@@ -45,15 +47,20 @@ export type PlanDef = {
 };
 
 export const PLANS: Record<PlanId, PlanDef> = {
-  FREE: { id: "FREE", name: "Free", priceUsd: 0, priceUsdYearly: 0, exportsPerMonth: 3, activeExports: 2, storageGb: 1, outputWidth: 720, watermark: true, instagram: false, seats: 1, aiEditsPerMonth: 5 },
-  AGENT: { id: "AGENT", name: "Agent", priceUsd: 29, priceUsdYearly: 290, exportsPerMonth: 40, activeExports: 3, storageGb: 25, outputWidth: 1080, watermark: false, instagram: true, seats: 1, aiEditsPerMonth: 60 },
-  OFFICE: { id: "OFFICE", name: "Studio", priceUsd: 79, priceUsdYearly: 790, exportsPerMonth: 200, activeExports: 6, storageGb: 100, outputWidth: 1080, watermark: false, instagram: true, seats: 5, aiEditsPerMonth: 300 },
+  FREE: { id: "FREE", name: "Free", priceUsd: 0, priceUsdYearly: 0, exportsPerMonth: 3, exportsPerDay: 3, activeExports: 2, storageGb: 1, outputWidth: 720, watermark: true, instagram: false, seats: 1, aiEditsPerMonth: 5 },
+  AGENT: { id: "AGENT", name: "Agent", priceUsd: 29, priceUsdYearly: 290, exportsPerMonth: 40, exportsPerDay: 30, activeExports: 3, storageGb: 25, outputWidth: 1080, watermark: false, instagram: true, seats: 1, aiEditsPerMonth: 60 },
+  OFFICE: { id: "OFFICE", name: "Studio", priceUsd: 79, priceUsdYearly: 790, exportsPerMonth: 200, exportsPerDay: 100, activeExports: 6, storageGb: 100, outputWidth: 1080, watermark: false, instagram: true, seats: 5, aiEditsPerMonth: 300 },
 };
 
 export const PLAN_IDS = Object.keys(PLANS) as PlanId[];
 
 export function isPlanId(value: unknown): value is PlanId {
   return typeof value === "string" && value in PLANS;
+}
+
+/** The next plan up, for "upgrade" links; null on the top plan. */
+export function nextPlan(id: PlanId): PlanDef | null {
+  return id === "FREE" ? PLANS.AGENT : id === "AGENT" ? PLANS.OFFICE : null;
 }
 
 /** What a plan costs for one charge at the given interval. */

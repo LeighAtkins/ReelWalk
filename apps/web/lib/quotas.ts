@@ -1,34 +1,50 @@
-import { PLANS } from "@reelwalk/core";
+import { nextPlan, PLANS } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
 import { exportsThisMonth, storageUsed, workspacePlan } from "@/lib/plans";
 
 /**
- * Per-workspace limits. The plan sets them (plans in @reelwalk/core); a
- * daily cap on top keeps one account from running up the render bill in an
- * afternoon, whatever its plan.
+ * Per-workspace limits, set by the plan (plans in @reelwalk/core): exports a
+ * month, exports in any 24 hours, exports at once. A studio with an admin in
+ * it (ReelWalk's own, isAdmin set by hand) has no monthly or daily cap; the
+ * at-once limit still holds, because it protects the render queue.
  */
-export const EXPORTS_PER_DAY = Number(process.env.QUOTA_EXPORTS_PER_DAY ?? 30);
+
+/** A limit that was hit: what to tell the studio, and whether a bigger plan would lift it. */
+export type Limit = { message: string; upgrade: boolean };
+
+export async function isUnlimited(workspaceId: string): Promise<boolean> {
+  return (await prisma.user.count({ where: { workspaceId, isAdmin: true } })) > 0;
+}
 
 const gb = (bytes: number) => `${(bytes / 1024 ** 3).toFixed(bytes < 10 * 1024 ** 3 ? 1 : 0)} GB`;
 
 /** Why another export cannot start now, or null if it can. */
-export async function exportBlockedReason(workspaceId: string): Promise<string | null> {
-  const [{ plan, id }, active, lastDay, thisMonth] = await Promise.all([
+export async function exportBlockedReason(workspaceId: string): Promise<Limit | null> {
+  const [{ plan, id }, active, lastDay, thisMonth, unlimited] = await Promise.all([
     workspacePlan(workspaceId),
     prisma.renderJob.count({ where: { workspaceId, kind: { not: "PREVIEW" }, status: { in: ["QUEUED", "RUNNING"] } } }),
     prisma.renderJob.count({ where: { workspaceId, kind: { not: "PREVIEW" }, createdAt: { gte: new Date(Date.now() - 24 * 3600_000) } } }),
     exportsThisMonth(workspaceId),
+    isUnlimited(workspaceId),
   ]);
+  const next = nextPlan(id);
   if (active >= plan.activeExports) {
-    return `${active} exports are already rendering. Start this one when one of them has finished; they keep going if you leave.`;
+    return {
+      message: `${active} exports are already rendering. Start this one when one of them has finished; they keep going if you leave.${next ? ` ${next.name} renders ${next.activeExports} at once.` : ""}`,
+      upgrade: next !== null,
+    };
   }
+  if (unlimited) return null;
   if (thisMonth >= plan.exportsPerMonth) {
     return id === "FREE"
-      ? `That is all ${plan.exportsPerMonth} of this month's free exports. The ${PLANS.AGENT.name} plan has ${PLANS.AGENT.exportsPerMonth} a month, at full size and without the mark.`
-      : `That makes ${plan.exportsPerMonth} exports this month, the ${plan.name} plan's allowance. It resets on the 1st.`;
+      ? { message: `That is all ${plan.exportsPerMonth} of this month's free exports. The ${PLANS.AGENT.name} plan has ${PLANS.AGENT.exportsPerMonth} a month, at full size and without the mark.`, upgrade: true }
+      : { message: `That makes ${plan.exportsPerMonth} exports this month, the ${plan.name} plan's allowance. It resets on the 1st${next ? `; ${next.name} has ${next.exportsPerMonth} a month` : ""}.`, upgrade: next !== null };
   }
-  if (lastDay >= EXPORTS_PER_DAY) {
-    return `That makes ${EXPORTS_PER_DAY} exports in 24 hours, the daily limit. Exports open up again over the next day.`;
+  if (lastDay >= plan.exportsPerDay) {
+    return {
+      message: `That makes ${plan.exportsPerDay} exports in 24 hours, the ${plan.name} plan's daily limit. Exports open up again over the next day${next ? `, or ${next.name} allows ${next.exportsPerDay} a day` : ""}.`,
+      upgrade: next !== null,
+    };
   }
   return null;
 }

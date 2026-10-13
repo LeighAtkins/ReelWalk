@@ -157,7 +157,7 @@ export async function setShareLink(input: { id: string; enabled: boolean }): Pro
   return { url: shareToken ? `${await appUrl()}/r/${shareToken}` : null };
 }
 
-export type ExportResult = { ok: false; issues: Issue[]; message?: string };
+export type ExportResult = { ok: false; issues: Issue[]; message?: string; /** A bigger plan would lift the limit that stopped it. */ upgrade?: boolean };
 
 /**
  * Freezes the current timeline into a render job and queues it. The checks
@@ -173,7 +173,7 @@ export async function exportReel(input: { id: string }): Promise<ExportResult> {
   const issues = instagramIssues(timeline, reel.caption);
   if (!canExport(issues)) return { ok: false, issues };
   const blocked = await exportBlockedReason(user.workspaceId);
-  if (blocked) return { ok: false, issues: [], message: blocked };
+  if (blocked) return { ok: false, issues: [], message: blocked.message, upgrade: blocked.upgrade };
 
   const library = await prisma.mediaAsset.findMany({
     where: { id: { in: referencedAssetIds(timeline) }, ...mediaScope(user.workspaceId) },

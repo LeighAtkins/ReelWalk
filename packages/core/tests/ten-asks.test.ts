@@ -119,7 +119,7 @@ describe("5. a status sticker", () => {
   it("is capitals at the top of the safe area over the first shot", () => {
     const { timeline, applied } = run([op({ op: "addText", content: "Price drop", style: "tag" })]);
     const tag = timeline.texts.find((text) => text.style === "tag")!;
-    expect(tag).toMatchObject({ text: "PRICE DROP", y: TAG_Y, size: 0.7, startMs: 0, endMs: 4000 });
+    expect(tag).toMatchObject({ text: "PRICE DROP", y: TAG_Y, size: 0.9, startMs: 0, endMs: 4000 });
     expect(applied).toEqual(['added text "Price drop"']);
     // Changing the sticker keeps it a sticker.
     const sold = run([op({ op: "editText", text: 2, content: "sold" })], timeline);
@@ -131,6 +131,10 @@ describe("6. text over one shot", () => {
   it("atClip puts text from the shot's first frame to its last, so 'at the end' is the last clip", () => {
     const { timeline } = run([op({ op: "addText", content: "DM for a private tour", style: "box", atClip: 3, y: 0.6 })]);
     expect(timeline.texts[1]).toMatchObject({ text: "DM for a private tour", startMs: 7000, endMs: 10000, y: 0.6 });
+    // With the details card showing at the end, the line goes above the card instead of under it.
+    const carded = parseTimeline({ ...reel(), details: { ...reel().details!, placement: "end" } });
+    const aboveCard = run([op({ op: "addText", content: "DM for a private tour", style: "box", atClip: 3, y: 0.6 })], carded);
+    expect(aboveCard.timeline.texts[1].y).toBe(0.42);
     const over = run([op({ op: "editText", text: 1, atClip: 2 })], timeline);
     expect(over.timeline.texts[0]).toMatchObject({ startMs: 4000, endMs: 7000 });
   });

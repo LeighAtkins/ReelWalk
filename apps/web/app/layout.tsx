@@ -24,6 +24,9 @@ export const viewport: Viewport = {
   initialScale: 1,
   // Lets the layout extend under the notch and home indicator; padding uses env(safe-area-inset-*).
   viewportFit: "cover",
+  // Android's keyboard shortens the page instead of sliding the view over it,
+  // so fixed panels and sheets stay above it rather than being dragged around.
+  interactiveWidget: "resizes-content",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

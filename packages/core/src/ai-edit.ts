@@ -8,7 +8,7 @@
  * editor can undo. Nothing here talks to the network: the web app does that.
  */
 import { z } from "zod";
-import { snapCutsToBeats } from "./beats";
+import { beatPeriodMs, nearestBeatMs, snapCutsToBeats, type BeatGrid } from "./beats";
 import {
   FILTERS,
   MIN_CLIP_MS,
@@ -36,6 +36,7 @@ import {
   updateClip,
   updateText,
   type Clip,
+  type TextOverlay,
   type Timeline,
 } from "./timeline";
 
@@ -216,6 +217,7 @@ Rules:
 - Music requests like "calmer" or "more energy" pick the song whose mood fits best; say which in the note. "No music" is op music with songId null.
 - Text: keep it short; style "elegant" is a thin serif, "headline" is bold, "box" is text on a pill, "plain" is white text with a shadow. y is 0 at the top and 1 at the bottom; keep text between 0.12 and 0.88 so Instagram's own overlays do not cover it.
 - Room labels are the texts whose number is marked (room label); to turn them all off use roomLabels on=false rather than removing each.
+- When clips are trimmed, moved or removed, the other texts follow their clips, cuts that were on the beat stay on it, and room labels are redrawn, all by themselves: do not re-time texts or snap to the beat to compensate for your own edits.
 - The details card (price, beds, baths, area, address, contact) is op details; pass only the fields to change, null for the rest; to remove the card pass details null.
 - If the request is unclear, impossible with these operations, or not about the reel, return no operations and say so in the note in one sentence, without apologising.
 - The note is one or two short sentences in the second person, present tense, plain language, naming what changed ("The kitchen clip now runs 6 seconds and the music is Fretless."). No markdown.`;
@@ -310,6 +312,67 @@ function clipLabel(timeline: Timeline, clip: Clip, assets: ApplyOptions["assets"
   return `clip ${index}${name ? ` (${name})` : ""}`;
 }
 
+
+// ── Keeping the rest of the reel in step ────────────────────────
+
+/** Where a text sits relative to the clips: the clip it starts over, how far in, and for how long. */
+export type TextAnchor = { textId: string; clipId: string; clipIndex: number; offsetMs: number; durationMs: number };
+
+/**
+ * Records, for every text that is not a room label, which clip it starts
+ * over, so that after clips are trimmed, moved or removed the text can go
+ * back over the same picture rather than staying at the same second.
+ */
+export function anchorTexts(timeline: Timeline): TextAnchor[] {
+  const starts = clipStartsMs(timeline);
+  return timeline.texts
+    .filter((text) => !text.id.startsWith("room-"))
+    .map((text) => {
+      let index = starts.findIndex((start, i) => text.startMs >= start && text.startMs < start + clipDurationMs(timeline.clips[i]));
+      if (index === -1) index = Math.max(0, timeline.clips.length - 1);
+      const clip = timeline.clips[index];
+      return { textId: text.id, clipId: clip?.id ?? "", clipIndex: index, offsetMs: clip ? text.startMs - starts[index] : 0, durationMs: text.endMs - text.startMs };
+    });
+}
+
+/**
+ * Puts anchored texts back over their clips. A text whose clip was removed
+ * goes over whichever clip now holds that position (so a title over the
+ * first shot stays over the first shot); a text that was deleted stays gone.
+ */
+export function reflowTexts(timeline: Timeline, anchors: TextAnchor[], original: TextOverlay[] = []): Timeline {
+  if (timeline.clips.length === 0) return timeline;
+  const starts = clipStartsMs(timeline);
+  const total = timelineDurationMs(timeline);
+  const byId = new Map(anchors.map((anchor) => [anchor.textId, anchor]));
+  // A text that fell off the end when the reel got shorter comes back if it was anchored.
+  const present = new Set(timeline.texts.map((text) => text.id));
+  const restored = original.filter((text) => byId.has(text.id) && !present.has(text.id));
+  const texts = [...timeline.texts, ...restored].map((text): TextOverlay => {
+    const anchor = byId.get(text.id);
+    if (!anchor) return text;
+    let index = timeline.clips.findIndex((clip) => clip.id === anchor.clipId);
+    if (index === -1) index = Math.min(anchor.clipIndex, timeline.clips.length - 1);
+    const clipMs = clipDurationMs(timeline.clips[index]);
+    const startMs = Math.min(starts[index] + Math.min(anchor.offsetMs, Math.max(0, clipMs - 100)), total - 100);
+    const endMs = Math.min(total, startMs + anchor.durationMs);
+    return endMs > startMs ? { ...text, startMs, endMs } : text;
+  });
+  return { ...timeline, texts };
+}
+
+/** True when every cut between clips falls on a beat of the music (within a frame or so). */
+export function cutsOnBeat(timeline: Timeline, toleranceMs = 60): boolean {
+  const music = timeline.music;
+  if (!music?.bpm || timeline.clips.length < 2) return false;
+  const grid: BeatGrid = { bpm: music.bpm, offsetMs: music.beatOffsetMs ?? 0 };
+  if (beatPeriodMs(grid) <= 0) return false;
+  const starts = clipStartsMs(timeline);
+  return starts.slice(1).every((start) => Math.abs(nearestBeatMs(start, grid, music.sourceStartMs) - start) <= toleranceMs);
+}
+
+const STRUCTURAL_OPS: ReadonlySet<AiEditOpName> = new Set(["trim", "speed", "move", "remove", "duplicate", "snapToBeat"]);
+
 /**
  * Applies the plan to the timeline, one operation at a time. A bad operation
  * is skipped with a reason rather than failing the whole request, because the
@@ -324,6 +387,11 @@ export function applyAiEditPlan(timeline: Timeline, plan: AiEditPlan, options: A
   const applied: string[] = [];
   const skipped: string[] = [];
   let current = timeline;
+  // What the rest of the reel is lined up to, so it can be lined up again afterwards.
+  const anchors = anchorTexts(timeline);
+  const onBeat = cutsOnBeat(timeline);
+  const removedTexts = new Set<string>();
+  const structural = () => plan.ops.some((op) => STRUCTURAL_OPS.has(op.op));
 
   const clipsFor = (op: AiEditOp, allowAll: boolean): Clip[] | null => {
     if (op.clip === null || op.clip === undefined) {
@@ -538,6 +606,7 @@ export function applyAiEditPlan(timeline: Timeline, plan: AiEditPlan, options: A
         const text = textFor(op);
         if (!text) break;
         current = removeText(current, text.id);
+        removedTexts.add(text.id);
         applied.push(`text "${text.text}" removed`);
         break;
       }
@@ -626,6 +695,20 @@ export function applyAiEditPlan(timeline: Timeline, plan: AiEditPlan, options: A
         break;
       }
     }
+  }
+  if (structural() && current !== timeline) {
+    // Clips moved, so everything that was lined up to them follows: texts go
+    // back over their pictures, cuts that were on the beat go back on it,
+    // and room labels are drawn again for the new order.
+    const kept = timeline.texts.filter((text) => !removedTexts.has(text.id));
+    current = reflowTexts(current, anchors, kept);
+    if (onBeat && !plan.ops.some((op) => op.op === "snapToBeat") && current.music?.bpm && !cutsOnBeat(current)) {
+      const durations = Object.fromEntries(Object.values(assets).map((asset) => [asset!.id, asset!.durationMs]));
+      current = snapCutsToBeats(current, durations);
+      current = reflowTexts(current, anchors, kept);
+      applied.push("cuts kept on the beat");
+    }
+    if (hasRoomLabels(current)) current = addRoomLabels(current);
   }
   return { timeline: current, applied, skipped };
 }

@@ -138,6 +138,7 @@ function features(plan: PlanDef): string[] {
   const size = plan.outputWidth === 1080 ? "1080×1920, Instagram's full size" : "720×1280 with a small ReelWalk mark";
   return [
     `${plan.exportsPerMonth} rendered reels a month`,
+    `${plan.aiEditsPerMonth} changes asked for in words`,
     size,
     plan.instagram ? "Post to Instagram in one tap" : "Download, or share a link",
     `${plan.storageGb} GB for your photos and clips`,

@@ -2,6 +2,7 @@
 // and Zod decides whether it may use eval on the first parse.
 import "./zod-config";
 
+export * from "./ai-edit";
 export * from "./autobuild";
 export * from "./beats";
 export * from "./drag";

@@ -4,6 +4,7 @@ import { planSchema, referencedAssetIds, type Plan } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
 import { Editor } from "@/components/editor/editor";
 import { isFakeInstagram, isInstagramConfigured } from "@/lib/instagram";
+import { isAiAvailable } from "@/lib/openai";
 import { instagramSoundProblem } from "@/lib/instagram-sound";
 import { toLibraryAsset } from "@/lib/library";
 import { readTimeline } from "@/lib/reels";
@@ -56,6 +57,7 @@ export default async function EditReelPage({
       library={library}
       tours={tours}
       instagramSounds={instagramSounds}
+      askAvailable={isAiAvailable()}
     />
   );
 }

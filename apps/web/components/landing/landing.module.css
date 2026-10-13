@@ -289,6 +289,42 @@
   line-height: 1.5;
 }
 
+/* ── Asking for a change ────────────────────────────────────────── */
+
+.ask {
+  padding: 56px 0;
+  border-top: 1px solid var(--line);
+}
+
+.ask .sectionHead {
+  margin-bottom: 28px;
+}
+
+/* The requests themselves, set in the display face: the words are the feature. */
+.askList {
+  display: grid;
+  gap: 14px;
+  margin: 0 0 24px;
+  padding: 0;
+  list-style: none;
+  font-family: var(--display);
+  font-weight: 500;
+  font-variation-settings: "opsz" 72;
+  font-size: clamp(24px, 3.4vw, 34px);
+  line-height: 1.15;
+  max-width: 20em;
+}
+
+.askList li::before {
+  content: "“";
+  color: var(--muted);
+}
+
+.askList li::after {
+  content: "”";
+  color: var(--muted);
+}
+
 /* ── The plain facts ────────────────────────────────────────────── */
 
 .facts {

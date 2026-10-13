@@ -1,0 +1,48 @@
+import { parseTimeline, referencedAssetIds } from "@reelwalk/core";
+import { prisma } from "@reelwalk/db";
+import { askForChange } from "@/lib/ai-edit";
+import { getSessionUser } from "@/lib/auth";
+import { mediaScope } from "@/lib/workspace";
+
+export const dynamic = "force-dynamic";
+
+/**
+ * The editor's "Ask for a change" (ADR 0020). The editor sends the timeline
+ * it is showing, which may be newer than the saved one, and gets the changed
+ * timeline back to apply as one undoable step; its autosave then saves it.
+ * Nothing is written to the reel here, so an open editor never conflicts
+ * with itself. A plain route for the same reason as /save: action ids change
+ * with every deploy.
+ */
+export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const site = request.headers.get("sec-fetch-site");
+  if (site && site !== "same-origin") return Response.json({ ok: false, message: "Cross-site request refused." }, { status: 403 });
+  const user = await getSessionUser();
+  if (!user) return Response.json({ ok: false, message: "You were signed out. Sign in again." }, { status: 401 });
+
+  let body: { request?: unknown; timeline?: unknown };
+  try {
+    body = (await request.json()) as typeof body;
+  } catch {
+    return Response.json({ ok: false, message: "Could not read the request." }, { status: 400 });
+  }
+  if (typeof body.request !== "string") return Response.json({ ok: false, message: "Say what you would like changed." }, { status: 400 });
+
+  const { id } = await params;
+  const reel = await prisma.reel.findFirst({ where: { id, workspaceId: user.workspaceId }, select: { id: true, title: true, timeline: true } });
+  if (!reel) return Response.json({ ok: false, message: "This reel was deleted." }, { status: 404 });
+
+  let timeline;
+  try {
+    timeline = parseTimeline(body.timeline ?? reel.timeline);
+  } catch {
+    return Response.json({ ok: false, message: "The reel's edit could not be read." }, { status: 400 });
+  }
+  // The editor's copy may only use media this studio can see.
+  const ids = referencedAssetIds(timeline);
+  const allowed = await prisma.mediaAsset.count({ where: { id: { in: ids }, ...mediaScope(user.workspaceId) } });
+  if (allowed !== ids.length) return Response.json({ ok: false, message: "The reel uses media that is not in your library." }, { status: 400 });
+
+  const result = await askForChange({ user, reel, timeline, request: body.request });
+  return Response.json(result, { status: result.ok ? 200 : 422 });
+}

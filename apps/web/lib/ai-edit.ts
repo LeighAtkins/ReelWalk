@@ -1,0 +1,149 @@
+import {
+  AI_EDIT_PLAN_JSON_SCHEMA,
+  AI_EDIT_SYSTEM_PROMPT,
+  PLANS,
+  aiEditPlanSchema,
+  applyAiEditPlan,
+  describeReel,
+  fakeAiEditPlan,
+  monthStart,
+  referencedAssetIds,
+  songMood,
+  type AiAsset,
+  type AiEditPlan,
+  type AiSong,
+  type Timeline,
+} from "@reelwalk/core";
+import { prisma } from "@reelwalk/db";
+import { AiError, aiModel, isAiAvailable, isFakeAi, structuredAnswer, usageCostUsd } from "@/lib/openai";
+import { workspacePlan } from "@/lib/plans";
+import { mediaScope } from "@/lib/workspace";
+
+/**
+ * Asking for a change in words (ADR 0020): describe the reel, ask the model
+ * for a plan, apply it with the editor's own operations, keep the record.
+ * The caller decides what to do with the new timeline: the editor applies it
+ * as an undoable step, the export screen saves it and starts a render.
+ */
+
+export type AskResult =
+  | { ok: true; timeline: Timeline; note: string; applied: string[]; skipped: string[]; editId: string }
+  | { ok: false; message: string };
+
+/** Requests made this calendar month (UTC), whatever came of them. */
+export function aiEditsThisMonth(workspaceId: string, now: Date = new Date()): Promise<number> {
+  return prisma.aiEdit.count({ where: { workspaceId, createdAt: { gte: monthStart(now) } } });
+}
+
+/** Why another request cannot be made now, or null if it can. */
+export async function aiEditBlockedReason(workspaceId: string): Promise<string | null> {
+  if (!isAiAvailable()) return "Asking for changes is not set up on this deployment.";
+  const [{ plan, id }, used] = await Promise.all([workspacePlan(workspaceId), aiEditsThisMonth(workspaceId)]);
+  if (used < plan.aiEditsPerMonth) return null;
+  return id === "FREE"
+    ? `That is all ${plan.aiEditsPerMonth} of this month's free requests. The ${PLANS.AGENT.name} plan has ${PLANS.AGENT.aiEditsPerMonth} a month.`
+    : `That makes ${plan.aiEditsPerMonth} requests this month, the ${plan.name} plan's allowance. It resets on the 1st.`;
+}
+
+const title = (fileName: string) => fileName.replace(/\.[a-z0-9]{2,4}$/i, "");
+
+/** What the model may see: the reel's own sources, and every song the studio could switch to. */
+async function context(workspaceId: string, timeline: Timeline): Promise<{ assets: Record<string, AiAsset>; songs: AiSong[] }> {
+  const rows = await prisma.mediaAsset.findMany({
+    where: { ...mediaScope(workspaceId), OR: [{ id: { in: referencedAssetIds(timeline) } }, { kind: "AUDIO", instagramAudioId: null }] },
+    select: { id: true, kind: true, fileName: true, durationMs: true, width: true, height: true, bpm: true, beatOffsetMs: true, instagramAudioId: true, shared: true, createdAt: true },
+    orderBy: { createdAt: "desc" },
+    take: 160,
+  });
+  const assets: Record<string, AiAsset> = {};
+  const songs: AiSong[] = [];
+  for (const row of rows) {
+    const asset: AiAsset = {
+      id: row.id,
+      kind: row.kind,
+      title: title(row.fileName),
+      durationMs: row.durationMs,
+      isPano: row.kind === "IMAGE" && row.width !== null && row.height !== null && Math.abs(row.width / row.height - 2) < 0.05,
+      bpm: row.bpm,
+      beatOffsetMs: row.beatOffsetMs,
+    };
+    assets[row.id] = asset;
+    if (row.kind === "AUDIO" && !row.instagramAudioId && songs.length < 30) songs.push({ id: row.id, title: asset.title, bpm: row.bpm, mood: songMood(asset.title) });
+  }
+  return { assets, songs };
+}
+
+export async function askForChange(input: {
+  user: { id: string; workspaceId: string };
+  reel: { id: string; title: string };
+  timeline: Timeline;
+  request: string;
+}): Promise<AskResult> {
+  const request = input.request.trim();
+  if (request.length < 3) return { ok: false, message: "Say what you would like changed." };
+  if (request.length > 600) return { ok: false, message: "Keep the request under 600 characters." };
+  const blocked = await aiEditBlockedReason(input.user.workspaceId);
+  if (blocked) return { ok: false, message: blocked };
+
+  const { assets, songs } = await context(input.user.workspaceId, input.timeline);
+  const description = describeReel({ title: input.reel.title, timeline: input.timeline, assets, songs });
+
+  let plan: AiEditPlan;
+  let model = "fake";
+  let usage = { inputTokens: 0, cachedTokens: 0, outputTokens: 0 };
+  if (isFakeAi()) {
+    plan = fakeAiEditPlan(request, input.timeline, songs);
+  } else {
+    let answer;
+    try {
+      answer = await structuredAnswer({
+        instructions: AI_EDIT_SYSTEM_PROMPT,
+        input: `${description}\n\nThe user asks: ${request}`,
+        schemaName: "reel_edit_plan",
+        schema: AI_EDIT_PLAN_JSON_SCHEMA as unknown as Record<string, unknown>,
+      });
+    } catch (error) {
+      if (error instanceof AiError) {
+        console.error("ai edit:", error.message);
+        return { ok: false, message: error.transient ? "The model did not answer. Try again in a moment." : error.message };
+      }
+      throw error;
+    }
+    model = answer.model;
+    usage = answer.usage;
+    const parsed = aiEditPlanSchema.safeParse(answer.json);
+    if (!parsed.success) {
+      console.error("ai edit: answer did not fit the plan schema", parsed.error.issues.slice(0, 3));
+      return { ok: false, message: "The model's answer did not make sense for this reel. Try putting it another way." };
+    }
+    plan = parsed.data;
+  }
+
+  const result = applyAiEditPlan(input.timeline, plan, { assets, songs, newId: () => crypto.randomUUID() });
+  const record = await prisma.aiEdit.create({
+    data: {
+      workspaceId: input.user.workspaceId,
+      userId: input.user.id,
+      reelId: input.reel.id,
+      request,
+      note: plan.note,
+      plan,
+      applied: result.applied,
+      skipped: result.skipped,
+      model,
+      ...usage,
+    },
+    select: { id: true },
+  });
+  if (model !== "fake") {
+    console.log(`ai edit ${record.id}: ${model}, ${usage.inputTokens} in (${usage.cachedTokens} cached), ${usage.outputTokens} out, $${usageCostUsd(aiModel(), usage).toFixed(4)}, ${result.applied.length} applied, ${result.skipped.length} skipped`);
+  }
+  return { ok: true, timeline: result.timeline, note: plan.note, applied: result.applied, skipped: result.skipped, editId: record.id };
+}
+
+/** One line for the account page: "4 of 60 this month". */
+export async function aiEditUsage(workspaceId: string): Promise<{ used: number; allowed: number } | null> {
+  if (!isAiAvailable()) return null;
+  const [{ plan }, used] = await Promise.all([workspacePlan(workspaceId), aiEditsThisMonth(workspaceId)]);
+  return { used, allowed: plan.aiEditsPerMonth };
+}

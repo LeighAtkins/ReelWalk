@@ -183,6 +183,13 @@ export const CopyIcon = ({ size }: IconProps) => (
     <path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3" />
   </Icon>
 );
+/** A speech bubble with a line of writing: asking for a change in words. */
+export const AskIcon = ({ size }: IconProps) => (
+  <Icon size={size}>
+    <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v8a2.5 2.5 0 0 1-2.5 2.5H10l-5 4.5V16A2.5 2.5 0 0 1 4 13.5Z" />
+    <path d="M8 8h8M8 11.5h5" />
+  </Icon>
+);
 export const GuidesIcon = ({ size }: IconProps) => (
   <Icon size={size}>
     <rect x="5" y="2.5" width="14" height="19" rx="2" />

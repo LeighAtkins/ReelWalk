@@ -126,6 +126,25 @@ export function Landing({ samples }: { samples: SampleReel[] }) {
           </p>
         </section>
 
+        <section className={styles.ask} aria-labelledby="ask-title">
+          <div className={styles.sectionHead}>
+            <h2 id="ask-title">Or just say what you want changed</h2>
+            <p className={styles.lede}>
+              Watch the finished reel, type the change, and ReelWalk makes it and renders again. No timeline, no scrubbing, and undo takes
+              it back.
+            </p>
+          </div>
+          <ul className={styles.askList}>
+            <li>Make the kitchen shot longer and lose the hallway.</li>
+            <li>Calmer music, and start on the pool.</li>
+            <li>Put the price at the end, in the thin serif.</li>
+          </ul>
+          <p className={styles.fine}>
+            {PLANS.FREE.aiEditsPerMonth} requests a month free, {paid.aiEditsPerMonth} on {paid.name}. A change that is rendered again counts as
+            an export.
+          </p>
+        </section>
+
         <section className={styles.facts} aria-labelledby="facts-title">
           <div className={styles.sectionHead}>
             <h2 id="facts-title">What you are signing up for</h2>

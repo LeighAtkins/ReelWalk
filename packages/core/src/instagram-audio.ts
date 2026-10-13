@@ -56,6 +56,18 @@ const audioItemSchema = z.object({
 });
 
 /**
+ * A pasted Instagram audio page (instagram.com/reels/audio/<id>/, also the
+ * /reel/audio and app share forms) or a bare numeric id: the sound's id, so a
+ * trend spotted on Instagram can be used even when search does not list it.
+ */
+export function instagramAudioIdFromQuery(query: string): string | null {
+  const text = query.trim();
+  const link = text.match(/instagram\.com\/(?:reels?\/)?audio\/(\d{6,25})/i);
+  if (link) return link[1]!;
+  return /^\d{10,25}$/.test(text) ? text : null;
+}
+
+/**
  * Reads GET /ig_audio's answer. The list is under `audio` (not `data`, as
  * almost everywhere else in the Graph API). Items Instagram sends malformed
  * are skipped rather than failing the whole search.

@@ -1,6 +1,6 @@
-import { INSTAGRAM_AUDIO_QUERY_MAX, searchFakeInstagramAudio, type InstagramAudioTrack, type InstagramAudioType } from "@reelwalk/core";
+import { INSTAGRAM_AUDIO_QUERY_MAX, instagramAudioIdFromQuery, searchFakeInstagramAudio, type InstagramAudioTrack, type InstagramAudioType } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
-import { fetchInstagramAudio, instagramErrorMessage, isFakeInstagram, isInstagramConfigured } from "./instagram";
+import { fetchInstagramAudio, fetchInstagramAudioById, instagramErrorMessage, isFakeInstagram, isInstagramConfigured } from "./instagram";
 
 /**
  * Searching Instagram's audio library for the "Instagram sound" picker
@@ -57,11 +57,18 @@ export async function searchInstagramAudio(workspaceId: string, input: { type: I
   if (hit) return { ok: true, tracks: hit };
 
   try {
-    const tracks = await fetchInstagramAudio({ igUserId: account.externalId, token: account.accessToken, type: input.type, query });
+    // A pasted audio link or id loads that exact sound, whichever tab is open.
+    const linkedId = instagramAudioIdFromQuery(query);
+    const tracks = linkedId
+      ? await fetchInstagramAudioById({ igUserId: account.externalId, token: account.accessToken, id: linkedId, type: input.type })
+      : await fetchInstagramAudio({ igUserId: account.externalId, token: account.accessToken, type: input.type, query });
     remember(key, tracks, now);
     return { ok: true, tracks };
   } catch (error) {
     console.error("instagram audio: search failed", error);
+    if (instagramAudioIdFromQuery(query)) {
+      return { ok: false, error: "Instagram does not let this account use that sound. Business accounts only get sounds cleared for business use." };
+    }
     return { ok: false, error: instagramErrorMessage(error, "Instagram's sound library did not answer. Try again in a moment.") };
   }
 }

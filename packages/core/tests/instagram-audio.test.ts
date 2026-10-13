@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   instagramAudioConfiguration,
+  instagramAudioIdFromQuery,
   instagramAudioLabel,
   instagramAudioMix,
   parseInstagramAudioChoice,
@@ -105,5 +106,21 @@ describe("the pretend search", () => {
   it("labels a sound in one line", () => {
     expect(instagramAudioLabel({ title: "Song", artist: "Band" })).toBe("Song · Band");
     expect(instagramAudioLabel({ title: "Song", artist: null })).toBe("Song");
+  });
+});
+
+describe("instagramAudioIdFromQuery", () => {
+  it("reads the id from a pasted Instagram audio page", () => {
+    expect(instagramAudioIdFromQuery("https://www.instagram.com/reels/audio/25300087489600407/")).toBe("25300087489600407");
+    expect(instagramAudioIdFromQuery("instagram.com/reel/audio/28090396370590374?igsh=abc")).toBe("28090396370590374");
+    expect(instagramAudioIdFromQuery("  https://instagram.com/audio/1956905171929909  ")).toBe("1956905171929909");
+  });
+  it("accepts a bare numeric id", () => {
+    expect(instagramAudioIdFromQuery("25300087489600407")).toBe("25300087489600407");
+  });
+  it("leaves ordinary searches alone", () => {
+    expect(instagramAudioIdFromQuery("money can't buy happiness")).toBeNull();
+    expect(instagramAudioIdFromQuery("2026")).toBeNull();
+    expect(instagramAudioIdFromQuery("https://www.instagram.com/reelwalking/")).toBeNull();
   });
 });

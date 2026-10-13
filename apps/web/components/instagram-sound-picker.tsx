@@ -16,7 +16,7 @@ import { Sheet } from "./sheet";
 
 const TABS: { type: InstagramAudioType; label: string; placeholder: string }[] = [
   { type: "music", label: "Music", placeholder: "Search Instagram's music" },
-  { type: "original_sound", label: "Trending sounds", placeholder: "Search sounds" },
+  { type: "original_sound", label: "Trending sounds", placeholder: "Search sounds or paste an audio link" },
 ];
 
 type Search = { step: "loading" } | { step: "ready"; tracks: InstagramAudioTrack[] } | { step: "error"; error: string };

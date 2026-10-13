@@ -203,6 +203,12 @@ export async function fetchInstagramAudio(input: { igUserId: string; token: stri
   return parseInstagramAudioSearch(body, input.type);
 }
 
+/** One sound by id (GET /{audio-id}), shaped like a search result; empty when Instagram does not share it with this account. */
+export async function fetchInstagramAudioById(input: { igUserId: string; token: string; id: string; type: InstagramAudioType }): Promise<InstagramAudioTrack[]> {
+  const body = await graph<Record<string, unknown>>(`/${input.id}`, { token: input.token, query: { user_id: input.igUserId } });
+  return parseInstagramAudioSearch({ audio: [{ audio_id: input.id, ...body }] }, input.type);
+}
+
 /** Graph error codes meaning the login no longer works, and ones meaning a permission is missing. */
 const EXPIRED_TOKEN_CODES = new Set([102, 190, 463, 467]);
 const PERMISSION_CODES = new Set([3, 10]);

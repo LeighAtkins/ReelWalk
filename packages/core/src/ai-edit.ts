@@ -12,6 +12,7 @@ import type { InstagramAudioTrack } from "./instagram-audio";
 import { beatPeriodMs, nearestBeatMs, snapCutsToBeats, type BeatGrid } from "./beats";
 import {
   CORNERS,
+  DETAILS_CARD_MS,
   DEFAULT_IMAGE_MS,
   DEFAULT_PANO,
   DEFAULT_PANO_MS,
@@ -44,6 +45,7 @@ import {
   setDetails,
   setLogo,
   setMusic,
+  showsDetailsCard,
   splitClip,
   timelineDurationMs,
   trimClip,
@@ -354,7 +356,7 @@ Rules:
 - A logo: op logo with assetId of an unused image whose name suggests a logo, a brand, a mark or a headshot puts it in a corner (corner, default top-right; size as a fraction of the frame's width, 0.2 is usual, 0.12 small, 0.3 large) for the whole reel; assetId null removes it. When no such image exists, do nothing and say the logo must be uploaded first.
 - Music requests like "calmer" or "more energy" pick the song whose mood fits best; say which in the note. Songs marked "from Instagram" come from Instagram's library for business accounts and are the ones to use; their mood says which search found them, and "popular with business accounts right now" is the safest pick when nothing more specific fits. Bright listings suit house and nu disco, slow luxury suits piano, luxury and soft house, walkthroughs suit real estate, soft house and lo-fi. Songs marked "the studio's own" were chosen by the studio: prefer one of them when its mood fits, ahead of stock songs. Never pick the song already playing. Leave the music alone unless the user asks about it (the song, the mood, "calmer", "more energy") or the reel has none: a request about clips, text, the look or the order keeps the song it has, and so does cutting a whole reel that already has music. "No music" is op music with songId null.
 - Text: keep it short; style "elegant" is a thin serif, "headline" is bold, "box" is text on a pill, "plain" is white text with a shadow. y is 0 at the top and 1 at the bottom. Where text goes: the opening hook at y 0.42 (the middle, where the eye is), size 1.1 to 1.3; a second line or caption-style text at y 0.6; never above 0.3 or below 0.72, because Instagram's name, caption and buttons cover the top fifth and the bottom quarter. Room labels and the details card place themselves. A hook shows over the whole first clip. To put text over a particular shot give atClip (the clip's number): the text then starts and ends with that shot, which is how "at the start" (atClip 1), "at the end" (the last clip's number) and "over the kitchen" are done; prefer atClip to startMs and endMs.
-- A status sticker (JUST LISTED, PRICE DROP, NEW PRICE, SOLD, UNDER CONTRACT, OPEN HOUSE, COMING SOON) is addText with style "tag": two or three words in capitals, size 0.6 to 0.8; it places itself at the top of the safe area, over the first clip unless atClip says otherwise. One sticker at a time: change an existing tag with editText rather than adding a second.
+- A status sticker (JUST LISTED, PRICE DROP, NEW PRICE, SOLD, UNDER CONTRACT, OPEN HOUSE, COMING SOON) is addText with style "tag": two or three words in capitals, size 0.8 to 1; it places itself at the top of the safe area, over the first clip unless atClip says otherwise. One sticker at a time: change an existing tag with editText rather than adding a second.
 - How text arrives (animation on addText or editText): pop (a quick pop, the bold styles' own), fade (a slow fade, the elegant style's own), rise (drifts up as it fades in), type (letter by letter, like typing), none (simply there); auto is the style's own.
 - Room labels are the texts whose number is marked (room label); to turn them all off use roomLabels on=false rather than removing each.
 - When clips are trimmed, moved or removed, the other texts follow their clips, cuts that were on the beat stay on it, and room labels are redrawn, all by themselves: do not re-time texts or snap to the beat to compensate for your own edits.
@@ -489,6 +491,17 @@ function clipLabel(timeline: Timeline, clip: Clip, assets: ApplyOptions["assets"
   return `clip ${index}${name ? ` (${name})` : ""}`;
 }
 
+
+/** Whether a text shown from `startMs` to `endMs` would sit on screen with the details card (which takes the lower part of the frame). */
+export function overlapsDetailsCard(timeline: Timeline, startMs: number, endMs: number): boolean {
+  const details = timeline.details;
+  if (!showsDetailsCard(details)) return false;
+  const total = timelineDurationMs(timeline);
+  const card = Math.min(DETAILS_CARD_MS, Math.floor(total * 0.4));
+  const atStart = details.placement !== "end" && startMs < card;
+  const atEnd = details.placement !== "start" && endMs > total - card;
+  return atStart || atEnd;
+}
 
 // ── Keeping the rest of the reel in step ────────────────────────
 
@@ -860,6 +873,9 @@ export function applyAiEditPlan(timeline: Timeline, plan: Pick<AiEditPlan, "ops"
           skipped.push(`addText: "${op.content}" would start after the reel ends`);
           break;
         }
+        // Text that shows while the details card is up goes above the card, not under it.
+        let y = style === "tag" ? TAG_Y : op.y ?? 0.4;
+        if (overlapsDetailsCard(current, window.startMs, window.endMs ?? window.startMs + 3000) && y > 0.45) y = 0.42;
         const before = current.texts.length;
         current = addText(current, {
           id: newId(),
@@ -867,10 +883,10 @@ export function applyAiEditPlan(timeline: Timeline, plan: Pick<AiEditPlan, "ops"
           startMs: window.startMs,
           endMs: window.endMs,
           x: 0.5,
-          y: style === "tag" ? TAG_Y : op.y ?? 0.4,
+          y,
           style,
           color: op.color ?? "#ffffff",
-          size: op.size ?? (style === "tag" ? 0.7 : 1),
+          size: op.size ?? (style === "tag" ? 0.9 : 1),
           animation: op.animation ?? "auto",
         });
         if (current.texts.length === before) skipped.push(`addText: "${op.content}" would show outside the reel`);

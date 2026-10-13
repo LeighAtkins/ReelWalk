@@ -131,7 +131,7 @@ export function textCss(style: TextStyle, color: string, size: number): CSSPrope
         ...base,
         fontWeight: 800,
         fontStretch: "112%",
-        fontSize: fontSize * 0.62,
+        fontSize: fontSize * 0.7,
         lineHeight: 1,
         letterSpacing: "0.14em",
         textTransform: "uppercase",

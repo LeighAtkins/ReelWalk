@@ -2,8 +2,8 @@
 
 import { redirect } from "next/navigation";
 import { prisma } from "@reelwalk/db";
-import { coverMs, instagramAudioLabel, parseInstagramAudioChoice, parseTimeline } from "@reelwalk/core";
-import { containerStatus, createReelContainer, isInstagramConfigured, isTransientInstagramError, publishContainer } from "@/lib/instagram";
+import { instagramAudioLabel, parseInstagramAudioChoice } from "@reelwalk/core";
+import { containerStatus, createReelContainer, isInstagramConfigured, isTransientInstagramError, publishContainer, reelCoverMs } from "@/lib/instagram";
 import { outputUrls } from "@/lib/render-jobs";
 import { workspacePlan } from "@/lib/plans";
 import { getCurrentUser } from "@/lib/workspace";
@@ -31,15 +31,6 @@ async function connectedAccount(workspaceId: string) {
  * from a public URL (CloudFront, or a presigned link on real S3), so this only
  * works where the bucket is reachable from the internet.
  */
-/** The cover frame the reel chose (or the usual one). A reel whose edit cannot be read gets the usual frame. */
-export function reelCoverMs(timeline: unknown): number | undefined {
-  try {
-    return timeline ? coverMs(parseTimeline(timeline)) : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
 export async function startInstagramPost(input: { jobId: string; audio?: unknown }): Promise<PostStep> {
   const user = await getCurrentUser();
   if (!isInstagramConfigured()) return { state: "failed", error: "Instagram posting is not set up on this deployment." };

@@ -123,7 +123,8 @@ export const aiEditOpSchema = z.object({
   content: nullable(z.string().trim().min(1).max(200)),
   style: nullable(z.enum(TEXT_STYLES)),
   color: nullable(z.string().regex(/^#[0-9a-f]{6}$/i)),
-  size: nullable(z.number().min(0.3).max(2.5)),
+  /** addText/editText: 0.3 to 2.5 of the normal text size; logo: 0.1 to 0.4 of the frame width. */
+  size: nullable(z.number().min(0.1).max(2.5)),
   y: nullable(z.number().min(0).max(1)),
   songId: nullable(z.string().min(1).max(64)),
   on: nullable(z.boolean()),
@@ -200,7 +201,7 @@ export const AI_EDIT_PLAN_JSON_SCHEMA = {
           corner: { type: ["string", "null"], enum: [...CORNERS, null], description: "logo: where it sits" },
           style: { type: ["string", "null"], enum: [...TEXT_STYLES, null] },
           color: { type: ["string", "null"], description: "#rrggbb" },
-          size: { type: ["number", "null"], description: "0.3 to 2.5, 1 = normal" },
+          size: { type: ["number", "null"], description: "text: 0.3 to 2.5, 1 = normal; logo: 0.1 to 0.4 of the frame width" },
           y: { type: ["number", "null"], description: "0 = top of frame, 1 = bottom" },
           songId: { type: ["string", "null"], description: "music: a song id from the list, or null for no music" },
           assetId: { type: ["string", "null"], description: "add: an id from the unused media list; the clip goes at toPosition, or the end. logo: an unused image to show as the logo, null to remove the logo" },
@@ -833,7 +834,7 @@ export function applyAiEditPlan(timeline: Timeline, plan: Pick<AiEditPlan, "ops"
           skipped.push(`logo: no image ${op.assetId}`);
           break;
         }
-        current = setLogo(current, { assetId: asset.id, corner: op.corner ?? current.logo?.corner ?? "top-right", size: op.size ?? current.logo?.size ?? 0.2 });
+        current = setLogo(current, { assetId: asset.id, corner: op.corner ?? current.logo?.corner ?? "top-right", size: Math.max(0.1, Math.min(0.4, op.size ?? current.logo?.size ?? 0.2)) });
         applied.push(`logo "${asset.title}" at the ${current.logo!.corner}`);
         break;
       }

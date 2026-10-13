@@ -4,8 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { INSTAGRAM, parseInstagramAudioChoice, publishAtProblem, zonedLocalToUtc } from "@reelwalk/core";
 import { cancelScheduledPost as cancelPost, prisma, setScheduledPostAudio } from "@reelwalk/db";
-import { COVER_FRAME_MS } from "@/lib/instagram";
-import { reelCoverMs } from "@/app/instagram-actions";
+import { COVER_FRAME_MS, reelCoverMs } from "@/lib/instagram";
 import { postingProblem } from "@/lib/scheduled-posts";
 import { getCurrentUser } from "@/lib/workspace";
 

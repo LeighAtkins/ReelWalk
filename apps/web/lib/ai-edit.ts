@@ -59,7 +59,7 @@ const title = (fileName: string) => fileName.replace(/\.[a-z0-9]{2,4}$/i, "");
  * not use yet (its uploads, not the shared starter library, which would
  * swamp a listing with other people's rooms).
  */
-async function context(workspaceId: string, timeline: Timeline): Promise<{ assets: Record<string, AiAsset>; songs: AiSong[]; unused: AiAsset[] }> {
+export async function context(workspaceId: string, timeline: Timeline): Promise<{ assets: Record<string, AiAsset>; songs: AiSong[]; unused: AiAsset[] }> {
   const used = referencedAssetIds(timeline);
   const select = { id: true, kind: true, fileName: true, durationMs: true, width: true, height: true, bpm: true, beatOffsetMs: true, instagramAudioId: true, room: true } as const;
   const [rows, own] = await Promise.all([
@@ -104,10 +104,13 @@ export async function askForChange(input: {
   timeline: Timeline;
   request: string;
   answers?: AskAnswer[];
+  /** Longest request accepted: 600 characters typed by a person, more when the app writes it ("Make it for me"). */
+  maxLength?: number;
 }): Promise<AskResult> {
   const request = input.request.trim();
+  const maxLength = input.maxLength ?? 600;
   if (request.length < 3) return { ok: false, message: "Say what you would like changed." };
-  if (request.length > 600) return { ok: false, message: "Keep the request under 600 characters." };
+  if (request.length > maxLength) return { ok: false, message: `Keep the request under ${maxLength} characters.` };
   const blocked = await aiEditBlockedReason(input.user.workspaceId);
   if (blocked) return { ok: false, message: blocked.message, upgrade: blocked.upgrade };
 

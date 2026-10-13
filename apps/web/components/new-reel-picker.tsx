@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { acceptFor, vibeById, VIBES } from "@reelwalk/core";
 import { createReel, createReelFromTour } from "@/app/actions";
 import { setPendingFiles } from "@/lib/pending-files";
-import { DishIcon, PanoIcon, PlusIcon } from "./icons";
+import { DishIcon, PanoIcon, PlusIcon, SparkIcon } from "./icons";
 
 /**
  * The way Instagram starts a reel: pick photos and videos first, then edit.
@@ -19,14 +19,15 @@ export function NewReelPicker({ librarySize = 0, tours = [] }: { librarySize?: n
   const [error, setError] = useState<string | null>(null);
   const [vibeId, setVibeId] = useState("");
   const input = useRef<HTMLInputElement>(null);
+  const autoInput = useRef<HTMLInputElement>(null);
 
-  async function start(files: File[]) {
+  async function start(files: File[], autopilot = false) {
     setBusy(true);
     setError(null);
     try {
       const { id } = await createReel();
       setPendingFiles(id, files);
-      router.push(`/reels/${id}`);
+      router.push(autopilot ? `/reels/${id}?auto=1` : `/reels/${id}`);
     } catch {
       setError("Could not start a reel. Check your connection and try again.");
       setBusy(false);
@@ -36,11 +37,16 @@ export function NewReelPicker({ librarySize = 0, tours = [] }: { librarySize?: n
   // Files picked before the page finished loading never reached onChange:
   // pick them up as soon as it can, rather than losing the tap.
   useEffect(() => {
-    const element = input.current;
-    const files = Array.from(element?.files ?? []);
-    if (!element || files.length === 0) return;
-    element.value = "";
-    void start(files);
+    for (const [element, autopilot] of [
+      [autoInput.current, true],
+      [input.current, false],
+    ] as const) {
+      const files = Array.from(element?.files ?? []);
+      if (!element || files.length === 0) continue;
+      element.value = "";
+      void start(files, autopilot);
+      return;
+    }
     // Once, on mount; start() itself is recreated each render.
   }, []);
 
@@ -70,14 +76,39 @@ export function NewReelPicker({ librarySize = 0, tours = [] }: { librarySize?: n
 
   return (
     <section className="start" aria-label="Start a reel">
+      {/* Make it for me (ADR 0021): pick the shots, and ReelWalk does the rest through to the render. */}
+      <label className="start-primary start-auto" data-busy={busy}>
+        <span className="viewfinder" aria-hidden="true">
+          <SparkIcon size={22} />
+        </span>
+        <span className="start-text">
+          <span className="start-title">{busy ? "Opening…" : "Make it for me"}</span>
+          <span className="start-sub">Pick your shots. ReelWalk cuts them to music, adds the text and renders it.</span>
+        </span>
+        <input
+          ref={autoInput}
+          type="file"
+          multiple
+          accept={acceptFor(["IMAGE", "VIDEO"])}
+          disabled={busy}
+          aria-label="Make it for me: pick photos and videos"
+          data-testid="autopilot-input"
+          onChange={(event) => {
+            const files = Array.from(event.target.files ?? []);
+            event.target.value = "";
+            if (files.length > 0) void start(files, true);
+          }}
+        />
+      </label>
+
       {/* The whole bar is the file picker: one tap opens the phone's photos. */}
-      <label className="start-primary" data-busy={busy}>
+      <label className="start-primary start-manual" data-busy={busy}>
         <span className="viewfinder" aria-hidden="true">
           <PlusIcon size={22} />
         </span>
         <span className="start-text">
           <span className="start-title">{busy ? "Opening…" : "New reel"}</span>
-          <span className="start-sub">Pick photos and videos from your phone</span>
+          <span className="start-sub">Pick photos and videos and edit them yourself</span>
         </span>
         <input
           ref={input}

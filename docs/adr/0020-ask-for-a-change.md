@@ -32,7 +32,8 @@ undoable step and nothing new is rendered or stored.
 Responses API with strict structured output against the plan's JSON schema;
 the answer is re-checked with the zod schema before it is applied. The
 fixed instructions go first so the provider caches them. The default model
-is `gpt-6.1-sol` (OPENAI_MODEL switches it; `gpt-6-luna` is the cheap one).
+is `gpt-6-luna`, the cheapest (OPENAI_MODEL switches it; `gpt-6.1-sol` is
+the step up if Luna misreads requests; the `AiEdit` log is how to judge).
 No key: the feature is hidden, unless DEV_FAKE_AI=true, in which case a few
 rules stand in so local stacks and the e2e suite can exercise the path.
 

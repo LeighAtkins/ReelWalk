@@ -145,7 +145,7 @@ variable "openai_api_key" {
 
 variable "openai_model" {
   type    = string
-  default = "gpt-6.1-sol"
+  default = "gpt-6-luna"
 }
 
 # Stripe billing (apps/web/lib/stripe.ts). Empty means no upgrade buttons.

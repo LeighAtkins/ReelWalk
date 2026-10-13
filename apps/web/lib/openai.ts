@@ -3,13 +3,13 @@
  * Responses API (ADR 0020). Plain fetch, no SDK: one endpoint, one shape.
  *
  * OPENAI_API_KEY turns it on. OPENAI_MODEL picks the model; the default is
- * gpt-6.1-sol ($2 / $10 per million tokens, cached input $0.10), which reads
- * an edit request well; gpt-6-luna ($0.10 / $0.50) is the cheap option. With
+ * gpt-6-luna ($0.10 / $0.50 per million tokens), the cheapest; gpt-6.1-sol
+ * ($2 / $10, cached input $0.10) is the step up if Luna misreads requests. With
  * no key, DEV_FAKE_AI=true makes the app answer from rules instead, so local
  * stacks and tests can exercise the whole path.
  */
 
-export const DEFAULT_AI_MODEL = "gpt-6.1-sol";
+export const DEFAULT_AI_MODEL = "gpt-6-luna";
 
 export function aiModel(): string {
   return process.env.OPENAI_MODEL || DEFAULT_AI_MODEL;
@@ -74,8 +74,9 @@ export async function structuredAnswer(options: {
     max_output_tokens: options.maxOutputTokens ?? 1200,
     store: false,
   };
-  // The GPT-6 models reason before answering; a short think is plenty for an edit list.
-  if (/^gpt-6/.test(model)) body.reasoning = { effort: "low" };
+  // Sol and Astra reason before answering; a short think is plenty for an edit list.
+  // Luna is sent no reasoning setting, in case it does not take one.
+  if (/^gpt-6(\.\d+)?-(sol|astra)/.test(model)) body.reasoning = { effort: "low" };
 
   let response: Response;
   try {

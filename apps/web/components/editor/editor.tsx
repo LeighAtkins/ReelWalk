@@ -210,6 +210,8 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
   const [toast, setToast] = useState<string | null>(null);
   const [exportState, setExportState] = useState<{ busy: boolean; error: string | null; issues: Issue[] | null }>({ busy: false, error: null, issues: null });
   const clock = useMemo(() => createClock(), []);
+  const [theater, setTheater] = useState(false);
+  const exitTheater = useCallback(() => setTheater(false), []);
   const playerRef = useRef<PlayerRef>(null);
   // The Player loads after this component and remounts when the reel goes
   // from empty to non-empty; state makes the event subscription follow it.
@@ -831,6 +833,8 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
           setSelection({ kind: "text", id });
           setSheet("text-edit");
         }}
+        theater={theater}
+        onExitTheater={exitTheater}
         empty={
           uploads.length > 0 ? (
             <p>Uploading {uploads.length === 1 ? "1 file" : `${uploads.length} files`}…</p>
@@ -860,7 +864,11 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         <button type="button" className="icon-btn" aria-label="Redo" disabled={history.future.length === 0} onClick={() => dispatch({ type: "redo" })}>
           <RedoIcon />
         </button>
-        <span />
+        <button type="button" className="icon-btn" aria-label="Full screen" disabled={!hasClips} onClick={() => setTheater(true)} data-testid="preview-fullscreen">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
+          </svg>
+        </button>
       </div>
 
       <Filmstrip

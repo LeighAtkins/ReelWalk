@@ -30,6 +30,9 @@ type PreviewProps = {
   onSelectText(id: string): void;
   onEditText(id: string): void;
   empty: React.ReactNode;
+  /** Full-screen viewing: the frame fills the screen, editing handles hide. */
+  theater?: boolean;
+  onExitTheater?(): void;
 };
 
 /** Snaps to the centre line when the text is dragged close to it. */
@@ -199,6 +202,8 @@ export function Preview({
   onSelectText,
   onEditText,
   empty,
+  theater = false,
+  onExitTheater,
 }: PreviewProps) {
   const frame = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(0.3);
@@ -250,11 +255,38 @@ export function Preview({
     };
   }, []);
 
+  // Full screen: the browser's own where it exists (desktop, Android), a
+  // full-window overlay elsewhere (iPhone Safari cannot full-screen a div).
+  const stage = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!theater) return;
+    const el = stage.current;
+    if (el && document.fullscreenEnabled && !document.fullscreenElement) el.requestFullscreen().catch(() => undefined);
+    const onChange = () => {
+      if (!document.fullscreenElement) onExitTheater?.();
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onExitTheater?.();
+    };
+    document.addEventListener("fullscreenchange", onChange);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("fullscreenchange", onChange);
+      window.removeEventListener("keydown", onKey);
+      if (document.fullscreenElement) document.exitFullscreen().catch(() => undefined);
+    };
+  }, [theater, onExitTheater]);
+
   const hasClips = timeline.clips.length > 0;
   const zone = INSTAGRAM.safeZonePx;
 
   return (
-    <div className="stage">
+    <div className={theater ? "stage stage-theater" : "stage"} ref={stage}>
+      {theater ? (
+        <button type="button" className="theater-close" aria-label="Exit full screen" onClick={() => onExitTheater?.()} data-testid="preview-fullscreen-close">
+          ×
+        </button>
+      ) : null}
       <div className="stage-frame" ref={frame} data-testid="preview">
         {hasClips ? (
           <>
@@ -291,7 +323,7 @@ export function Preview({
           <div className="stage-empty">{empty}</div>
         )}
 
-        {guides ? (
+        {guides && !theater ? (
           <div className="guides" aria-hidden="true">
             <span className="g-top" style={{ height: `${(zone.top / REEL_FORMAT.height) * 100}%` }} />
             <span className="g-bottom" style={{ height: `${(zone.bottom / REEL_FORMAT.height) * 100}%` }} />
@@ -307,10 +339,10 @@ export function Preview({
           </div>
         ) : null}
 
-        {hasClips && !playing ? (
+        {hasClips && !playing && !theater ? (
           <TextTargets clock={clock} timeline={timeline} selectedId={selectedText?.id ?? null} scale={scale} onSelect={onSelectText} onEdit={onEditText} />
         ) : null}
-        {selectedText && !playing ? (
+        {selectedText && !playing && !theater ? (
           <TextHandle
             text={selectedText}
             scale={scale}

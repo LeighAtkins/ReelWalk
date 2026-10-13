@@ -34,6 +34,8 @@ the answer is re-checked with the zod schema before it is applied. The
 fixed instructions go first so the provider caches them. The default model
 is `gpt-6-luna`, the cheapest (OPENAI_MODEL switches it; `gpt-6.1-sol` is
 the step up if Luna misreads requests; the `AiEdit` log is how to judge).
+An OpenRouter key (`sk-or-…`) is accepted too: the client switches to
+OpenRouter's address and model names, which pass OpenAI's prices through.
 No key: the feature is hidden, unless DEV_FAKE_AI=true, in which case a few
 rules stand in so local stacks and the e2e suite can exercise the path.
 

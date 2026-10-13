@@ -39,12 +39,17 @@ import {
   type Plan,
   type Timeline,
   parseTimeline,
+  retime,
+  retimeToLength,
+  setClipRoom,
+  setLook,
 } from "@reelwalk/core";
 import { ELEGANT_FADE_S, type ReelAsset } from "@reelwalk/render/reel";
 import { deleteReel, exportReel, readyPreviews } from "@/app/actions";
 import { deleteBrief, saveBrief } from "@/app/ai-actions";
 import { analyseInstagramSound } from "@/app/instagram-audio-actions";
 import { runAiJob } from "@/lib/ai-jobs-client";
+import { LookChoices, MusicChoices, ReviewBar, TextChoices, TimingChoices } from "./review";
 import { chooseSound } from "@/lib/instagram-sounds-client";
 import { formatDuration } from "@/lib/format";
 import type { LibraryAsset } from "@/lib/library";
@@ -139,7 +144,11 @@ type SheetName =
   | "caption"
   | "export"
   | "ask"
-  | "autopilot";
+  | "autopilot"
+  | "review-text"
+  | "review-timing"
+  | "review-music"
+  | "review-look";
 
 export type EditorProps = {
   /** Open the media library straight away (a reel started from the library). */
@@ -153,8 +162,10 @@ export type EditorProps = {
   askAvailable?: boolean;
   /** Ways of cutting a whole reel: built-in briefs and the studio's own. */
   briefs?: Brief[];
-  /** Opened from "Make it for me": the sheet that takes it through to export opens at once. */
+  /** Opened from "Make it for me": the panel opens at once, and the reel it makes opens in the review. */
   autopilot?: boolean;
+  /** Open in the draft review (ADR 0022) rather than the timeline. */
+  review?: boolean;
   /** Whether the Music sheet offers Instagram's sounds (null: not on this deployment). */
   instagramSounds?: InstagramSoundAccess;
 };
@@ -223,7 +234,8 @@ function Tool({
   );
 }
 
-export function Editor({ reel, timeline: initialTimeline, library: initialLibrary, openLibrary, tours = {}, instagramSounds = null, askAvailable = false, briefs: initialBriefs = [], autopilot = false }: EditorProps) {
+export function Editor({ reel, timeline: initialTimeline, library: initialLibrary, openLibrary, tours = {}, instagramSounds = null, askAvailable = false, briefs: initialBriefs = [], autopilot = false, review: startInReview = false }: EditorProps) {
+  const [review, setReview] = useState(startInReview);
   const [briefs, setBriefs] = useState<Brief[]>(initialBriefs);
   const [autopilotPhase, setAutopilotPhase] = useState<AutopilotPhase>("form");
   const [autopilotError, setAutopilotError] = useState<{ message: string; upgrade: boolean } | null>(null);
@@ -434,6 +446,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
   const [instagramBusy, setInstagramBusy] = useState<string | null>(null);
   const libraryRef = useRef(library);
   libraryRef.current = library;
+  const sourceDurations = useCallback(() => Object.fromEntries(Object.values(libraryRef.current).map((entry) => [entry.id, entry.durationMs])), []);
   const pickInstagramSound = useCallback(
     async (track: InstagramAudioTrack): Promise<boolean> => {
       setInstagramBusy(track.id);
@@ -683,21 +696,34 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         apply(() => next);
         // An Instagram sound is fetched and the cuts snapped to it before the render starts.
         if (data.instagramPick) await pickInstagramSound(data.instagramPick);
-        setAutopilotPhase("exporting");
-        // Give the autosave the new timeline before the export reads it.
-        await new Promise((resolve) => setTimeout(resolve, 50));
-        if (!(await autosave.flush())) return fail("The reel was made but could not be saved. Check the connection and press Make my reel again.");
-        const result = await exportReel({ id: reel.id });
-        if (result && !result.ok) {
-          setSheet(null);
-          showToast(`Your reel is ready to look over. ${result.message ?? "Export it when you are happy."}`, 7000);
-          if (result.upgrade) setExportState({ busy: false, error: result.message ?? null, issues: result.issues, upgrade: true });
-        }
+        // A draft, not an export (ADR 0022): it opens in the review, playing with its music;
+        // the studio changes what it wants and exports when it is right.
+        setAutopilotPhase("form");
+        setSheet(null);
+        setReview(true);
+        showToast("Here is your draft. Play it, change anything below, and export when it is right.", 6000);
       } catch {
         fail("Could not reach ReelWalk. Check the connection and try again.");
       }
     })();
-  }, [autopilotPhase, uploads.length, timeline, reel.id, apply, autosave, showToast, pickInstagramSound]);
+  }, [autopilotPhase, uploads.length, timeline, reel.id, apply, showToast, pickInstagramSound]);
+
+  // Rooms named as soon as the shots are up, so they show (and can be changed) before the reel is made.
+  const roomsAsked = useRef(new Set<string>());
+  useEffect(() => {
+    if (sheet !== "autopilot" || uploads.length > 0) return;
+    const ids = [...new Set(timeline.clips.filter((clip) => !clip.room && !roomsAsked.current.has(clip.assetId)).map((clip) => clip.assetId))];
+    if (ids.length === 0) return;
+    ids.forEach((id) => roomsAsked.current.add(id));
+    void fetch(`/api/reels/${reel.id}/rooms`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ assetIds: ids }) })
+      .then((response) => response.json() as Promise<{ ok: boolean; rooms?: Record<string, string> }>)
+      .then((result) => {
+        const rooms = result.rooms ?? {};
+        if (Object.keys(rooms).length === 0) return;
+        apply((current) => ({ ...current, clips: current.clips.map((clip) => (clip.room || !rooms[clip.assetId] ? clip : { ...clip, room: rooms[clip.assetId] })) }));
+      })
+      .catch(() => undefined);
+  }, [sheet, uploads.length, timeline.clips, reel.id, apply]);
 
   const close = useCallback(async () => {
     await autosave.flush();
@@ -931,7 +957,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
   }, [selectedKind, selectedClip?.kind, markToolbar]);
 
   return (
-    <div className="editor" data-testid="editor">
+    <div className="editor" data-testid="editor" data-review={review || undefined}>
       <header className="editor-top">
         <button type="button" className="icon-btn" aria-label="Close editor" onClick={close}>
           <CloseIcon />
@@ -1000,6 +1026,19 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         }
       />
 
+      {review ? (
+        <ReviewBar
+          timeline={timeline}
+          onChange={(change) => {
+            playerRef.current?.pause();
+            setSheet(change === "ask" ? "ask" : (`review-${change}` as SheetName));
+          }}
+          onFullEditor={() => setReview(false)}
+        />
+      ) : null}
+
+      {review ? null : (
+      <>
       <div className="transport">
         <button type="button" className="icon-btn" aria-label={playing ? "Pause" : "Play"} onClick={togglePlay} disabled={!hasClips}>
           {playing ? <PauseIcon /> : <PlayIcon />}
@@ -1056,6 +1095,8 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         </div>
         {selectionTail ? <span className="toolbar-end">{selectionTail}</span> : null}
       </nav>
+      </>
+      )}
 
       {updated && !sheet ? (
         <div className="update-notice" role="status">
@@ -1264,10 +1305,49 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         />
       ) : null}
 
+      {sheet === "review-timing" ? (
+        <TimingChoices
+          timeline={timeline}
+          onPace={(shotMs) => apply((current) => retime(current, shotMs, sourceDurations()))}
+          onLength={(totalMs) => apply((current) => retimeToLength(current, totalMs, sourceDurations()))}
+          onClose={closeSheet}
+        />
+      ) : null}
+      {sheet === "review-look" ? <LookChoices timeline={timeline} onLook={(filter) => apply((current) => setLook(current, filter))} onClose={closeSheet} /> : null}
+      {sheet === "review-text" ? (
+        <TextChoices
+          reelId={reel.id}
+          texts={timeline.texts}
+          roomLabels={hasRoomLabels(timeline)}
+          canLabel={timeline.clips.some((clip) => clip.room)}
+          onText={(id, text) => {
+            apply((current) => updateText(current, id, { text }));
+            showToast("Text changed.");
+          }}
+          onRoomLabels={(on) => apply((current) => (on ? addRoomLabels(current) : removeRoomLabels(current)))}
+          onClose={closeSheet}
+        />
+      ) : null}
+      {sheet === "review-music" ? (
+        <MusicChoices
+          reelId={reel.id}
+          currentAudioId={timeline.music?.instagramAudioId ?? null}
+          busyId={instagramBusy}
+          onPick={async (track) => {
+            if (await pickInstagramSound(track)) setSheet(null);
+          }}
+          onMore={() => setSheet("music")}
+          onClose={closeSheet}
+        />
+      ) : null}
+
       {sheet === "autopilot" ? (
         <AutopilotSheet
           phase={autopilotPhase}
           uploading={uploads.length}
+          shots={timeline.clips.map((clip) => ({ id: clip.id, thumbUrl: library[clip.assetId]?.thumbUrl ?? null, room: clip.room }))}
+          pending={uploads.map((upload) => ({ key: upload.key, thumbUrl: upload.thumbUrl, progress: upload.progress }))}
+          onRoom={(clipId, room) => apply((current) => setClipRoom(current, clipId, room))}
           error={autopilotError?.message ?? null}
           upgrade={autopilotError?.upgrade ?? false}
           onGo={(style, info) => {

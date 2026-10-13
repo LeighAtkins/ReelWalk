@@ -13,6 +13,9 @@ import {
   FILTERS,
   DEFAULT_PANO,
   INSTAGRAM_MUSIC_SUGGESTIONS,
+  ROOM_NAMES,
+  formatArea,
+  formatPrice,
   isInstagramMusic,
   MIN_CLIP_MS,
   minTextSize,
@@ -1173,6 +1176,9 @@ const AUTOPILOT_STYLE_CHOICES = [
 export function AutopilotSheet({
   phase,
   uploading,
+  shots,
+  pending,
+  onRoom,
   error,
   upgrade,
   onGo,
@@ -1181,12 +1187,18 @@ export function AutopilotSheet({
   phase: AutopilotPhase;
   /** Files still uploading. */
   uploading: number;
+  /** The shots that are up, in order, with the room each shows (named by the AI as they arrive). */
+  shots: { id: string; thumbUrl: string | null; room: string | null }[];
+  /** Shots still uploading. */
+  pending: { key: string; thumbUrl: string | null; progress: number }[];
+  onRoom(clipId: string, room: string | null): void;
   error: string | null;
   upgrade: boolean;
   onGo(style: string, info: AutopilotInfo): void;
   onClose(): void;
 }) {
   const [style, setStyle] = useState("just-listed");
+  const [units, setUnits] = useState(true);
   const [info, setInfo] = useState<AutopilotInfo>({ address: "", price: "", beds: "", baths: "", area: "", openHouse: "" });
   const titleId = useId();
   const running = phase !== "form";
@@ -1247,11 +1259,57 @@ export function AutopilotSheet({
                 Baths
                 <input className="text-input" value={info.baths} placeholder="2" maxLength={6} inputMode="decimal" enterKeyHint="next" onChange={set("baths")} />
               </label>
+              <label className="check wide units-check">
+                <input type="checkbox" checked={units} onChange={(event) => setUnits(event.target.checked)} data-testid="autopilot-units" />
+                <span>
+                  Add $ and sq ft for me
+                  {units && (info.price || info.area) ? (
+                    <span className="muted small units-preview">
+                      {" "}
+                      Shows as {[info.price && formatPrice(info.price), info.area && formatArea(info.area)].filter(Boolean).join(" · ")}
+                    </span>
+                  ) : null}
+                </span>
+              </label>
               <label className="field wide">
                 Open house (if there is one)
                 <input className="text-input" value={info.openHouse} placeholder="Saturday 1–3 pm" maxLength={40} enterKeyHint="done" onChange={set("openHouse")} />
               </label>
             </form>
+            {shots.length + pending.length > 0 ? (
+              <section className="autopilot-shots" aria-label="Your shots">
+                <h3>Your shots</h3>
+                <p className="muted small">ReelWalk names each room as it arrives; tap a name to change it.</p>
+                <ul>
+                  {shots.map((shot, index) => (
+                    <li key={shot.id}>
+                      <span className="autopilot-thumb">{shot.thumbUrl ? <img src={shot.thumbUrl} alt="" loading="lazy" /> : null}</span>
+                      <span className="muted small">{index + 1}</span>
+                      <select
+                        className="text-input autopilot-room"
+                        value={shot.room ?? ""}
+                        onChange={(event) => onRoom(shot.id, event.target.value || null)}
+                        aria-label={`Room in shot ${index + 1}`}
+                        data-testid="autopilot-room"
+                      >
+                        <option value="">{uploading > 0 || !shot.room ? "Naming…" : "No room"}</option>
+                        {ROOM_NAMES.map((room) => (
+                          <option key={room} value={room}>
+                            {room[0].toUpperCase() + room.slice(1)}
+                          </option>
+                        ))}
+                      </select>
+                    </li>
+                  ))}
+                  {pending.map((upload) => (
+                    <li key={upload.key}>
+                      <span className="autopilot-thumb">{upload.thumbUrl ? <img src={upload.thumbUrl} alt="" /> : null}</span>
+                      <span className="muted small">Uploading {Math.round(upload.progress * 100)}%</span>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ) : null}
           </>
         ) : (
           <>
@@ -1259,12 +1317,10 @@ export function AutopilotSheet({
               {step("Uploading your shots", phase === "waiting", phase !== "waiting")}
               {step("Choosing the shots, the order and the song", phase === "cutting", phase === "exporting")}
               {step("Cutting to the beat and writing the text", phase === "cutting", phase === "exporting")}
-              {step("Starting the render", phase === "exporting", false)}
+              {step("Opening your draft", phase === "exporting", false)}
             </ol>
             <p className="muted small">
-              {phase === "exporting"
-                ? "The render runs on our servers. You can close the app; it lands under Exports in a few minutes."
-                : "Keep this screen open until the render starts, about a minute."}
+              Keep this screen open, about a minute. You will see the draft playing with its music before anything is exported.
             </p>
           </>
         )}
@@ -1281,7 +1337,12 @@ export function AutopilotSheet({
           </Link>
         ) : null}
         {!running ? (
-          <button type="button" className="btn btn-signal btn-block" onClick={() => onGo(style, info)} data-testid="autopilot-go">
+          <button
+            type="button"
+            className="btn btn-signal btn-block"
+            onClick={() => onGo(style, units ? { ...info, price: formatPrice(info.price), area: formatArea(info.area) } : info)}
+            data-testid="autopilot-go"
+          >
             Make my reel
           </button>
         ) : null}

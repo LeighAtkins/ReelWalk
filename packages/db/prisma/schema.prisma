@@ -54,6 +54,7 @@ model Workspace {
   scheduledPosts ScheduledPost[]
   aiEdits    AiEdit[]
   briefs     ReelBrief[]
+  aiJobs     AiJob[]
 
   // Set by the Stripe webhook from the subscription (plans in @reelwalk/core).
   plan                 Plan      @default(FREE)
@@ -360,6 +361,27 @@ model AiEdit {
   cachedTokens Int       @default(0)
   outputTokens Int       @default(0)
   createdAt    DateTime  @default(now())
+
+  @@index([workspaceId, createdAt])
+}
+
+// A long AI request (a whole-reel cut takes over a minute) run in the
+// background: the browser starts it and checks back, so no proxy or phone
+// connection has to stay open for the whole of it (ADR 0021).
+model AiJob {
+  id          String    @id @default(cuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  reelId      String?
+  // "ask" or "autopilot".
+  kind        String
+  // RUNNING, DONE or FAILED.
+  status      String    @default("RUNNING")
+  // What the route would have answered: the timeline, the note, and so on.
+  result      Json?
+  error       String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   @@index([workspaceId, createdAt])
 }

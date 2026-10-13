@@ -44,6 +44,7 @@ import { ELEGANT_FADE_S, type ReelAsset } from "@reelwalk/render/reel";
 import { deleteReel, exportReel, readyPreviews } from "@/app/actions";
 import { deleteBrief, saveBrief } from "@/app/ai-actions";
 import { analyseInstagramSound } from "@/app/instagram-audio-actions";
+import { runAiJob } from "@/lib/ai-jobs-client";
 import { chooseSound } from "@/lib/instagram-sounds-client";
 import { formatDuration } from "@/lib/format";
 import type { LibraryAsset } from "@/lib/library";
@@ -672,18 +673,10 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         setAutopilotError({ message, upgrade });
       };
       try {
-        // One more go if the connection drops (a deploy switching servers, a phone changing networks).
-        const send = () =>
-          fetch(`/api/reels/${reel.id}/autopilot`, {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ timeline, style, info }),
-          });
-        const response = await send().catch(async () => {
-          await new Promise((resolve) => setTimeout(resolve, 3000));
-          return send();
-        });
-        const data = (await response.json()) as { ok: true; timeline: unknown; note: string; assets?: LibraryAsset[]; instagramPick?: InstagramAudioTrack } | { ok: false; message: string };
+        const data = await runAiJob<{ ok: true; timeline: unknown; note: string; assets?: LibraryAsset[]; instagramPick?: InstagramAudioTrack } | { ok: false; message: string }>(
+          `/api/reels/${reel.id}/autopilot`,
+          { timeline, style, info },
+        );
         if (!data.ok) return fail(data.message);
         if (data.assets?.length) setLibrary((current) => ({ ...current, ...Object.fromEntries(data.assets!.map((asset) => [asset.id, asset])) }));
         const next = parseTimeline(data.timeline);
@@ -1242,14 +1235,10 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
           fresh={isFresh(timeline)}
           onAsk={async (request, answers) => {
             // The editor's own copy of the timeline goes along, so unsaved work counts.
-            const response = await fetch(`/api/reels/${reel.id}/ai-edit`, {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({ request, timeline, answers }),
-            });
-            const data = (await response.json()) as
+            const data = await runAiJob<
               | { ok: true; timeline: unknown; note: string; applied: string[]; skipped: string[]; questions: string[]; assets?: LibraryAsset[]; instagramPick?: InstagramAudioTrack }
-              | { ok: false; message: string; upgrade?: boolean };
+              | { ok: false; message: string; upgrade?: boolean }
+            >(`/api/reels/${reel.id}/ai-edit`, { request, timeline, answers });
             if (!data.ok) return data;
             // A song or shot the AI brought in joins the library first, so the preview can play it.
             if (data.assets?.length) setLibrary((current) => ({ ...current, ...Object.fromEntries(data.assets!.map((asset) => [asset.id, asset])) }));

@@ -1227,7 +1227,8 @@ export function AutopilotSheet({
             {field("area", "Size", "2,400 sq ft")}
             {field("beds", "Beds", "3")}
             {field("baths", "Baths", "2")}
-            {style === "open-house" ? field("openHouse", "Open house", "Saturday 1–3 pm", true) : null}
+            {/* Always shown, so picking a style never moves the fields under a thumb that is typing. */}
+            {field("openHouse", "Open house (if there is one)", "Saturday 1–3 pm", true)}
           </div>
           {error ? (
             <p className="error" role="alert">

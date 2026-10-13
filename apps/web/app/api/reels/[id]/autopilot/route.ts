@@ -2,6 +2,7 @@ import { parseTimeline, referencedAssetIds, type ListingInfo } from "@reelwalk/c
 import { prisma } from "@reelwalk/db";
 import { getSessionUser } from "@/lib/auth";
 import { newAssets } from "@/lib/ai-edit";
+import { startAiJob } from "@/lib/ai-jobs";
 import { makeItForMe } from "@/lib/autopilot";
 import { mediaScope } from "@/lib/workspace";
 
@@ -47,7 +48,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const value = body.info?.[field];
     if (typeof value === "string" && value.trim()) info[field] = value.trim().slice(0, 80);
   }
-  const result = await makeItForMe({ user, reel, timeline, styleId: typeof body.style === "string" ? body.style : "just-listed", info });
-  if (!result.ok) return Response.json(result, { status: 422 });
-  return Response.json({ ...result, assets: await newAssets(user.workspaceId, timeline, result.timeline) });
+  const styleId = typeof body.style === "string" ? body.style : "just-listed";
+  // Over a minute of work: run it in the background and let the browser check back (lib/ai-jobs.ts).
+  const jobId = await startAiJob({ workspaceId: user.workspaceId, reelId: reel.id, kind: "autopilot" }, async () => {
+    const result = await makeItForMe({ user, reel, timeline, styleId, info });
+    return result.ok ? { ...result, assets: await newAssets(user.workspaceId, timeline, result.timeline) } : result;
+  });
+  return Response.json({ ok: true, jobId });
 }

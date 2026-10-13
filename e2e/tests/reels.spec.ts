@@ -192,7 +192,11 @@ test("music: tempo is detected and cuts snap to the beat", async ({ page }) => {
 
   // A click track at 110 bpm: one beat every 545 ms.
   await page.getByRole("button", { name: "Music", exact: true }).click();
+  // With Instagram connected the sheet opens on Instagram's music; your own songs are a link away.
+  if ((await page.getByTestId("music-input").count()) === 0) await page.getByTestId("music-source-songs").click();
   await page.getByTestId("music-input").setInputFiles(fixture("click-110bpm.mp3"));
+  // The song in use is one row; its controls open with Adjust.
+  await page.getByTestId("music-current").getByRole("button", { name: "Adjust" }).click();
   const snap = page.getByTestId("snap-to-beat");
   await expect(snap).toContainText("110 bpm", { timeout: 30_000 });
   await snap.click();

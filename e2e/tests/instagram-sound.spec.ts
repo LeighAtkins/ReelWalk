@@ -23,34 +23,34 @@ test("a studio can edit to an Instagram sound, snap to its beat, and export with
     const total = page.getByLabel("Playhead position");
     await expect(total).toContainText("/ 0:06.0");
 
-    // Instagram's music sits next to your own songs in the Music sheet.
+    // The Music sheet opens on Instagram's music, popular first, with one-tap searches.
     await page.getByRole("button", { name: "Music", exact: true }).click();
     const sheet = page.getByRole("dialog", { name: "Music" });
-    await expect(sheet.getByTestId("music-source-songs")).toHaveAttribute("aria-pressed", "true");
-    await sheet.getByTestId("music-source-instagram").click();
+    await expect(sheet.getByText("Powered by Instagram")).toBeVisible();
+    await expect(sheet.getByTestId("music-source-instagram")).toHaveAttribute("aria-pressed", "true");
+    await expect(sheet.getByTestId("music-chip-popular")).toHaveAttribute("aria-pressed", "true");
     await expect(sheet.getByTestId("sound-results")).toHaveAttribute("data-state", "ready");
     await expect(sheet.getByTestId("sound-option")).toHaveCount(3);
     // Each sound can be heard on its own first.
     await expect(sheet.getByTestId("sound-preview").first()).toBeEnabled();
 
-    // Picking one puts the private copy under the reel.
+    // Picking one fetches the private copy, says so, and snaps the cuts to its beat by itself.
     await sheet.locator('[data-testid="sound-option"][data-audio-id="fake-music-1"]').click();
     const current = sheet.getByTestId("music-current");
     await expect(current).toHaveAttribute("data-instagram", "true", { timeout: 30_000 });
     await expect(current).toContainText("Open House Morning");
     await expect(current).toContainText("ReelWalk Test Band");
-    // Instagram plays it from its start, so there is no start control.
+    await expect(total).not.toContainText("/ 0:06.0", { timeout: 30_000 });
+    await expect(page.locator(".bar-music")).toContainText("Open House Morning");
+
+    // Adjust: Instagram plays it from its start, so there is no start control; the beat can be snapped again.
+    await current.getByRole("button", { name: "Adjust" }).click();
     await expect(sheet.getByTestId("music-start-locked")).toHaveText("Instagram plays this sound from its start.");
     await expect(sheet.getByText("Start the song at")).toHaveCount(0);
     await expect(sheet.getByText("Volume in this preview")).toBeVisible();
-
-    // Its tempo was found in the browser, so cuts can snap to it.
-    const snap = sheet.getByTestId("snap-to-beat");
-    await expect(snap).toContainText("120 bpm", { timeout: 30_000 });
-    await snap.click();
-    await expect(total).not.toContainText("/ 0:06.0");
-    await expect(page.locator(".bar-music")).toContainText("Open House Morning");
+    await expect(sheet.getByTestId("snap-to-beat")).toContainText("120 bpm");
     await expect(page.getByTestId("save-state")).toHaveAttribute("data-status", "saved", { timeout: 20_000 });
+    await sheet.getByRole("button", { name: "Close" }).click();
 
     // The export sheet says the file itself leaves the sound out.
     await page.getByTestId("export-button").click();

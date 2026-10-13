@@ -13,13 +13,25 @@ import {
   type AiAsset,
   type AiEditPlan,
   type AiSong,
+  type InstagramAudioTrack,
   type Timeline,
 } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
 import { AiError, aiModel, isAiAvailable, isFakeAi, structuredAnswer, usageCostUsd } from "@/lib/openai";
 import { workspacePlan } from "@/lib/plans";
 import { isUnlimited } from "@/lib/quotas";
+import { instagramSongs } from "@/lib/instagram-songs";
+import { toLibraryAsset, type LibraryAsset } from "@/lib/library";
 import { mediaScope } from "@/lib/workspace";
+
+/** Library entries for media a new timeline uses that the old one did not: a song the AI picked plays at once. */
+export async function newAssets(workspaceId: string, before: Timeline, after: Timeline): Promise<LibraryAsset[]> {
+  const had = new Set(referencedAssetIds(before));
+  const ids = referencedAssetIds(after).filter((id) => !had.has(id));
+  if (ids.length === 0) return [];
+  const rows = await prisma.mediaAsset.findMany({ where: { id: { in: ids }, ...mediaScope(workspaceId) } });
+  return Promise.all(rows.map(toLibraryAsset));
+}
 
 /**
  * Asking for a change in words (ADR 0020): describe the reel, ask the model
@@ -29,7 +41,7 @@ import { mediaScope } from "@/lib/workspace";
  */
 
 export type AskResult =
-  | { ok: true; timeline: Timeline; note: string; applied: string[]; skipped: string[]; questions: string[]; editId: string }
+  | { ok: true; timeline: Timeline; note: string; applied: string[]; skipped: string[]; questions: string[]; editId: string; assets?: LibraryAsset[]; instagramPick?: InstagramAudioTrack }
   | { ok: false; message: string; upgrade?: boolean };
 
 /** The studio's answers to the model's questions, sent back with the same request. */
@@ -61,7 +73,7 @@ const title = (fileName: string) => fileName.replace(/\.[a-z0-9]{2,4}$/i, "");
  */
 export async function context(workspaceId: string, timeline: Timeline): Promise<{ assets: Record<string, AiAsset>; songs: AiSong[]; unused: AiAsset[] }> {
   const used = referencedAssetIds(timeline);
-  const select = { id: true, kind: true, fileName: true, durationMs: true, width: true, height: true, bpm: true, beatOffsetMs: true, instagramAudioId: true, room: true } as const;
+  const select = { id: true, kind: true, fileName: true, durationMs: true, width: true, height: true, bpm: true, beatOffsetMs: true, instagramAudioId: true, room: true, shared: true } as const;
   const [rows, own] = await Promise.all([
     prisma.mediaAsset.findMany({
       where: { ...mediaScope(workspaceId), OR: [{ id: { in: used } }, { kind: "AUDIO", instagramAudioId: null }] },
@@ -91,8 +103,19 @@ export async function context(workspaceId: string, timeline: Timeline): Promise<
   for (const row of rows) {
     const asset = toAsset(row);
     assets[row.id] = asset;
-    if (row.kind === "AUDIO" && !row.instagramAudioId && songs.length < 30) songs.push({ id: row.id, title: asset.title, bpm: row.bpm, mood: songMood(asset.title) });
+    if (row.kind === "AUDIO" && !row.instagramAudioId) {
+      // A song uploaded twice is one song; the studio's own uploads come first.
+      const title = asset.title.replace(/^\d+[_ -]*/, "").replace(/^Mixkit[_ -]*/i, "").replace(/_/g, " ");
+      if (songs.some((song) => song.title.toLowerCase() === title.toLowerCase())) continue;
+      const own = !("shared" in row) || !(row as { shared?: boolean }).shared;
+      songs.push({ id: row.id, title, bpm: row.bpm, mood: songMood(title, row.bpm), own });
+    }
   }
+  songs.sort((a, b) => Number(b.own ?? false) - Number(a.own ?? false));
+  songs.splice(30);
+  // Instagram only, where the studio can use it: the model picks from Instagram's library.
+  const fromInstagram = await instagramSongs(workspaceId);
+  if (fromInstagram.length > 0) songs.splice(0, songs.length, ...fromInstagram);
   const unused = own.map(toAsset);
   for (const asset of unused) assets[asset.id] = asset;
   return { assets, songs, unused };
@@ -174,7 +197,7 @@ export async function askForChange(input: {
   if (model !== "fake") {
     console.log(`ai edit ${record.id}: ${model}, ${usage.inputTokens} in (${usage.cachedTokens} cached), ${usage.outputTokens} out, $${usageCostUsd(aiModel(), usage).toFixed(4)}, ${result.applied.length} applied, ${result.skipped.length} skipped`);
   }
-  return { ok: true, timeline: result.timeline, note: plan.note, applied: result.applied, skipped: result.skipped, questions: plan.questions, editId: record.id };
+  return { ok: true, timeline: result.timeline, note: plan.note, applied: result.applied, skipped: result.skipped, questions: plan.questions, editId: record.id, instagramPick: result.instagramPick };
 }
 
 /** One line for the account page: "4 of 60 this month". */

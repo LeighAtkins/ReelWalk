@@ -148,6 +148,8 @@ export function InstagramSoundBrowser({
   disabled = false,
   onSelect,
   hint,
+  query: controlledQuery,
+  onQuery,
 }: {
   type: InstagramAudioType;
   selectedId: string | null;
@@ -157,8 +159,13 @@ export function InstagramSoundBrowser({
   onSelect(track: InstagramAudioTrack): void;
   /** One line under the search box about what picking does here. */
   hint: string;
+  /** The search text, when the parent drives it (suggestion chips). */
+  query?: string;
+  onQuery?(query: string): void;
 }) {
-  const [query, setQuery] = useState("");
+  const [ownQuery, setOwnQuery] = useState("");
+  const query = controlledQuery ?? ownQuery;
+  const setQuery = onQuery ?? setOwnQuery;
   const [search, setSearch] = useState<Search>({ step: "loading" });
   const [playing, setPlaying] = useState<string | null>(null);
   const audio = useRef<HTMLAudioElement>(null);
@@ -225,7 +232,10 @@ export function InstagramSoundBrowser({
 
       <div aria-live="polite" aria-busy={search.step === "loading"} data-testid="sound-results" data-state={search.step}>
         {search.step === "loading" ? (
-          <p className="muted small">Looking…</p>
+          <p className="music-loading">
+            <span className="music-spinner" aria-hidden="true" />
+            Loading Instagram&apos;s music…
+          </p>
         ) : search.step === "error" ? (
           <p className="error small" role="alert" data-testid="sound-error">
             {search.error}

@@ -84,6 +84,9 @@ import { Filmstrip, type PendingUpload, type Selection } from "./filmstrip";
 import { historyReducer, initHistory } from "./history";
 import {
   AskSheet,
+  AutopilotSheet,
+  type AutopilotInfo,
+  type AutopilotPhase,
   type Brief,
   CaptionSheet,
   DetailsSheet,
@@ -133,7 +136,8 @@ type SheetName =
   | "music"
   | "caption"
   | "export"
-  | "ask";
+  | "ask"
+  | "autopilot";
 
 export type EditorProps = {
   /** Open the media library straight away (a reel started from the library). */
@@ -147,6 +151,8 @@ export type EditorProps = {
   askAvailable?: boolean;
   /** Ways of cutting a whole reel: built-in briefs and the studio's own. */
   briefs?: Brief[];
+  /** Opened from "Make it for me": the sheet that takes it through to export opens at once. */
+  autopilot?: boolean;
   /** Whether the Music sheet offers Instagram's sounds (null: not on this deployment). */
   instagramSounds?: InstagramSoundAccess;
 };
@@ -215,15 +221,18 @@ function Tool({
   );
 }
 
-export function Editor({ reel, timeline: initialTimeline, library: initialLibrary, openLibrary, tours = {}, instagramSounds = null, askAvailable = false, briefs: initialBriefs = [] }: EditorProps) {
+export function Editor({ reel, timeline: initialTimeline, library: initialLibrary, openLibrary, tours = {}, instagramSounds = null, askAvailable = false, briefs: initialBriefs = [], autopilot = false }: EditorProps) {
   const [briefs, setBriefs] = useState<Brief[]>(initialBriefs);
+  const [autopilotPhase, setAutopilotPhase] = useState<AutopilotPhase>("form");
+  const [autopilotError, setAutopilotError] = useState<{ message: string; upgrade: boolean } | null>(null);
+  const autopilotRequest = useRef<{ style: string; info: AutopilotInfo } | null>(null);
   const router = useRouter();
   const [history, dispatch] = useReducer(historyReducer, initialTimeline, initHistory);
   const timeline = history.present;
   const [title, setTitle] = useState(reel.title);
   const [caption, setCaption] = useState(reel.caption);
   const [selection, setSelection] = useState<Selection>(null);
-  const [sheet, setSheet] = useState<SheetName | null>(openLibrary && initialTimeline.clips.length === 0 ? "media" : null);
+  const [sheet, setSheet] = useState<SheetName | null>(autopilot ? "autopilot" : openLibrary && initialTimeline.clips.length === 0 ? "media" : null);
   const [library, setLibrary] = useState<Record<string, LibraryAsset>>(() => Object.fromEntries(initialLibrary.map((asset) => [asset.id, asset])));
   const [uploads, setUploads] = useState<PendingUpload[]>([]);
   const [musicUploading, setMusicUploading] = useState(false);
@@ -340,7 +349,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
   // ── Uploads ─────────────────────────────────────────────────
   const addFiles = useCallback(
     async (files: File[]) => {
-      setSheet(null);
+      setSheet((current) => (current === "autopilot" ? current : null));
       const batch = files.map((file) => ({
         key: newId(),
         file,
@@ -628,6 +637,50 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
     const result = await exportReel({ id: reel.id });
     if (result && !result.ok) setExportState({ busy: false, error: result.message ?? null, issues: result.issues, upgrade: result.upgrade });
   }, [autosave, reel.id]);
+
+  // ── Make it for me ──────────────────────────────────────────
+  // Runs once the shots are up: the cut comes back from the server, is
+  // applied as one step, saved, and the export starts (which redirects).
+  useEffect(() => {
+    if (autopilotPhase !== "waiting" || uploads.length > 0 || !autopilotRequest.current) return;
+    if (timeline.clips.length === 0) {
+      setAutopilotPhase("form");
+      setAutopilotError({ message: "None of the shots uploaded. Pick them again from the home screen.", upgrade: false });
+      return;
+    }
+    const { style, info } = autopilotRequest.current;
+    autopilotRequest.current = null;
+    setAutopilotPhase("cutting");
+    void (async () => {
+      const fail = (message: string, upgrade = false) => {
+        setAutopilotPhase("form");
+        setAutopilotError({ message, upgrade });
+      };
+      try {
+        const response = await fetch(`/api/reels/${reel.id}/autopilot`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ timeline, style, info }),
+        });
+        const data = (await response.json()) as { ok: true; timeline: unknown; note: string } | { ok: false; message: string };
+        if (!data.ok) return fail(data.message);
+        const next = parseTimeline(data.timeline);
+        apply(() => next);
+        setAutopilotPhase("exporting");
+        // Give the autosave the new timeline before the export reads it.
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        if (!(await autosave.flush())) return fail("The reel was made but could not be saved. Check the connection and press Make my reel again.");
+        const result = await exportReel({ id: reel.id });
+        if (result && !result.ok) {
+          setSheet(null);
+          showToast(`Your reel is ready to look over. ${result.message ?? "Export it when you are happy."}`, 7000);
+          if (result.upgrade) setExportState({ busy: false, error: result.message ?? null, issues: result.issues, upgrade: true });
+        }
+      } catch {
+        fail("Could not reach ReelWalk. Check the connection and try again.");
+      }
+    })();
+  }, [autopilotPhase, uploads.length, timeline, reel.id, apply, autosave, showToast]);
 
   const close = useCallback(async () => {
     await autosave.flush();
@@ -1192,6 +1245,23 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
             setBriefs((current) => current.filter((brief) => brief.id !== id));
           }}
           onClose={closeSheet}
+        />
+      ) : null}
+
+      {sheet === "autopilot" ? (
+        <AutopilotSheet
+          phase={autopilotPhase}
+          uploading={uploads.length}
+          error={autopilotError?.message ?? null}
+          upgrade={autopilotError?.upgrade ?? false}
+          onGo={(style, info) => {
+            autopilotRequest.current = { style, info };
+            setAutopilotError(null);
+            setAutopilotPhase("waiting");
+          }}
+          onClose={() => {
+            if (autopilotPhase === "form") setSheet(null);
+          }}
         />
       ) : null}
 

@@ -3,6 +3,7 @@
 import "./zod-config";
 
 export * from "./ai-edit";
+export * from "./autopilot";
 export * from "./autobuild";
 export * from "./beats";
 export * from "./drag";

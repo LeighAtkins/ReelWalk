@@ -19,10 +19,10 @@ export default async function EditReelPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ library?: string }>;
+  searchParams: Promise<{ library?: string; auto?: string }>;
 }) {
   const { id } = await params;
-  const { library: openLibrary } = await searchParams;
+  const { library: openLibrary, auto } = await searchParams;
   const user = await getCurrentUser();
   const reel = await prisma.reel.findFirst({ where: { id, workspaceId: user.workspaceId } });
   if (!reel) notFound();
@@ -63,6 +63,7 @@ export default async function EditReelPage({
       instagramSounds={instagramSounds}
       askAvailable={isAiAvailable()}
       briefs={briefs}
+      autopilot={auto === "1"}
     />
   );
 }

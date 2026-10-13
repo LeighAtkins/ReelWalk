@@ -1108,3 +1108,113 @@ export function AskSheet({
     </Sheet>
   );
 }
+
+// ── Make it for me ──────────────────────────────────────────────
+
+export type AutopilotPhase = "form" | "waiting" | "cutting" | "exporting";
+export type AutopilotInfo = { address: string; price: string; beds: string; baths: string; area: string; openHouse: string };
+
+const AUTOPILOT_STYLE_CHOICES = [
+  { id: "just-listed", name: "Just listed" },
+  { id: "privacy", name: "Luxury, slow" },
+  { id: "open-house", name: "Open house" },
+  { id: "walkthrough", name: "Walkthrough" },
+];
+
+/**
+ * "Make it for me" (ADR 0021): a style and the facts, all optional, filled in
+ * while the shots upload; then ReelWalk cuts, scores, writes and renders
+ * without another tap, showing each step as it happens.
+ */
+export function AutopilotSheet({
+  phase,
+  uploading,
+  error,
+  upgrade,
+  onGo,
+  onClose,
+}: {
+  phase: AutopilotPhase;
+  /** Files still uploading. */
+  uploading: number;
+  error: string | null;
+  upgrade: boolean;
+  onGo(style: string, info: AutopilotInfo): void;
+  onClose(): void;
+}) {
+  const [style, setStyle] = useState("just-listed");
+  const [info, setInfo] = useState<AutopilotInfo>({ address: "", price: "", beds: "", baths: "", area: "", openHouse: "" });
+  const field = (key: keyof AutopilotInfo, label: string, placeholder: string, wide = false) => (
+    <label className={`field${wide ? " wide" : ""}`}>
+      {label}
+      <input className="text-input" value={info[key]} placeholder={placeholder} maxLength={80} onChange={(event) => setInfo({ ...info, [key]: event.target.value })} />
+    </label>
+  );
+  const running = phase !== "form";
+  const step = (label: string, active: boolean, done: boolean) => (
+    <li data-state={done ? "done" : active ? "doing" : "todo"}>{label}</li>
+  );
+
+  return (
+    <Sheet title="Make it for me" onClose={onClose}>
+      {!running ? (
+        <>
+          <p className="muted small">
+            Pick a style and add what you know. Everything is optional; leave it blank and ReelWalk still makes the reel.
+            {uploading > 0 ? ` Your shots are still uploading (${uploading} to go); it starts as soon as they are up.` : ""}
+          </p>
+          <div className="ask-examples" aria-label="Style">
+            {AUTOPILOT_STYLE_CHOICES.map((choice) => (
+              <button
+                key={choice.id}
+                type="button"
+                className="chip chip-btn"
+                aria-pressed={style === choice.id}
+                onClick={() => setStyle(choice.id)}
+                data-testid={`autopilot-style-${choice.id}`}
+              >
+                {choice.name}
+              </button>
+            ))}
+          </div>
+          <div className="autopilot-fields">
+            {field("address", "Address", "1427 Lakeview Dr, Austin", true)}
+            {field("price", "Price", "$1,250,000")}
+            {field("area", "Size", "2,400 sq ft")}
+            {field("beds", "Beds", "3")}
+            {field("baths", "Baths", "2")}
+            {style === "open-house" ? field("openHouse", "Open house", "Saturday 1–3 pm", true) : null}
+          </div>
+          {error ? (
+            <p className="error" role="alert">
+              {error}
+            </p>
+          ) : null}
+          {error && upgrade ? (
+            <Link href="/pricing" className="btn btn-quiet btn-block">
+              See plans
+            </Link>
+          ) : null}
+          <button type="button" className="btn btn-signal btn-block" onClick={() => onGo(style, info)} data-testid="autopilot-go">
+            Make my reel
+          </button>
+        </>
+      ) : (
+        <>
+          <ol className="autopilot-steps" data-testid="autopilot-steps" data-phase={phase}>
+            {step(uploading > 0 ? `Uploading your shots (${uploading} to go)` : "Uploading your shots", phase === "waiting", phase !== "waiting")}
+            {step("Choosing the shots, the order and the song", phase === "cutting", phase === "exporting")}
+            {step("Cutting to the beat and writing the text", phase === "cutting", phase === "exporting")}
+            {step("Starting the render", phase === "exporting", false)}
+          </ol>
+          <p className="muted small">
+            {phase === "exporting"
+              ? "The render runs on our servers. You can close the app; it lands under Exports in a few minutes."
+              : "Keep this screen open until the render starts, about a minute."}
+          </p>
+        </>
+      )}
+    </Sheet>
+  );
+}
+

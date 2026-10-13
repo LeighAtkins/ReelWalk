@@ -183,6 +183,14 @@ export const CopyIcon = ({ size }: IconProps) => (
     <path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3" />
   </Icon>
 );
+/** Two four-pointed sparks: the reel made for you. */
+export const SparkIcon = ({ size }: IconProps) => (
+  <Icon size={size}>
+    <path d="M10 3.5 11.6 8.4 16.5 10 11.6 11.6 10 16.5 8.4 11.6 3.5 10 8.4 8.4Z" />
+    <path d="M18 14.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8Z" />
+  </Icon>
+);
+
 /** A speech bubble with a line of writing: asking for a change in words. */
 export const AskIcon = ({ size }: IconProps) => (
   <Icon size={size}>

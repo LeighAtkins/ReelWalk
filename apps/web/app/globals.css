@@ -2519,3 +2519,13 @@ form + .card {
   background: var(--rule);
 }
 
+
+/* Fullscreen keeps a video's own styles, so a frame that crops to fill
+   (object-fit: cover) would crop a vertical reel to the screen's width.
+   In fullscreen every video shows the whole frame on black instead. */
+video:fullscreen,
+video:-webkit-full-screen {
+  object-fit: contain !important;
+  background: #000;
+  border-radius: 0;
+}

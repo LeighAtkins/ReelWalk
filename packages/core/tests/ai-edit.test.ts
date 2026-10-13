@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AI_EDIT_PLAN_JSON_SCHEMA, aiEditPlanSchema, applyAiEditPlan, describeReel, fakeAiEditPlan, type AiAsset, type AiEditOp, type AiSong } from "../src/ai-edit";
+import { AI_EDIT_PLAN_JSON_SCHEMA, aiEditPlanSchema, applyAiEditPlan, cutsOnBeat, describeReel, fakeAiEditPlan, type AiAsset, type AiEditOp, type AiSong } from "../src/ai-edit";
 import { clipDurationMs, parseTimeline, type Timeline } from "../src/timeline";
 
 const assets: Record<string, AiAsset> = {
@@ -121,6 +121,36 @@ describe("applyAiEditPlan", () => {
   it("turns room labels on for clips that know their room", () => {
     const { timeline } = applyAiEditPlan(reel(), { ops: [op({ op: "roomLabels", on: true })], note: "" }, { assets, songs });
     expect(timeline.texts.filter((text) => text.id.startsWith("room-")).map((text) => text.text)).toEqual(["Kitchen", "Living room"]);
+  });
+});
+
+describe("keeping the rest of the reel in step", () => {
+  it("text over a clip moves with the clip when an earlier one is removed or lengthened", () => {
+    const base = reel();
+    // "Lounge" sits over clip 2 (4.0–7.0 s), one second in.
+    const withText = { ...base, texts: [...base.texts, { ...base.texts[0], id: "t2", text: "Lounge", startMs: 5000, endMs: 7000 }] };
+    const longer = applyAiEditPlan(withText, { ops: [op({ op: "trim", clip: 1, lengthMs: 6000 })], note: "" }, { assets, songs });
+    expect(longer.timeline.texts.find((text) => text.id === "t2")).toMatchObject({ startMs: 7000, endMs: 9000 });
+    const removed = applyAiEditPlan(withText, { ops: [op({ op: "remove", clip: 1 })], note: "" }, { assets, songs });
+    // The title that opened the reel still opens it, over the clip now first.
+    expect(removed.timeline.texts.find((text) => text.id === "t1")).toMatchObject({ startMs: 0, endMs: 3000 });
+    expect(removed.timeline.texts.find((text) => text.id === "t2")).toMatchObject({ startMs: 1000, endMs: 3000 });
+  });
+
+  it("cuts that were on the beat go back on it after a trim, and room labels are redrawn", () => {
+    // 96 bpm = 625 ms a beat; a 4000 ms cut sits on beat 6.4, so first put it on the beat.
+    const base = applyAiEditPlan(reel(), { ops: [op({ op: "roomLabels", on: true }), op({ op: "snapToBeat" })], note: "" }, { assets, songs }).timeline;
+    expect(cutsOnBeat(base)).toBe(true);
+    const { timeline, applied } = applyAiEditPlan(base, { ops: [op({ op: "trim", clip: 1, lengthMs: 5400 })], note: "" }, { assets, songs });
+    expect(cutsOnBeat(timeline)).toBe(true);
+    expect(applied).toContain("cuts kept on the beat");
+    const label = timeline.texts.find((text) => text.id === "room-c2")!;
+    expect(label.startMs).toBeGreaterThanOrEqual(clipDurationMs(timeline.clips[0]));
+  });
+
+  it("leaves texts alone when nothing structural changed", () => {
+    const { timeline } = applyAiEditPlan(reel(), { ops: [op({ op: "look", clip: 0, filter: "mono" })], note: "" }, { assets, songs });
+    expect(timeline.texts).toEqual(reel().texts);
   });
 });
 

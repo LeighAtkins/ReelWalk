@@ -94,14 +94,17 @@ export async function askForChange(input: {
   if (isFakeAi()) {
     plan = fakeAiEditPlan(request, input.timeline, songs);
   } else {
-    let answer;
-    try {
-      answer = await structuredAnswer({
+    const ask = () =>
+      structuredAnswer({
         instructions: AI_EDIT_SYSTEM_PROMPT,
         input: `${description}\n\nThe user asks: ${request}`,
         schemaName: "reel_edit_plan",
         schema: AI_EDIT_PLAN_JSON_SCHEMA as unknown as Record<string, unknown>,
       });
+    let answer;
+    try {
+      // A dropped connection or a busy provider gets one more go before the user is told.
+      answer = await ask().catch((error) => (error instanceof AiError && error.transient ? ask() : Promise.reject(error)));
     } catch (error) {
       if (error instanceof AiError) {
         console.error("ai edit:", error.message);

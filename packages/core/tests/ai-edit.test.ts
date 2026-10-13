@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AI_BRIEFS, AI_EDIT_PLAN_JSON_SCHEMA, aiEditPlanSchema, applyAiEditPlan, cutsOnBeat, describeReel, fakeAiEditPlan, type AiAsset, type AiEditOp, type AiSong } from "../src/ai-edit";
+import { AI_BRIEFS, AI_EDIT_PLAN_JSON_SCHEMA, aiEditPlanSchema, songMood, applyAiEditPlan, cutsOnBeat, describeReel, fakeAiEditPlan, type AiAsset, type AiEditOp, type AiSong } from "../src/ai-edit";
 import { clipDurationMs, parseTimeline, type Timeline } from "../src/timeline";
 
 const assets: Record<string, AiAsset> = {
@@ -215,6 +215,20 @@ describe("whole-reel cuts", () => {
 
   it("the briefs ask for shots fast enough to read as a reel", () => {
     expect(AI_BRIEFS.find((brief) => brief.id === "just-listed")!.text).toContain("1.5 to 2.5 seconds");
+  });
+});
+
+describe("song moods", () => {
+  it("the bundled songs have their own; the studio's are read from name and tempo", () => {
+    expect(songMood("Fretless")).toContain("classy");
+    expect(songMood("Staring at the Night Sky", 118)).toBe("calm, soft");
+    expect(songMood("Possible Dreams", 174)).toBe("calm, soft; fast tempo");
+    expect(songMood("Track 7", 120)).toBeNull();
+  });
+
+  it("the studio's own songs are marked for the model", () => {
+    const text = describeReel({ title: "x", timeline: reel(), assets, songs: [{ id: "o", title: "Charlotte", bpm: 100, mood: "calm, soft", own: true }] });
+    expect(text).toContain('- o: "Charlotte", 100 bpm, calm, soft, the studio\'s own');
   });
 });
 

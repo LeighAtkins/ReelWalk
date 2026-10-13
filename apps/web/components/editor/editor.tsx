@@ -662,8 +662,9 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ timeline, style, info }),
         });
-        const data = (await response.json()) as { ok: true; timeline: unknown; note: string } | { ok: false; message: string };
+        const data = (await response.json()) as { ok: true; timeline: unknown; note: string; assets?: LibraryAsset[] } | { ok: false; message: string };
         if (!data.ok) return fail(data.message);
+        if (data.assets?.length) setLibrary((current) => ({ ...current, ...Object.fromEntries(data.assets!.map((asset) => [asset.id, asset])) }));
         const next = parseTimeline(data.timeline);
         apply(() => next);
         setAutopilotPhase("exporting");
@@ -1224,9 +1225,11 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
               body: JSON.stringify({ request, timeline, answers }),
             });
             const data = (await response.json()) as
-              | { ok: true; timeline: unknown; note: string; applied: string[]; skipped: string[]; questions: string[] }
+              | { ok: true; timeline: unknown; note: string; applied: string[]; skipped: string[]; questions: string[]; assets?: LibraryAsset[] }
               | { ok: false; message: string; upgrade?: boolean };
             if (!data.ok) return data;
+            // A song or shot the AI brought in joins the library first, so the preview can play it.
+            if (data.assets?.length) setLibrary((current) => ({ ...current, ...Object.fromEntries(data.assets!.map((asset) => [asset.id, asset])) }));
             if (data.applied.length > 0) {
               const next = parseTimeline(data.timeline);
               apply(() => next);

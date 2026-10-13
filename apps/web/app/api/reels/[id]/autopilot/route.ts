@@ -1,6 +1,7 @@
 import { parseTimeline, referencedAssetIds, type ListingInfo } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
 import { getSessionUser } from "@/lib/auth";
+import { newAssets } from "@/lib/ai-edit";
 import { makeItForMe } from "@/lib/autopilot";
 import { mediaScope } from "@/lib/workspace";
 
@@ -47,5 +48,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     if (typeof value === "string" && value.trim()) info[field] = value.trim().slice(0, 80);
   }
   const result = await makeItForMe({ user, reel, timeline, styleId: typeof body.style === "string" ? body.style : "just-listed", info });
-  return Response.json(result, { status: result.ok ? 200 : 422 });
+  if (!result.ok) return Response.json(result, { status: 422 });
+  return Response.json({ ...result, assets: await newAssets(user.workspaceId, timeline, result.timeline) });
 }

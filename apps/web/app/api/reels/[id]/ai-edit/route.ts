@@ -1,6 +1,6 @@
 import { parseTimeline, referencedAssetIds } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
-import { askForChange } from "@/lib/ai-edit";
+import { askForChange, newAssets } from "@/lib/ai-edit";
 import { getSessionUser } from "@/lib/auth";
 import { mediaScope } from "@/lib/workspace";
 
@@ -49,5 +49,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         .slice(0, 3)
     : [];
   const result = await askForChange({ user, reel, timeline, request: body.request, answers });
-  return Response.json(result, { status: result.ok ? 200 : 422 });
+  if (!result.ok) return Response.json(result, { status: 422 });
+  return Response.json({ ...result, assets: await newAssets(user.workspaceId, timeline, result.timeline) });
 }

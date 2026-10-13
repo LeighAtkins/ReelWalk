@@ -118,7 +118,7 @@ export function autopilotRequest(styleId: string, info: ListingInfo): string {
   return [
     brief.text.replace(/ Ask me for[^.]*\./, ""),
     facts.length ? `The facts for the details card and text: ${facts.join("; ")}.` : "No listing facts were given: leave the details card empty.",
-    "Do everything in one go: order and cut my shots on the beat, pick the song, write the hook. The room order above is only a guide: make the best reel from the shots I have, whatever they show, and always return a cut. Never show a photo twice or the same part of a video twice: with only a few shots, make a shorter reel (12 to 15 seconds is fine) rather than repeat one. Do not ask me anything; where a fact is missing, leave it out. Every clip must be on screen at least 1.5 seconds.",
+    "Do everything in one go: order and cut my shots on the beat, pick the song if the reel has none (keep the one it has otherwise), write the hook. The room order above is only a guide: make the best reel from the shots I have, whatever they show, and always return a cut. Never show a photo twice or the same part of a video twice: with only a few shots, make a shorter reel (12 to 15 seconds is fine) rather than repeat one. Do not ask me anything; where a fact is missing, leave it out. Every clip must be on screen at least 1.5 seconds.",
   ].join(" ");
 }
 

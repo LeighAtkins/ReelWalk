@@ -7,12 +7,30 @@
  * ($2 / $10, cached input $0.10) is the step up if Luna misreads requests. With
  * no key, DEV_FAKE_AI=true makes the app answer from rules instead, so local
  * stacks and tests can exercise the whole path.
+ *
+ * An OpenRouter key (sk-or-…) works too: OpenRouter serves the same Responses
+ * API at its own address, names the models "openai/<model>", and passes
+ * OpenAI's prices through for them. OPENAI_BASE_URL overrides either.
  */
 
 export const DEFAULT_AI_MODEL = "gpt-6-luna";
 
 export function aiModel(): string {
   return process.env.OPENAI_MODEL || DEFAULT_AI_MODEL;
+}
+
+function viaOpenRouter(): boolean {
+  return (process.env.OPENAI_API_KEY ?? "").startsWith("sk-or-");
+}
+
+/** Where the Responses endpoint is: OpenAI, or OpenRouter for its keys. */
+export function aiBaseUrl(): string {
+  return (process.env.OPENAI_BASE_URL || (viaOpenRouter() ? "https://openrouter.ai/api/v1" : "https://api.openai.com/v1")).replace(/\/$/, "");
+}
+
+/** The model id the provider expects: OpenRouter wants the "openai/" prefix. */
+function providerModel(model: string): string {
+  return viaOpenRouter() && !model.includes("/") ? `openai/${model}` : model;
 }
 
 export function isAiConfigured(): boolean {
@@ -67,7 +85,7 @@ export async function structuredAnswer(options: {
   if (!key) throw new AiError("Asking for changes is not set up on this deployment.", false);
   const model = aiModel();
   const body: Record<string, unknown> = {
-    model,
+    model: providerModel(model),
     instructions: options.instructions,
     input: options.input,
     text: { format: { type: "json_schema", name: options.schemaName, schema: options.schema, strict: true } },
@@ -76,13 +94,14 @@ export async function structuredAnswer(options: {
   };
   // Sol and Astra reason before answering; a short think is plenty for an edit list.
   // Luna is sent no reasoning setting, in case it does not take one.
-  if (/^gpt-6(\.\d+)?-(sol|astra)/.test(model)) body.reasoning = { effort: "low" };
+  if (/gpt-6(\.\d+)?-(sol|astra)/.test(model)) body.reasoning = { effort: "low" };
 
   let response: Response;
   try {
-    response = await fetch("https://api.openai.com/v1/responses", {
+    response = await fetch(`${aiBaseUrl()}/responses`, {
       method: "POST",
-      headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
+      // The last two headers are OpenRouter's attribution; OpenAI ignores them.
+      headers: { authorization: `Bearer ${key}`, "content-type": "application/json", "http-referer": "https://reelwalking.com", "x-title": "ReelWalk" },
       body: JSON.stringify(body),
       signal: options.signal ?? AbortSignal.timeout(60_000),
     });
@@ -124,7 +143,7 @@ export function usageCostUsd(model: string, usage: AiUsage): number {
     "gpt-6-sol": { input: 2, cached: 0.2, output: 10 },
     "gpt-6-luna": { input: 0.1, cached: 0.01, output: 0.5 },
   };
-  const price = prices[model] ?? prices[DEFAULT_AI_MODEL];
+  const price = prices[model.replace(/^openai\//, "")] ?? prices[DEFAULT_AI_MODEL];
   const fresh = Math.max(0, usage.inputTokens - usage.cachedTokens);
   return (fresh * price.input + usage.cachedTokens * price.cached + usage.outputTokens * price.output) / 1_000_000;
 }

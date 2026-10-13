@@ -46,7 +46,8 @@ export async function createVenueReel(input: VenueRequest): Promise<{ id: string
 
   const song =
     (await prisma.mediaAsset.findFirst({ where: { ...mediaScope(user.workspaceId), kind: "AUDIO", objectKey: `library/music/${vibe.song}.mp3` } })) ??
-    (await prisma.mediaAsset.findFirst({ where: { ...mediaScope(user.workspaceId), kind: "AUDIO", bpm: { not: null } }, orderBy: { fileName: "asc" } }));
+    // Never an Instagram sound's private copy (ADR 0019): it is only for editing against.
+    (await prisma.mediaAsset.findFirst({ where: { ...mediaScope(user.workspaceId), kind: "AUDIO", bpm: { not: null }, instagramAudioId: null }, orderBy: { fileName: "asc" } }));
   const timeline = buildVenueReel({
     clips,
     details,

@@ -159,3 +159,89 @@ export function searchFakeInstagramAudio(type: InstagramAudioType, query: string
     (track) => track.type === type && (!needle || track.title.toLowerCase().includes(needle) || (track.artist ?? "").toLowerCase().includes(needle)),
   );
 }
+
+// ── Editing against an Instagram sound (ADR 0019) ──────────────
+
+/** Longest preview file ReelWalk keeps a private copy of. Instagram's previews are a few megabytes. */
+export const INSTAGRAM_PREVIEW_MAX_BYTES = 25 * 1024 * 1024;
+
+/** Extension and content type to store a preview under; anything unrecognised is treated as MP4 audio. */
+export function instagramPreviewFormat(contentType: string | null | undefined): { extension: string; contentType: string } {
+  const type = (contentType ?? "").split(";")[0]!.trim().toLowerCase();
+  if (type === "audio/mpeg" || type === "audio/mp3") return { extension: "mp3", contentType: "audio/mpeg" };
+  if (type === "audio/wav" || type === "audio/x-wav" || type === "audio/wave") return { extension: "wav", contentType: "audio/wav" };
+  if (type === "audio/aac") return { extension: "aac", contentType: "audio/aac" };
+  // Instagram serves its previews as MP4 (sometimes labelled video/mp4) holding only an audio track.
+  return { extension: "m4a", contentType: "audio/mp4" };
+}
+
+/** Object key of a workspace's private copy of a sound's preview. */
+export function instagramPreviewKeyFor(workspaceId: string, audioId: string, extension: string): string {
+  const safe = audioId.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 64) || "sound";
+  return `uploads/${workspaceId}/instagram-audio/${safe}.${extension}`;
+}
+
+/** The export screen's choice for a reel edited to an Instagram sound: replace the reel's soundtrack, as by default. */
+export function instagramChoiceForSound(sound: { audioId: string; title: string; artist: string | null }): InstagramAudioChoice {
+  return { audioId: sound.audioId, title: sound.title, artist: sound.artist, ...instagramAudioMix(false) };
+}
+
+/**
+ * How far the sound may drift from the video in "Play with sound" before it
+ * is pulled back, in seconds. Below about 80 ms nobody hears it; seeking the
+ * audio more often than needed makes it stutter.
+ */
+export const SOUND_SYNC_TOLERANCE_S = 0.08;
+
+/**
+ * Where the sound should jump to so it plays in step with the video, or null
+ * when it is close enough, or when the video is past the sound's end (the
+ * reel then plays on in silence, as on Instagram with a shorter sound).
+ */
+export function soundSyncTarget(videoS: number, soundS: number, soundDurationS: number | null, toleranceS = SOUND_SYNC_TOLERANCE_S): number | null {
+  if (!Number.isFinite(videoS) || videoS < 0) return null;
+  if (soundDurationS !== null && Number.isFinite(soundDurationS) && videoS >= soundDurationS) return null;
+  return Math.abs(videoS - soundS) > toleranceS ? videoS : null;
+}
+
+/**
+ * The local stack's pretend Instagram sound (DEV_FAKE_INSTAGRAM): clicks at
+ * 120 bpm, first beat at 250 ms, made on the fly so the end-to-end suite has
+ * something to download, play and find the tempo of without Instagram.
+ * 8-bit mono WAV at 11,025 Hz keeps it to about 130 KB.
+ */
+export const FAKE_INSTAGRAM_SOUND = { bpm: 120, offsetMs: 250, seconds: 12, sampleRate: 11_025 } as const;
+
+export function fakeInstagramSoundWav(): Uint8Array {
+  const { bpm, offsetMs, seconds, sampleRate } = FAKE_INSTAGRAM_SOUND;
+  const count = sampleRate * seconds;
+  const samples = new Float32Array(count);
+  const period = (60 / bpm) * sampleRate;
+  let seed = 1;
+  const noise = () => ((seed = (seed * 16807) % 2147483647) / 2147483647) * 2 - 1;
+  for (let beat = (offsetMs / 1000) * sampleRate; beat < count; beat += period) {
+    // A short burst of noise over a tone: a click both a detector and an ear can find.
+    for (let i = 0; i < 400 && beat + i < count; i++) {
+      const fade = 1 - i / 400;
+      samples[Math.floor(beat) + i] = (noise() * 0.6 + Math.sin((2 * Math.PI * 880 * i) / sampleRate) * 0.4) * fade;
+    }
+  }
+  const bytes = new Uint8Array(44 + count);
+  const view = new DataView(bytes.buffer);
+  const ascii = (offset: number, text: string) => [...text].forEach((char, index) => view.setUint8(offset + index, char.charCodeAt(0)));
+  ascii(0, "RIFF");
+  view.setUint32(4, 36 + count, true);
+  ascii(8, "WAVE");
+  ascii(12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true); // PCM
+  view.setUint16(22, 1, true); // mono
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate, true); // bytes per second: one byte per sample
+  view.setUint16(32, 1, true); // block align
+  view.setUint16(34, 8, true); // bits per sample
+  ascii(36, "data");
+  view.setUint32(40, count, true);
+  for (let i = 0; i < count; i++) bytes[44 + i] = Math.max(0, Math.min(255, Math.round(128 + samples[i]! * 127)));
+  return bytes;
+}

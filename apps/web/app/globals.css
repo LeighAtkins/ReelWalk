@@ -1998,6 +1998,32 @@ input[type="range"] {
   min-width: 0;
 }
 
+/* The export screen's sound: picker, a note, and Play with sound under it. */
+.export-sound {
+  display: grid;
+  gap: 8px;
+}
+
+.play-with-sound {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 8px;
+}
+
+/* The editor's Music sheet: what is playing under the reel now. */
+.music-current {
+  display: grid;
+  gap: 12px;
+}
+
+.music-current-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+
 .scheduled-sound {
   display: grid;
   gap: 4px;

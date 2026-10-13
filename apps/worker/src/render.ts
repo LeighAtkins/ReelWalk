@@ -5,7 +5,7 @@ import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import { GetObjectCommand, HeadObjectCommand, PutObjectCommand, type S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { inputFilenameFor, outputKeyFor, parseReelExportPayload, renderSourceKeyFor } from "@reelwalk/core";
+import { inputFilenameFor, outputKeyFor, parseReelExportPayload, reelRenderPlan, renderSourceKeyFor } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
 import { probe, run } from "./library/tools";
 
@@ -125,10 +125,14 @@ export async function renderJob(
     }
     if (job.kind === "REEL") {
       const payload = parseReelExportPayload(job.payload);
+      // An Instagram sound is never baked into the MP4 (ADR 0019): the plan
+      // drops it, and Instagram attaches the sound itself when the reel is posted.
+      const plan = reelRenderPlan(payload);
+      if (plan.timeline.music === null && payload.timeline.music !== null) console.log(`[${job.id}] music is an Instagram sound; rendering without it`);
       // Headless Chrome fetches the media straight from storage, so it gets
       // short-lived signed URLs instead of the files being copied first.
       const assets: Record<string, ReelAsset> = {};
-      const entries = Object.entries(payload.assets);
+      const entries = Object.entries(plan.assets);
       for (const [index, [id, asset]] of entries.entries()) {
         const key = asset.kind === "VIDEO" ? await renderSourceKey(s3, bucket, workdir, id, asset.objectKey, (line) => console.log(`[${job.id}] ${line}`)) : asset.objectKey;
         const src = await getSignedUrl(s3, new GetObjectCommand({ Bucket: bucket, Key: key }), { expiresIn: 3600 });
@@ -136,7 +140,7 @@ export async function renderJob(
         // Preparing sources is the first fifth of the bar; Remotion reports the rest.
         report(((index + 1) / entries.length) * 0.2);
       }
-      await renderReel({ timeline: payload.timeline, assets, output: outputPath, concurrency, width: payload.output.width, watermark: payload.output.watermark }, report);
+      await renderReel({ timeline: plan.timeline, assets, output: outputPath, concurrency, width: payload.output.width, watermark: payload.output.watermark }, report);
     } else if (job.kind === "EDITOR") {
       // Editor projects carried media URLs chosen by the client, so rendering
       // one made the worker fetch any host it named (SSRF). The route that

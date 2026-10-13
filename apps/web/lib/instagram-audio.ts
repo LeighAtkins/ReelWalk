@@ -2,6 +2,9 @@ import { INSTAGRAM_AUDIO_QUERY_MAX, instagramAudioIdFromQuery, searchFakeInstagr
 import { prisma } from "@reelwalk/db";
 import { fetchInstagramAudio, fetchInstagramAudioById, instagramErrorMessage, isFakeInstagram, isInstagramConfigured } from "./instagram";
 
+/** Where the local stack's pretend Instagram serves its one canned sound (app/api/dev/instagram/sound). */
+export const FAKE_INSTAGRAM_SOUND_PATH = "/api/dev/instagram/sound";
+
 /**
  * Searching Instagram's audio library for the "Instagram sound" picker
  * (ADR 0018), with the workspace's connected account.
@@ -42,7 +45,10 @@ export function normaliseAudioQuery(query: string): string {
 /** Searches with the workspace's Instagram account. Never throws; errors come back in words. */
 export async function searchInstagramAudio(workspaceId: string, input: { type: InstagramAudioType; query: string }): Promise<AudioSearchResult> {
   const query = normaliseAudioQuery(input.query);
-  if (isFakeInstagram()) return { ok: true, tracks: searchFakeInstagramAudio(input.type, query) };
+  if (isFakeInstagram()) {
+    // Every pretend sound previews as the same canned click track.
+    return { ok: true, tracks: searchFakeInstagramAudio(input.type, query).map((track) => ({ ...track, previewUrl: FAKE_INSTAGRAM_SOUND_PATH })) };
+  }
   if (!isInstagramConfigured()) return { ok: false, error: "Instagram posting is not set up on this deployment." };
 
   const account = await prisma.socialAccount.findUnique({ where: { workspaceId_provider: { workspaceId, provider: "instagram" } } });

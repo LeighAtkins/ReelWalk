@@ -273,9 +273,17 @@ model MediaAsset {
   // For music: tempo and the time of the first beat, detected at upload or import.
   bpm          Float?
   beatOffsetMs Int?
+  // Set when this is the workspace's private copy of an Instagram sound's
+  // preview (ADR 0019): for editing against in the editor only. It is never
+  // rendered into an export or published; Instagram attaches the sound itself.
+  instagramAudioId String?
+  instagramTitle   String?
+  instagramArtist  String?
   createdAt   DateTime    @default(now())
   renderJobs  RenderJob[]
 
+  // One copy per sound per workspace, so choosing it again reuses it.
+  @@unique([workspaceId, instagramAudioId])
   @@index([workspaceId, createdAt])
   @@index([propertyId, createdAt])
   @@index([shared])

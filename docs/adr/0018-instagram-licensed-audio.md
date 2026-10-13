@@ -32,6 +32,9 @@ Facebook Login token:
 
 ## Decision
 
+(ADR 0019 adds choosing the sound in the editor, editing to a private copy
+of its preview, and playing the export with it.)
+
 **Pick, then attach at publish.** The export screen gets one "Instagram
 sound" picker shared by Post now and Schedule. It has two tabs, Music
 (`music`) and Trending sounds (`original_sound`), and a search box (empty

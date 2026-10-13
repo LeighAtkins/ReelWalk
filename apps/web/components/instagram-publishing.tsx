@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import type { InstagramAudioChoice } from "@reelwalk/core";
+import { instagramAudioLabel, type InstagramAudioChoice } from "@reelwalk/core";
+import { PlayWithSound } from "./export-sound";
 import { InstagramSoundPicker } from "./instagram-sound-picker";
 import { PostToInstagram } from "./post-to-instagram";
 import { SchedulePost } from "./schedule-post";
@@ -12,14 +13,37 @@ import { SchedulePost } from "./schedule-post";
  * Rendered straight into the .export-actions grid. `live`: the deployment
  * can reach Instagram (or has the local stack's pretend one), so the sound
  * library and scheduling are offered.
+ *
+ * `reelSound` is the Instagram sound the reel was edited to (ADR 0019). It
+ * starts out chosen, and can still be changed or removed.
  */
-export function InstagramPublishing({ jobId, username, live }: { jobId: string; username: string; live: boolean }) {
-  const [audio, setAudio] = useState<InstagramAudioChoice | null>(null);
+export function InstagramPublishing({
+  jobId,
+  username,
+  live,
+  reelSound = null,
+}: {
+  jobId: string;
+  username: string;
+  live: boolean;
+  reelSound?: InstagramAudioChoice | null;
+}) {
+  const [audio, setAudio] = useState<InstagramAudioChoice | null>(reelSound);
   return (
     <>
       {live ? (
-        <div style={{ gridColumn: "1 / -1" }}>
+        <div className="export-sound" style={{ gridColumn: "1 / -1" }}>
           <InstagramSoundPicker value={audio} onChange={setAudio} />
+          {reelSound ? (
+            <p className="muted small" data-testid="reel-sound-note">
+              {audio?.audioId === reelSound.audioId
+                ? `You edited this reel to “${instagramAudioLabel(reelSound)}”. The video file has only your clips' own sound; Instagram adds this one when it posts.`
+                : audio
+                  ? `You edited this reel to “${instagramAudioLabel(reelSound)}”; the post will use the sound chosen above instead.`
+                  : `You edited this reel to “${instagramAudioLabel(reelSound)}”. Without a sound the post goes out with only your clips' own sound.`}
+            </p>
+          ) : null}
+          {audio ? <PlayWithSound sound={audio} /> : null}
         </div>
       ) : null}
       <PostToInstagram jobId={jobId} username={username} audio={audio} />

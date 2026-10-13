@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { bundle } from "@remotion/bundler";
 import { renderMedia, selectComposition } from "@remotion/renderer";
-import type { Timeline } from "@reelwalk/core";
+import { isInstagramMusic, type Timeline } from "@reelwalk/core";
 import { REEL_COMPOSITION_ID, type ReelAsset } from "./reel/types";
 import { renderConcurrency } from "./concurrency";
 
@@ -38,7 +38,9 @@ export async function renderReel(
   onProgress?: (fraction: number) => void,
 ): Promise<string> {
   const serveUrl = await getServeUrl();
-  const inputProps = { timeline: input.timeline, assets: input.assets, watermark: input.watermark ?? false };
+  // Last line of defence (ADR 0019): an Instagram sound is never baked into an export.
+  const timeline = isInstagramMusic(input.timeline.music) ? { ...input.timeline, music: null } : input.timeline;
+  const inputProps = { timeline, assets: input.assets, watermark: input.watermark ?? false };
   const composition = await selectComposition({ serveUrl, id: REEL_COMPOSITION_ID, inputProps });
 
   const outputLocation = path.resolve(input.output);

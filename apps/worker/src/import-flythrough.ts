@@ -56,7 +56,7 @@ async function createSampleReel(scene: string, workspaceId: string, assetId: str
   // Music from the open library, if it has been imported.
   const song =
     (await prisma.mediaAsset.findUnique({ where: { objectKey: "library/music/life-of-riley.mp3" } })) ??
-    (await prisma.mediaAsset.findFirst({ where: { workspaceId, kind: "AUDIO", bpm: { not: null } }, orderBy: { fileName: "asc" } }));
+    (await prisma.mediaAsset.findFirst({ where: { workspaceId, kind: "AUDIO", bpm: { not: null }, instagramAudioId: null }, orderBy: { fileName: "asc" } }));
   // The house was filmed along a tour reel's route: reuse that reel's room names and details.
   const route = scene === "house" ? await prisma.reel.findUnique({ where: { id: HOUSE_ROUTE_REEL } }) : null;
   const routeTimeline = route ? parseTimeline(route.timeline) : null;

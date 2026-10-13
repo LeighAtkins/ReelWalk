@@ -64,7 +64,8 @@ export async function createReelFromTour(input: { tourId: string; vibeId?: strin
       ? await prisma.mediaAsset.findFirst({ where: { ...mediaScope(user.workspaceId), kind: "AUDIO", objectKey: `library/music/${vibe.song}.mp3` } })
       : null) ??
     (await prisma.mediaAsset.findFirst({
-      where: { ...mediaScope(user.workspaceId), kind: "AUDIO", bpm: { not: null } },
+      // Never an Instagram sound's private copy: it is only for editing against.
+      where: { ...mediaScope(user.workspaceId), kind: "AUDIO", bpm: { not: null }, instagramAudioId: null },
       orderBy: { fileName: "asc" },
     }));
   const timeline = buildTourReel({
@@ -176,7 +177,8 @@ export async function exportReel(input: { id: string }): Promise<ExportResult> {
 
   const library = await prisma.mediaAsset.findMany({
     where: { id: { in: referencedAssetIds(timeline) }, ...mediaScope(user.workspaceId) },
-    select: { id: true, objectKey: true, kind: true },
+    // instagramAudioId marks an Instagram sound's copy, which the render leaves out (ADR 0019).
+    select: { id: true, objectKey: true, kind: true, instagramAudioId: true },
   });
   const { plan } = await workspacePlan(user.workspaceId);
   let payload;

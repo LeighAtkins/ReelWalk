@@ -15,7 +15,7 @@ import {
 // WebCodecs-based video, used when the worker renders: about twice as fast as
 // OffthreadVideo here, and it falls back to it for files it cannot decode.
 import { Video as RenderVideo } from "@remotion/media";
-import { cameraAt, framePlan, REEL_FORMAT, timelineDurationMs, walkInto, type Clip, type Plan, type TextOverlay, type Timeline } from "@reelwalk/core";
+import { cameraAt, framePlan, isInstagramMusic, REEL_FORMAT, timelineDurationMs, walkInto, type Clip, type Plan, type TextOverlay, type Timeline } from "@reelwalk/core";
 import { useFontsFor } from "./fonts";
 import { ELEGANT_FADE_S, FILTER_CSS, textCss } from "./look";
 import { DetailsCardView } from "./DetailsCardView";
@@ -197,7 +197,9 @@ const MusicTrack: React.FC<{ timeline: Timeline; asset: ReelAsset }> = ({ timeli
     <Audio
       src={resolveSrc(asset.src)}
       trimBefore={Math.round((music.sourceStartMs * fps) / 1000)}
-      loop
+      // An Instagram sound (editor preview only, ADR 0019) plays once from its
+      // start, as Instagram will; your own song loops under a longer reel.
+      loop={!isInstagramMusic(music)}
       // Fade out over the last second so the reel does not end mid-note.
       volume={(frame) =>
         music.volume *

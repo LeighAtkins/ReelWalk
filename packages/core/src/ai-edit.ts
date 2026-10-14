@@ -499,8 +499,22 @@ export function overlapsDetailsCard(timeline: Timeline, startMs: number, endMs: 
 
 // ── Keeping the rest of the reel in step ────────────────────────
 
-/** Where a text sits relative to the clips: the clip it starts over, how far in, and for how long. */
-export type TextAnchor = { textId: string; clipId: string; clipIndex: number; offsetMs: number; durationMs: number };
+/**
+ * Where a text sits relative to the clips: the clip it starts over, how far
+ * in, and for how long. For a video the position is kept in the clip's own
+ * source time (`sourceMs`, `sourceLengthMs`), so that when the clip is slowed
+ * down, sped up or trimmed from its start, the text goes back over the same
+ * picture; `offsetMs` and `durationMs` are the output times it had.
+ */
+export type TextAnchor = {
+  textId: string;
+  clipId: string;
+  clipIndex: number;
+  offsetMs: number;
+  durationMs: number;
+  sourceMs: number | null;
+  sourceLengthMs: number | null;
+};
 
 /**
  * Records, for every text that is not a room label, which clip it starts
@@ -515,7 +529,18 @@ export function anchorTexts(timeline: Timeline): TextAnchor[] {
       let index = starts.findIndex((start, i) => text.startMs >= start && text.startMs < start + clipDurationMs(timeline.clips[i]));
       if (index === -1) index = Math.max(0, timeline.clips.length - 1);
       const clip = timeline.clips[index];
-      return { textId: text.id, clipId: clip?.id ?? "", clipIndex: index, offsetMs: clip ? text.startMs - starts[index] : 0, durationMs: text.endMs - text.startMs };
+      const offsetMs = clip ? text.startMs - starts[index] : 0;
+      const durationMs = text.endMs - text.startMs;
+      const video = clip?.kind === "VIDEO";
+      return {
+        textId: text.id,
+        clipId: clip?.id ?? "",
+        clipIndex: index,
+        offsetMs,
+        durationMs,
+        sourceMs: video ? clip.sourceStartMs + offsetMs * clip.speed : null,
+        sourceLengthMs: video ? durationMs * clip.speed : null,
+      };
     });
 }
 
@@ -537,9 +562,22 @@ export function reflowTexts(timeline: Timeline, anchors: TextAnchor[], original:
     if (!anchor) return text;
     let index = timeline.clips.findIndex((clip) => clip.id === anchor.clipId);
     if (index === -1) index = Math.min(anchor.clipIndex, timeline.clips.length - 1);
-    const clipMs = clipDurationMs(timeline.clips[index]);
-    const startMs = Math.min(starts[index] + Math.min(anchor.offsetMs, Math.max(0, clipMs - 100)), total - 100);
-    const endMs = Math.min(total, startMs + anchor.durationMs);
+    const clip = timeline.clips[index];
+    const clipMs = clipDurationMs(clip);
+    // The same picture: for a video that is the moment in its source, at the clip's speed now.
+    let offsetMs = anchor.offsetMs;
+    let durationMs = anchor.durationMs;
+    if (clip.kind === "VIDEO" && clip.id === anchor.clipId && anchor.sourceMs !== null && anchor.sourceLengthMs !== null) {
+      offsetMs = Math.round((anchor.sourceMs - clip.sourceStartMs) / clip.speed);
+      durationMs = Math.round(anchor.sourceLengthMs / clip.speed);
+      // Trimmed away from the start: the text shows from the clip's first frame.
+      if (offsetMs < 0) {
+        durationMs = Math.max(100, durationMs + offsetMs);
+        offsetMs = 0;
+      }
+    }
+    const startMs = Math.min(starts[index] + Math.min(offsetMs, Math.max(0, clipMs - 100)), total - 100);
+    const endMs = Math.min(total, startMs + durationMs);
     return endMs > startMs ? { ...text, startMs, endMs } : text;
   });
   return { ...timeline, texts };
@@ -575,6 +613,8 @@ export function applyAiEditPlan(timeline: Timeline, plan: Pick<AiEditPlan, "ops"
   const anchors = anchorTexts(timeline);
   const onBeat = cutsOnBeat(timeline);
   const removedTexts = new Set<string>();
+  // Texts the plan itself re-timed: the model placed them, so the reflow leaves them.
+  const retimedTexts = new Set<string>();
   let instagramPick: InstagramAudioTrack | undefined;
   // Clips added by this plan get numbers after the ones the model was shown.
   const added: string[] = [];
@@ -909,6 +949,7 @@ export function applyAiEditPlan(timeline: Timeline, plan: Pick<AiEditPlan, "ops"
           break;
         }
         current = updateText(current, text.id, patch);
+        if ("startMs" in patch || "endMs" in patch) retimedTexts.add(text.id);
         applied.push(`text "${text.text}" changed${op.content ? ` to "${op.content}"` : ""}`);
         break;
       }
@@ -1030,11 +1071,12 @@ export function applyAiEditPlan(timeline: Timeline, plan: Pick<AiEditPlan, "ops"
     // back over their pictures, cuts that were on the beat go back on it,
     // and room labels are drawn again for the new order.
     const kept = timeline.texts.filter((text) => !removedTexts.has(text.id));
-    current = reflowTexts(current, anchors, kept);
+    const following = anchors.filter((anchor) => !retimedTexts.has(anchor.textId));
+    current = reflowTexts(current, following, kept);
     if (onBeat && !plan.ops.some((op) => op.op === "snapToBeat") && current.music?.bpm && !cutsOnBeat(current)) {
       const durations = Object.fromEntries(Object.values(assets).map((asset) => [asset!.id, asset!.durationMs]));
       current = snapCutsToBeats(current, durations);
-      current = reflowTexts(current, anchors, kept);
+      current = reflowTexts(current, following, kept);
       applied.push("cuts kept on the beat");
     }
     if (hasRoomLabels(current)) current = addRoomLabels(current);

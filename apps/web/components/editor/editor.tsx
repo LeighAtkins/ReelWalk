@@ -45,6 +45,7 @@ import {
   setCover,
   setLogo,
   setLook,
+  keepTextsClearOfCard,
 } from "@reelwalk/core";
 import { ELEGANT_FADE_S, type ReelAsset } from "@reelwalk/render/reel";
 import { deleteReel, exportReel, readyPreviews, saveCaption } from "@/app/actions";
@@ -1297,7 +1298,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         <DetailsSheet
           reelId={reel.id}
           details={timeline.details}
-          onChange={(details) => apply((current) => setDetails(current, details), "details")}
+          onChange={(details) => apply((current) => keepTextsClearOfCard(setDetails(current, details)), "details")}
           onCaption={(text) => {
             setCaption(text);
             showToast("Caption written from the details.");

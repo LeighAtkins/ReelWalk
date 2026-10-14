@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { applyAiEditPlan, describeReel, fakeAiEditPlan, type AiAsset, type AiEditOp, type AiSong } from "../src/ai-edit";
-import { TAG_Y, clipDurationMs, coverMs, parseTimeline, referencedAssetIds, splitClip, type Timeline } from "../src/timeline";
+import { TAG_Y, clipDurationMs, coverMs, keepTextsClearOfCard, parseTimeline, referencedAssetIds, splitClip, textUnderCard, type Timeline } from "../src/timeline";
+import { instagramIssues } from "../src/instagram";
 
 // The ten things people ask for most (2026-10-14): more cuts from one video,
 // a closer crop, the cover frame, a logo, a status sticker, text over one
@@ -196,5 +197,49 @@ describe("the stand-in planner knows the ten asks", () => {
     expect(plan("keep the price on screen the whole time").ops[0]).toMatchObject({ op: "details", details: { placement: "throughout" } });
     expect(plan("write the caption").caption).toContain("#realestate");
     expect(plan("make it look like golden hour").ops[0]).toMatchObject({ op: "look", filter: "golden" });
+  });
+});
+
+describe("nothing hides behind the details card", () => {
+  // Reel 36 (2026-10-14): the plan added "OPEN HOUSE" low over the last shot, then the card; the card covered it.
+  it("a text added before the card in the same plan still moves up out of its way", () => {
+    const { timeline } = run([
+      op({ op: "addText", content: "OPEN HOUSE • SAT 1–3 PM", style: "box", atClip: 3, y: 0.76 }),
+      op({ op: "details", details: { price: null, beds: null, baths: null, area: null, address: null, contact: null, placement: "end" } }),
+    ]);
+    const line = timeline.texts.find((text) => text.text.startsWith("OPEN HOUSE"))!;
+    expect(line.y).toBe(0.42);
+    expect(textUnderCard(timeline, line)).toBe(false);
+    expect(instagramIssues(timeline).filter((issue) => issue.code === "text-under-card")).toEqual([]);
+  });
+
+  it("moves to a free height when the hook already holds the middle", () => {
+    const carded = parseTimeline({
+      ...reel(),
+      details: { ...reel().details!, placement: "end" },
+      texts: [
+        { id: "hook", text: "Just listed", startMs: 0, endMs: 10000, y: 0.42, style: "headline" },
+        { id: "low", text: "DM for a tour", startMs: 8000, endMs: 10000, y: 0.7, style: "box" },
+      ],
+    });
+    const cleared = keepTextsClearOfCard(carded);
+    expect(cleared.texts.find((text) => text.id === "low")!.y).toBe(0.34);
+    expect(cleared.texts.find((text) => text.id === "hook")!.y).toBe(0.42);
+  });
+
+  it("a text placed under the card by hand is flagged before export, and room labels are not", () => {
+    const carded = parseTimeline({
+      ...reel(),
+      details: { ...reel().details!, placement: "end" },
+      texts: [
+        { id: "low", text: "DM for a tour", startMs: 8000, endMs: 10000, y: 0.7, style: "box" },
+        { id: "room-c3", text: "Pool", startMs: 7200, endMs: 10000, y: 0.74, style: "box" },
+      ],
+    });
+    const issues = instagramIssues(carded).filter((issue) => issue.code === "text-under-card");
+    expect(issues.map((issue) => issue.textId)).toEqual(["low"]);
+    expect(issues[0].level).toBe("warning");
+    // With the card kept unseen there is nothing to hide behind.
+    expect(instagramIssues({ ...carded, details: { ...carded.details!, placement: "none" } }).some((issue) => issue.code === "text-under-card")).toBe(false);
   });
 });

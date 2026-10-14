@@ -1,4 +1,4 @@
-import { REEL_FORMAT, timelineDurationMs, type Timeline } from "./timeline";
+import { REEL_FORMAT, textUnderCard, timelineDurationMs, type Timeline } from "./timeline";
 
 /**
  * Instagram Reels limits the export is checked against. Instagram changes
@@ -35,7 +35,7 @@ export function countHashtags(caption: string): number {
 
 export type Issue = {
   level: "error" | "warning";
-  code: "empty" | "too-short" | "too-long" | "text-unsafe" | "caption-too-long" | "too-many-hashtags";
+  code: "empty" | "too-short" | "too-long" | "text-unsafe" | "text-under-card" | "caption-too-long" | "too-many-hashtags";
   message: string;
   /** The text overlay the issue is about, if any. */
   textId?: string;
@@ -67,6 +67,15 @@ export function instagramIssues(timeline: Timeline, caption = ""): Issue[] {
   }
 
   for (const text of timeline.texts) {
+    if (textUnderCard(timeline, text)) {
+      issues.push({
+        level: "warning",
+        code: "text-under-card",
+        message: `"${text.text.slice(0, 24)}" is hidden behind the details card. Move it up, or shorten its time.`,
+        textId: text.id,
+      });
+      continue;
+    }
     if (!isInSafeArea(text.x, text.y)) {
       issues.push({
         level: "warning",

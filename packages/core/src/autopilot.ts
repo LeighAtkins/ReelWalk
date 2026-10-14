@@ -15,6 +15,7 @@ import {
   addText,
   clipDurationMs,
   hasDetails,
+  keepTextsClearOfCard,
   listingDetailsSchema,
   setDetails,
   setMusic,
@@ -227,6 +228,8 @@ export function finishAutopilot(
     current = addRoomLabels(current);
     added.push("room labels");
   }
+  // The card was added last: anything the model put where it now sits moves up.
+  current = keepTextsClearOfCard(current);
   return { timeline: current, added, instagramPick };
 }
 

@@ -574,6 +574,56 @@ export function addRoomLabels(timeline: Timeline): Timeline {
   return { ...timeline, texts: [...timeline.texts.filter((text) => !managed.has(text.id) && !text.id.startsWith("room-")), ...fitted] };
 }
 
+/** When the details card is on screen, as [start, end) windows in ms. */
+export function detailsCardWindows(timeline: Timeline): [number, number][] {
+  const details = timeline.details;
+  if (!showsDetailsCard(details)) return [];
+  const total = timelineDurationMs(timeline);
+  const card = Math.min(DETAILS_CARD_MS, Math.floor(total * 0.4));
+  // The renderer drops a card shorter than about a third of a second.
+  if (card < 340) return [];
+  const windows: [number, number][] = [];
+  if (details.placement !== "end") windows.push([0, card]);
+  if (details.placement !== "start") windows.push([total - card, total]);
+  return windows;
+}
+
+/**
+ * The band of the frame the details card covers, as fractions of its height:
+ * it sits on Instagram's caption area (bottom 500 px) and is about 400 px
+ * tall, so a text centred anywhere from about half way down is under it.
+ */
+export const DETAILS_CARD_BAND = { top: 0.47, bottom: 0.82 } as const;
+
+/** Whether a text would be drawn under the details card: on screen at the same time, and in the card's band. */
+export function textUnderCard(timeline: Timeline, text: Pick<TextOverlay, "id" | "startMs" | "endMs" | "y">): boolean {
+  // Room labels make way for the card by themselves (addRoomLabels).
+  if (text.id.startsWith("room-")) return false;
+  if (text.y < DETAILS_CARD_BAND.top || text.y > DETAILS_CARD_BAND.bottom) return false;
+  return detailsCardWindows(timeline).some(([start, end]) => text.startMs < end && text.endMs > start);
+}
+
+/** Heights a text may move to when the card is in the way, best first: the hook's line, then above it, then just below it. */
+const CLEAR_OF_CARD_Y = [0.42, 0.34, 0.3] as const;
+
+/**
+ * Moves every text that would sit under the details card up out of its way,
+ * to the first height where it does not land on another text shown at the
+ * same time. Run after anything that adds text or the card (an AI edit, Make
+ * it for me), so a reel never comes out with words hidden behind the card.
+ */
+export function keepTextsClearOfCard(timeline: Timeline): Timeline {
+  if (!timeline.texts.some((text) => textUnderCard(timeline, text))) return timeline;
+  const texts = [...timeline.texts];
+  texts.forEach((text, index) => {
+    if (!textUnderCard(timeline, text)) return;
+    const others = texts.filter((other, at) => at !== index && other.startMs < text.endMs && other.endMs > text.startMs);
+    const y = CLEAR_OF_CARD_Y.find((candidate) => others.every((other) => Math.abs(other.y - candidate) >= 0.07)) ?? CLEAR_OF_CARD_Y[0];
+    texts[index] = { ...text, y };
+  });
+  return { ...timeline, texts };
+}
+
 export function removeRoomLabels(timeline: Timeline): Timeline {
   return { ...timeline, texts: timeline.texts.filter((text) => !text.id.startsWith("room-")) };
 }

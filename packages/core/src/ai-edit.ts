@@ -12,7 +12,6 @@ import type { InstagramAudioTrack } from "./instagram-audio";
 import { beatPeriodMs, nearestBeatMs, snapCutsToBeats, type BeatGrid } from "./beats";
 import {
   CORNERS,
-  DETAILS_CARD_MS,
   DEFAULT_IMAGE_MS,
   DEFAULT_PANO,
   DEFAULT_PANO_MS,
@@ -45,7 +44,8 @@ import {
   setDetails,
   setLogo,
   setMusic,
-  showsDetailsCard,
+  detailsCardWindows,
+  keepTextsClearOfCard,
   splitClip,
   timelineDurationMs,
   trimClip,
@@ -494,13 +494,7 @@ function clipLabel(timeline: Timeline, clip: Clip, assets: ApplyOptions["assets"
 
 /** Whether a text shown from `startMs` to `endMs` would sit on screen with the details card (which takes the lower part of the frame). */
 export function overlapsDetailsCard(timeline: Timeline, startMs: number, endMs: number): boolean {
-  const details = timeline.details;
-  if (!showsDetailsCard(details)) return false;
-  const total = timelineDurationMs(timeline);
-  const card = Math.min(DETAILS_CARD_MS, Math.floor(total * 0.4));
-  const atStart = details.placement !== "end" && startMs < card;
-  const atEnd = details.placement !== "start" && endMs > total - card;
-  return atStart || atEnd;
+  return detailsCardWindows(timeline).some(([start, end]) => startMs < end && endMs > start);
 }
 
 // ── Keeping the rest of the reel in step ────────────────────────
@@ -1058,6 +1052,8 @@ export function applyAiEditPlan(timeline: Timeline, plan: Pick<AiEditPlan, "ops"
       return Math.abs(nearest - text.endMs) <= 800 && nearest > text.startMs + 300 ? { ...text, endMs: nearest } : text;
     }),
   };
+  // Whatever order the plan did things in (a text first, the card after), nothing ends up behind the card.
+  current = keepTextsClearOfCard(current);
   const caption = plan.caption?.trim() || undefined;
   if (caption) applied.push("caption written");
   return { timeline: current, applied, skipped, instagramPick, caption };

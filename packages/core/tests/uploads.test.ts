@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { acceptFor, inputFilenameFor, outputKeyFor, resolveUploadType, thumbKeyFor, uploadKeyFor } from "../src";
+import { acceptFor, frameThumbKeyFor, inputFilenameFor, outputKeyFor, resolveUploadType, thumbKeyFor, uploadKeyFor } from "../src";
 
 describe("resolveUploadType", () => {
   it("keeps image and video extensions", () => {
@@ -41,6 +41,7 @@ describe("object keys", () => {
 
   it("puts thumbnails beside uploads", () => {
     expect(thumbKeyFor("uploads/ws-1/asset-1.mov")).toBe("thumbs/ws-1/asset-1.jpg");
+    expect(frameThumbKeyFor("uploads/ws-1/asset-1.mov")).toBe("thumbs/ws-1/asset-1-frame.jpg");
   });
 
   it("derives the output key from the job id alone", () => {

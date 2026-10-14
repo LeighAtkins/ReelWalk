@@ -22,6 +22,7 @@
     "@reelwalk/db": "workspace:*",
     "@reelwalk/render": "workspace:*",
     "@remotion/player": "4.0.534",
+    "mediabunny": "1.61.4",
     "next": "^16.3.8",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",

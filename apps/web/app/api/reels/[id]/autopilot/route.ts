@@ -3,7 +3,7 @@ import { prisma } from "@reelwalk/db";
 import { getSessionUser } from "@/lib/auth";
 import { newAssets } from "@/lib/ai-edit";
 import { startAiJob } from "@/lib/ai-jobs";
-import { makeItForMe } from "@/lib/autopilot";
+import { makeItForMe, quickDraft } from "@/lib/autopilot";
 import { mediaScope } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
@@ -23,7 +23,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const user = await getSessionUser();
   if (!user) return Response.json({ ok: false, message: "You were signed out. Sign in again." }, { status: 401 });
 
-  let body: { timeline?: unknown; style?: unknown; info?: Record<string, unknown> };
+  let body: { timeline?: unknown; style?: unknown; info?: Record<string, unknown>; quick?: unknown };
   try {
     body = (await request.json()) as typeof body;
   } catch {
@@ -49,6 +49,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     if (typeof value === "string" && value.trim()) info[field] = value.trim().slice(0, 80);
   }
   const styleId = typeof body.style === "string" ? body.style : "just-listed";
+  // The first cut, by rule, straight away (ADR 0024); the model's cut is asked for separately.
+  if (body.quick === true) {
+    const result = await quickDraft({ user, timeline, styleId, info });
+    return Response.json(result.ok ? { ...result, assets: await newAssets(user.workspaceId, timeline, result.timeline) } : result);
+  }
   // Over a minute of work: run it in the background and let the browser check back (lib/ai-jobs.ts).
   const jobId = await startAiJob({ workspaceId: user.workspaceId, reelId: reel.id, kind: "autopilot" }, async () => {
     const result = await makeItForMe({ user, reel, timeline, styleId, info });

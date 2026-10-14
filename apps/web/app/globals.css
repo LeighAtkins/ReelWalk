@@ -2784,6 +2784,12 @@ video:-webkit-full-screen {
   font-weight: 600;
 }
 
+.review-polishing {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--paper);
+}
 .music-spinner {
   flex: none;
   width: 16px;

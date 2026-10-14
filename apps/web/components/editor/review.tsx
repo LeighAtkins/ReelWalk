@@ -35,11 +35,18 @@ const CHANGES: { id: ReviewChange; label: string }[] = [
   { id: "ask", label: "Ask" },
 ];
 
-export function ReviewBar({ timeline, onChange, onFullEditor }: { timeline: Timeline; onChange(change: ReviewChange): void; onFullEditor(): void }) {
+export function ReviewBar({ timeline, polishing = false, onChange, onFullEditor }: { timeline: Timeline; /** The model's cut is still on its way (ADR 0024). */ polishing?: boolean; onChange(change: ReviewChange): void; onFullEditor(): void }) {
   return (
-    <div className="review-bar" data-testid="review-bar">
+    <div className="review-bar" data-testid="review-bar" data-polishing={polishing || undefined}>
       <p className="review-summary muted small">
-        {formatDuration(timelineDurationMs(timeline))} · {timeline.clips.length} shots{timeline.music ? "" : " · no music yet"}. Tap what you want different.
+        {formatDuration(timelineDurationMs(timeline))} · {timeline.clips.length} shots{timeline.music ? "" : " · no music yet"}.{" "}
+        {polishing ? (
+          <span className="review-polishing" data-testid="review-polishing">
+            <span className="music-spinner" aria-hidden="true" /> Polishing with AI…
+          </span>
+        ) : (
+          "Tap what you want different."
+        )}
       </p>
       <div className="review-changes" role="group" aria-label="Change">
         {CHANGES.map((change) => (

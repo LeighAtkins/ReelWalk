@@ -1,6 +1,7 @@
 import { BEAT_SAMPLE_RATE, detectBeats, mediaKindFor, resolveUploadType, type BeatGrid, type MediaKind } from "@reelwalk/core";
 import { abortUpload, completeUpload, confirmUpload, createUpload } from "@/app/actions";
 import type { LibraryAsset } from "@/lib/library";
+import { shrinkVideo } from "./shrink";
 
 type Probe = { kind: MediaKind; durationMs: number | null; width: number | null; height: number | null; thumb: Blob | null };
 
@@ -226,7 +227,13 @@ async function putParts(
   return parts;
 }
 
-export async function uploadFile(file: File, onProgress: (fraction: number) => void): Promise<LibraryAsset> {
+export async function uploadFile(original: File, onProgress: (fraction: number) => void): Promise<LibraryAsset> {
+  // A 4K phone clip is shrunk to 1080 on the phone first (ADR 0024): the first
+  // part of the bar is the shrink (which takes longer than sending the result), the rest the upload. The original's name is kept.
+  const shrunk = original.type.startsWith("video/") ? await shrinkVideo(original, (fraction) => onProgress(fraction * 0.6)) : null;
+  const file = shrunk?.file ?? original;
+  if (shrunk) console.log(`shrink: ${original.name} ${(shrunk.from.bytes / 1048576).toFixed(1)} MB ${shrunk.from.width}x${shrunk.from.height} -> ${(file.size / 1048576).toFixed(1)} MB in ${shrunk.ms} ms`);
+  const report = shrunk ? (fraction: number) => onProgress(0.6 + fraction * 0.4) : onProgress;
   const info = await probe(file);
   if (!info) throw new Error(`${file.name} is not a supported photo, video or audio file.`);
   const beat = info.kind === "AUDIO" ? await detectTempo(file) : null;
@@ -244,7 +251,7 @@ export async function uploadFile(file: File, onProgress: (fraction: number) => v
   if (ticket.multipart) {
     const multipart = ticket.multipart;
     try {
-      const parts = await putParts(file, multipart, onProgress);
+      const parts = await putParts(file, multipart, report);
       const completed = await withRetry(() => completeUpload({ objectKey: ticket.objectKey, uploadId: multipart.uploadId, parts }));
       if (!completed.ok) throw new Error(completed.error);
     } catch (error) {
@@ -253,7 +260,7 @@ export async function uploadFile(file: File, onProgress: (fraction: number) => v
     }
   } else if (ticket.uploadUrl) {
     const uploadUrl = ticket.uploadUrl;
-    await withRetry(() => put(uploadUrl, file, ticket.contentType, onProgress));
+    await withRetry(() => put(uploadUrl, file, ticket.contentType, report));
   }
   if (ticket.thumbUrl && info.thumb) await put(ticket.thumbUrl, info.thumb, "image/jpeg").catch(() => undefined);
 
@@ -261,7 +268,7 @@ export async function uploadFile(file: File, onProgress: (fraction: number) => v
   const confirmed = await withRetry(() => confirmUpload({
     objectKey: ticket.objectKey,
     thumbKey: ticket.thumbKey,
-    fileName: file.name,
+    fileName: original.name,
     durationMs: info.durationMs,
     width: info.width,
     height: info.height,

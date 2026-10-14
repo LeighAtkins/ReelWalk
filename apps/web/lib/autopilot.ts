@@ -13,6 +13,24 @@ import { labelRooms } from "@/lib/room-labels";
  */
 export type AutopilotResult = { ok: true; timeline: Timeline; note: string; byModel: boolean; instagramPick?: InstagramAudioTrack } | { ok: false; message: string };
 
+/**
+ * The first cut, at once (ADR 0024): the rule cut with an Instagram sound,
+ * from the rooms already named while the shots uploaded. No model call, so
+ * it comes back in a second or two; the model's cut follows as a polish.
+ */
+export async function quickDraft(input: {
+  user: { id: string; workspaceId: string };
+  timeline: Timeline;
+  styleId: string;
+  info: ListingInfo;
+}): Promise<AutopilotResult> {
+  if (input.timeline.clips.length === 0) return { ok: false, message: "Pick some photos or videos first." };
+  const style = autopilotStyle(input.styleId);
+  const { assets, songs } = await context(input.user.workspaceId, input.timeline);
+  const { timeline, instagramPick } = ruleCutWithPick(input.timeline, { assets, songs, info: input.info, style, newId: () => crypto.randomUUID() });
+  return { ok: true, timeline, note: "Here is a first cut. ReelWalk is polishing it.", byModel: false, instagramPick };
+}
+
 export async function makeItForMe(input: {
   user: { id: string; workspaceId: string };
   reel: { id: string; title: string };

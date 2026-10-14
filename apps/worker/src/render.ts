@@ -5,7 +5,7 @@ import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import { GetObjectCommand, HeadObjectCommand, PutObjectCommand, type S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { inputFilenameFor, outputKeyFor, parseReelExportPayload, reelRenderPlan, renderSourceKeyFor } from "@reelwalk/core";
+import { frameThumbKeyFor, inputFilenameFor, outputKeyFor, parseReelExportPayload, reelRenderPlan, renderSourceKeyFor } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
 import { probe, run } from "./library/tools";
 
@@ -62,6 +62,22 @@ import { renderStubReel } from "@reelwalk/render/render-job";
 import { renderReel } from "@reelwalk/render/render-reel";
 import type { ClaimedJob, RenderResult } from "./handler";
 
+/**
+ * A 240 px high JPEG of a representative frame: ffmpeg's thumbnail filter
+ * picks the most typical of the frames from half a second to 3.5 s in, so a
+ * fade from black or a hand over the lens is passed over. Short clips start
+ * at their first frame.
+ */
+export async function frameThumbnail(videoPath: string, outPath: string): Promise<void> {
+  const args = (start: number) => ["-v", "error", "-y", "-ss", String(start), "-t", "3", "-i", videoPath, "-vf", "thumbnail=45,scale=-2:240", "-frames:v", "1", "-q:v", "4", outPath];
+  try {
+    await run("ffmpeg", args(0.5));
+    await stat(outPath);
+  } catch {
+    await run("ffmpeg", args(0));
+  }
+}
+
 async function downloadObject(client: S3Client, bucket: string, key: string, destination: string) {
   const result = await client.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
   if (!result.Body) throw new Error(`No body returned for ${key}`);
@@ -112,7 +128,19 @@ export async function renderJob(
           CacheControl: "public, max-age=31536000, immutable",
         }),
       );
-      await prisma.mediaAsset.update({ where: { id: job.mediaAssetId }, data: { previewKey: job.previewKey } });
+      // The thumbnail from a real frame, in place of the browser's (which can be black).
+      let thumbKey: string | null = null;
+      try {
+        const thumbPath = path.join(workdir, "thumb.jpg");
+        await frameThumbnail(outputPath, thumbPath);
+        const { size: thumbSize } = await stat(thumbPath);
+        thumbKey = frameThumbKeyFor(job.inputKey);
+        await s3.send(new PutObjectCommand({ Bucket: bucket, Key: thumbKey, Body: createReadStream(thumbPath), ContentLength: thumbSize, ContentType: "image/jpeg" }));
+      } catch (error) {
+        thumbKey = null;
+        console.warn(`[${job.id}] frame thumbnail not made: ${error instanceof Error ? error.message : error}`);
+      }
+      await prisma.mediaAsset.update({ where: { id: job.mediaAssetId }, data: { previewKey: job.previewKey, ...(thumbKey ? { thumbKey } : {}) } });
       // While the original is here, make the copy an export will need, so the
       // first export of phone footage does not spend minutes re-encoding.
       // An export makes it itself if this fails.

@@ -13,6 +13,16 @@ export function thumbKeyFor(objectKey: string): string {
 }
 
 /**
+ * Thumbnail the worker cuts from a video's own frames, replacing the
+ * browser's. A phone browser importing many videos at once can hand back a
+ * black canvas before the frame is decoded; the worker's never is. A key of
+ * its own, so no cache keeps serving the black one.
+ */
+export function frameThumbKeyFor(objectKey: string): string {
+  return thumbKeyFor(objectKey).replace(/\.jpg$/, "-frame.jpg");
+}
+
+/**
  * The output key depends only on the job id. A retried or duplicated render
  * overwrites the same object instead of creating a second one.
  */

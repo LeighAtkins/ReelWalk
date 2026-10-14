@@ -22,8 +22,8 @@ describe("retime", () => {
     expect(slower.clips.map(clipDurationMs)).toEqual([4000, 4000, 4000]);
     // The video showed 4–6 s; four seconds around its middle is 3–7 s.
     expect(slower.clips[1]).toMatchObject({ sourceStartMs: 3000, sourceEndMs: 7000 });
-    // The text sat 0.5 s into the kitchen shot, and still does.
-    expect(slower.texts[0]).toMatchObject({ startMs: 4500, endMs: 5500 });
+    // The text sat over the frame 4.5 s into the kitchen video; that frame is now 1.5 s into the shot.
+    expect(slower.texts[0]).toMatchObject({ startMs: 5500, endMs: 6500 });
     expect(currentPace(slower)).toBe("slower");
   });
 

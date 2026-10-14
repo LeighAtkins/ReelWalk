@@ -22,6 +22,7 @@ import { workspacePlan } from "@/lib/plans";
 import { isUnlimited } from "@/lib/quotas";
 import { instagramSongs } from "@/lib/instagram-songs";
 import { labelRooms } from "@/lib/room-labels";
+import { aimPano } from "@/lib/pano-aim";
 import { toLibraryAsset, type LibraryAsset } from "@/lib/library";
 import { mediaScope } from "@/lib/workspace";
 
@@ -187,6 +188,17 @@ export async function askForChange(input: {
     plan = parsed.data;
   }
 
+  // "Face the door": the thing named is found in the 360 photo before the plan is applied (ADR 0025).
+  for (const op of plan.ops) {
+    if (op.op !== "turn" || op.yaw !== null || !op.content || !op.clip) continue;
+    const clip = input.timeline.clips[op.clip - 1];
+    if (!clip?.pano) continue;
+    const aimed = await aimPano(input.user.workspaceId, clip.assetId, op.content);
+    if (aimed) {
+      op.yaw = aimed.heading;
+      op.content = aimed.what;
+    }
+  }
   const result = applyAiEditPlan(input.timeline, plan, { assets, songs, unused, newId: () => crypto.randomUUID() });
   const record = await prisma.aiEdit.create({
     data: {

@@ -78,6 +78,8 @@ export async function structuredAnswer(options: {
   input: string;
   /** Pictures for the model to look at, as data: URLs, sent at low detail. */
   images?: string[];
+  /** "high" when the model must read small detail (positions on a grid); costs more tokens. */
+  imageDetail?: "low" | "high";
   schemaName: string;
   schema: Record<string, unknown>;
   maxOutputTokens?: number;
@@ -93,7 +95,7 @@ export async function structuredAnswer(options: {
       ? [
           {
             role: "user",
-            content: [{ type: "input_text", text: options.input }, ...options.images.map((url) => ({ type: "input_image", image_url: url, detail: "low" }))],
+            content: [{ type: "input_text", text: options.input }, ...options.images.map((url) => ({ type: "input_image", image_url: url, detail: options.imageDetail ?? "low" }))],
           },
         ]
       : options.input,

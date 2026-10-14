@@ -85,6 +85,7 @@ export const AI_EDIT_OPS = [
   "zoom",
   "cover",
   "logo",
+  "turn",
 ] as const;
 
 export type AiEditOpName = (typeof AI_EDIT_OPS)[number];
@@ -144,6 +145,10 @@ export const aiEditOpSchema = z.object({
   zoom: nullable(z.number().min(1).max(ZOOM_MAX)),
   /** logo: which corner. */
   corner: nullable(z.enum(CORNERS)),
+  /** turn: the heading to end on, in degrees (0 = the middle of the 360 photo, clockwise positive). Found from `content` when null. */
+  yaw: nullable(z.number().min(-360).max(360)),
+  /** turn: how far the camera sweeps on its way there, in degrees; negative turns the other way; 0 holds still. */
+  sweep: nullable(z.number().min(-360).max(360)),
 });
 
 export const aiEditPlanSchema = z.object({
@@ -179,7 +184,7 @@ export const AI_EDIT_PLAN_JSON_SCHEMA = {
         required: [
           "op", "clip", "text", "startMs", "endMs", "lengthMs", "speed", "filter", "motion", "transition", "fit", "volume",
           "toPosition", "content", "style", "color", "size", "y", "songId", "on", "details", "assetId", "order",
-          "pieces", "atClip", "animation", "zoom", "corner",
+          "pieces", "atClip", "animation", "zoom", "corner", "yaw", "sweep",
         ],
         properties: {
           op: { type: "string", enum: [...AI_EDIT_OPS] },
@@ -195,12 +200,14 @@ export const AI_EDIT_PLAN_JSON_SCHEMA = {
           fit: { type: ["string", "null"], enum: ["cover", "contain", null] },
           volume: { type: ["number", "null"], description: "0 to 1" },
           toPosition: { type: ["integer", "null"], description: "move: the clip's new number, 1 = first" },
-          content: { type: ["string", "null"], description: "addText/editText: the words; room: the room's name, lower case (kitchen, living room, primary bedroom, pool)" },
+          content: { type: ["string", "null"], description: "addText/editText: the words; room: the room's name, lower case (kitchen, living room, primary bedroom, pool); turn: the thing to face (door, window, the view, the bed, the fireplace)" },
           pieces: { type: ["integer", "null"], description: "split: 2 to 4 shots from different parts of the video" },
           atClip: { type: ["integer", "null"], description: "addText/editText: the clip number the text shows over, from its start to its end" },
           animation: { type: ["string", "null"], enum: [...TEXT_ANIMATIONS, null], description: "addText/editText: how the text arrives" },
           zoom: { type: ["number", "null"], description: "zoom: 1 = the whole picture, 1.3 a little closer, 2 = the middle half" },
           corner: { type: ["string", "null"], enum: [...CORNERS, null], description: "logo: where it sits" },
+          yaw: { type: ["number", "null"], description: "turn: heading to end on, degrees, 0 = the middle of the 360 photo; leave null and name the thing in content to have it found in the picture" },
+          sweep: { type: ["number", "null"], description: "turn: degrees the camera sweeps before it gets there (90 a quarter turn, 180 half, 360 a full spin, 0 hold still, negative the other way); null keeps the sweep it has" },
           style: { type: ["string", "null"], enum: [...TEXT_STYLES, null] },
           color: { type: ["string", "null"], description: "#rrggbb" },
           size: { type: ["number", "null"], description: "text: 0.3 to 2.5, 1 = normal; logo: 0.1 to 0.4 of the frame width" },
@@ -350,6 +357,7 @@ Rules:
 - Times are milliseconds. A clip must be at least ${MIN_CLIP_MS} ms. A video clip cannot show more than its source has; a photo can be any length.
 - "Longer" without a number means about 1.5x the current length; "shorter" about 0.7x; "much" doubles the change. "Slower" halves speed, "faster" doubles it, within 0.5 to 3.
 - Looks: warm, cool, vivid, mono (black and white), fade (soft, filmic), golden (golden hour, late low sun), dusk (twilight, blue hour), crisp (bright, clean, the look of listing photography), none. Use clip 0 to apply to every clip when the user means the whole reel.
+- 360 photos (the clips marked "360 photo") are a camera turning inside the picture; each one's description gives its turn ("turns 90° clockwise"). op turn (clip) aims it: content names what to face (door, window, the view, the bed, the pool) and it is found in the picture; sweep is how far it turns on the way, 90 a quarter turn, 180 a half, 360 a full spin, 0 to hold still, negative to turn the other way (so "the other way" is the clip's turn with the sign flipped); null keeps the sweep it has. A sweep alone, with content and yaw null, keeps the direction the shot ends on. "Turn slower" or "faster" on a 360 photo is op trim with a longer or shorter lengthMs (the same sweep over more or less time), never speed. A 360 photo has no speed and no motion.
 - Zoom: op zoom (clip, zoom) crops closer into a shot about its centre: 1.3 is "a bit closer", 1.6 "much closer", 1 is the whole picture; clip 0 is every clip. It adds to any motion a photo has.
 - More cuts from one video: op split (clip, pieces 2 to 4) replaces the clip with that many shots from different parts of its source, in order. Use duplicate only with startMs and lengthMs so the copy shows another part of the video; a duplicate without them repeats the same seconds, which nobody wants. A photo cannot be split.
 - The cover: op cover (clip, startMs = how far into that clip, 0 for its first frame) picks the frame Instagram shows in the grid and feed. Without one the cover is 0.7 s into the reel.
@@ -360,13 +368,13 @@ Rules:
 - How text arrives (animation on addText or editText): pop (a quick pop, the bold styles' own), fade (a slow fade, the elegant style's own), rise (drifts up as it fades in), type (letter by letter, like typing), none (simply there); auto is the style's own.
 - Room labels are the texts whose number is marked (room label); to turn them all off use roomLabels on=false rather than removing each.
 - When clips are trimmed, moved or removed, the other texts follow their clips, cuts that were on the beat stay on it, and room labels are redrawn, all by themselves: do not re-time texts or snap to the beat to compensate for your own edits.
-- The details card (price, beds, baths, area, address, contact) is op details; pass only the fields to change, null for the rest; to remove the card pass details null. placement: end, start or both show it as a card; "throughout" shows the facts as a thin strip at the top for the whole reel ("keep the price on screen the whole time"); "none" keeps the facts without showing them. Facts the description lists as known but not shown may be used for text, the caption and the card without asking.
+- The details card (price, beds, baths, area, address, contact) is op details; pass only the fields to change, null for the rest; to remove the card pass details null. A phone number, an email or a handle the user gives goes in contact on the card, not as text over the picture. An open house day and time goes both as a box text at the start ("Open house · Sat 2–4") and in contact. placement: end, start or both show it as a card; "throughout" shows the facts as a thin strip at the top for the whole reel ("keep the price on screen the whole time"); "none" keeps the facts without showing them. Facts the description lists as known but not shown may be used for text, the caption and the card without asking.
 - The caption: when the user asks for the caption, the post text or hashtags, write it in "caption": two to four short lines in the voice of the listing agent, the facts you know (never invented ones), a call to action, then a line of at most five hashtags, #realestate and the city's among them when the address is known; otherwise caption is null. Writing a caption needs no operations.
 - A new brief or whole-reel cut on a reel that already has a cut replaces the earlier styling: remove the earlier hook texts and stickers and write the brief's own, re-trim every shot to the pace the brief asks, and set room labels and the details card as the brief says; keep the clips and the music.
 - Cutting a whole reel ("cut it", "make something from these", a brief): the clips already in the reel are the user's shoot of this property; build the reel from them. Never remove them to make room for other media. Use "unused media" only when the user asks for it, or when the reel has fewer than three clips. Order them with op order, then cut fast: a reel is 1.5 to 2.5 s a shot unless the brief says slower (luxury, slow: 3 to 4 s); a photo 2 s with motion zoom-in, a 360 photo 4 s. A video longer than 6 s can give two or three shots: duplicate it and trim each copy to a different part (startMs, lengthMs) so the reel has more cuts instead of longer ones. Aim for 8 to 14 cuts in a 20 to 30 s reel. If the user names a length (15 seconds, 10 seconds), make the reel that long; never refuse a length. Pick a song, snapToBeat, add the hook, and the details card as the brief says. Lead with the strongest exterior or wide shot and end on an outdoor or view shot.
 - Rooms: when room labels are wanted and a clip does not know its room, name it with op room (clip, content: the room in lower case) from its file name or your best reading of it, before turning room labels on.
 - Questions: if, and only if, a brief needs a fact you do not have (an address, a price, an open-house time) return up to three short questions in "questions", no operations, and a note saying what you will do once you know. Otherwise decide for yourself and never ask. You may ask once: if the user has given answers, cut the reel with what you have, leave unknown details-card fields empty, use only the shots that exist, and do not ask again.
-- If the request is unclear, impossible with these operations, or not about the reel, return no operations and say so in the note in one sentence, without apologising.
+- If the request is unclear, impossible with these operations, or not about the reel, return no operations and say so in the note in one sentence, without apologising, and never claim a change you did not make. Footage cannot be stabilised, sharpened or re-shot here. Undo is the arrow above the reel; posting is Export, then Share to Instagram on the export screen.
 - The note is one or two short sentences in the second person, present tense, plain language, naming what changed ("The kitchen clip now runs 6 seconds and the music is Fretless."). No markdown.`;
 
 const ms = (value: number) => `${(value / 1000).toFixed(1)} s`;
@@ -398,6 +406,7 @@ export function describeReel(input: {
       `look ${clip.filter}`,
       clip.zoom !== 1 ? `zoom ${clip.zoom}` : null,
       clip.kind === "IMAGE" && !clip.pano ? `motion ${clip.motion}` : null,
+      clip.pano ? `turns ${Math.abs(clip.pano.yawEnd - clip.pano.yawStart)}° ${clip.pano.yawEnd >= clip.pano.yawStart ? "clockwise" : "anticlockwise"}, ends facing ${Math.round(clip.pano.yawEnd)}°` : null,
       index > 0 ? `transition in ${clip.transitionIn}` : null,
       clip.fit === "contain" ? "fit contain" : null,
     ].filter(Boolean);
@@ -866,6 +875,39 @@ export function applyAiEditPlan(timeline: Timeline, plan: Pick<AiEditPlan, "ops"
         applied.push(`cover: ${clipLabel(current, clips[0], assets)}, ${ms(offsetMs)} in`);
         break;
       }
+      case "turn": {
+        const clips = clipsFor(op, false);
+        if (!clips) break;
+        const clip = clips[0];
+        if (!clip.pano) {
+          skipped.push(`turn: ${clipLabel(current, clip, assets)} is not a 360 photo`);
+          break;
+        }
+        // Something named but not found in the picture: nothing to aim at.
+        if ((op.yaw === null || op.yaw === undefined) && op.content) {
+          skipped.push(`turn: could not find ${op.content} in ${clipLabel(current, clip, assets)}`);
+          break;
+        }
+        // Only the sweep changes ("a full spin", "the other way", "hold still"): it still ends where it ends now.
+        if ((op.yaw === null || op.yaw === undefined) && (op.sweep === null || op.sweep === undefined)) {
+          skipped.push("turn: nothing to face and no sweep");
+          break;
+        }
+        const had = clip.pano.yawEnd - clip.pano.yawStart;
+        const sweep = op.sweep ?? had;
+        // Arrive on the target: the sweep ends looking at it.
+        const yawEnd = Math.round(op.yaw ?? clip.pano.yawEnd);
+        const yawStart = Math.max(-360, Math.min(360, yawEnd - sweep));
+        current = updateClip(current, clip.id, { pano: { ...clip.pano, yawStart, yawEnd: Math.max(-360, Math.min(360, yawEnd)) } });
+        applied.push(
+          op.content
+            ? `${clipLabel(current, clip, assets)}: turns ${Math.abs(sweep)}° to face ${op.content}`
+            : sweep === 0
+              ? `${clipLabel(current, clip, assets)}: holds still`
+              : `${clipLabel(current, clip, assets)}: turns ${Math.abs(sweep)}° ${sweep < 0 ? "anticlockwise" : "clockwise"}`,
+        );
+        break;
+      }
       case "logo": {
         if (op.assetId === null || op.assetId === undefined) {
           if (!current.logo) {
@@ -1112,11 +1154,21 @@ export function fakeAiEditPlan(request: string, timeline: Timeline, songs: AiSon
   const blank: Omit<AiEditOp, "op"> = {
     clip: null, text: null, startMs: null, endMs: null, lengthMs: null, speed: null, filter: null, motion: null, transition: null, fit: null,
     volume: null, toPosition: null, content: null, style: null, color: null, size: null, y: null, songId: null, on: null, details: null,
-    assetId: null, order: null, pieces: null, atClip: null, animation: null, zoom: null, corner: null,
+    assetId: null, order: null, pieces: null, atClip: null, animation: null, zoom: null, corner: null, yaw: null, sweep: null,
   };
   const ops: AiEditOp[] = [];
   const notes: string[] = [];
   let caption: string | null = null;
+  const face = /\b(face|look at|point at|turn to(?:wards)?) (?:the )?(\w+)/.exec(text);
+  const panoIndex = timeline.clips.findIndex((entry) => entry.pano);
+  if (face && panoIndex >= 0) {
+    // The stand-in cannot look at the picture: the door is taken to be a quarter turn to the right.
+    ops.push({ ...blank, op: "turn", clip: panoIndex + 1, content: face[2], yaw: 90 });
+    notes.push(`The 360 shot now ends facing the ${face[2]}.`);
+  } else if (/\b(full spin|spin|full turn)\b/.test(text) && panoIndex >= 0) {
+    ops.push({ ...blank, op: "turn", clip: panoIndex + 1, yaw: timeline.clips[panoIndex].pano!.yawEnd, sweep: 360 });
+    notes.push("The 360 shot does a full spin.");
+  }
   const look = FILTERS.filter((name) => name !== "none").find((name) => text.includes(name)) ?? (/black and white/.test(text) ? "mono" : /golden hour/.test(text) ? "golden" : null);
   if (look) {
     ops.push({ ...blank, op: "look", clip: 0, filter: look });

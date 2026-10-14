@@ -25,7 +25,7 @@ function reel(): Timeline {
 const blank: Omit<AiEditOp, "op"> = {
   clip: null, text: null, startMs: null, endMs: null, lengthMs: null, speed: null, filter: null, motion: null, transition: null, fit: null,
   volume: null, toPosition: null, content: null, style: null, color: null, size: null, y: null, songId: null, on: null, details: null,
-  assetId: null, order: null, pieces: null, atClip: null, animation: null, zoom: null, corner: null,
+  assetId: null, order: null, pieces: null, atClip: null, animation: null, zoom: null, corner: null, yaw: null, sweep: null,
 };
 const op = (fields: Partial<AiEditOp> & { op: AiEditOp["op"] }): AiEditOp => ({ ...blank, ...fields });
 const run = (ops: AiEditOp[], timeline = reel()) => applyAiEditPlan(timeline, { ops, note: "" }, { assets, songs: [], newId: () => "n" });

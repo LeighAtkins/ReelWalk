@@ -5,9 +5,11 @@ import { prisma } from "@reelwalk/db";
 import { changePassword, deleteAccount, signOut, updateProfile } from "@/app/auth-actions";
 import { openBillingPortal, startCheckout } from "@/app/billing-actions";
 import { disconnectInstagram } from "@/app/instagram-actions";
+import { deleteCommentTrigger, disconnectCommentReplies, saveCommentTrigger, toggleCommentTrigger } from "@/app/comment-reply-actions";
 import { FeedbackForm } from "@/components/feedback-form";
 import { outputSize, PLANS } from "@reelwalk/core";
 import { isInstagramConfigured } from "@/lib/instagram";
+import { isMessagingConfigured } from "@/lib/instagram-messaging";
 import { aiEditUsage } from "@/lib/ai-edit";
 import { exportsThisMonth, storageUsed, workspacePlan } from "@/lib/plans";
 import { isBillingConfigured } from "@/lib/stripe";
@@ -21,11 +23,11 @@ export const metadata: Metadata = { title: "Account · ReelWalk" };
 export default async function AccountPage({
   searchParams,
 }: {
-  searchParams: Promise<{ saved?: string; error?: string; instagram?: string; billing?: string; feedback?: string; message?: string }>;
+  searchParams: Promise<{ saved?: string; error?: string; instagram?: string; billing?: string; feedback?: string; message?: string; replies?: string }>;
 }) {
-  const { saved, error, instagram: igStatus, billing, feedback, message } = await searchParams;
+  const { saved, error, instagram: igStatus, billing, feedback, message, replies: repliesStatus } = await searchParams;
   const user = await getCurrentUser();
-  const [reels, exports, own, shared, sessions, instagram, current, usedThisMonth, usedBytes, aiUsage] = await Promise.all([
+  const [reels, exports, own, shared, sessions, instagram, current, usedThisMonth, usedBytes, aiUsage, triggers, recentReplies] = await Promise.all([
     prisma.reel.count({ where: { workspaceId: user.workspaceId } }),
     prisma.renderJob.count({ where: { workspaceId: user.workspaceId, status: "SUCCEEDED", kind: { not: "PREVIEW" } } }),
     prisma.mediaAsset.count({ where: { workspaceId: user.workspaceId, shared: false } }),
@@ -36,6 +38,12 @@ export default async function AccountPage({
     exportsThisMonth(user.workspaceId),
     storageUsed(user.workspaceId),
     aiEditUsage(user.workspaceId),
+    prisma.commentTrigger.findMany({
+      where: { workspaceId: user.workspaceId },
+      orderBy: { createdAt: "asc" },
+      include: { _count: { select: { replies: { where: { status: "SENT" } } } } },
+    }),
+    prisma.commentReply.findMany({ where: { trigger: { workspaceId: user.workspaceId } }, orderBy: { createdAt: "desc" }, take: 10, include: { trigger: { select: { keyword: true } } } }),
   ]);
   const { plan } = current;
   const usedGb = usedBytes / 1024 ** 3;
@@ -213,6 +221,111 @@ export default async function AccountPage({
             </p>
           ) : null}
         </section>
+
+        {instagram && plan.instagram && isMessagingConfigured() ? (
+          <section className="card" id="replies" data-testid="comment-replies">
+            <h2>Comment replies</h2>
+            <p className="muted">
+              When someone comments a keyword on one of your recent posts, @{instagram.username} sends them one DM: a guide, a link, a price list.
+              Instagram allows one DM per comment, within 7 days of it.
+            </p>
+            {instagram.messagingToken ? (
+              <>
+                {triggers.length ? (
+                  <ul className="plain-list">
+                    {triggers.map((t) => (
+                      <li key={t.id} data-testid="comment-trigger" data-keyword={t.keyword}>
+                        <p>
+                          <strong>{t.keyword}</strong> {t.enabled ? null : <span className="muted small">(paused)</span>}
+                          <span className="muted small"> · {t._count.replies} sent</span>
+                        </p>
+                        <p className="small">{t.message}</p>
+                        {t.publicReply ? <p className="muted small">Public reply: {t.publicReply}</p> : null}
+                        <div className="field-row">
+                          <form action={toggleCommentTrigger}>
+                            <input type="hidden" name="id" value={t.id} />
+                            <button className="btn btn-quiet" type="submit">
+                              {t.enabled ? "Pause" : "Resume"}
+                            </button>
+                          </form>
+                          <form action={deleteCommentTrigger}>
+                            <input type="hidden" name="id" value={t.id} />
+                            <button className="btn btn-quiet" type="submit">
+                              Delete
+                            </button>
+                          </form>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+                <form action={saveCommentTrigger}>
+                  <label className="field">
+                    Keyword
+                    <input className="text-input" name="keyword" required maxLength={30} placeholder="GUIDE" autoCapitalize="characters" data-testid="trigger-keyword" />
+                  </label>
+                  <label className="field">
+                    DM to send
+                    <textarea
+                      className="text-input"
+                      name="message"
+                      rows={4}
+                      required
+                      maxLength={1000}
+                      placeholder="Here's the guide: https://…"
+                      data-testid="trigger-message"
+                    />
+                  </label>
+                  <label className="field">
+                    Public reply under the comment (optional)
+                    <input className="text-input" name="publicReply" maxLength={300} placeholder="Sent it to your DMs" />
+                  </label>
+                  <SubmitButton pendingLabel="Saving…" testId="trigger-save">
+                    Save keyword
+                  </SubmitButton>
+                </form>
+                {recentReplies.length ? (
+                  <>
+                    <h3 className="small">Latest</h3>
+                    <ul className="plain-list small" data-testid="comment-reply-log">
+                      {recentReplies.map((r) => (
+                        <li key={r.id}>
+                          @{r.username ?? "someone"} · {r.trigger.keyword} · {r.status === "SENT" ? "sent" : r.status === "FAILED" ? `failed: ${r.error ?? ""}` : "sending"}
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                ) : null}
+                <form action={disconnectCommentReplies}>
+                  <button className="btn btn-quiet" type="submit">
+                    Turn off comment replies
+                  </button>
+                </form>
+              </>
+            ) : (
+              <a className="btn btn-block" href="/api/instagram/messaging/connect" data-testid="replies-connect">
+                Allow comment replies
+              </a>
+            )}
+            {repliesStatus === "connected" ? <p className="toast" role="status">Comment replies are on.</p> : null}
+            {repliesStatus === "saved" ? <p className="toast" role="status">Keyword saved.</p> : null}
+            {repliesStatus === "invalid" ? (
+              <p className="error small" role="alert">
+                A keyword is one word of letters or numbers, and the DM cannot be empty.
+              </p>
+            ) : null}
+            {repliesStatus === "other-account" ? (
+              <p className="error small" role="alert">
+                That Instagram login is a different account from @{instagram.username}. Log in as @{instagram.username}.
+              </p>
+            ) : null}
+            {repliesStatus === "denied" || repliesStatus === "failed" ? (
+              <p className="error small" role="alert">
+                Instagram did not finish connecting. Try again.
+              </p>
+            ) : null}
+          </section>
+        ) : null}
 
         <form action={updateProfile} className="card">
           <h2>Profile</h2>

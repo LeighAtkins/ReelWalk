@@ -6,6 +6,7 @@ export * from "./ai-edit";
 export * from "./autopilot";
 export * from "./review";
 export * from "./autobuild";
+export * from "./comment-replies";
 export * from "./beats";
 export * from "./drag";
 export * from "./handle";

@@ -2302,6 +2302,11 @@ form + .card {
   line-height: 1.55;
 }
 
+.prose a.btn {
+  color: var(--ink);
+  text-decoration: none;
+}
+
 .prose a {
   color: var(--paper);
   text-decoration: underline;
@@ -3046,4 +3051,17 @@ video:-webkit-full-screen {
 .autopilot-room {
   min-height: 44px;
   padding: 8px 12px;
+}
+
+/* Comment replies on the account page (ADR 0026). */
+.plain-list {
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.plain-list p {
+  margin: 0 0 4px;
 }

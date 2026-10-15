@@ -17,7 +17,7 @@ const PUBLIC_PATHS = [
   /^\/forgot$/,
   /^\/reset\/[^/]+$/,
   /^\/r\/[^/]+$/,
-  /^\/(privacy|terms|data-deletion)$/,
+  /^\/(privacy|terms|data-deletion|guide)$/,
   /^\/api\//,
   /^\/icon\.svg$/,
   // The brand mark, painted through a CSS mask on every page including sign-in.

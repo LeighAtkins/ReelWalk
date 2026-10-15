@@ -1,3 +1,4 @@
+import { answerKeywordComments } from "./comment-replies";
 import { publishDueScheduledPosts } from "./scheduled-posts";
 
 /**
@@ -21,6 +22,7 @@ export function startScheduledPostLoop(): void {
     running = true;
     try {
       await publishDueScheduledPosts();
+      await answerKeywordComments().catch((error) => console.error("comment replies: tick failed", error));
     } finally {
       running = false;
     }

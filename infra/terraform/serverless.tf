@@ -38,6 +38,9 @@ locals {
     META_APP_ID           = var.meta_app_id
     META_APP_SECRET       = var.meta_app_secret
     META_LOGIN_CONFIG_ID  = var.meta_login_config_id
+    # Instagram's own login, for keyword comment replies (ADR 0026).
+    INSTAGRAM_APP_ID     = var.instagram_app_id
+    INSTAGRAM_APP_SECRET = var.instagram_app_secret
     PIXABAY_API_KEY       = var.pixabay_api_key
     OPENAI_API_KEY        = var.openai_api_key
     STRIPE_SECRET_KEY     = var.stripe_secret_key

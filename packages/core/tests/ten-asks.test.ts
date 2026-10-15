@@ -243,3 +243,18 @@ describe("nothing hides behind the details card", () => {
     expect(instagramIssues({ ...carded, details: { ...carded.details!, placement: "none" } }).some((issue) => issue.code === "text-under-card")).toBe(false);
   });
 });
+
+describe("whip transitions (ADR 0028)", () => {
+  it("puts a whip pan on every cut, never on the first clip", () => {
+    const result = run([op({ op: "transition", clip: 0, transition: "whip" })]);
+    expect(result.timeline.clips.map((clip) => clip.transitionIn)).toEqual(["cut", "whip", "whip"]);
+    expect(parseTimeline(result.timeline).clips[1].transitionIn).toBe("whip");
+  });
+
+  it("the stand-in hears whoosh and swipe", () => {
+    for (const ask of ["add whoosh transitions", "swipe between the shots", "smooth transitions please"]) {
+      const plan = fakeAiEditPlan(ask, reel(), songs);
+      expect(plan.ops.find((o) => o.op === "transition")?.transition).toBe("whip");
+    }
+  });
+});

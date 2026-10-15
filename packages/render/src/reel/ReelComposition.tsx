@@ -16,6 +16,7 @@ import {
 // OffthreadVideo here, and it falls back to it for files it cannot decode.
 import { Video as RenderVideo } from "@remotion/media";
 import { cameraAt, framePlan, INSTAGRAM, isInstagramMusic, REEL_FORMAT, timelineDurationMs, walkInto, type Clip, type Logo, type Plan, type TextOverlay, type Timeline } from "@reelwalk/core";
+import { WHOOSH_PEAK_S, WHOOSH_SRC } from "./whoosh";
 import { useFontsFor } from "./fonts";
 import { ELEGANT_FADE_S, FILTER_CSS, textCss } from "./look";
 import { DetailsCardView } from "./DetailsCardView";
@@ -26,6 +27,34 @@ import { Watermark } from "./Watermark";
 
 /** Frames of the dip-to-black on each side of a "fade" transition. */
 const FADE_FRAMES = 8;
+/**
+ * A whip pan (ADR 0028): over its last WHIP_FRAMES the outgoing shot slides
+ * left, stretches and smears; the next shot arrives from the right out of the
+ * same smear. Both halves together last about a third of a second at 30 fps.
+ */
+const WHIP_FRAMES = 5;
+const WHIP_BLUR_PX = 60;
+
+/**
+ * Where a shot is in a whip: 0 still, 1 fully smeared; positive arrives from
+ * the right, negative leaves to the left. The smear is a horizontal-only blur
+ * (an SVG filter, as CSS blur goes every way and reads as out of focus), and
+ * the shot is stretched wider than it moves so no edge shows.
+ */
+function whipStyle(amount: number, filterId: string): React.CSSProperties | undefined {
+  if (amount === 0) return undefined;
+  const a = Math.abs(amount);
+  return { transform: `translateX(${amount * 26}%) scaleX(${1 + a * 0.7})`, filter: `url(#${filterId})` };
+}
+
+const WhipBlur: React.FC<{ id: string; amount: number }> = ({ id, amount }) => (
+  <svg width="0" height="0" style={{ position: "absolute" }} aria-hidden="true">
+    <filter id={id} x="-20%" y="0" width="140%" height="100%">
+      <feGaussianBlur stdDeviation={`${Math.abs(amount) * WHIP_BLUR_PX} 0`} edgeMode="duplicate" />
+    </filter>
+  </svg>
+);
+
 
 function resolveSrc(src: string): string {
   return /^(https?:|blob:|data:)/.test(src) ? src : staticFile(src);
@@ -91,10 +120,12 @@ const ClipView: React.FC<{
   asset: ReelAsset | undefined;
   durationInFrames: number;
   fadeOut: boolean;
+  /** The next clip whips in, so this one whips out. */
+  whipOut?: boolean;
   /** The clip before this one and its media, for a walk between two 360 photos. */
   previous?: { clip: Clip; asset: ReelAsset | undefined };
   plan: Plan | null;
-}> = ({ clip, asset, durationInFrames, fadeOut, previous, plan }) => {
+}> = ({ clip, asset, durationInFrames, fadeOut, whipOut = false, previous, plan }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   if (!asset) {
@@ -109,6 +140,12 @@ const ClipView: React.FC<{
   const fadeOutValue = fadeOut
     ? interpolate(frame, [durationInFrames - FADE_FRAMES, durationInFrames - 1], [1, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" })
     : 1;
+  const clamp = { extrapolateLeft: "clamp", extrapolateRight: "clamp" } as const;
+  const whipIn = clip.transitionIn === "whip" ? interpolate(frame, [0, WHIP_FRAMES], [1, 0], clamp) : 0;
+  const whipAway = whipOut ? interpolate(frame, [durationInFrames - WHIP_FRAMES, durationInFrames - 1], [0, -1], clamp) : 0;
+  const whipAmount = whipIn || whipAway;
+  const whipId = `whip-${clip.id}`;
+  const whip = whipStyle(whipAmount, whipId);
 
   if (clip.pano && asset.kind === "IMAGE") {
     const clipMs = (durationInFrames * 1000) / fps;
@@ -118,7 +155,8 @@ const ClipView: React.FC<{
       ? cameraAt(plan, from.clip, clip, (Math.max(0, frame) * 1000) / fps, clipMs)
       : cameraAt(plan, undefined, clip, progress, 1);
     return (
-      <AbsoluteFill style={{ opacity: Math.min(fadeIn, fadeOutValue), backgroundColor: "#000" }}>
+      <AbsoluteFill style={{ opacity: Math.min(fadeIn, fadeOutValue), backgroundColor: "#000", ...whip }}>
+        {whip ? <WhipBlur id={whipId} amount={whipAmount} /> : null}
         <PanoView
           src={resolveSrc(asset.src)}
           spot={clip.spot}
@@ -133,6 +171,8 @@ const ClipView: React.FC<{
 
   return (
     <AbsoluteFill style={{ opacity: Math.min(fadeIn, fadeOutValue), overflow: "hidden" }}>
+      {whip ? <WhipBlur id={whipId} amount={whipAmount} /> : null}
+      <AbsoluteFill style={whip}>
       {clip.fit === "contain" ? (
         // Letterboxed: the same picture, blurred and enlarged, fills the 9:16 frame behind it.
         <AbsoluteFill style={{ filter: "blur(48px) brightness(0.7)", transform: "scale(1.25)" }}>
@@ -141,6 +181,7 @@ const ClipView: React.FC<{
       ) : null}
       <AbsoluteFill>
         <Media clip={clip} asset={asset} fit={clip.fit} transform={transform} />
+      </AbsoluteFill>
       </AbsoluteFill>
     </AbsoluteFill>
   );
@@ -294,6 +335,7 @@ export const ReelComposition: React.FC<ReelProps> = ({ timeline, assets, waterma
             asset={assets[clip.assetId]}
             durationInFrames={durationInFrames}
             fadeOut={timeline.clips[index + 1]?.transitionIn === "fade"}
+            whipOut={timeline.clips[index + 1]?.transitionIn === "whip"}
             previous={index > 0 ? { clip: timeline.clips[index - 1], asset: assets[timeline.clips[index - 1].assetId] } : undefined}
             plan={timeline.plan?.geometry ?? null}
           />
@@ -309,6 +351,14 @@ export const ReelComposition: React.FC<ReelProps> = ({ timeline, assets, waterma
       {timeline.logo ? <LogoView logo={timeline.logo} asset={assets[timeline.logo.assetId]} /> : null}
       {watermark ? <Watermark /> : null}
       {musicAsset ? <MusicTrack timeline={timeline} asset={musicAsset} /> : null}
+      {plan.clips.map(({ clip, from }) =>
+        clip.transitionIn === "whip" && from > 0 ? (
+          // The whoosh peaks on the cut.
+          <Sequence key={`whoosh-${clip.id}`} from={Math.max(0, from - Math.round(WHOOSH_PEAK_S * fps))} durationInFrames={Math.round(fps * 0.7)} name="whoosh">
+            <Audio src={WHOOSH_SRC} volume={0.8} />
+          </Sequence>
+        ) : null,
+      )}
     </AbsoluteFill>
   );
 };

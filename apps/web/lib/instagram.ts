@@ -236,3 +236,26 @@ export function instagramErrorMessage(error: unknown, fallback = "Instagram did 
   }
   return fallback;
 }
+
+/**
+ * Comments on the account's most recent posts, read with the publishing
+ * (Facebook Login) token: one request. Used by keyword comment replies (ADR
+ * 0026) because the Instagram Login token sees only comments by people with
+ * a role on the app while the Meta app is unpublished; this one sees them
+ * all. The commenter's username may be missing.
+ */
+export async function recentPostComments(
+  igUserId: string,
+  token: string,
+  posts = 10,
+  perPost = 50,
+): Promise<{ id: string; mediaId: string; text: string; timestamp: string; username: string | null }[]> {
+  type Comment = { id: string; text?: string; timestamp: string; username?: string };
+  const data = await graph<{ data: { id: string; comments?: { data: Comment[] } }[] }>(`/${igUserId}/media`, {
+    token,
+    query: { fields: `id,comments.limit(${perPost}){id,text,timestamp,username}`, limit: String(posts) },
+  });
+  return data.data.flatMap((media) =>
+    (media.comments?.data ?? []).map((c) => ({ id: c.id, mediaId: media.id, text: c.text ?? "", timestamp: c.timestamp, username: c.username ?? null })),
+  );
+}

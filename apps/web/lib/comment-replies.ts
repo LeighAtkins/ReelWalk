@@ -1,5 +1,6 @@
 import { prisma } from "@reelwalk/db";
 import { commentsToAnswer } from "@reelwalk/core";
+import { recentPostComments } from "./instagram";
 import {
   isMessagingConfigured,
   isTransientInstagramError,
@@ -43,7 +44,9 @@ export async function answerKeywordComments(now = new Date()): Promise<{ checked
       }
 
       const triggers = account.workspace.commentTriggers;
-      const comments = await recentComments(token);
+      // The publishing token sees every comment; the messaging token, while
+      // the Meta app is unpublished, only those by people with a role on it.
+      const comments = await recentPostComments(account.externalId, account.accessToken).catch(() => recentComments(token));
       const answered = new Set(
         (await prisma.commentReply.findMany({ where: { commentId: { in: comments.map((c) => c.id) } }, select: { commentId: true } })).map((r) => r.commentId),
       );

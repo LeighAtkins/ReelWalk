@@ -55,3 +55,12 @@ contacts.
   answered; a keyword added later answers recent comments that already
   name it (they are inside the window and unanswered), which is usually what
   is wanted.
+
+## Addendum (2026-10-15, first live test)
+
+While the Meta app is unpublished, the Instagram Login token reads only
+comments by people with a role on the app: a stranger's "GUIDE" showed in
+`comments_count` but not in the comments edge. The publishing (Facebook
+Login) token returns it, without the username. Comments are now read with
+the publishing token and sent with the Instagram Login token, which did
+deliver the private reply to the non-tester who commented.

@@ -11,7 +11,13 @@ import { InstagramError, isTransientInstagramError } from "./instagram";
 
 export { isTransientInstagramError };
 
-export const MESSAGING_SCOPES = ["instagram_business_basic", "instagram_business_manage_comments", "instagram_business_manage_messages"];
+export const MESSAGING_SCOPES = [
+  "instagram_business_basic",
+  "instagram_business_manage_comments",
+  "instagram_business_manage_messages",
+  // Views, reach and watch time on the Scheduled page (ADR 0027).
+  "instagram_business_manage_insights",
+];
 
 const version = () => process.env.META_GRAPH_VERSION || "v25.0";
 const IG_GRAPH = () => `https://graph.instagram.com/${version()}`;
@@ -134,4 +140,48 @@ export async function sendPrivateReply(token: string, commentId: string, text: s
 export async function replyToComment(token: string, commentId: string, text: string): Promise<void> {
   const url = new URL(`${IG_GRAPH()}/${commentId}/replies`);
   await call(url, { method: "POST", token, form: { message: text } });
+}
+
+export type PostInsights = {
+  views: number | null;
+  reach: number | null;
+  likes: number | null;
+  comments: number | null;
+  saved: number | null;
+  shares: number | null;
+  /** Milliseconds. */
+  avgWatchMs: number | null;
+};
+
+const INSIGHT_METRICS = ["views", "reach", "likes", "comments", "saved", "shares", "ig_reels_avg_watch_time"];
+
+/**
+ * A published reel's numbers (ADR 0027). "permission" when the connection
+ * predates the insights permission and needs a reconnect; null when Instagram
+ * has nothing yet or the call failed.
+ */
+export async function postInsights(token: string, mediaId: string): Promise<PostInsights | "permission" | null> {
+  const url = new URL(`${IG_GRAPH()}/${mediaId}/insights`);
+  url.searchParams.set("metric", INSIGHT_METRICS.join(","));
+  try {
+    const data = await call<{ data: { name: string; values?: { value: number }[]; total_value?: { value: number } }[] }>(url, { token });
+    const value = (name: string) => {
+      const row = data.data.find((d) => d.name === name);
+      const v = row?.values?.[0]?.value ?? row?.total_value?.value;
+      return typeof v === "number" ? v : null;
+    };
+    return {
+      views: value("views"),
+      reach: value("reach"),
+      likes: value("likes"),
+      comments: value("comments"),
+      saved: value("saved"),
+      shares: value("shares"),
+      avgWatchMs: value("ig_reels_avg_watch_time"),
+    };
+  } catch (error) {
+    if (error instanceof InstagramError && error.code === 10) return "permission";
+    console.warn("instagram: insights failed", mediaId, error);
+    return null;
+  }
 }

@@ -37,8 +37,8 @@ export default function PrivacyPage() {
           <strong>Comment replies</strong> (optional): if you turn on comment replies, we also store a second access token from
           Instagram&apos;s own login. With it we read the comments on your most recent posts and, when a comment contains one of your
           keywords, send that person the one direct message you wrote, and your public reply if you set one. We keep the comment&apos;s id,
-          the commenter&apos;s username and the comment text, so nobody is answered twice and you can see what was sent. We do not read your
-          other messages. Turning comment replies off deletes the token.
+          the commenter&apos;s username and the comment text, so nobody is answered twice and you can see what was sent. The same connection reads
+          your posted reels&apos; views, reach and watch time to show them on your Scheduled page. We do not read your other messages. Turning comment replies off deletes the token.
         </li>
         <li>
           <strong>Featured reels</strong> (optional): if you tick &quot;Feature my reel&quot; on an export, we may repost that video on our

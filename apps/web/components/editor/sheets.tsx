@@ -538,11 +538,12 @@ export function TransitionSheet({
     <Sheet title="Transition in" onClose={onClose}>
       <Segmented
         label="Transition"
-        options={canWalkHere ? (["cut", "fade", "walk"] as const) : (["cut", "fade"] as const)}
+        options={canWalkHere ? (["cut", "fade", "whip", "walk"] as const) : (["cut", "fade", "whip"] as const)}
         value={clip.transitionIn === "walk" && !canWalkHere ? "cut" : clip.transitionIn}
         onChange={onChange}
-        format={(transition) => (transition === "cut" ? "Cut" : transition === "fade" ? "Fade through black" : "Walk there")}
+        format={(transition) => (transition === "cut" ? "Cut" : transition === "fade" ? "Fade through black" : transition === "whip" ? "Whip pan" : "Walk there")}
       />
+      <p className="muted small">Whip pan smears the cut sideways with a whoosh, the fast transition of house-tour reels.</p>
       {canWalkHere ? <p className="muted small">Walk there moves the camera across the floor plan from the last 360 photo to this one.</p> : null}
     </Sheet>
   );

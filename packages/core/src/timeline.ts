@@ -27,7 +27,7 @@ export const SPEEDS = [0.5, 1, 1.5, 2, 3] as const;
 export const FILTERS = ["none", "warm", "cool", "vivid", "mono", "fade", "golden", "dusk", "crisp"] as const;
 export const MOTIONS = ["none", "zoom-in", "zoom-out", "pan"] as const;
 /** "walk" moves the camera between two 360 photos of the same home (see walk.ts). */
-export const TRANSITIONS = ["cut", "fade", "walk"] as const;
+export const TRANSITIONS = ["cut", "fade", "whip", "walk"] as const;
 /**
  * "elegant" is a thin white serif that fades in, for luxury reels where the
  * imagery leads. "tag" is a small lacquer sticker for a status (JUST LISTED,

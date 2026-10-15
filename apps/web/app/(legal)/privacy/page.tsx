@@ -6,7 +6,7 @@ export default function PrivacyPage() {
   return (
     <article className="prose">
       <h1>Privacy policy</h1>
-      <p className="muted small">Last updated 12 October 2026</p>
+      <p className="muted small">Last updated 15 October 2026</p>
 
       <h2>What ReelWalk is</h2>
       <p>
@@ -32,6 +32,13 @@ export default function PrivacyPage() {
           <strong>Instagram connection</strong> (optional): if you connect an Instagram professional account, we store the account id, its
           username and the access token Meta issues, so that you can publish exports as Reels. We use it for nothing else. Disconnecting
           deletes the token.
+        </li>
+        <li>
+          <strong>Comment replies</strong> (optional): if you turn on comment replies, we also store a second access token from
+          Instagram&apos;s own login. With it we read the comments on your most recent posts and, when a comment contains one of your
+          keywords, send that person the one direct message you wrote, and your public reply if you set one. We keep the comment&apos;s id,
+          the commenter&apos;s username and the comment text, so nobody is answered twice and you can see what was sent. We do not read your
+          other messages. Turning comment replies off deletes the token.
         </li>
         <li>
           <strong>Featured reels</strong> (optional): if you tick &quot;Feature my reel&quot; on an export, we may repost that video on our

@@ -55,6 +55,7 @@ model Workspace {
   aiEdits    AiEdit[]
   briefs     ReelBrief[]
   aiJobs     AiJob[]
+  commentTriggers CommentTrigger[]
 
   // Set by the Stripe webhook from the subscription (plans in @reelwalk/core).
   plan                 Plan      @default(FREE)
@@ -217,10 +218,53 @@ model SocialAccount {
   username    String
   accessToken String
   expiresAt   DateTime?
+  // Instagram API with Instagram Login (ADR 0026): private replies to
+  // comments need a token from Instagram's own login, separate from the
+  // Facebook Login token above that publishes. Null until connected.
+  messagingToken     String?
+  messagingUserId    String?
+  messagingExpiresAt DateTime?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
   @@unique([workspaceId, provider])
+}
+
+// "Comment REEL and I'll send you the guide" (ADR 0026): a keyword in a
+// comment on one of the workspace's recent posts gets one private reply
+// (a DM) with message, and optionally a public reply under the comment.
+model CommentTrigger {
+  id          String         @id @default(cuid())
+  workspaceId String
+  workspace   Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  // Matched as a whole word, any case.
+  keyword     String
+  message     String
+  publicReply String?
+  enabled     Boolean        @default(true)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  replies     CommentReply[]
+
+  @@unique([workspaceId, keyword])
+}
+
+// One per answered comment: the unique commentId is what stops a second DM.
+model CommentReply {
+  id        String         @id @default(cuid())
+  triggerId String
+  trigger   CommentTrigger @relation(fields: [triggerId], references: [id], onDelete: Cascade)
+  commentId String         @unique
+  mediaId   String
+  username  String?
+  text      String
+  // SENDING while claimed, then SENT or FAILED.
+  status    String         @default("SENDING")
+  error     String?
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  @@index([triggerId, createdAt])
 }
 
 model Property {

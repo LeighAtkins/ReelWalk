@@ -125,6 +125,18 @@ variable "meta_app_secret" {
   default   = ""
 }
 
+# From the Meta app's "API setup with Instagram login" page (ADR 0026).
+variable "instagram_app_id" {
+  type    = string
+  default = ""
+}
+
+variable "instagram_app_secret" {
+  type      = string
+  sensitive = true
+  default   = ""
+}
+
 variable "meta_login_config_id" {
   type    = string
   default = ""

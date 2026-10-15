@@ -2,7 +2,7 @@ import Link from "next/link";
 import { BrandMark } from "@/components/icons";
 import { SUPPORT_EMAIL } from "@/lib/email";
 
-/** Public pages: privacy, terms, data deletion. Linked from the Meta app settings. */
+/** Public pages: privacy, terms, data deletion (linked from the Meta app settings), and the free guide. */
 export default function LegalLayout({ children }: { children: React.ReactNode }) {
   return (
     <main className="legal">

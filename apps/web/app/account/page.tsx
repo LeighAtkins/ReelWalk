@@ -296,6 +296,9 @@ export default async function AccountPage({
                     </ul>
                   </>
                 ) : null}
+                <a className="btn btn-quiet" href="/api/instagram/messaging/connect" data-testid="replies-reconnect">
+                  Reconnect Instagram
+                </a>
                 <form action={disconnectCommentReplies}>
                   <button className="btn btn-quiet" type="submit">
                     Turn off comment replies

@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { instagramAudioLabel } from "@reelwalk/core";
+import { insightsLine, instagramAudioLabel } from "@reelwalk/core";
 import { prisma, type ScheduledPostStatus } from "@reelwalk/db";
 import { cancelScheduled } from "@/app/scheduled-actions";
 import { AutoRefresh } from "@/components/auto-refresh";
@@ -9,6 +9,7 @@ import { LocalTime } from "@/components/local-time";
 import { ScheduledSound } from "@/components/scheduled-sound";
 import { SubmitButton } from "@/components/submit-button";
 import { TabBar } from "@/components/tab-bar";
+import { postInsights, type PostInsights } from "@/lib/instagram-messaging";
 import { getCurrentUser } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
@@ -40,8 +41,23 @@ export default async function ScheduledPage({ searchParams }: { searchParams: Pr
   const [upcoming, past, account] = await Promise.all([
     loadPosts(user.workspaceId, true),
     loadPosts(user.workspaceId, false),
-    prisma.socialAccount.findUnique({ where: { workspaceId_provider: { workspaceId: user.workspaceId, provider: "instagram" } }, select: { username: true } }),
+    prisma.socialAccount.findUnique({
+      where: { workspaceId_provider: { workspaceId: user.workspaceId, provider: "instagram" } },
+      select: { username: true, messagingToken: true },
+    }),
   ]);
+  // Live numbers for posted reels (ADR 0027), read with the Instagram Login connection.
+  const token = account?.messagingToken;
+  const insights = new Map<string, PostInsights | "permission" | null>(
+    token
+      ? await Promise.all(
+          past
+            .filter((post) => post.status === "PUBLISHED" && post.mediaId)
+            .map(async (post) => [post.id, await postInsights(token, post.mediaId!)] as const),
+        )
+      : [],
+  );
+  const needsReconnect = [...insights.values()].includes("permission");
 
   return (
     <>
@@ -88,9 +104,14 @@ export default async function ScheduledPage({ searchParams }: { searchParams: Pr
         {past.length > 0 ? (
           <section className="scheduled-section" aria-labelledby="past-heading">
             <h2 id="past-heading">Earlier</h2>
+            {needsReconnect || (account && !token && past.some((post) => post.status === "PUBLISHED")) ? (
+              <p className="muted small" data-testid="insights-reconnect">
+                To see views and watch time here, <Link href="/account#replies">reconnect Instagram on the Account tab</Link>.
+              </p>
+            ) : null}
             <ul className="export-list" data-testid="scheduled-past">
               {past.map((post) => (
-                <PostRow key={post.id} post={post} />
+                <PostRow key={post.id} post={post} insights={insights.get(post.id)} />
               ))}
             </ul>
           </section>
@@ -101,7 +122,7 @@ export default async function ScheduledPage({ searchParams }: { searchParams: Pr
   );
 }
 
-function PostRow({ post }: { post: Row }) {
+function PostRow({ post, insights }: { post: Row; insights?: PostInsights | "permission" | null }) {
   const reel = post.renderJob.reel;
   return (
     <li className="export-row scheduled-row" data-testid="scheduled-row" data-status={post.status} data-id={post.id}>
@@ -138,6 +159,11 @@ function PostRow({ post }: { post: Row }) {
           <span className="small muted sound-label" data-testid="scheduled-sound-label">
             <MusicIcon size={14} />
             {instagramAudioLabel({ title: post.audioTitle ?? post.audioId, artist: post.audioArtist })}
+          </span>
+        ) : null}
+        {insights && insights !== "permission" ? (
+          <span className="small" data-testid="scheduled-insights">
+            {insightsLine(insights)}
           </span>
         ) : null}
         {post.status === "PUBLISHED" && post.permalink ? (

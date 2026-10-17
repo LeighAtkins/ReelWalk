@@ -14,6 +14,8 @@ describe("footage anchored AI edits", () => {
   it("requires both images for a bridge", () => {
     expect(aiShotSchema.safeParse({ mode: "bridge", first: aiBoundary(a, true) }).success).toBe(false);
     expect(aiShotSchema.safeParse({ mode: "gimbal" }).success).toBe(false);
+    expect(aiShotSchema.safeParse({ mode: "bridge", first: aiBoundary(a, true), last: aiBoundary(b, false), anchor: a }).success).toBe(false);
+    expect(aiShotSchema.safeParse({ mode: "bridge", first: aiBoundary(a, true), last: aiBoundary(b, false) }).success).toBe(true);
   });
   it("keeps both bridge endpoints, real footage and following captions", () => {
     const timeline = { ...original, texts: [{ id: "caption", text: "Next room", startMs: 3000, endMs: 5000, x: 0.5, y: 0.5, size: 1, style: "plain" as const, color: "#ffffff", animation: "auto" as const }] };
@@ -41,12 +43,14 @@ describe("footage anchored AI edits", () => {
     expect(insertAiShot(original, ai, shot).clips).toHaveLength(3);
   });
   it("replaces a still without shifting its duration, cover or other shots", () => {
-    const photo = { ...a, kind: "IMAGE" as const, sourceStartMs: 0, sourceEndMs: 3500, speed: 1 };
+    const photo = { ...a, kind: "IMAGE" as const, sourceStartMs: 0, sourceEndMs: 3500, speed: 1, room: "living", spot: { x: 0.4, y: 0.5, heading: 30 } };
     const timeline = { ...original, clips: [photo, b], cover: { clipId: photo.id, offsetMs: 1000 } };
     const next = insertAiShot(timeline, ai, aiShotFromClips("gimbal", photo));
     expect(next.clips[0].id).toBe(photo.id);
     expect(clipDurationMs(next.clips[0])).toBe(3500);
     expect(next.cover).toEqual(timeline.cover);
+    expect(next.clips[0].room).toBe("living");
+    expect(next.clips[0].spot).toEqual(photo.spot);
     expect(next.clips[1]).toEqual(b);
   });
 });

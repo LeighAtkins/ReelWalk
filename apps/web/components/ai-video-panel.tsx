@@ -88,7 +88,7 @@ export function AiVideoPanel({ photos, clips = [], selectedClip, reelId, beforeG
     event.preventDefault();
     setError(null);
     const shot = aiShotSchema.safeParse({ mode, first: firstFrame, last: lastFrame, anchor,
-      next: bridge ? next : undefined, ...(draft && anchor && reelId ? { draftReelId: reelId } : {}),
+      next: bridge && anchor ? next : undefined, ...(draft && anchor && reelId ? { draftReelId: reelId } : {}),
     });
     if (!shot.success) { setError(shot.error.issues[0]?.message || "Choose source frames."); return; }
     if (bridge && anchor && (!next || clips.indexOf(next) !== clips.indexOf(anchor) + 1)) {

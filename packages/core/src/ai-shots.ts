@@ -19,6 +19,9 @@ export const aiShotSchema = z.object({
   if (shot.mode !== "custom" && !shot.first) ctx.addIssue({ code: "custom", message: "Choose a source image or video." });
   if ((shot.mode === "bridge" || shot.mode === "burst") && !shot.last) ctx.addIssue({ code: "custom", message: "Choose an ending frame." });
   if (shot.last && !shot.first) ctx.addIssue({ code: "custom", message: "An ending frame needs a starting frame." });
+  if ((shot.mode === "bridge" || shot.mode === "burst") && Boolean(shot.anchor) !== Boolean(shot.next)) {
+    ctx.addIssue({ code: "custom", message: "Choose both adjacent reel clips, or use library references without timeline placement." });
+  }
   if (shot.anchor && shot.first && JSON.stringify(aiBoundary(shot.anchor, true)) !== JSON.stringify(shot.first)) {
     ctx.addIssue({ code: "custom", message: "The source clip no longer matches its starting frame." });
   }
@@ -69,7 +72,8 @@ export function insertAiShot(timeline: Timeline, generated: Clip, shot: AiShot):
     filter: shot.anchor?.filter ?? "none", zoom: replace ? 1 : shot.anchor?.zoom ?? 1 };
   if (replace) {
     // Keep the clip ID for cover/text anchors and preserve the still's duration.
-    const replacement = { ...clip, id: shot.anchor!.id, sourceEndMs: Math.min(8000, Math.round(duration * clip.speed)) };
+    const replacement = { ...clip, id: shot.anchor!.id, room: shot.anchor!.room, spot: shot.anchor!.spot,
+      sourceEndMs: Math.min(8000, Math.round(duration * clip.speed)) };
     return { ...timeline, clips: timeline.clips.map((c, i) => i === index ? replacement : c) };
   }
   const insertionIndex = index < 0 ? timeline.clips.length : index + 1;

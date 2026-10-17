@@ -132,3 +132,24 @@ changes a paid plan. Testers get a plan by hand:
 `DATABASE_URL=... npx tsx scripts/comp.ts <email> AGENT 90` in `packages/db`
 (session pooler, port 5432).
 
+
+## Claude editing chat
+
+The editing assistant supports the direct Anthropic Messages API. Set
+`ai_provider = "anthropic"`, `anthropic_model = "claude-opus-5-5"`, and supply
+`anthropic_api_key` using the existing private Terraform variable/secret workflow.
+Terraform stores the key as encrypted SSM `/reelwalk/ANTHROPIC_API_KEY`; it must
+never be committed or added to a `NEXT_PUBLIC_` variable. Deploy the tested web
+image after setting the key. No database migration is needed for this switch.
+An explicitly selected provider with no key fails closed, without billing an
+OpenAI fallback. `ai_provider = "openai"` is an explicit rollback.
+
+The same validated edit-plan operations, workspace ownership checks, quotas and
+undo behavior apply. Claude also handles supporting image/room/caption calls
+through the shared structured-answer adapter. Veo video generation stays on
+Google Cloud. Anthropic promotional credit eligibility, expiration and auto-reload
+are controlled in Claude Console; an app model setting cannot guarantee a free
+balance. Keep auto-reload off to stop when eligible credit runs out.
+
+Focused transport and edit-application tests run with
+`pnpm --filter @reelwalk/core test -- tests/ai-provider.test.ts`.

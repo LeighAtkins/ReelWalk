@@ -33,7 +33,9 @@ locals {
     # Transactional email through SES (email.tf). Unset means log instead of send.
     EMAIL_FROM = "ReelWalk <hello@${var.app_domain}>"
     # The model behind "ask for a change" (ADR 0020).
-    OPENAI_MODEL = var.openai_model
+    AI_PROVIDER     = var.ai_provider
+    ANTHROPIC_MODEL = var.anthropic_model
+    OPENAI_MODEL    = var.openai_model
   }
 
   # Parameter Store holds the credentials; both runtimes read them at start.
@@ -46,6 +48,7 @@ locals {
     INSTAGRAM_APP_ID      = var.instagram_app_id
     INSTAGRAM_APP_SECRET  = var.instagram_app_secret
     PIXABAY_API_KEY       = var.pixabay_api_key
+    ANTHROPIC_API_KEY     = var.anthropic_api_key
     OPENAI_API_KEY        = var.openai_api_key
     STRIPE_SECRET_KEY     = var.stripe_secret_key
     STRIPE_WEBHOOK_SECRET = var.stripe_webhook_secret

@@ -47,7 +47,9 @@ export async function applyAiTopUp(session: Stripe.Checkout.Session) {
   if (!customer || !workspaceId) throw new Error("Missing top-up customer.");
   const lines = await stripe().checkout.sessions.listLineItems(session.id, { limit: 2 });
   if (lines.data.length !== 1 || lines.data[0]?.price?.id !== price || lines.data[0]?.quantity !== 1 ||
-    session.currency !== "usd" || session.amount_total !== AI_TOP_UP.priceCents) throw new Error("Unexpected AI top-up purchase.");
+    session.currency !== "usd" || session.amount_subtotal !== AI_TOP_UP.priceCents ||
+    (session.total_details?.amount_discount ?? 0) !== 0 ||
+    session.amount_total !== AI_TOP_UP.priceCents + (session.total_details?.amount_tax ?? 0)) throw new Error("Unexpected AI top-up purchase.");
   await prisma.$transaction(async tx => {
     const workspace = await lockBillingAccount(tx, workspaceId);
     if (workspace.stripeCustomerId !== customer) throw new Error("Top-up customer does not match workspace.");

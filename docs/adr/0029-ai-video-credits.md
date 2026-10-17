@@ -67,3 +67,8 @@ non-recurring USD 15 price and include `checkout.session.completed`,
 `checkout.session.async_payment_succeeded` and `invoice.paid` on the existing
 Stripe webhook endpoint. Keep Google credentials and all Stripe secrets out of
 Git, client bundles, screenshots and logs.
+
+For Stripe Managed Payments, assign the AI top-up product the eligible
+cloud-based business AI service tax code `txcd_10105002`. The paid-session
+check validates the USD 15 subtotal and Stripe-reported tax separately, so
+sales tax does not prevent fulfillment. Discounts are not enabled for top-ups.

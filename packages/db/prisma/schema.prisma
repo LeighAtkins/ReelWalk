@@ -56,6 +56,8 @@ model Workspace {
   briefs     ReelBrief[]
   aiJobs     AiJob[]
   commentTriggers CommentTrigger[]
+  aiCreditGrants AiCreditGrant[]
+  aiGenerations AiGeneration[]
 
   // Set by the Stripe webhook from the subscription (plans in @reelwalk/core).
   plan                 Plan      @default(FREE)
@@ -65,6 +67,62 @@ model Workspace {
   stripeCustomerId     String?   @unique
   stripeSubscriptionId String?   @unique
   planRenewsAt         DateTime?
+  aiPaidThrough        DateTime?
+  aiPaidPlan           Plan @default(FREE)
+  aiPaidPeriodStart    DateTime?
+  aiLastInvoiceCreated Int @default(0)
+}
+
+model AiCreditGrant {
+  id          String @id @default(cuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  source      String @unique
+  kind        String
+  amount      Int
+  remaining   Int
+  expiresAt   DateTime?
+  createdAt   DateTime @default(now())
+  generations AiGeneration[]
+
+  @@index([workspaceId, expiresAt])
+}
+
+model AiGeneration {
+  id            String @id @default(cuid())
+  workspaceId   String
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdById   String
+  createdBy     User @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  requestId     String
+  grantId       String
+  grant         AiCreditGrant @relation(fields: [grantId], references: [id])
+  prompt        String
+  referenceKey  String?
+  referenceType String?
+  model         String
+  // A submission with an unknown outcome is never repeated automatically.
+  status        String @default("QUEUED")
+  operationName String?
+  assetId       String? @unique
+  costCents     Int @default(80)
+  error         String?
+  leaseToken    String?
+  leaseUntil    DateTime?
+  nextPollAt    DateTime @default(now())
+  createdAt     DateTime @default(now())
+  finishedAt    DateTime?
+
+  @@unique([workspaceId, requestId])
+  @@index([status, nextPollAt])
+  @@index([workspaceId, createdAt])
+}
+
+// Application-enforced lifetime ceiling in USD cents. Retain reservations
+// after ambiguous provider failures rather than trusting delayed alerts.
+model AiSpendBudget {
+  id            String @id
+  reservedCents Int @default(0)
 }
 
 // Stripe event ids already handled, so a repeated delivery changes nothing.
@@ -91,6 +149,7 @@ model User {
   feedback    Feedback[]
   aiEdits     AiEdit[]
   scheduledPosts ScheduledPost[]
+  aiGenerations AiGeneration[]
 }
 
 // A "forgot your password" link. The email carries a random token; only its

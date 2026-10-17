@@ -176,6 +176,37 @@ variable "stripe_webhook_secret" {
 # Stripe price ids, one per plan and billing interval. The monthly ones turn
 # billing on; a missing yearly one hides the yearly option. OFFICE is the
 # stored id of the plan shown as "Studio".
+variable "google_cloud_project" {
+  type    = string
+  default = ""
+}
+
+variable "google_workload_identity_audience" {
+  type    = string
+  default = ""
+}
+
+variable "google_service_account_email" {
+  type    = string
+  default = ""
+}
+
+variable "ai_video_enabled" {
+  type    = bool
+  default = false
+}
+
+variable "ai_video_budget_cents" {
+  description = "Lifetime application ceiling for Vertex video attempts, in USD cents. Raise deliberately after the trial."
+  type        = number
+  default     = 24000
+}
+
+variable "stripe_price_ai_top_up" {
+  type    = string
+  default = ""
+}
+
 variable "stripe_price_agent_monthly" {
   type    = string
   default = ""

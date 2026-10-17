@@ -3,7 +3,9 @@ import Link from "next/link";
 import { LocalTime } from "@/components/local-time";
 import { prisma } from "@reelwalk/db";
 import { changePassword, deleteAccount, signOut, updateProfile } from "@/app/auth-actions";
-import { openBillingPortal, startCheckout } from "@/app/billing-actions";
+import { buyAiCredits, openBillingPortal, startCheckout } from "@/app/billing-actions";
+import { getAiBalance } from "@/lib/ai-video";
+import { aiTopUpPrice } from "@/lib/billing-ai";
 import { disconnectInstagram } from "@/app/instagram-actions";
 import { deleteCommentTrigger, disconnectCommentReplies, saveCommentTrigger, toggleCommentTrigger } from "@/app/comment-reply-actions";
 import { FeedbackForm } from "@/components/feedback-form";
@@ -27,6 +29,7 @@ export default async function AccountPage({
 }) {
   const { saved, error, instagram: igStatus, billing, feedback, message, replies: repliesStatus } = await searchParams;
   const user = await getCurrentUser();
+  const aiBalance = await getAiBalance(user.workspaceId);
   const [reels, exports, own, shared, sessions, instagram, current, usedThisMonth, usedBytes, aiUsage, triggers, recentReplies] = await Promise.all([
     prisma.reel.count({ where: { workspaceId: user.workspaceId } }),
     prisma.renderJob.count({ where: { workspaceId: user.workspaceId, status: "SUCCEEDED", kind: { not: "PREVIEW" } } }),
@@ -165,6 +168,19 @@ export default async function AccountPage({
               </SubmitButton>
             </form>
           ) : null}
+        </section>
+
+        <section className="card">
+          <h2>AI video</h2>
+          <p><strong>{aiBalance.remaining}</strong> {aiBalance.remaining === 1 ? "credit" : "credits"} available</p>
+          <p className="muted small">{aiBalance.monthly} monthly · {aiBalance.trial} trial · {aiBalance.topUp} purchased</p>
+          {aiBalance.resetsAt ? <p className="muted small">Monthly allowance resets <LocalTime date={new Date(aiBalance.resetsAt)} />.</p> : null}
+          <p className="muted small">One credit creates an 8-second clip. Agent includes 10 a month; Studio includes 30. Monthly credits reset without rollover, including on yearly plans. Purchased credits do not expire.</p>
+          {billing === "credits" ? <p className="toast" role="status">Thank you. Your credits appear once payment is confirmed.</p> : null}
+          <Link className="btn btn-block" href="/ai-video">Generate AI video</Link>
+          {billingOn && aiTopUpPrice() ? <form action={buyAiCredits} style={{ marginTop: 12 }}>
+            <SubmitButton className="btn btn-quiet btn-block" pendingLabel="Opening checkout…">5 extra AI clips · $15</SubmitButton>
+          </form> : null}
         </section>
 
         <section className="card">

@@ -123,6 +123,8 @@ import {
 } from "./sheets";
 import { analyseStoredAudio, uploadFile } from "./upload";
 import { useAutosave } from "./use-autosave";
+import { AiVideoPanel } from "../ai-video-panel";
+import { Sheet } from "./sheets";
 
 // The Player only runs in the browser.
 const Preview = dynamic(() => import("./preview").then((module) => module.Preview), {
@@ -135,6 +137,7 @@ const Preview = dynamic(() => import("./preview").then((module) => module.Previe
 });
 
 type SheetName =
+  | "ai-video"
   | "media"
   | "trim"
   | "speed"
@@ -955,6 +958,9 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         <Tool label="Add media" onClick={() => setSheet("media")}>
           <PlusIcon />
         </Tool>
+        <Tool label="AI video" onClick={() => setSheet("ai-video")}>
+          <MotionIcon />
+        </Tool>
         <Tool label="Text" disabled={!hasClips} onClick={() => setSheet("text-new")}>
           <TextIcon />
         </Tool>
@@ -1185,6 +1191,14 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
           {toast}
         </p>
       ) : null}
+
+      {sheet === "ai-video" ? <Sheet title="AI video" onClose={closeSheet}>
+        <AiVideoPanel photos={libraryList} onAdd={asset => {
+          setLibrary(current => ({ ...current, [asset.id]: asset }));
+          apply(current => addClips(current, [clipFromAsset(asset)]));
+          setSheet(null);
+        }} />
+      </Sheet> : null}
 
       {sheet === "media" ? (
         <MediaSheet

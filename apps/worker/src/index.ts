@@ -14,6 +14,7 @@ import { getConfig } from "./config";
 import { handleDeadLetter, handleDelivery, type Delivery } from "./handler";
 import { renderJob } from "./render";
 import { createJobStore } from "./store";
+import { processAiVideo } from "./ai-video";
 
 const config = getConfig();
 
@@ -39,6 +40,7 @@ const store = createJobStore(prisma);
 let stopping = false;
 let lastTickAt = Date.now();
 let lastWorkAt = Date.now();
+let aiBusy = false;
 const shutdown = new AbortController();
 
 function toDelivery(queueUrl: string, message: Message): Delivery {
@@ -82,7 +84,8 @@ async function pollLoop(name: string, queueUrl: string, handle: (delivery: Deliv
         lastWorkAt = Date.now();
         await handle(toDelivery(queueUrl, message));
         lastWorkAt = Date.now();
-      } else if (idleExit && config.idleExitSeconds > 0 && Date.now() - lastWorkAt > config.idleExitSeconds * 1000) {
+      } else if (idleExit && !aiBusy && config.idleExitSeconds > 0 && Date.now() - lastWorkAt > config.idleExitSeconds * 1000) {
+        if (await prisma.aiGeneration.count({ where: { status: { in: ["QUEUED", "SUBMITTING", "RUNNING"] } } })) continue;
         console.log(`${name}: idle for ${config.idleExitSeconds}s, exiting`);
         stopping = true;
         shutdown.abort();
@@ -142,7 +145,20 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
   });
 }
 
+async function aiVideoLoop() {
+  while (!stopping) {
+    try {
+      aiBusy = true;
+      if (await processAiVideo(s3, config.s3Bucket)) lastWorkAt = Date.now();
+    } catch {
+      console.error("ai-video: processing temporarily unavailable");
+    } finally { aiBusy = false; }
+    await sleep(5000, undefined, { signal: shutdown.signal }).catch(() => {});
+  }
+}
+
 const loops = [
+  aiVideoLoop(),
   outboxLoop(),
   pollLoop(
     "render-queue",

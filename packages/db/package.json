@@ -15,6 +15,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@reelwalk/core": "workspace:*",
     "@prisma/adapter-pg": "7.10.0",
     "@prisma/client": "7.10.0",
     "prisma": "7.10.0",

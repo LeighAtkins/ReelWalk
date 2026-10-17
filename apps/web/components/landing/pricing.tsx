@@ -139,6 +139,7 @@ function features(plan: PlanDef): string[] {
   return [
     `${plan.exportsPerMonth} rendered reels a month`,
     `${plan.aiEditsPerMonth} changes asked for in words`,
+    plan.id === "FREE" ? "One free 8-second AI video clip" : `${plan.aiVideoClips} AI video clips a month, 8 seconds each`,
     size,
     plan.instagram ? "Post to Instagram in one tap" : "Download, or share a link",
     `${plan.storageGb} GB for your photos and clips`,

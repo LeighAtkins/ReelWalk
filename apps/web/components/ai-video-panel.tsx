@@ -27,6 +27,7 @@ export function AiVideoPanel({ photos, clips = [], selectedClip, reelId, beforeG
   const [atmosphere, setAtmosphere] = useState<AiShotAtmosphere>("auto");
   const [energy, setEnergy] = useState<"subtle" | "bold">("subtle");
   const [harmonize, setHarmonize] = useState(true);
+  const [polish, setPolish] = useState(true);
   const [useEndReference, setUseEndReference] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -94,7 +95,7 @@ export function AiVideoPanel({ photos, clips = [], selectedClip, reelId, beforeG
     event.preventDefault();
     setError(null);
     if (useEndReference && !bridge && !lastFrame) { setError("Choose an ending reference, or turn off ending guidance."); return; }
-    const shot = aiShotSchema.safeParse({ mode, first: firstFrame, last: lastFrame, anchor, style, atmosphere, energy, harmonize: Boolean(onAdd) && harmonize,
+    const shot = aiShotSchema.safeParse({ mode, first: firstFrame, last: lastFrame, anchor, style, atmosphere, energy, harmonize: Boolean(onAdd) && harmonize, polish: Boolean(onAdd) && polish,
       next: anchor && lastFrame ? next : undefined, ...(draft && anchor && reelId ? { draftReelId: reelId } : {}),
     });
     if (!shot.success) { setError(shot.error.issues[0]?.message || "Choose source frames."); return; }
@@ -160,6 +161,8 @@ export function AiVideoPanel({ photos, clips = [], selectedClip, reelId, beforeG
       </label>
       {onAdd && style !== "source" ? <label className="field"><span><input type="checkbox" checked={harmonize} disabled={busy} onChange={e => setHarmonize(e.target.checked)} /> Carry a matching colour grade through the real footage</span>
         <span className="muted small">Editable in Look. Weather and relighting apply to the AI shot.</span></label> : null}
+      {onAdd ? <label className="field"><span><input type="checkbox" checked={polish} disabled={busy} onChange={e => setPolish(e.target.checked)} /> Finish the promo with luxury type and camera accents</span>
+        <span className="muted small">Pairs editorial and clean fonts, soft lens edges and one snap zoom. Your words, footage and timing stay editable.</span></label> : null}
       {style === "auto" ? <p className="muted small">Suggested direction: {AI_SHOT_STYLE_LABELS[aiShotStyle({ mode, anchor, style })]}. AI handles lighting, depth and atmosphere within this look.</p> : null}
       <label className="field">Describe the shot
         <textarea className="text-input" rows={4} minLength={10} maxLength={2000} required value={prompt}

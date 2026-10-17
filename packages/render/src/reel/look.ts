@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import type { Filter, TextAnimation, TextStyle } from "@reelwalk/core";
+import type { Filter, TextAnimation, TextStyle, TextOverlay } from "@reelwalk/core";
 
 /**
  * Colour filters are CSS filters, so the Player preview in the browser and the
@@ -81,6 +81,14 @@ export const TEXT_ANIMATION_LABELS: Record<TextAnimation, string> = {
 
 /** Lacquer, the brand's one accent, for the status sticker. */
 const LACQUER = "#c1272d";
+
+export function textTreatmentCss(text: Pick<TextOverlay, "style" | "color" | "size" | "font" | "tracking">): CSSProperties {
+  const fonts = { auto: undefined, serif: ELEGANT_FONT_FAMILY, sans: REEL_FONT_FAMILY, editorial: '"Bodoni Moda Variable", Georgia, serif' };
+  return { ...textCss(text.style, text.color, text.size),
+    ...(text.font && text.font !== "auto" ? { fontFamily: fonts[text.font] } : {}),
+    ...(text.tracking !== undefined ? { letterSpacing: `${text.tracking}em` } : {}),
+  };
+}
 
 /** Styles for a text overlay, in frame pixels (the composition is 1080x1920). */
 export function textCss(style: TextStyle, color: string, size: number): CSSProperties {

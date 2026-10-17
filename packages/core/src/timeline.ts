@@ -25,7 +25,7 @@ export const DEFAULT_TEXT_MS = 3000;
 export const SPEEDS = [0.5, 1, 1.5, 2, 3] as const;
 /** "golden" is late-afternoon light, "dusk" a twilight cast, "crisp" the bright, clean look of listing photography. */
 export const FILTERS = ["none", "warm", "cool", "vivid", "mono", "fade", "golden", "dusk", "crisp"] as const;
-export const MOTIONS = ["none", "zoom-in", "zoom-out", "pan"] as const;
+export const MOTIONS = ["none", "zoom-in", "zoom-out", "pan", "snap-in", "snap-out"] as const;
 /** "walk" moves the camera between two 360 photos of the same home (see walk.ts). */
 export const TRANSITIONS = ["cut", "fade", "whip", "walk"] as const;
 /**
@@ -115,8 +115,10 @@ export const clipSchema = z
     /** cover: fill 9:16 and crop. contain: show the whole frame with a blurred backdrop. */
     fit: z.enum(["cover", "contain"]).default("cover"),
     filter: z.enum(FILTERS).default("none"),
-    /** Ken Burns style movement. Photos only. */
+    /** Camera movement layered on photos or video. */
     motion: z.enum(MOTIONS).default("none"),
+    /** Soft lens edges; the centre stays sharp. This does not estimate scene depth. */
+    lensSoftness: unit.optional(),
     /** Set for 360 photos: the camera sweep. Null shows the image flat. */
     pano: panoSchema.nullable().default(null),
     /** Where the shot was taken on the floor plan, when known. */
@@ -144,6 +146,11 @@ export const textSchema = z
     /** Scale relative to the default size. */
     size: z.number().min(minTextSize("elegant")).max(TEXT_SIZE_MAX).default(1),
     animation: z.enum(TEXT_ANIMATIONS).default("auto"),
+    font: z.enum(["auto", "serif", "sans", "editorial"]).optional(),
+    tracking: z.number().min(-0.04).max(0.24).optional(),
+    /** Offsets from x/y across this overlay's lifetime; supports tracked feature paths. */
+    path: z.array(z.object({ t: unit, x: z.number().min(-0.5).max(0.5), y: z.number().min(-0.5).max(0.5) }))
+      .min(2).max(32).refine(points => points[0].t === 0 && points.at(-1)!.t === 1 && points.every((p, i) => i === 0 || p.t > points[i - 1].t), "Motion path must run in order from 0 to 1").optional(),
   })
   .refine((text) => text.endMs > text.startMs, { message: "Text must be on screen for a positive time" })
   .refine((text) => text.size >= minTextSize(text.style), { message: "Text is too small for this style", path: ["size"] });
@@ -448,7 +455,7 @@ export function trimClip(
   return fitTexts(updated);
 }
 
-export type ClipSettings = Partial<Pick<Clip, "speed" | "volume" | "fit" | "filter" | "motion" | "transitionIn" | "pano" | "zoom">>;
+export type ClipSettings = Partial<Pick<Clip, "speed" | "volume" | "fit" | "filter" | "motion" | "transitionIn" | "pano" | "zoom" | "lensSoftness">>;
 
 export function updateClip(timeline: Timeline, id: string, settings: ClipSettings): Timeline {
   return fitTexts(replaceClip(timeline, id, (clip) => clipSchema.parse({ ...clip, ...settings })));

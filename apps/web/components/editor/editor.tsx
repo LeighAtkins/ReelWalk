@@ -7,6 +7,7 @@ import type { PlayerRef } from "@remotion/player";
 import {
   addClips,
   insertAiShot,
+  luxuryFinish,
   addRoomLabels,
   canWalk,
   hasRoomLabels,
@@ -869,6 +870,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
             <Tool label="Volume" onClick={() => setSheet("volume")}>
               <VolumeIcon />
             </Tool>
+            <Tool label="Motion" onClick={() => setSheet("motion")}><MotionIcon /></Tool>
           </>
         ) : (
           <>
@@ -1249,6 +1251,8 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
           clip={selectedClip}
           asset={library[selectedClip.assetId]}
           onChange={(filter) => apply((current) => updateClip(current, selectedClip.id, { filter }))}
+          onLens={lensSoftness => apply(current => updateClip(current, selectedClip.id, { lensSoftness }), `lens-${selectedClip.id}`)}
+          onLuxury={variant => { apply(current => luxuryFinish(current, variant)); showToast("Luxury finish applied. Adjust type and camera moves, or Undo."); }}
           onApplyAll={() => {
             apply((current) => current.clips.reduce((next, clip) => updateClip(next, clip.id, { filter: selectedClip.filter }), current));
             showToast("Applied to every clip.");

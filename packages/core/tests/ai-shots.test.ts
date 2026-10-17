@@ -55,6 +55,14 @@ describe("footage anchored AI edits", () => {
     const shot = aiShotFromClips("bridge", a, b);
     expect(aiShotPrompt(shot.mode, "Connect the rooms", shot)).toContain("ending frame's composition, geometry and lighting");
   });
+  it("can polish typography and camera accents without overriding an unchecked colour grade", () => {
+    const timeline = { ...original, clips: [{ ...a, filter: "cool" as const }, b] };
+    const shot = { ...aiShotFromClips("continue", timeline.clips[0]), style: "refined" as const, harmonize: false, polish: true };
+    const next = insertAiShot(timeline, ai, shot);
+    expect(next.clips.map(c => c.filter)).toEqual(["cool", "cool", "none"]);
+    expect(next.clips[0].motion).toBe("snap-out");
+    expect(next.clips[0].lensSoftness).toBeGreaterThan(0);
+  });
   it("uses the displayed boundary of a trimmed, sped-up clip", () => {
     expect(aiBoundary(a, true)).toEqual({ assetId: "real-a", atMs: 6933 });
     expect(aiBoundary(b, false).atMs).toBe(2300);

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { addClips, clipDurationMs, clipSchema, clipStartsMs, type Clip, type Filter, type Timeline } from "./timeline";
+import { luxuryFinish } from "./cinematic";
 
 export const AI_SHOT_MODES = ["custom", "continue", "bridge", "burst", "gimbal", "drone", "orbit", "fly-through", "day-night", "construction"] as const;
 export type AiShotMode = typeof AI_SHOT_MODES[number];
@@ -29,6 +30,7 @@ export const aiShotSchema = z.object({
   mode: z.enum(AI_SHOT_MODES), first: frame.optional(), last: frame.optional(),
   style: z.enum(AI_SHOT_STYLES).optional(), atmosphere: z.enum(AI_SHOT_ATMOSPHERES).optional(),
   energy: z.enum(["subtle", "bold"]).optional(), harmonize: z.boolean().optional(),
+  polish: z.boolean().optional(),
   // Snapshots prevent inserting against a boundary the user has since changed.
   anchor: clipSchema.optional(), next: clipSchema.optional(),
   draftReelId: z.string().min(1).max(64).optional(),
@@ -127,7 +129,10 @@ export function insertAiShot(timeline: Timeline, generated: Clip, shot: AiShot):
     speed: Math.max(0.25, Math.min(4, 8000 / duration)), transitionIn: replace ? shot.anchor!.transitionIn : "cut",
     filter: shot.anchor?.filter ?? "none", zoom: replace ? 1 : shot.anchor?.zoom ?? 1 };
   const grade = aiShotGrade(shot);
-  const finish = (edit: Timeline): Timeline => grade ? { ...edit, clips: edit.clips.map(c => ({ ...c, filter: grade })) } : edit;
+  const finish = (edit: Timeline): Timeline => {
+    const polished = shot.polish ? luxuryFinish(edit, aiShotStyle(shot) === "refined" ? "refined" : "modern", false) : edit;
+    return grade ? { ...polished, clips: polished.clips.map(c => ({ ...c, filter: grade })) } : polished;
+  };
   if (replace) {
     // Keep the clip ID for cover/text anchors and preserve the still's duration.
     const replacement = { ...clip, id: shot.anchor!.id, room: shot.anchor!.room, spot: shot.anchor!.spot,

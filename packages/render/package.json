@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@fontsource-variable/archivo": "^5.3.0",
+    "@fontsource-variable/bodoni-moda": "5.3.0",
     "@fontsource-variable/cormorant-garamond": "^5.3.0",
     "@fontsource-variable/noto-sans-jp": "^5.3.0",
     "@reelwalk/core": "workspace:*",
@@ -27,8 +28,8 @@
     "@types/node": "^26.6.4",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
-    "vitest": "^5.0.3",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "vitest": "^5.0.3"
   },
   "exports": {
     "./render-job": "./src/render-job.ts",

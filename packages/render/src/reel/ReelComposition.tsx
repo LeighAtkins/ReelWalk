@@ -15,10 +15,10 @@ import {
 // WebCodecs-based video, used when the worker renders: about twice as fast as
 // OffthreadVideo here, and it falls back to it for files it cannot decode.
 import { Video as RenderVideo } from "@remotion/media";
-import { cameraAt, framePlan, INSTAGRAM, isInstagramMusic, REEL_FORMAT, timelineDurationMs, walkInto, type Clip, type Logo, type Plan, type TextOverlay, type Timeline } from "@reelwalk/core";
+import { cameraAt, cameraMoveAt, textPositionAt, framePlan, INSTAGRAM, isInstagramMusic, REEL_FORMAT, timelineDurationMs, walkInto, type Clip, type Logo, type Plan, type TextOverlay, type Timeline } from "@reelwalk/core";
 import { WHOOSH_PEAK_S, WHOOSH_SRC } from "./whoosh";
 import { useFontsFor } from "./fonts";
-import { ELEGANT_FADE_S, FILTER_CSS, textCss } from "./look";
+import { ELEGANT_FADE_S, FILTER_CSS, textTreatmentCss } from "./look";
 import { DetailsCardView } from "./DetailsCardView";
 import { PanoView } from "./PanoView";
 import { PlanOverlayView } from "./PlanOverlayView";
@@ -61,18 +61,9 @@ function resolveSrc(src: string): string {
 }
 
 /** The Ken Burns move and the clip's own zoom, as one CSS transform about the centre. */
-function motionTransform(motion: Clip["motion"], progress: number, zoom: number): string | undefined {
-  const base = zoom !== 1 ? `scale(${zoom}) ` : "";
-  switch (motion) {
-    case "zoom-in":
-      return `${base}scale(${1 + 0.14 * progress})`;
-    case "zoom-out":
-      return `${base}scale(${1.14 - 0.14 * progress})`;
-    case "pan":
-      return `${base}scale(1.16) translateX(${interpolate(progress, [0, 1], [-5, 5])}%)`;
-    default:
-      return base || undefined;
-  }
+function motionTransform(motion: Clip["motion"], progress: number, zoom: number, seconds: number): string | undefined {
+  const move = cameraMoveAt(motion, progress, seconds);
+  return zoom === 1 && move.scale === 1 && move.x === 0 ? undefined : `scale(${zoom * move.scale}) translateX(${move.x}%)`;
 }
 
 const Media: React.FC<{
@@ -135,7 +126,7 @@ const ClipView: React.FC<{
 
   // Clamped: a clip is mounted a second early (premount) with negative frames.
   const progress = durationInFrames > 1 ? Math.min(1, Math.max(0, frame / (durationInFrames - 1))) : 0;
-  const transform = motionTransform(asset.kind === "IMAGE" ? clip.motion : "none", progress, clip.zoom);
+  const transform = motionTransform(clip.motion, progress, clip.zoom, Math.max(0, frame / fps));
   const fadeIn = clip.transitionIn === "fade" ? interpolate(frame, [0, FADE_FRAMES], [0, 1], { extrapolateRight: "clamp" }) : 1;
   const fadeOutValue = fadeOut
     ? interpolate(frame, [durationInFrames - FADE_FRAMES, durationInFrames - 1], [1, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" })
@@ -182,6 +173,9 @@ const ClipView: React.FC<{
       <AbsoluteFill>
         <Media clip={clip} asset={asset} fit={clip.fit} transform={transform} />
       </AbsoluteFill>
+      {clip.lensSoftness ? <AbsoluteFill style={{ pointerEvents: "none", backdropFilter: `blur(${clip.lensSoftness * 7}px)`,
+        maskImage: "radial-gradient(ellipse 47% 40% at 50% 48%, transparent 52%, black 100%)",
+        WebkitMaskImage: "radial-gradient(ellipse 47% 40% at 50% 48%, transparent 52%, black 100%)" }} /> : null}
       </AbsoluteFill>
     </AbsoluteFill>
   );
@@ -230,7 +224,8 @@ function textMotion(text: TextOverlay, frame: number, fps: number, durationInFra
 const TextView: React.FC<{ text: TextOverlay; durationInFrames: number }> = ({ text, durationInFrames }) => {
   const frame = useCurrentFrame();
   const { fps, width, height } = useVideoConfig();
-  const css = textCss(text.style, text.color, text.size);
+  const css = textTreatmentCss(text);
+  const position = textPositionAt(text, durationInFrames > 1 ? frame / (durationInFrames - 1) : 0);
   useFontsFor(text.text, Number(css.fontWeight ?? 600));
   const { scale, opacity, rise, chars } = textMotion(text, frame, fps, durationInFrames);
   // The typewriter keeps the full text in place, invisible, so the box never changes size while it writes.
@@ -242,8 +237,8 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number }> = ({ t
       <div
         style={{
           position: "absolute",
-          left: text.x * width,
-          top: text.y * height,
+          left: position.x * width,
+          top: position.y * height,
           width: width * 0.86,
           display: "flex",
           justifyContent: "center",

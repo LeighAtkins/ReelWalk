@@ -149,6 +149,7 @@ export const textSchema = z
     size: z.number().min(minTextSize("elegant")).max(TEXT_SIZE_MAX).default(1),
     animation: z.enum(TEXT_ANIMATIONS).default("auto"),
     font: z.enum(["auto", "serif", "sans", "editorial"]).optional(),
+    shadow: z.enum(["auto", "soft", "strong", "none"]).optional(),
     tracking: z.number().min(-0.04).max(0.24).optional(),
     /** Offsets from x/y across this overlay's lifetime; supports tracked feature paths. */
     path: z.array(z.object({ t: unit, x: z.number().min(-0.5).max(0.5), y: z.number().min(-0.5).max(0.5) }))

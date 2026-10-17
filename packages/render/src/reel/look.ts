@@ -82,14 +82,24 @@ export const TEXT_ANIMATION_LABELS: Record<TextAnimation, string> = {
 /** Lacquer, the brand's one accent, for the status sticker. */
 const LACQUER = "#c1272d";
 
-export function textTreatmentCss(text: Pick<TextOverlay, "style" | "color" | "size" | "font" | "tracking">): CSSProperties {
+/** A contrast edge and halo preserve small lettering over bright, detailed footage. */
+export function textContrastCss(text: Pick<TextOverlay, "style" | "color" | "size" | "shadow">): CSSProperties {
+  const mode = text.shadow ?? "auto";
+  if (mode === "none") return { textShadow: "none", ...(text.style !== "outline" ? { WebkitTextStroke: "0px" } : {}) };
+  if (mode === "auto" && ["box", "tag", "outline"].includes(text.style)) return {};
+  const rgb = readableOn(text.color) === "#ffffff" ? "255,255,255" : "0,0,0";
+  if (mode === "soft") return { textShadow: `0 1px 3px rgba(${rgb},0.65), 0 3px 12px rgba(${rgb},0.5)` };
+  const edge = Math.max(1.25, Math.min(2, BASE_TEXT_PX * text.size * 0.018));
+  return { textShadow: `0 1px 2px rgba(${rgb},0.95), 0 3px 8px rgba(${rgb},0.9), 0 0 20px rgba(${rgb},0.75)`,
+    ...(text.style !== "outline" ? { WebkitTextStroke: `${edge}px rgba(${rgb},0.65)`, paintOrder: "stroke fill" as const } : {}) };
+}
+
+export function textTreatmentCss(text: Pick<TextOverlay, "style" | "color" | "size" | "font" | "tracking" | "shadow">): CSSProperties {
   const fonts = { auto: undefined, serif: ELEGANT_FONT_FAMILY, sans: REEL_FONT_FAMILY, editorial: '"Bodoni Moda Variable", Georgia, serif' };
   return { ...textCss(text.style, text.color, text.size),
     ...(text.font && text.font !== "auto" ? { fontFamily: fonts[text.font] } : {}),
     ...(text.tracking !== undefined ? { letterSpacing: `${text.tracking}em` } : {}),
-    ...(text.font === "sans" && text.style === "plain" ? { fontWeight: 700,
-      WebkitTextStroke: "1.5px rgba(0,0,0,0.65)", paintOrder: "stroke fill",
-      textShadow: "0 2px 4px rgba(0,0,0,0.9), 0 4px 18px rgba(0,0,0,0.8)" } : {}),
+    ...textContrastCss(text),
   };
 }
 

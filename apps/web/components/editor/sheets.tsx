@@ -321,7 +321,7 @@ export function LookSheet({
       {onLuxury ? <div className="field"><span>Finish the whole reel</span><div className="segmented">
         <button type="button" onClick={() => onLuxury("refined")}>Refined luxury</button>
         <button type="button" onClick={() => onLuxury("modern")}>Modern luxury</button>
-      </div><p className="muted small">Uses large, readable type, one snap zoom, matching colour and soft lens edges. Keeps your clips and timing. Undo restores the previous edit.</p></div> : null}
+      </div><p className="muted small">Adds text contrast, one snap zoom, matching colour and soft lens edges. Keeps your text size and typeface. Keeps your clips and timing. Undo restores the previous edit.</p></div> : null}
       <div className="look-strip" role="group" aria-label="Colour filters">
         {FILTERS.map((filter) => (
           <button key={filter} type="button" className="look" aria-pressed={clip.filter === filter} onClick={() => onChange(filter)}>
@@ -676,7 +676,7 @@ export function PlanSheet({
 
 // ── Text ────────────────────────────────────────────────────────
 
-export type TextDraft = Pick<TextOverlay, "text" | "style" | "color" | "size" | "animation" | "font" | "tracking" | "path">;
+export type TextDraft = Pick<TextOverlay, "text" | "style" | "color" | "size" | "animation" | "font" | "tracking" | "path" | "shadow">;
 
 /** The "Elegant" style chip, set in the serif it puts on the reel. */
 const ELEGANT_CHIP: CSSProperties = { fontFamily: ELEGANT_FONT_FAMILY, fontWeight: 500, fontSize: "1.12em", letterSpacing: "0.06em" };
@@ -731,6 +731,8 @@ export function TextSheet({
       <Range label="Size" value={draft.size} min={minTextSize(draft.style)} max={TEXT_SIZE_MAX} step={0.1} display={`${Math.round(draft.size * 100)}%`} onChange={(size) => setDraft({ ...draft, size })} />
       <Segmented label="Typeface" options={["auto", "serif", "sans", "editorial"] as const} value={draft.font ?? "auto"} onChange={font => setDraft({ ...draft, font })}
         format={font => ({ auto: "Style default", serif: "Cormorant", sans: "Archivo", editorial: "Bodoni" })[font]} />
+      <Segmented label="Text shadow" options={["auto", "soft", "strong", "none"] as const} value={draft.shadow ?? "auto"} onChange={shadow => setDraft({ ...draft, shadow })} format={shadow => ({ auto: "Auto contrast", soft: "Soft", strong: "Strong", none: "None" })[shadow]} />
+      <p className="muted small">Auto contrast protects small text over bright footage without changing its size or font.</p>
       <Range label="Letter spacing" value={draft.tracking ?? 0.06} min={-0.04} max={0.24} step={0.01} display={`${(draft.tracking ?? 0.06).toFixed(2)}em`} onChange={tracking => setDraft({ ...draft, tracking })} />
       <label className="field">Text movement<select className="text-input" value={draft.path ? "path" : "still"} onChange={event => {
         const move = event.target.value;

@@ -7,9 +7,13 @@ an optional luxury finish to AI assembly, plus Refined luxury and Modern
 luxury buttons in the editor's Look sheet. This is an ordinary timeline edit
 covered by undo, not another model request or an extra generation charge.
 
-The finish keeps source clips, order, duration, captions and music. After phone-size review, the finish uses bold Archivo with larger minimum
-sizes, tighter tracking, immediate appearance and stronger contrast. Bodoni
-remains a manual choice rather than the default. It uses one short
+The finish keeps source clips, order, duration, captions, music, font choices
+and text sizes. Readability comes from a separate contrast treatment rather
+than forced enlargement: a narrow contrasting edge, close shadow and soft
+halo protect small lettering over bright footage. The default also works for
+dark lettering by using a light halo. This is deterministic styling, not
+per-frame scene-brightness detection. Users can choose Auto contrast, Soft,
+Strong or None in the text sheet. It uses one short
 snap-out on the first suitable shot, softens lens edges and favours clean cuts. It removes existing whip accents
 rather than adding arbitrary transition motion. The manual Look presets include a matching
 grade. During AI assembly, grading remains controlled by the separate
@@ -22,7 +26,8 @@ harmonize option, so turning that option off really preserves existing looks.
 - `lensSoftness` is a bounded peripheral blur with a sharp centre. It is an
   optical styling effect, not estimated scene depth or subject segmentation.
 - Text has optional typeface and letter-spacing overrides. Existing text
-  styles retain their prior appearance when these fields are absent.
+  font metrics retain their prior appearance when these fields are absent;
+  automatic shadow contrast applies to unboxed text.
 - A text motion path contains 2-32 strictly ordered normalized-time offsets.
   It supports tracked feature paths as well as simple left/right drifts.
   Moving the text changes its base position without discarding the path.
@@ -43,6 +48,9 @@ refresh. Preserve the frozen scheduled export and its publication settings;
 render separate review variants. Start with mostly real footage, one coherent
 font pairing, a readable opening and a specific aspirational story, then add
 one short source-referenced AI treatment only when it improves the sequence.
+
+The review disclosures describe the actual change (for example, "Lighting
+enhanced with AI"), rather than internal labels such as "lighting study".
 
 Use watch time relative to reel duration, saves and shares as comparison
 measures. The initial account sample is small and does not establish that a

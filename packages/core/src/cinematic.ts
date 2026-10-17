@@ -32,8 +32,7 @@ export function luxuryFinish(timeline: Timeline, variant: "refined" | "modern" =
       motion: c.pano ? c.motion : index === hero ? "snap-out" : "none",
       transitionIn: c.transitionIn === "whip" ? "cut" : c.transitionIn,
     })),
-    texts: timeline.texts.map((t, index) => ({ ...t, font: "sans", tracking: index === 0 ? 0 : 0.04,
-      animation: "none", style: "plain", size: index === 0 ? Math.max(1.4, t.size) : Math.max(0.75, t.size),
-    })),
+    // Contrast is independent of typography: keep small text and the user's font.
+    texts: timeline.texts.map(t => ({ ...t, shadow: t.shadow ?? "strong" })),
   };
 }

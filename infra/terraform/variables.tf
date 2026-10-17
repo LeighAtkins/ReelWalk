@@ -164,6 +164,12 @@ variable "anthropic_api_key" {
   default   = ""
 }
 
+# Use an existing encrypted parameter without putting its value in Terraform inputs.
+variable "anthropic_api_key_ssm_arn" {
+  type    = string
+  default = ""
+}
+
 variable "anthropic_model" {
   type    = string
   default = "claude-opus-5-5"

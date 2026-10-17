@@ -155,10 +155,38 @@ export async function structuredAnswer(options: {
 
 type AnswerOptions = Parameters<typeof structuredAnswer>[0];
 
+/** Claude limits union-heavy schemas. Encode each operation's arguments as JSON,
+ * then restore the existing plan shape for the caller's unchanged Zod validation. */
+function claudeEditWire(options: AnswerOptions) {
+  if (options.schemaName !== "reel_edit_plan") return null;
+  const properties = options.schema.properties as Record<string, Record<string, unknown>>;
+  const items = properties.ops.items as Record<string, unknown>;
+  const opProperties = items.properties as Record<string, unknown>;
+  return {
+    schema: { ...options.schema, properties: { ...properties, ops: { type: "array", items: {
+      type: "object", additionalProperties: false, required: ["op", "arguments"],
+      properties: { op: opProperties.op, arguments: { type: "string", description: "A JSON object containing only the relevant non-null operation fields. For example: {\"clip\":1,\"speed\":1}" } },
+    } } } },
+    instructions: `${options.instructions}\nTransport format: each ops item has op and arguments. arguments is a JSON-encoded object with the relevant fields from this operation schema; omit unused fields, which become null. Never put op inside arguments. The editor validates every decoded field before applying. Operation fields: ${JSON.stringify(opProperties)}`,
+    decode(json: unknown): unknown {
+      if (!json || typeof json !== "object" || !Array.isArray((json as { ops?: unknown }).ops)) throw new AiError("Claude sent an invalid edit plan.", false);
+      const plan = json as { ops: Array<{ op?: unknown; arguments?: unknown }> };
+      return { ...plan, ops: plan.ops.map(operation => {
+        if (typeof operation.arguments !== "string") throw new AiError("Claude sent invalid operation arguments.", false);
+        let args: unknown;
+        try { args = JSON.parse(operation.arguments); } catch { throw new AiError("Claude sent invalid operation JSON.", false); }
+        if (!args || typeof args !== "object" || Array.isArray(args) || Object.keys(args).some(key => key === "op" || !Object.hasOwn(opProperties, key))) throw new AiError("Claude sent unknown operation fields.", false);
+        return { ...Object.fromEntries((items.required as string[]).map(key => [key, null])), ...args, op: operation.op };
+      }) };
+    },
+  };
+}
+
 async function claudeAnswer(options: AnswerOptions): Promise<{ json: unknown; usage: AiUsage; model: string }> {
   const key = configuredKey("ANTHROPIC_API_KEY");
   if (!key) throw new AiError("Claude editing is not configured on this deployment.", false);
   const model = aiModel();
+  const wire = claudeEditWire(options);
   // Only owned, preprocessed image data is accepted. Never make the provider fetch arbitrary URLs.
   const images = (options.images ?? []).map((url) => {
     const match = /^data:(image\/(?:jpeg|png|gif|webp));base64,([A-Za-z0-9+/=]+)$/.exec(url);
@@ -174,9 +202,9 @@ async function claudeAnswer(options: AnswerOptions): Promise<{ json: unknown; us
         model,
         // Opus 5.5 always thinks; leave room for reasoning as well as the edit JSON.
         max_tokens: Math.min(16000, Math.max(4096, (options.maxOutputTokens ?? 1200) + 2048)),
-        system: options.instructions,
+        system: wire?.instructions ?? options.instructions,
         messages: [{ role: "user", content: [{ type: "text", text: options.input }, ...images] }],
-        output_config: { effort: "medium", format: { type: "json_schema", schema: options.schema } },
+        output_config: { effort: "medium", format: { type: "json_schema", schema: wire?.schema ?? options.schema } },
       }),
       signal: options.signal ?? AbortSignal.timeout(60_000),
     });
@@ -199,7 +227,7 @@ async function claudeAnswer(options: AnswerOptions): Promise<{ json: unknown; us
   const usage = data.usage;
   const cachedTokens = usage?.cache_read_input_tokens ?? 0;
   const cacheWriteTokens = usage?.cache_creation_input_tokens ?? 0;
-  return { json, model: data.model ?? model, usage: {
+  return { json: wire ? wire.decode(json) : json, model: data.model ?? model, usage: {
     inputTokens: (usage?.input_tokens ?? 0) + cachedTokens + cacheWriteTokens,
     outputTokens: usage?.output_tokens ?? 0, cachedTokens, cacheWriteTokens,
   } };

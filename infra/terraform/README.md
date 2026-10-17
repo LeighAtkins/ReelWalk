@@ -138,7 +138,10 @@ changes a paid plan. Testers get a plan by hand:
 The editing assistant supports the direct Anthropic Messages API. Set
 `ai_provider = "anthropic"`, `anthropic_model = "claude-opus-5-5"`, and supply
 `anthropic_api_key` using the existing private Terraform variable/secret workflow.
-Terraform stores the key as encrypted SSM `/reelwalk/ANTHROPIC_API_KEY`; it must
+Alternatively set `anthropic_api_key_ssm_arn` to the existing encrypted parameter
+ARN (the production setup uses this) so no key value is passed through Terraform.
+Without an external ARN, Terraform stores the key as encrypted SSM
+`/reelwalk/ANTHROPIC_API_KEY`; it must
 never be committed or added to a `NEXT_PUBLIC_` variable. Deploy the tested web
 image after setting the key. No database migration is needed for this switch.
 An explicitly selected provider with no key fails closed, without billing an

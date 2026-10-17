@@ -56,6 +56,7 @@ export class AiCreditError extends Error {}
 export async function reserveAiGeneration(db: PrismaClient, input: {
   workspaceId: string; userId: string; requestId: string; prompt: string;
   referenceKey?: string; referenceType?: string; model: string; costCents: number; budgetCents: number;
+  shot?: Prisma.InputJsonValue; frameSources?: Prisma.InputJsonValue;
 }, now = new Date()) {
   return db.$transaction(async (tx) => {
     await lockBillingAccount(tx, input.workspaceId, now);
@@ -83,6 +84,7 @@ export async function reserveAiGeneration(db: PrismaClient, input: {
     return tx.aiGeneration.create({ data: {
       workspaceId: input.workspaceId, createdById: input.userId, requestId: input.requestId,
       prompt: input.prompt, referenceKey: input.referenceKey, referenceType: input.referenceType,
+      shot: input.shot, frameSources: input.frameSources,
       model: input.model, grantId: grant.id, costCents: input.costCents,
     } });
   });
@@ -114,7 +116,7 @@ export async function claimAiGeneration(db: PrismaClient, now = new Date()) {
     const job = await tx.aiGeneration.findUniqueOrThrow({ where: { id: row.id } });
     return tx.aiGeneration.update({ where: { id: job.id }, data: {
       status: job.status === "QUEUED" ? "SUBMITTING" : "RUNNING",
-      leaseToken: randomUUID(), leaseUntil: new Date(now.getTime() + 180_000),
+      leaseToken: randomUUID(), leaseUntil: new Date(now.getTime() + 300_000),
     } });
   });
 }

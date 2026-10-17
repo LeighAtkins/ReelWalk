@@ -15,9 +15,12 @@ export async function GET() {
   ]);
   const assets = await prisma.mediaAsset.findMany({ where: { workspaceId: user.workspaceId, id: { in: jobs.flatMap(j => j.assetId ? [j.assetId] : []) } } });
   const library = new Map(await Promise.all(assets.map(async a => [a.id, await toLibraryAsset(a)] as const)));
+  const drafts = await prisma.reel.findMany({ where: { workspaceId: user.workspaceId, id: { in: jobs.map(j => `ai-promo-${j.id}`) } }, select: { id: true } });
+  const draftIds = new Set(drafts.map(d => d.id));
   if (jobs.some(j => ["QUEUED", "SUBMITTING", "RUNNING"].includes(j.status))) await ensureWorkerRunning();
   return Response.json({ enabled: aiVideoConfigured(), balance, jobs: jobs.map(j => ({
-    id: j.id, prompt: j.prompt, status: j.status, error: j.error,
+    id: j.id, prompt: j.prompt, status: j.status, error: j.error, shot: j.shot,
+    draftId: draftIds.has(`ai-promo-${j.id}`) ? `ai-promo-${j.id}` : null,
     createdAt: j.createdAt.toISOString(), asset: j.assetId ? library.get(j.assetId) ?? null : null,
   })) }, { headers: { "Cache-Control": "private, no-store" } });
 }

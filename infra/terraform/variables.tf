@@ -181,10 +181,14 @@ variable "google_cloud_project" {
   default = ""
 }
 
-variable "google_service_account_json" {
-  type      = string
-  sensitive = true
-  default   = ""
+variable "google_workload_identity_audience" {
+  type    = string
+  default = ""
+}
+
+variable "google_service_account_email" {
+  type    = string
+  default = ""
 }
 
 variable "ai_video_enabled" {

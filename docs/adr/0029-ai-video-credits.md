@@ -55,10 +55,14 @@ application control, not a limit on direct use of the Google Cloud project.
 Disabling `AI_VIDEO_ENABLED` prevents new submissions. Each workspace may have
 two active jobs and ten attempts per hour. The public demo cannot spend credits.
 
-Set `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION=us-central1` and
-`GOOGLE_SERVICE_ACCOUNT_JSON` on workers only (or use Application Default
-Credentials). Production stores the JSON in encrypted AWS Parameter Store;
-the web app does not receive it. Configure `STRIPE_PRICE_AI_TOP_UP` with the
+Set `GOOGLE_CLOUD_PROJECT` and `GOOGLE_CLOUD_LOCATION=us-central1`. Workers use
+`GOOGLE_WORKLOAD_IDENTITY_AUDIENCE` and `GOOGLE_SERVICE_ACCOUNT_EMAIL` to exchange
+their refreshing ECS task-role credentials for a short-lived Google token.
+The identity provider is restricted to the ReelWalk worker role, which may
+impersonate the video service account with the Vertex AI User role. Google’s
+organization policy prohibits private service-account keys; no private Google
+key is created or stored. Local development can use Application Default
+Credentials. Configure `STRIPE_PRICE_AI_TOP_UP` with the
 non-recurring USD 15 price and include `checkout.session.completed`,
 `checkout.session.async_payment_succeeded` and `invoice.paid` on the existing
 Stripe webhook endpoint. Keep Google credentials and all Stripe secrets out of

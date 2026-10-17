@@ -43,13 +43,12 @@ locals {
     META_APP_SECRET      = var.meta_app_secret
     META_LOGIN_CONFIG_ID = var.meta_login_config_id
     # Instagram's own login, for keyword comment replies (ADR 0026).
-    INSTAGRAM_APP_ID            = var.instagram_app_id
-    INSTAGRAM_APP_SECRET        = var.instagram_app_secret
-    PIXABAY_API_KEY             = var.pixabay_api_key
-    OPENAI_API_KEY              = var.openai_api_key
-    STRIPE_SECRET_KEY           = var.stripe_secret_key
-    STRIPE_WEBHOOK_SECRET       = var.stripe_webhook_secret
-    GOOGLE_SERVICE_ACCOUNT_JSON = var.google_service_account_json
+    INSTAGRAM_APP_ID      = var.instagram_app_id
+    INSTAGRAM_APP_SECRET  = var.instagram_app_secret
+    PIXABAY_API_KEY       = var.pixabay_api_key
+    OPENAI_API_KEY        = var.openai_api_key
+    STRIPE_SECRET_KEY     = var.stripe_secret_key
+    STRIPE_WEBHOOK_SECRET = var.stripe_webhook_secret
     # Bearer secret EventBridge sends to /api/scheduled-posts/run (scheduled_posts.tf).
     SCHEDULER_SECRET = random_password.scheduler.result
   }
@@ -158,15 +157,17 @@ resource "aws_ecs_task_definition" "worker" {
       essential = true
       environment = [
         for k, v in merge(local.app_env, {
-          RENDER_CONCURRENCY       = tostring(var.worker_render_concurrency)
-          WORKER_IDLE_EXIT_SECONDS = "240"
+          RENDER_CONCURRENCY                = tostring(var.worker_render_concurrency)
+          WORKER_IDLE_EXIT_SECONDS          = "240"
+          GOOGLE_WORKLOAD_IDENTITY_AUDIENCE = var.google_workload_identity_audience
+          GOOGLE_SERVICE_ACCOUNT_EMAIL      = var.google_service_account_email
           # Up to max_workers of these share the database pooler with the web app.
           DATABASE_POOL_MAX = "3"
           # Where the nightly backup task writes (backups.tf).
           BACKUP_BUCKET = aws_s3_bucket.backups.bucket
         }) : { name = k, value = v }
       ]
-      secrets = [for k, p in aws_ssm_parameter.app : { name = k, valueFrom = p.arn } if contains(["DATABASE_URL", "GOOGLE_SERVICE_ACCOUNT_JSON"], k)]
+      secrets = [for k, p in aws_ssm_parameter.app : { name = k, valueFrom = p.arn } if k == "DATABASE_URL"]
       logConfiguration = {
         logDriver = "awslogs"
         options = {
@@ -303,7 +304,7 @@ resource "aws_apprunner_service" "web" {
           SAMPLE_REEL_URL        = var.sample_reel_urls
           SAMPLE_REEL_POSTER_URL = var.sample_reel_poster_urls
         })
-        runtime_environment_secrets = { for k, p in aws_ssm_parameter.app : k => p.arn if k != "GOOGLE_SERVICE_ACCOUNT_JSON" }
+        runtime_environment_secrets = { for k, p in aws_ssm_parameter.app : k => p.arn }
       }
     }
   }

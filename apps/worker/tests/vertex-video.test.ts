@@ -1,9 +1,25 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-vi.mock("google-auth-library", () => ({ GoogleAuth: class { async getAccessToken() { return "test-token"; } } }));
-import { VertexVideo, vertexVideoParameters } from "../src/vertex-video";
+const { awsOptions } = vi.hoisted(() => ({ awsOptions: vi.fn() }));
+vi.mock("google-auth-library", () => ({
+  GoogleAuth: class { async getAccessToken() { return "test-token"; } },
+  AwsClient: class { constructor(options: unknown) { awsOptions(options); } async getAccessToken() { return { token: "federated-token" }; } },
+}));
+import { federatedVideoAuth, VertexVideo, vertexVideoParameters } from "../src/vertex-video";
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 describe("Vertex video", () => {
+  it("refreshes ECS credentials and forwards the session token for keyless Google exchange", async () => {
+    vi.stubEnv("AWS_REGION", "us-east-2");
+    const credentials = vi.fn().mockResolvedValueOnce({ accessKeyId: "first", secretAccessKey: "secret", sessionToken: "session" })
+      .mockResolvedValueOnce({ accessKeyId: "refreshed", secretAccessKey: "new-secret", sessionToken: "new-session" });
+    federatedVideoAuth(credentials, "//iam.googleapis.com/projects/123/locations/global/workloadIdentityPools/test/providers/aws", "worker@test.iam.gserviceaccount.com");
+    const options = awsOptions.mock.lastCall![0];
+    expect(options.credential_source).toBeUndefined();
+    expect(options.service_account_impersonation_url).toContain("worker@test.iam.gserviceaccount.com:generateAccessToken");
+    expect(await options.aws_security_credentials_supplier.getAwsRegion()).toBe("us-east-2");
+    expect(await options.aws_security_credentials_supplier.getAwsSecurityCredentials()).toEqual({ accessKeyId: "first", secretAccessKey: "secret", token: "session" });
+    expect(await options.aws_security_credentials_supplier.getAwsSecurityCredentials()).toEqual({ accessKeyId: "refreshed", secretAccessKey: "new-secret", token: "new-session" });
+  });
   it("always requests exactly one silent eight-second 1080p portrait clip", async () => {
     const fetcher = vi.fn().mockResolvedValue(Response.json({ name: "projects/test/operations/one" }));
     vi.stubGlobal("fetch", fetcher);

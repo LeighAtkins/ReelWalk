@@ -13,8 +13,8 @@ export async function processAiVideo(s3: S3Client, bucket: string): Promise<bool
   }
   const job = await claimAiGeneration(prisma);
   if (!job) return false;
-  provider ??= new VertexVideo();
   try {
+    provider ??= new VertexVideo(undefined, undefined, s3.config.credentials);
     if (job.status === "SUBMITTING") {
       let image;
       if (job.referenceKey) {

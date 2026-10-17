@@ -535,12 +535,14 @@ export function TransitionSheet({
   clip,
   canWalkHere,
   onChange,
+  onDirection,
   onClose,
 }: {
   clip: Clip;
   /** True when this clip and the one before are 360 photos with known positions. */
   canWalkHere: boolean;
   onChange(transition: Clip["transitionIn"]): void;
+  onDirection(value: NonNullable<Clip["whipDirection"]>): void;
   onClose(): void;
 }) {
   return (
@@ -552,7 +554,8 @@ export function TransitionSheet({
         onChange={onChange}
         format={(transition) => (transition === "cut" ? "Cut" : transition === "fade" ? "Fade through black" : transition === "whip" ? "Whip pan" : "Walk there")}
       />
-      <p className="muted small">Whip pan smears the cut sideways with a whoosh, the fast transition of house-tour reels.</p>
+      {clip.transitionIn === "whip" ? <Segmented label="Camera pan direction" options={["left", "right", "up", "down"] as const} value={clip.whipDirection ?? "right"} onChange={onDirection} format={direction => direction[0].toUpperCase() + direction.slice(1)} /> : null}
+      <p className="muted small">Whip is silent. Choose the camera pan direction to match the footage; use a clean cut when the shots do not share a move.</p>
       {canWalkHere ? <p className="muted small">Walk there moves the camera across the floor plan from the last 360 photo to this one.</p> : null}
     </Sheet>
   );

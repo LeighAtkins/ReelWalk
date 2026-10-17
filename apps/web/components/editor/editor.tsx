@@ -1285,6 +1285,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
           clip={selectedClip}
           canWalkHere={canWalk(timeline.clips[timeline.clips.indexOf(selectedClip) - 1], selectedClip)}
           onChange={(transitionIn) => apply((current) => updateClip(current, selectedClip.id, { transitionIn }))}
+          onDirection={whipDirection => apply(current => updateClip(current, selectedClip.id, { whipDirection }))}
           onClose={closeSheet}
         />
       ) : null}

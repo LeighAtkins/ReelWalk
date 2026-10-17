@@ -9,8 +9,8 @@ covered by undo, not another model request or an extra generation charge.
 
 The finish keeps source clips, order, duration, captions and music. It pairs
 Bodoni Moda editorial headlines with Archivo supporting type, uses one short
-snap-out on the first suitable shot, softens lens edges and adds an occasional
-whip between otherwise clean cuts. The manual Look presets include a matching
+snap-out on the first suitable shot, softens lens edges and favours clean cuts. It removes existing whip accents
+rather than adding arbitrary transition motion. The manual Look presets include a matching
 grade. During AI assembly, grading remains controlled by the separate
 harmonize option, so turning that option off really preserves existing looks.
 

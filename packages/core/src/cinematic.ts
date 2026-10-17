@@ -30,7 +30,7 @@ export function luxuryFinish(timeline: Timeline, variant: "refined" | "modern" =
     clips: timeline.clips.map((c, index) => ({ ...c, filter: applyColour ? variant === "refined" ? "golden" : "crisp" : c.filter,
       lensSoftness: c.pano ? c.lensSoftness : 0.28,
       motion: c.pano ? c.motion : index === hero ? "snap-out" : "none",
-      transitionIn: c.transitionIn === "walk" ? c.transitionIn : index > 0 && index % 4 === 0 ? "whip" : "cut",
+      transitionIn: c.transitionIn === "whip" ? "cut" : c.transitionIn,
     })),
     texts: timeline.texts.map((t, index) => ({ ...t, font: index === 0 ? "editorial" : "sans", tracking: index === 0 ? 0.015 : 0.13,
       animation: "fade", style: index === 0 ? "elegant" : "plain", size: index === 0 ? Math.max(0.8, t.size) : Math.max(0.5, t.size),

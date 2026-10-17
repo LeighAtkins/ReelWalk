@@ -127,6 +127,8 @@ export const clipSchema = z
     room: z.string().max(40).nullable().default(null),
     /** How this clip enters from the previous one. */
     transitionIn: z.enum(TRANSITIONS).default("cut"),
+    /** Camera pan direction; outgoing pixels travel in the opposite direction. */
+    whipDirection: z.enum(["left", "right", "up", "down"]).optional(),
     /** A closer crop of the picture about its centre: 1 shows it all, 2 the middle half. Added to any motion. */
     zoom: z.number().min(1).max(ZOOM_MAX).default(1),
   })
@@ -455,7 +457,7 @@ export function trimClip(
   return fitTexts(updated);
 }
 
-export type ClipSettings = Partial<Pick<Clip, "speed" | "volume" | "fit" | "filter" | "motion" | "transitionIn" | "pano" | "zoom" | "lensSoftness">>;
+export type ClipSettings = Partial<Pick<Clip, "speed" | "volume" | "fit" | "filter" | "motion" | "transitionIn" | "pano" | "zoom" | "lensSoftness" | "whipDirection">>;
 
 export function updateClip(timeline: Timeline, id: string, settings: ClipSettings): Timeline {
   return fitTexts(replaceClip(timeline, id, (clip) => clipSchema.parse({ ...clip, ...settings })));

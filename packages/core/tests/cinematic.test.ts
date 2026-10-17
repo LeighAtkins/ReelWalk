@@ -20,12 +20,13 @@ describe("cinematic edit finish", () => {
   });
   it("keeps source clips, timing, captions and music while applying an editable finish", () => {
     const clip = clipSchema.parse({ id: "a", assetId: "original", kind: "VIDEO", sourceStartMs: 500, sourceEndMs: 2500 });
-    const timeline = { ...emptyTimeline(), clips: [clip, { ...clip, id: "b" }], texts: [textSchema.parse({ id: "t", text: "Slow mornings", startMs: 0, endMs: 1800 }), textSchema.parse({ id: "small", text: "A private retreat", style: "elegant", size: 0.3, startMs: 2000, endMs: 4000 })] };
+    const timeline = { ...emptyTimeline(), clips: [clip, clipSchema.parse({ ...clip, id: "b", transitionIn: "whip", whipDirection: "left" })], texts: [textSchema.parse({ id: "t", text: "Slow mornings", startMs: 0, endMs: 1800 }), textSchema.parse({ id: "small", text: "A private retreat", style: "elegant", size: 0.3, startMs: 2000, endMs: 4000 })] };
     const next = luxuryFinish(timeline);
     expect(timelineDurationMs(next)).toBe(timelineDurationMs(timeline));
     expect(next.clips.map(c => c.assetId)).toEqual(["original", "original"]);
     expect(next.clips[0]).toMatchObject({ motion: "snap-out", lensSoftness: 0.28, filter: "golden" });
     expect(next.clips[1].motion).toBe("none");
+    expect(next.clips[1].transitionIn).toBe("cut");
     expect(next.texts[0]).toMatchObject({ text: "Slow mornings", font: "editorial", tracking: 0.015, startMs: 0, endMs: 1800 });
     expect(next.music).toBe(timeline.music);
     expect(timeline.clips[0].motion).toBe("none");

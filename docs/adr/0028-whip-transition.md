@@ -1,6 +1,14 @@
 # ADR 0028: Whip pan transition
 
-Status: accepted (2026-10-15)
+Status: amended (2026-10-17)
+
+The current transition is silent. The original synthetic whoosh was removed
+after live review. Camera direction is explicitly selectable (left, right,
+up or down); outgoing and incoming halves share that direction. The effect
+is shorter and less stretched/blurred. Luxury finishing uses clean cuts and
+removes existing whip accents instead of inserting them automatically.
+Direction is chosen by the editor, not inferred from video pixels. The
+original decision below records the superseded implementation.
 
 ## Context
 

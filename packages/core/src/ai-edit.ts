@@ -406,7 +406,7 @@ export function describeReel(input: {
         : null,
       `look ${clip.filter}`,
       clip.zoom !== 1 ? `zoom ${clip.zoom}` : null,
-      clip.kind === "IMAGE" && !clip.pano ? `motion ${clip.motion}` : null,
+      !clip.pano && (clip.kind === "IMAGE" || clip.motion !== "none") ? `motion ${clip.motion}` : null,
       clip.pano ? `turns ${Math.abs(clip.pano.yawEnd - clip.pano.yawStart)}° ${clip.pano.yawEnd >= clip.pano.yawStart ? "clockwise" : "anticlockwise"}, ends facing ${Math.round(clip.pano.yawEnd)}°` : null,
       index > 0 ? `transition in ${clip.transitionIn}` : null,
       clip.fit === "contain" ? "fit contain" : null,
@@ -740,13 +740,13 @@ export function applyAiEditPlan(timeline: Timeline, plan: Pick<AiEditPlan, "ops"
           skipped.push("motion: no motion given");
           break;
         }
-        const photos = clips.filter((clip) => clip.kind === "IMAGE" && !clip.pano);
-        if (photos.length === 0) {
-          skipped.push("motion: only photos have motion");
+        const flat = clips.filter((clip) => !clip.pano);
+        if (flat.length === 0) {
+          skipped.push("motion: use camera turns for panorama clips");
           break;
         }
-        for (const clip of photos) current = updateClip(current, clip.id, { motion: op.motion });
-        applied.push(`${photos.length === 1 ? clipLabel(current, photos[0], assets) : `${photos.length} photos`}: motion ${op.motion}`);
+        for (const clip of flat) current = updateClip(current, clip.id, { motion: op.motion });
+        applied.push(`${flat.length === 1 ? clipLabel(current, flat[0], assets) : `${flat.length} clips`}: motion ${op.motion}`);
         break;
       }
       case "transition": {

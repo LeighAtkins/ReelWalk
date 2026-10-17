@@ -31,10 +31,16 @@ describe.skipIf(!process.env.DATABASE_URL)("AI credits (Postgres)", () => {
   });
 
   it("deduplicates a request and refunds a failure exactly once", async () => {
-    const input = { ...await studio(), requestId: randomUUID() };
+    const input = { ...await studio(), requestId: randomUUID(),
+      shot: { mode: "bridge", first: { assetId: "real-a", atMs: 6933 }, last: { assetId: "real-b", atMs: 2300 } },
+      frameSources: [{ key: "owned/a.mp4", kind: "VIDEO", atMs: 6933 }, { key: "owned/b.mp4", kind: "VIDEO", atMs: 2300 }],
+    };
     const first = await reserveAiGeneration(prisma, input); charged += 80;
-    const again = await reserveAiGeneration(prisma, input);
+    const again = await reserveAiGeneration(prisma, { ...input, frameSources: [{ key: "different.mp4", kind: "VIDEO", atMs: 0 }] });
     expect(again.id).toBe(first.id);
+    expect(again.shot).toEqual(input.shot);
+    expect(again.frameSources).toEqual(input.frameSources);
+    expect((await aiCreditSummary(prisma, input.workspaceId)).remaining).toBe(0);
     await Promise.all([failAiGeneration(prisma, first.id, "failed"), failAiGeneration(prisma, first.id, "failed")]);
     expect((await aiCreditSummary(prisma, input.workspaceId)).remaining).toBe(1);
   });

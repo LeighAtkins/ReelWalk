@@ -15,10 +15,10 @@ import {
 // WebCodecs-based video, used when the worker renders: about twice as fast as
 // OffthreadVideo here, and it falls back to it for files it cannot decode.
 import { Video as RenderVideo } from "@remotion/media";
-import { cameraAt, framePlan, INSTAGRAM, isInstagramMusic, REEL_FORMAT, timelineDurationMs, walkInto, type Clip, type Logo, type Plan, type TextOverlay, type Timeline } from "@reelwalk/core";
-import { WHOOSH_PEAK_S, WHOOSH_SRC } from "./whoosh";
+import { cameraAt, cameraMoveAt, textPositionAt, framePlan, INSTAGRAM, isInstagramMusic, REEL_FORMAT, timelineDurationMs, walkInto, type Clip, type Logo, type Plan, type TextOverlay, type Timeline } from "@reelwalk/core";
+import { whipGeometry } from "./whip";
 import { useFontsFor } from "./fonts";
-import { ELEGANT_FADE_S, FILTER_CSS, textCss } from "./look";
+import { ELEGANT_FADE_S, FILTER_CSS, textTreatmentCss } from "./look";
 import { DetailsCardView } from "./DetailsCardView";
 import { PanoView } from "./PanoView";
 import { PlanOverlayView } from "./PlanOverlayView";
@@ -27,33 +27,21 @@ import { Watermark } from "./Watermark";
 
 /** Frames of the dip-to-black on each side of a "fade" transition. */
 const FADE_FRAMES = 8;
-/**
- * A whip pan (ADR 0028): over its last WHIP_FRAMES the outgoing shot slides
- * left, stretches and smears; the next shot arrives from the right out of the
- * same smear. Both halves together last about a third of a second at 30 fps.
- */
-const WHIP_FRAMES = 5;
-const WHIP_BLUR_PX = 60;
-
-/**
- * Where a shot is in a whip: 0 still, 1 fully smeared; positive arrives from
- * the right, negative leaves to the left. The smear is a horizontal-only blur
- * (an SVG filter, as CSS blur goes every way and reads as out of focus), and
- * the shot is stretched wider than it moves so no edge shows.
- */
-function whipStyle(amount: number, filterId: string): React.CSSProperties | undefined {
+/** Four silent frames on either side of a deliberate camera-matched whip. */
+const WHIP_FRAMES = 4;
+function whipStyle(amount: number, filterId: string, direction: Clip["whipDirection"]): React.CSSProperties | undefined {
   if (amount === 0) return undefined;
-  const a = Math.abs(amount);
-  return { transform: `translateX(${amount * 26}%) scaleX(${1 + a * 0.7})`, filter: `url(#${filterId})` };
+  const g = whipGeometry(amount, direction);
+  return { transform: `translate(${g.x}%, ${g.y}%) scale(${g.scaleX}, ${g.scaleY})`, filter: `url(#${filterId})` };
 }
-
-const WhipBlur: React.FC<{ id: string; amount: number }> = ({ id, amount }) => (
-  <svg width="0" height="0" style={{ position: "absolute" }} aria-hidden="true">
-    <filter id={id} x="-20%" y="0" width="140%" height="100%">
-      <feGaussianBlur stdDeviation={`${Math.abs(amount) * WHIP_BLUR_PX} 0`} edgeMode="duplicate" />
+const WhipBlur: React.FC<{ id: string; amount: number; direction: Clip["whipDirection"] }> = ({ id, amount, direction }) => {
+  const g = whipGeometry(amount, direction);
+  return <svg width="0" height="0" style={{ position: "absolute" }} aria-hidden="true">
+    <filter id={id} x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation={`${g.blurX} ${g.blurY}`} edgeMode="duplicate" />
     </filter>
-  </svg>
-);
+  </svg>;
+};
 
 
 function resolveSrc(src: string): string {
@@ -61,18 +49,9 @@ function resolveSrc(src: string): string {
 }
 
 /** The Ken Burns move and the clip's own zoom, as one CSS transform about the centre. */
-function motionTransform(motion: Clip["motion"], progress: number, zoom: number): string | undefined {
-  const base = zoom !== 1 ? `scale(${zoom}) ` : "";
-  switch (motion) {
-    case "zoom-in":
-      return `${base}scale(${1 + 0.14 * progress})`;
-    case "zoom-out":
-      return `${base}scale(${1.14 - 0.14 * progress})`;
-    case "pan":
-      return `${base}scale(1.16) translateX(${interpolate(progress, [0, 1], [-5, 5])}%)`;
-    default:
-      return base || undefined;
-  }
+function motionTransform(motion: Clip["motion"], progress: number, zoom: number, seconds: number): string | undefined {
+  const move = cameraMoveAt(motion, progress, seconds);
+  return zoom === 1 && move.scale === 1 && move.x === 0 ? undefined : `scale(${zoom * move.scale}) translateX(${move.x}%)`;
 }
 
 const Media: React.FC<{
@@ -121,11 +100,11 @@ const ClipView: React.FC<{
   durationInFrames: number;
   fadeOut: boolean;
   /** The next clip whips in, so this one whips out. */
-  whipOut?: boolean;
+  whipOut?: Clip["whipDirection"] | null;
   /** The clip before this one and its media, for a walk between two 360 photos. */
   previous?: { clip: Clip; asset: ReelAsset | undefined };
   plan: Plan | null;
-}> = ({ clip, asset, durationInFrames, fadeOut, whipOut = false, previous, plan }) => {
+}> = ({ clip, asset, durationInFrames, fadeOut, whipOut = null, previous, plan }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   if (!asset) {
@@ -135,7 +114,7 @@ const ClipView: React.FC<{
 
   // Clamped: a clip is mounted a second early (premount) with negative frames.
   const progress = durationInFrames > 1 ? Math.min(1, Math.max(0, frame / (durationInFrames - 1))) : 0;
-  const transform = motionTransform(asset.kind === "IMAGE" ? clip.motion : "none", progress, clip.zoom);
+  const transform = motionTransform(clip.motion, progress, clip.zoom, Math.max(0, frame / fps));
   const fadeIn = clip.transitionIn === "fade" ? interpolate(frame, [0, FADE_FRAMES], [0, 1], { extrapolateRight: "clamp" }) : 1;
   const fadeOutValue = fadeOut
     ? interpolate(frame, [durationInFrames - FADE_FRAMES, durationInFrames - 1], [1, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" })
@@ -145,7 +124,8 @@ const ClipView: React.FC<{
   const whipAway = whipOut ? interpolate(frame, [durationInFrames - WHIP_FRAMES, durationInFrames - 1], [0, -1], clamp) : 0;
   const whipAmount = whipIn || whipAway;
   const whipId = `whip-${clip.id}`;
-  const whip = whipStyle(whipAmount, whipId);
+  const whipDirection = whipIn ? clip.whipDirection : whipOut ?? undefined;
+  const whip = whipStyle(whipAmount, whipId, whipDirection);
 
   if (clip.pano && asset.kind === "IMAGE") {
     const clipMs = (durationInFrames * 1000) / fps;
@@ -156,7 +136,7 @@ const ClipView: React.FC<{
       : cameraAt(plan, undefined, clip, progress, 1);
     return (
       <AbsoluteFill style={{ opacity: Math.min(fadeIn, fadeOutValue), backgroundColor: "#000", ...whip }}>
-        {whip ? <WhipBlur id={whipId} amount={whipAmount} /> : null}
+        {whip ? <WhipBlur id={whipId} amount={whipAmount} direction={whipDirection} /> : null}
         <PanoView
           src={resolveSrc(asset.src)}
           spot={clip.spot}
@@ -171,7 +151,7 @@ const ClipView: React.FC<{
 
   return (
     <AbsoluteFill style={{ opacity: Math.min(fadeIn, fadeOutValue), overflow: "hidden" }}>
-      {whip ? <WhipBlur id={whipId} amount={whipAmount} /> : null}
+      {whip ? <WhipBlur id={whipId} amount={whipAmount} direction={whipDirection} /> : null}
       <AbsoluteFill style={whip}>
       {clip.fit === "contain" ? (
         // Letterboxed: the same picture, blurred and enlarged, fills the 9:16 frame behind it.
@@ -182,6 +162,9 @@ const ClipView: React.FC<{
       <AbsoluteFill>
         <Media clip={clip} asset={asset} fit={clip.fit} transform={transform} />
       </AbsoluteFill>
+      {clip.lensSoftness ? <AbsoluteFill style={{ pointerEvents: "none", backdropFilter: `blur(${clip.lensSoftness * 7}px)`,
+        maskImage: "radial-gradient(ellipse 47% 40% at 50% 48%, transparent 52%, black 100%)",
+        WebkitMaskImage: "radial-gradient(ellipse 47% 40% at 50% 48%, transparent 52%, black 100%)" }} /> : null}
       </AbsoluteFill>
     </AbsoluteFill>
   );
@@ -230,7 +213,8 @@ function textMotion(text: TextOverlay, frame: number, fps: number, durationInFra
 const TextView: React.FC<{ text: TextOverlay; durationInFrames: number }> = ({ text, durationInFrames }) => {
   const frame = useCurrentFrame();
   const { fps, width, height } = useVideoConfig();
-  const css = textCss(text.style, text.color, text.size);
+  const css = textTreatmentCss(text);
+  const position = textPositionAt(text, durationInFrames > 1 ? frame / (durationInFrames - 1) : 0);
   useFontsFor(text.text, Number(css.fontWeight ?? 600));
   const { scale, opacity, rise, chars } = textMotion(text, frame, fps, durationInFrames);
   // The typewriter keeps the full text in place, invisible, so the box never changes size while it writes.
@@ -242,8 +226,8 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number }> = ({ t
       <div
         style={{
           position: "absolute",
-          left: text.x * width,
-          top: text.y * height,
+          left: position.x * width,
+          top: position.y * height,
           width: width * 0.86,
           display: "flex",
           justifyContent: "center",
@@ -335,7 +319,7 @@ export const ReelComposition: React.FC<ReelProps> = ({ timeline, assets, waterma
             asset={assets[clip.assetId]}
             durationInFrames={durationInFrames}
             fadeOut={timeline.clips[index + 1]?.transitionIn === "fade"}
-            whipOut={timeline.clips[index + 1]?.transitionIn === "whip"}
+            whipOut={timeline.clips[index + 1]?.transitionIn === "whip" ? timeline.clips[index + 1].whipDirection ?? "right" : null}
             previous={index > 0 ? { clip: timeline.clips[index - 1], asset: assets[timeline.clips[index - 1].assetId] } : undefined}
             plan={timeline.plan?.geometry ?? null}
           />
@@ -351,14 +335,7 @@ export const ReelComposition: React.FC<ReelProps> = ({ timeline, assets, waterma
       {timeline.logo ? <LogoView logo={timeline.logo} asset={assets[timeline.logo.assetId]} /> : null}
       {watermark ? <Watermark /> : null}
       {musicAsset ? <MusicTrack timeline={timeline} asset={musicAsset} /> : null}
-      {plan.clips.map(({ clip, from }) =>
-        clip.transitionIn === "whip" && from > 0 ? (
-          // The whoosh peaks on the cut.
-          <Sequence key={`whoosh-${clip.id}`} from={Math.max(0, from - Math.round(WHOOSH_PEAK_S * fps))} durationInFrames={Math.round(fps * 0.7)} name="whoosh">
-            <Audio src={WHOOSH_SRC} volume={0.8} />
-          </Sequence>
-        ) : null,
-      )}
+
     </AbsoluteFill>
   );
 };

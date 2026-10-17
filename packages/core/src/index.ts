@@ -7,6 +7,8 @@ export * from "./autopilot";
 export * from "./review";
 export * from "./autobuild";
 export * from "./ai";
+export * from "./ai-shots";
+export * from "./cinematic";
 export * from "./comment-replies";
 export * from "./beats";
 export * from "./drag";

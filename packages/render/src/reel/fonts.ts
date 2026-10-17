@@ -4,6 +4,7 @@ import "@fontsource-variable/archivo/wdth.css";
 import "@fontsource-variable/noto-sans-jp/wght.css";
 // Cormorant Garamond (SIL Open Font Licence 1.1) for the "elegant" text style.
 import "@fontsource-variable/cormorant-garamond/wght.css";
+import "@fontsource-variable/bodoni-moda/opsz.css";
 
 /**
  * Font files are split by script and only downloaded once a glyph needs them.
@@ -21,6 +22,7 @@ export function useFontsFor(text: string, weight: number): void {
       document.fonts.load(`${weight} 64px "Archivo Variable"`, sample),
       document.fonts.load(`${weight} 64px "Noto Sans JP Variable"`, sample),
       document.fonts.load(`${weight} 64px "Cormorant Garamond Variable"`, sample),
+      document.fonts.load(`${weight} 64px "Bodoni Moda Variable"`, sample),
     ])
       .catch(() => undefined)
       .finally(() => {

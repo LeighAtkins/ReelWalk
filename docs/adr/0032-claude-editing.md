@@ -7,6 +7,8 @@ Claude Console promotional credit instead of a separately billed intermediary.
 The credit, its expiry and auto-reload setting remain provider-controlled.
 
 The shared structured-answer adapter sends the existing JSON edit-plan schema,
+uses a compact op/JSON-arguments wire format to fit Claude schema limits,
+restores omitted fields as null for the unchanged Zod plan validator,
 handles image data for room labels and panorama aiming, and reports Claude's
 model and token usage. Thinking blocks are not exposed as edit JSON. Refusals,
 truncated answers and malformed output are rejected. The existing Zod plan
@@ -23,8 +25,9 @@ Veo generation continues independently through Vertex AI.
 
 Validation: six transport/guard tests, including a returned speed operation
 applied to a native timeline; the existing 26 edit-plan tests; web typecheck;
-focused ESLint; Terraform formatting. A real provider smoke test and production
-activation require the dedicated workspace key. No secret is committed.
+focused ESLint; Terraform formatting. A real Opus 5.5 smoke test returned a speed operation, passed Zod validation
+and changed a native video from 3x to 1x (estimated $0.02418). Production
+activation uses a dedicated workspace key stored in encrypted SSM. No secret is committed.
 
 References:
 - https://platform.claude.com/docs/en/models/opus-5-5/overview

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { aiBoundary, aiShotFromClips, aiShotSchema, clipDurationMs, clipSchema, emptyTimeline, insertAiShot, parseTimeline } from "../src";
+import { aiBoundary, aiShotFromClips, aiShotSchema, aiShotPrompt, aiShotStyle, clipDurationMs, clipSchema, emptyTimeline, insertAiShot, parseTimeline, type AiShotMode } from "../src";
 
 const a = clipSchema.parse({ id: "a", assetId: "real-a", kind: "VIDEO", sourceStartMs: 1000, sourceEndMs: 7000, speed: 2 });
 const b = clipSchema.parse({ id: "b", assetId: "real-b", kind: "VIDEO", sourceStartMs: 2300, sourceEndMs: 5300, transitionIn: "whip" });
@@ -7,6 +7,54 @@ const ai = clipSchema.parse({ id: "insert-one", assetId: "generated", kind: "VID
 const original = { ...emptyTimeline(), clips: [a, b] };
 
 describe("footage anchored AI edits", () => {
+  it("requires before and after references for construction and keeps the whole build", () => {
+    const missingEnd = { mode: "construction", first: aiBoundary(a, true) };
+    expect(aiShotSchema.safeParse(missingEnd).success).toBe(false);
+    const shot = aiShotSchema.parse(aiShotFromClips("construction", a, b));
+    const next = insertAiShot(original, ai, shot);
+    expect(next.clips.map(c => c.assetId)).toEqual(["real-a", "generated", "real-b"]);
+    expect(clipDurationMs(next.clips[1])).toBe(8000);
+    expect(aiShotPrompt(shot.mode, "Show the build", shot)).toContain("conceptual construction visualization");
+  });
+  it.each(["orbit", "fly-through", "day-night"] as AiShotMode[])("can animate a still with %s while preserving its timing", mode => {
+    const photo = { ...a, kind: "IMAGE" as const, sourceStartMs: 0, sourceEndMs: 5000, speed: 1 };
+    const timeline = { ...original, clips: [photo, b] };
+    const next = insertAiShot(timeline, ai, aiShotFromClips(mode, photo));
+    expect(next.clips).toHaveLength(2);
+    expect(next.clips[0]).toMatchObject({ id: photo.id, kind: "VIDEO", assetId: "generated" });
+    expect(clipDurationMs(next.clips[0])).toBe(5000);
+  });
+  it("composes camera, style, weather and energy without freezing a requested lighting change", () => {
+    const shot = { ...aiShotFromClips("orbit", a), style: "neon" as const, atmosphere: "blue-hour" as const, energy: "bold" as const };
+    const prompt = aiShotPrompt(shot.mode, "Circle clockwise", shot);
+    expect(prompt).toContain("drone orbit");
+    expect(prompt).toContain("cyan and magenta");
+    expect(prompt).toContain("deep blue sky");
+    expect(prompt).toContain("bold high-impact");
+    expect(prompt).toContain("Circle clockwise");
+    expect(prompt).not.toContain("Keep reference lighting unchanged");
+    const dayNight = aiShotPrompt("day-night", "Hold the view", { ...shot, mode: "day-night", atmosphere: "sunny" });
+    expect(dayNight).toContain("day-to-night lighting progression takes priority");
+    expect(dayNight).not.toContain("soft sunshine");
+    expect(dayNight).toContain("camera locked");
+  });
+  it("chooses a cohesive automatic direction and applies the optional grade to both kinds of footage", () => {
+    const anchor = { ...a, room: "bedroom" };
+    const shot = { ...aiShotFromClips("continue", anchor), style: "auto" as const, harmonize: true };
+    expect(aiShotStyle(shot)).toBe("refined");
+    const timeline = { ...original, clips: [anchor, b] };
+    const next = insertAiShot(timeline, ai, shot);
+    expect(next.clips.map(c => c.filter)).toEqual(["warm", "warm", "warm"]);
+    expect(timeline.clips.map(c => c.filter)).toEqual(["none", "none"]);
+    const ungraded = insertAiShot(timeline, ai, { ...shot, harmonize: false });
+    expect(ungraded.clips.map(c => c.filter)).toEqual(["none", "none", "none"]);
+  });
+  it("keeps old recipes compatible and rejects unknown style choices", () => {
+    expect(aiShotStyle(aiShotFromClips("continue", a))).toBe("source");
+    expect(aiShotSchema.safeParse({ ...aiShotFromClips("continue", a), style: "unknown" }).success).toBe(false);
+    const shot = aiShotFromClips("bridge", a, b);
+    expect(aiShotPrompt(shot.mode, "Connect the rooms", shot)).toContain("ending frame's composition, geometry and lighting");
+  });
   it("uses the displayed boundary of a trimmed, sped-up clip", () => {
     expect(aiBoundary(a, true)).toEqual({ assetId: "real-a", atMs: 6933 });
     expect(aiBoundary(b, false).atMs).toBe(2300);

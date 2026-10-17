@@ -51,7 +51,7 @@ export async function createAiGeneration(user: { id: string; workspaceId: string
   if (!Number.isSafeInteger(budgetCents) || budgetCents < AI_CLIP_COST_CENTS) throw new Error("AI generation is temporarily paused.");
   return reserveAiGeneration(prisma, {
     workspaceId: user.workspaceId, userId: user.id, requestId: input.requestId,
-    prompt: input.shot ? aiShotPrompt(input.shot.mode, input.prompt) : input.prompt,
+    prompt: input.shot ? aiShotPrompt(input.shot.mode, input.prompt, input.shot) : input.prompt,
     shot: input.shot, frameSources: frames.length ? frames : undefined,
     referenceKey: reference?.objectKey, referenceType: reference?.contentType,
     model: AI_VIDEO_MODEL, costCents: AI_CLIP_COST_CENTS, budgetCents,

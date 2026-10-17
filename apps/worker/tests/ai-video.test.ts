@@ -65,6 +65,14 @@ describe("AI shot worker", () => {
     expect(tx.reel.upsert).not.toHaveBeenCalled();
     expect(fail).not.toHaveBeenCalled();
   });
+  it("carries the selected cinematic direction through a background draft without changing its source", async () => {
+    claim.mockResolvedValue({ ...job, status: "RUNNING", shot: { ...job.shot, mode: "orbit", style: "neon", atmosphere: "blue-hour", energy: "bold", harmonize: true } });
+    await processAiVideo(s3, "media");
+    const timeline = tx.reel.upsert.mock.calls[0][0].create.timeline;
+    expect(timeline.clips.map((clip: { filter: string }) => clip.filter)).toEqual(["cool", "cool", "cool"]);
+    expect(source.timeline.clips.map(clip => clip.filter)).toEqual(["none", "none"]);
+    expect(submit).not.toHaveBeenCalled();
+  });
   it("a lost lease cannot create an output or draft", async () => {
     claim.mockResolvedValue({ ...job, status: "RUNNING" });
     tx.aiGeneration.updateMany.mockResolvedValueOnce({ count: 0 });

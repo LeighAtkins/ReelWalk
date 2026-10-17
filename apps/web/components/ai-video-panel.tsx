@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AI_SHOT_LABELS, AI_SHOT_MODES, aiBoundary, aiShotSchema, type AiShot, type AiShotMode, type Clip } from "@reelwalk/core";
+import { AI_SHOT_LABELS, AI_SHOT_MODES, AI_SHOT_STYLES, AI_SHOT_STYLE_LABELS, AI_SHOT_ATMOSPHERES, AI_SHOT_ATMOSPHERE_LABELS,
+  aiBoundary, aiConnectsClips, aiShotSchema, aiShotStyle, type AiShot, type AiShotMode, type AiShotStyle, type AiShotAtmosphere, type Clip } from "@reelwalk/core";
 import type { LibraryAsset } from "@/lib/library";
 
 type Job = { id: string; prompt: string; status: string; error: string | null; asset: LibraryAsset | null; shot: unknown; draftId: string | null };
@@ -14,7 +15,7 @@ export function AiVideoPanel({ photos, clips = [], selectedClip, reelId, beforeG
   beforeGenerate?(): Promise<boolean>; onAdd?(asset: LibraryAsset, shot?: AiShot): void;
 }) {
   const [state, setState] = useState<State | null>(null);
-  const [prompt, setPrompt] = useState("Keep the property unchanged and make the camera movement feel natural.");
+  const [prompt, setPrompt] = useState("Make the sequence flow naturally and keep the referenced property's identity recognisable.");
   const [mode, setMode] = useState<AiShotMode>(selectedClip?.kind === "VIDEO" ? "continue" : selectedClip?.kind === "IMAGE" ? "gimbal" : "custom");
   const [photo, setPhoto] = useState(selectedClip ? `clip:${selectedClip.id}` : "");
   const selectedIndex = clips.findIndex(c => c.id === selectedClip?.id);
@@ -22,6 +23,11 @@ export function AiVideoPanel({ photos, clips = [], selectedClip, reelId, beforeG
   const [firstMs, setFirstMs] = useState(0);
   const [lastMs, setLastMs] = useState(0);
   const [draft, setDraft] = useState(false);
+  const [style, setStyle] = useState<AiShotStyle>("auto");
+  const [atmosphere, setAtmosphere] = useState<AiShotAtmosphere>("auto");
+  const [energy, setEnergy] = useState<"subtle" | "bold">("subtle");
+  const [harmonize, setHarmonize] = useState(true);
+  const [useEndReference, setUseEndReference] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const requestId = useRef<string | null>(null);
@@ -47,7 +53,7 @@ export function AiVideoPanel({ photos, clips = [], selectedClip, reelId, beforeG
     return () => { clearInterval(timer); controller.abort(); };
   }, [running, refresh]);
 
-  const bridge = mode === "bridge" || mode === "burst";
+  const bridge = aiConnectsClips(mode);
   const camera = mode === "gimbal" || mode === "drone";
   const available = photos.filter(a => !a.isPano && (a.kind === "VIDEO" || (a.kind === "IMAGE" && /\.(jpe?g|png)$/i.test(a.fileName))));
   const anchor = photo.startsWith("clip:") ? clips.find(c => c.id === photo.slice(5)) : undefined;
@@ -57,13 +63,13 @@ export function AiVideoPanel({ photos, clips = [], selectedClip, reelId, beforeG
     return clip ? aiBoundary(clip, end) : value ? { assetId: value.slice(6), atMs } : undefined;
   }
   const firstFrame = source(photo, true, firstMs);
-  const lastFrame = bridge ? source(last, false, lastMs) : undefined;
+  const lastFrame = bridge || useEndReference ? source(last, false, lastMs) : undefined;
 
   function picker(ending: boolean) {
     const value = ending ? last : photo;
     const frame = ending ? lastFrame : firstFrame;
     const asset = available.find(a => a.id === frame?.assetId);
-    return <label className="field">{ending ? "End at" : "Start from"}
+    return <label className="field">{mode === "construction" ? ending ? "After · completed building" : "Before · site or earlier build stage" : ending ? "End at" : "Start from"}
       <select className="text-input" value={value} disabled={busy} onChange={e => {
         if (ending) { setLast(e.target.value); setLastMs(0); } else { setPhoto(e.target.value); setFirstMs(0); }
       }}>
@@ -87,8 +93,9 @@ export function AiVideoPanel({ photos, clips = [], selectedClip, reelId, beforeG
   async function generate(event: React.FormEvent) {
     event.preventDefault();
     setError(null);
-    const shot = aiShotSchema.safeParse({ mode, first: firstFrame, last: lastFrame, anchor,
-      next: bridge && anchor ? next : undefined, ...(draft && anchor && reelId ? { draftReelId: reelId } : {}),
+    if (useEndReference && !bridge && !lastFrame) { setError("Choose an ending reference, or turn off ending guidance."); return; }
+    const shot = aiShotSchema.safeParse({ mode, first: firstFrame, last: lastFrame, anchor, style, atmosphere, energy, harmonize: Boolean(onAdd) && harmonize,
+      next: anchor && lastFrame ? next : undefined, ...(draft && anchor && reelId ? { draftReelId: reelId } : {}),
     });
     if (!shot.success) { setError(shot.error.issues[0]?.message || "Choose source frames."); return; }
     if (bridge && anchor && (!next || clips.indexOf(next) !== clips.indexOf(anchor) + 1)) {
@@ -128,8 +135,32 @@ export function AiVideoPanel({ photos, clips = [], selectedClip, reelId, beforeG
         </select>
       </label>
       {picker(false)}
-      {bridge ? picker(true) : null}
+      {!bridge ? <label className="field"><span><input type="checkbox" checked={useEndReference} disabled={busy} onChange={e => setUseEndReference(e.target.checked)} /> Guide the ending with another image or video frame</span></label> : null}
+      {bridge || useEndReference ? picker(true) : null}
       {mode === "drone" ? <p className="muted small">Choose an exterior photo with room above the roofline. A small rise is more faithful than a wide invented aerial view.</p> : null}
+      {mode === "orbit" ? <p className="muted small">Choose an exterior with space around the building. An ending view from another angle helps guide the orbit; unseen sides are interpreted by AI.</p> : null}
+      {mode === "fly-through" ? <p className="muted small">Use a wide view with visible openings. Add a landing frame from the next room to guide the flight.</p> : null}
+      {mode === "day-night" ? <p className="muted small">A fixed view works best: daylight, moving shadows, sunset and glowing windows. An optional night reference guides the finish.</p> : null}
+      {mode === "construction" ? <p className="muted small">Use before and after views from a similar angle. Creates an AI construction concept between them; the full eight-second build stays in the edit.</p> : null}
+      <label className="field">Cinematic style
+        <select className="text-input" value={style} disabled={busy} onChange={e => setStyle(e.target.value as AiShotStyle)}>
+          {AI_SHOT_STYLES.map(value => <option key={value} value={value}>{AI_SHOT_STYLE_LABELS[value]}</option>)}
+        </select>
+      </label>
+      <label className="field">Light and weather
+        <select className="text-input" value={atmosphere} disabled={busy || mode === "day-night"} onChange={e => setAtmosphere(e.target.value as AiShotAtmosphere)}>
+          {AI_SHOT_ATMOSPHERES.map(value => <option key={value} value={value}>{AI_SHOT_ATMOSPHERE_LABELS[value]}</option>)}
+        </select>
+        {mode === "day-night" ? <span className="muted small">Light progresses from day into night.</span> : null}
+      </label>
+      <label className="field">Energy
+        <select className="text-input" value={energy} disabled={busy} onChange={e => setEnergy(e.target.value as "subtle" | "bold")}>
+          <option value="subtle">Controlled and elegant</option><option value="bold">Bold and over the top</option>
+        </select>
+      </label>
+      {onAdd && style !== "source" ? <label className="field"><span><input type="checkbox" checked={harmonize} disabled={busy} onChange={e => setHarmonize(e.target.checked)} /> Carry a matching colour grade through the real footage</span>
+        <span className="muted small">Editable in Look. Weather and relighting apply to the AI shot.</span></label> : null}
+      {style === "auto" ? <p className="muted small">Suggested direction: {AI_SHOT_STYLE_LABELS[aiShotStyle({ mode, anchor, style })]}. AI handles lighting, depth and atmosphere within this look.</p> : null}
       <label className="field">Describe the shot
         <textarea className="text-input" rows={4} minLength={10} maxLength={2000} required value={prompt}
           placeholder="A slow, smooth camera push into a bright living room, morning light through the windows. Keep the layout and furniture unchanged."
@@ -147,7 +178,7 @@ export function AiVideoPanel({ photos, clips = [], selectedClip, reelId, beforeG
     </form>
     <div className="ai-video-results" aria-live="polite">
       {state?.jobs.map(job => <article className="ai-video-result" key={job.id}>
-        <p className="small">{aiShotSchema.safeParse(job.shot).success ? AI_SHOT_LABELS[(job.shot as AiShot).mode] : job.prompt}</p>
+        <p className="small">{aiShotSchema.safeParse(job.shot).success ? `${AI_SHOT_LABELS[(job.shot as AiShot).mode]} · ${AI_SHOT_STYLE_LABELS[aiShotStyle(job.shot as AiShot)]}` : job.prompt}</p>
         {active(job) ? <p className="muted small" role="status">{job.status === "QUEUED" ? "Waiting to start…" : "Generating your shot…"} You can leave and return later.</p> : null}
         {job.status === "FAILED" ? <p className="error small">{job.error}</p> : null}
         {job.asset ? <>

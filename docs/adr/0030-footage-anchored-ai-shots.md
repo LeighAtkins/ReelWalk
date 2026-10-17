@@ -3,7 +3,8 @@
 ## Decision
 
 Extend the metered Veo path with continuation, first/last-frame bridges,
-transition bursts, photo-to-gimbal and photo-to-drone presets. Keep custom
+transition bursts, photo-to-gimbal, drone reveal/orbit, FPV fly-through,
+day-to-night and construction timelapse presets. Keep custom
 text/image generation and existing subscriber credits. A preset supplies camera
 direction and preservation instructions, rather than asking users to write an
 entire generation prompt.
@@ -27,6 +28,36 @@ endpoints. Gimbal/drone replacements keep the still's duration and clip ID;
 stills over 32 seconds require trimming first. Continuations use four seconds;
 custom shots retain eight seconds. All generated media remains reusable in the
 library.
+
+## Cinematic direction
+
+Camera/progression, visual style, light/weather and energy are independent
+choices in the durable recipe. Styles include matching the original,
+futuristic neon, classical refined and sleek modern. Automatic direction
+selects refined for warm looks or living/bedroom spaces, and modern otherwise;
+the interface shows this suggestion before spending a credit. The generation
+prompt then delegates lighting, depth and atmosphere within that direction to
+Veo. There is no extra planning-model call or additional charge.
+
+Atmosphere choices include flattering automatic light, original conditions,
+golden hour, blue hour, sunshine, mist and rain. Requested relighting does not
+carry a contradictory instruction to freeze the original light. Day-to-night
+progression overrides fixed time-of-day choices. An ending reference takes
+priority at the finish; creative changes happen between the supplied frames.
+Optional ending references can also guide an orbit or fly-through.
+
+Construction requires before and after references, describing a conceptual
+build between actual source views rather than inventing a starting site from
+a completed-building photo. Both construction and appended day-to-night shots
+retain the full eight-second progression. Orbit, fly-through and day-to-night
+can replace a still while retaining its timing and room/plan metadata.
+
+An optional matching grade uses the existing editable Look system across the
+assembled reel, including real footage: cool for neon, warm for refined and
+crisp for modern. It applies after boundary checks, never to the source reel
+when building a separate draft. Original-style recipes and older jobs retain
+their previous behaviour. Weather, new light and geometry interpretation apply
+only to generated footage; grading real footage cannot recreate those changes.
 
 ## Placement and background completion
 
@@ -55,8 +86,9 @@ References currently use source pixels centre-cropped to 9:16. Preview
 renditions, letterboxing, Ken Burns motion and differing looks at a join can
 still produce visible differences. AI geometry and invented details require
 review; the interface does not promise a pixel-perfect join. Drone presets
-request a modest rise from exterior photos rather than inventing a large
-aerial environment. A draft is editable and is not automatically exported or
+request a modest rise from exterior photos. Wider orbits and FPV flights
+interpret unseen geometry, so ending references and visual review matter.
+A draft is editable and is not automatically exported or
 posted.
 
 Checks cover trimmed/sped-up boundaries, actual two-image provider payloads,

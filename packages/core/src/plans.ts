@@ -44,12 +44,14 @@ export type PlanDef = {
   seats: number;
   /** Changes asked for in words (ADR 0020), in a calendar month. Re-exports count as exports. */
   aiEditsPerMonth: number;
+  /** Eight-second AI video clips: one lifetime trial, monthly on paid plans. */
+  aiVideoClips: number;
 };
 
 export const PLANS: Record<PlanId, PlanDef> = {
-  FREE: { id: "FREE", name: "Free", priceUsd: 0, priceUsdYearly: 0, exportsPerMonth: 3, exportsPerDay: 3, activeExports: 2, storageGb: 1, outputWidth: 720, watermark: true, instagram: false, seats: 1, aiEditsPerMonth: 5 },
-  AGENT: { id: "AGENT", name: "Agent", priceUsd: 29, priceUsdYearly: 290, exportsPerMonth: 40, exportsPerDay: 30, activeExports: 3, storageGb: 25, outputWidth: 1080, watermark: false, instagram: true, seats: 1, aiEditsPerMonth: 60 },
-  OFFICE: { id: "OFFICE", name: "Studio", priceUsd: 79, priceUsdYearly: 790, exportsPerMonth: 200, exportsPerDay: 100, activeExports: 6, storageGb: 100, outputWidth: 1080, watermark: false, instagram: true, seats: 5, aiEditsPerMonth: 300 },
+  FREE: { id: "FREE", name: "Free", priceUsd: 0, priceUsdYearly: 0, exportsPerMonth: 3, exportsPerDay: 3, activeExports: 2, storageGb: 1, outputWidth: 720, watermark: true, instagram: false, seats: 1, aiEditsPerMonth: 5, aiVideoClips: 1 },
+  AGENT: { id: "AGENT", name: "Agent", priceUsd: 29, priceUsdYearly: 290, exportsPerMonth: 40, exportsPerDay: 30, activeExports: 3, storageGb: 25, outputWidth: 1080, watermark: false, instagram: true, seats: 1, aiEditsPerMonth: 60, aiVideoClips: 10 },
+  OFFICE: { id: "OFFICE", name: "Studio", priceUsd: 79, priceUsdYearly: 790, exportsPerMonth: 200, exportsPerDay: 100, activeExports: 6, storageGb: 100, outputWidth: 1080, watermark: false, instagram: true, seats: 5, aiEditsPerMonth: 300, aiVideoClips: 30 },
 };
 
 export const PLAN_IDS = Object.keys(PLANS) as PlanId[];

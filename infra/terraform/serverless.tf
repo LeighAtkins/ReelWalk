@@ -22,6 +22,10 @@ locals {
     RENDER_STALE_SECONDS         = "60"
     RENDER_RETRY_BACKOFF_SECONDS = "15"
     OUTBOX_POLL_SECONDS          = "5"
+    AI_VIDEO_ENABLED             = tostring(var.ai_video_enabled)
+    AI_VIDEO_BUDGET_CENTS        = tostring(var.ai_video_budget_cents)
+    GOOGLE_CLOUD_PROJECT         = var.google_cloud_project
+    GOOGLE_CLOUD_LOCATION        = "us-central1"
   }
 
   # Web-only settings (the worker sends no mail).
@@ -34,17 +38,18 @@ locals {
 
   # Parameter Store holds the credentials; both runtimes read them at start.
   app_secrets = {
-    DATABASE_URL          = var.database_url
-    META_APP_ID           = var.meta_app_id
-    META_APP_SECRET       = var.meta_app_secret
-    META_LOGIN_CONFIG_ID  = var.meta_login_config_id
+    DATABASE_URL         = var.database_url
+    META_APP_ID          = var.meta_app_id
+    META_APP_SECRET      = var.meta_app_secret
+    META_LOGIN_CONFIG_ID = var.meta_login_config_id
     # Instagram's own login, for keyword comment replies (ADR 0026).
-    INSTAGRAM_APP_ID     = var.instagram_app_id
-    INSTAGRAM_APP_SECRET = var.instagram_app_secret
-    PIXABAY_API_KEY       = var.pixabay_api_key
-    OPENAI_API_KEY        = var.openai_api_key
-    STRIPE_SECRET_KEY     = var.stripe_secret_key
-    STRIPE_WEBHOOK_SECRET = var.stripe_webhook_secret
+    INSTAGRAM_APP_ID            = var.instagram_app_id
+    INSTAGRAM_APP_SECRET        = var.instagram_app_secret
+    PIXABAY_API_KEY             = var.pixabay_api_key
+    OPENAI_API_KEY              = var.openai_api_key
+    STRIPE_SECRET_KEY           = var.stripe_secret_key
+    STRIPE_WEBHOOK_SECRET       = var.stripe_webhook_secret
+    GOOGLE_SERVICE_ACCOUNT_JSON = var.google_service_account_json
     # Bearer secret EventBridge sends to /api/scheduled-posts/run (scheduled_posts.tf).
     SCHEDULER_SECRET = random_password.scheduler.result
   }
@@ -161,7 +166,7 @@ resource "aws_ecs_task_definition" "worker" {
           BACKUP_BUCKET = aws_s3_bucket.backups.bucket
         }) : { name = k, value = v }
       ]
-      secrets = [for k, p in aws_ssm_parameter.app : { name = k, valueFrom = p.arn } if k == "DATABASE_URL"]
+      secrets = [for k, p in aws_ssm_parameter.app : { name = k, valueFrom = p.arn } if contains(["DATABASE_URL", "GOOGLE_SERVICE_ACCOUNT_JSON"], k)]
       logConfiguration = {
         logDriver = "awslogs"
         options = {
@@ -288,16 +293,17 @@ resource "aws_apprunner_service" "web" {
           # transaction pooler's client limit.
           DATABASE_POOL_MAX = "5"
           # One-tap Instagram posting; off until the Meta app is out of development mode.
-          INSTAGRAM_ENABLED   = tostring(var.instagram_enabled)
+          INSTAGRAM_ENABLED           = tostring(var.instagram_enabled)
           STRIPE_PRICE_AGENT_MONTHLY  = var.stripe_price_agent_monthly
           STRIPE_PRICE_AGENT_YEARLY   = var.stripe_price_agent_yearly
           STRIPE_PRICE_OFFICE_MONTHLY = var.stripe_price_office_monthly
           STRIPE_PRICE_OFFICE_YEARLY  = var.stripe_price_office_yearly
+          STRIPE_PRICE_AI_TOP_UP      = var.stripe_price_ai_top_up
           # Finished reels the landing page plays; empty shows a placeholder frame.
           SAMPLE_REEL_URL        = var.sample_reel_urls
           SAMPLE_REEL_POSTER_URL = var.sample_reel_poster_urls
         })
-        runtime_environment_secrets = { for k, p in aws_ssm_parameter.app : k => p.arn }
+        runtime_environment_secrets = { for k, p in aws_ssm_parameter.app : k => p.arn if k != "GOOGLE_SERVICE_ACCOUNT_JSON" }
       }
     }
   }

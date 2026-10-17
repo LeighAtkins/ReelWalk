@@ -12,11 +12,12 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1148.0",
     "@aws-sdk/client-sqs": "^3.1148.0",
+    "@aws-sdk/s3-request-presigner": "^3.1148.0",
     "@reelwalk/core": "workspace:*",
     "@reelwalk/db": "workspace:*",
     "@reelwalk/render": "workspace:*",
-    "tsx": "^4.23.15",
-    "@aws-sdk/s3-request-presigner": "^3.1148.0"
+    "google-auth-library": "^11.3.1",
+    "tsx": "^4.23.15"
   },
   "devDependencies": {
     "@types/node": "^26.6.4",

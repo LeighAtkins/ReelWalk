@@ -1,0 +1,1 @@
+ALTER TABLE "Workspace" ADD COLUMN "aiLastInvoiceCreated" INTEGER NOT NULL DEFAULT 0;

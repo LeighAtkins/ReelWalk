@@ -4,6 +4,7 @@ import { Prisma, prisma } from "@reelwalk/db";
 import { appUrl } from "@/lib/app-url";
 import { sendEmail, SUPPORT_EMAIL } from "@/lib/email";
 import { customerId, isBillingConfigured, periodEnd, planForSubscription, stripe } from "@/lib/stripe";
+import { applyAiInvoice, applyAiTopUp } from "@/lib/billing-ai";
 
 export const dynamic = "force-dynamic";
 
@@ -25,16 +26,12 @@ export async function POST(request: Request): Promise<Response> {
     return NextResponse.json({ error: "bad signature" }, { status: 400 });
   }
 
-  try {
-    await prisma.billingEvent.create({ data: { id: event.id, type: event.type } });
-  } catch (error) {
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") return NextResponse.json({ seen: true });
-    throw error;
-  }
+  if (await prisma.billingEvent.findUnique({ where: { id: event.id } })) return NextResponse.json({ seen: true });
 
   switch (event.type) {
     case "checkout.session.completed": {
       const session = event.data.object;
+      await applyAiTopUp(session);
       if (typeof session.subscription === "string") {
         const subscription = await stripe().subscriptions.retrieve(session.subscription);
         await applySubscription(subscription, session.client_reference_id);
@@ -44,12 +41,19 @@ export async function POST(request: Request): Promise<Response> {
     case "customer.subscription.created":
     case "customer.subscription.updated":
     case "customer.subscription.deleted":
-      await applySubscription(event.data.object, null);
+      await applySubscription(await stripe().subscriptions.retrieve(event.data.object.id), null);
+      break;
+    case "checkout.session.async_payment_succeeded":
+      await applyAiTopUp(event.data.object);
       break;
     case "invoice.paid": {
       // A renewal: read the subscription back so the renewal date moves on.
       const subscriptionId = invoiceSubscriptionId(event.data.object);
-      if (subscriptionId) await applySubscription(await stripe().subscriptions.retrieve(subscriptionId), null);
+      if (subscriptionId) {
+        const subscription = await stripe().subscriptions.retrieve(subscriptionId);
+        await applySubscription(subscription, null);
+        await applyAiInvoice(event.data.object, subscription);
+      }
       break;
     }
     case "invoice.payment_failed":
@@ -64,6 +68,13 @@ export async function POST(request: Request): Promise<Response> {
       break;
     default:
       break;
+  }
+  // Record completion after processing. A crash/failure must remain retryable.
+  // Grants and plan writes are idempotent even on concurrent redelivery.
+  try {
+    await prisma.billingEvent.create({ data: { id: event.id, type: event.type } });
+  } catch (error) {
+    if (!(error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002")) throw error;
   }
   return NextResponse.json({ ok: true });
 }

@@ -1,5 +1,6 @@
 import { ECSClient, ListTasksCommand, RunTaskCommand } from "@aws-sdk/client-ecs";
 import { GetQueueAttributesCommand, SQSClient } from "@aws-sdk/client-sqs";
+import { prisma } from "@reelwalk/db";
 
 /**
  * On-demand rendering. In the serverless deployment no worker runs between
@@ -30,16 +31,16 @@ const sqs = new SQSClient({ region });
 async function outstandingJobs(): Promise<number | null> {
   if (!queueUrl) return null;
   try {
-    const { Attributes = {} } = await sqs.send(
+    const [{ Attributes = {} }, aiJobs] = await Promise.all([sqs.send(
       new GetQueueAttributesCommand({
         QueueUrl: queueUrl,
         AttributeNames: ["ApproximateNumberOfMessages", "ApproximateNumberOfMessagesNotVisible", "ApproximateNumberOfMessagesDelayed"],
       }),
-    );
+    ), prisma.aiGeneration.count({ where: { status: { in: ["QUEUED", "SUBMITTING", "RUNNING"] } } })]);
     return (
       Number(Attributes.ApproximateNumberOfMessages ?? 0) +
       Number(Attributes.ApproximateNumberOfMessagesNotVisible ?? 0) +
-      Number(Attributes.ApproximateNumberOfMessagesDelayed ?? 0)
+      Number(Attributes.ApproximateNumberOfMessagesDelayed ?? 0) + aiJobs
     );
   } catch (error) {
     console.error("render-capacity: could not read the queue", error);

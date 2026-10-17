@@ -4,6 +4,7 @@ import { PrismaClient } from "./generated/prisma/client";
 export * from "./generated/prisma/client";
 export * from "./outbox";
 export * from "./password";
+export * from "./ai-credits";
 export * from "./scheduled-posts";
 
 export const DEFAULT_WORKSPACE_SLUG = "demo";

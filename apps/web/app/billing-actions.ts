@@ -6,12 +6,13 @@ import { prisma } from "@reelwalk/db";
 import { appUrl } from "@/lib/app-url";
 import { isBillingConfigured, priceForPlan, stripe } from "@/lib/stripe";
 import { getCurrentUser } from "@/lib/workspace";
+import { aiTopUpPrice } from "@/lib/billing-ai";
 
 /** The Stripe customer for this workspace, created on first use. */
 async function customerFor(workspaceId: string, email: string, name: string): Promise<string> {
   const workspace = await prisma.workspace.findUniqueOrThrow({ where: { id: workspaceId }, select: { stripeCustomerId: true } });
   if (workspace.stripeCustomerId) return workspace.stripeCustomerId;
-  const customer = await stripe().customers.create({ email, name, metadata: { workspaceId } });
+  const customer = await stripe().customers.create({ email, name, metadata: { workspaceId } }, { idempotencyKey: `customer:${workspaceId}` });
   await prisma.workspace.update({ where: { id: workspaceId }, data: { stripeCustomerId: customer.id } });
   return customer.id;
 }
@@ -23,6 +24,9 @@ async function customerFor(workspaceId: string, email: string, name: string): Pr
  */
 export async function startCheckout(formData: FormData): Promise<void> {
   const user = await getCurrentUser();
+  // Existing subscribers change plans in the portal rather than creating a
+  // second subscription with a second monthly charge.
+  if (user.workspace.stripeSubscriptionId) return openBillingPortal();
   const plan = formData.get("plan");
   const interval = formData.get("interval") ?? "month";
   if (!isBillingConfigured() || !isPlanId(plan) || plan === "FREE" || !isBillingInterval(interval)) redirect("/account?billing=unavailable");
@@ -46,6 +50,22 @@ export async function startCheckout(formData: FormData): Promise<void> {
     integration_identifier: "reelwalk_plan_checkout_qmxvtkhe",
     success_url: `${base}/account?billing=welcome`,
     cancel_url: `${base}/account`,
+  });
+  if (!session.url) redirect("/account?billing=unavailable");
+  redirect(session.url);
+}
+
+/** One-off credits do not expire with a monthly allowance. */
+export async function buyAiCredits(): Promise<void> {
+  const user = await getCurrentUser();
+  const price = aiTopUpPrice();
+  if (!isBillingConfigured() || !price || user.email === "demo@reelwalk.local") redirect("/account?billing=unavailable");
+  const customer = await customerFor(user.workspaceId, user.email, user.workspace.name);
+  const base = await appUrl();
+  const session = await stripe().checkout.sessions.create({
+    mode: "payment", customer, line_items: [{ price, quantity: 1 }], client_reference_id: user.workspaceId,
+    metadata: { purpose: "ai-top-up", workspaceId: user.workspaceId },
+    success_url: `${base}/account?billing=credits`, cancel_url: `${base}/account`,
   });
   if (!session.url) redirect("/account?billing=unavailable");
   redirect(session.url);

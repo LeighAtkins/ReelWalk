@@ -87,6 +87,9 @@ export function textTreatmentCss(text: Pick<TextOverlay, "style" | "color" | "si
   return { ...textCss(text.style, text.color, text.size),
     ...(text.font && text.font !== "auto" ? { fontFamily: fonts[text.font] } : {}),
     ...(text.tracking !== undefined ? { letterSpacing: `${text.tracking}em` } : {}),
+    ...(text.font === "sans" && text.style === "plain" ? { fontWeight: 700,
+      WebkitTextStroke: "1.5px rgba(0,0,0,0.65)", paintOrder: "stroke fill",
+      textShadow: "0 2px 4px rgba(0,0,0,0.9), 0 4px 18px rgba(0,0,0,0.8)" } : {}),
   };
 }
 

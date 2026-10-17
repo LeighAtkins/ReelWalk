@@ -27,7 +27,7 @@ describe("cinematic edit finish", () => {
     expect(next.clips[0]).toMatchObject({ motion: "snap-out", lensSoftness: 0.28, filter: "golden" });
     expect(next.clips[1].motion).toBe("none");
     expect(next.clips[1].transitionIn).toBe("cut");
-    expect(next.texts[0]).toMatchObject({ text: "Slow mornings", font: "editorial", tracking: 0.015, startMs: 0, endMs: 1800 });
+    expect(next.texts[0]).toMatchObject({ text: "Slow mornings", font: "sans", tracking: 0, style: "plain", size: 1.4, animation: "none", startMs: 0, endMs: 1800 });
     expect(next.music).toBe(timeline.music);
     expect(timeline.clips[0].motion).toBe("none");
     expect(parseTimeline(next)).toEqual(next);

@@ -321,7 +321,7 @@ export function LookSheet({
       {onLuxury ? <div className="field"><span>Finish the whole reel</span><div className="segmented">
         <button type="button" onClick={() => onLuxury("refined")}>Refined luxury</button>
         <button type="button" onClick={() => onLuxury("modern")}>Modern luxury</button>
-      </div><p className="muted small">Pairs editorial and clean type, one snap zoom, matching colour and soft lens edges. Keeps your clips and timing. Undo restores the previous edit.</p></div> : null}
+      </div><p className="muted small">Uses large, readable type, one snap zoom, matching colour and soft lens edges. Keeps your clips and timing. Undo restores the previous edit.</p></div> : null}
       <div className="look-strip" role="group" aria-label="Colour filters">
         {FILTERS.map((filter) => (
           <button key={filter} type="button" className="look" aria-pressed={clip.filter === filter} onClick={() => onChange(filter)}>

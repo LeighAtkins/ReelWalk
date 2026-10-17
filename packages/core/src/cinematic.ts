@@ -23,7 +23,7 @@ export function textPositionAt(text: TextOverlay, progress: number) {
   return { x: Math.max(0, Math.min(1, text.x + a.x + (b.x - a.x) * mix)), y: Math.max(0, Math.min(1, text.y + a.y + (b.y - a.y) * mix)) };
 }
 
-/** An editable finish: keep footage/order/timing, pair two fonts and use one accent move. */
+/** An editable finish: keep footage/order/timing, use readable type and one accent move. */
 export function luxuryFinish(timeline: Timeline, variant: "refined" | "modern" = "refined", applyColour = true): Timeline {
   const hero = timeline.clips.findIndex(c => !c.pano && clipDurationMs(c) >= 1000);
   return { ...timeline,
@@ -32,8 +32,8 @@ export function luxuryFinish(timeline: Timeline, variant: "refined" | "modern" =
       motion: c.pano ? c.motion : index === hero ? "snap-out" : "none",
       transitionIn: c.transitionIn === "whip" ? "cut" : c.transitionIn,
     })),
-    texts: timeline.texts.map((t, index) => ({ ...t, font: index === 0 ? "editorial" : "sans", tracking: index === 0 ? 0.015 : 0.13,
-      animation: "fade", style: index === 0 ? "elegant" : "plain", size: index === 0 ? Math.max(0.8, t.size) : Math.max(0.5, t.size),
+    texts: timeline.texts.map((t, index) => ({ ...t, font: "sans", tracking: index === 0 ? 0 : 0.04,
+      animation: "none", style: "plain", size: index === 0 ? Math.max(1.4, t.size) : Math.max(0.75, t.size),
     })),
   };
 }

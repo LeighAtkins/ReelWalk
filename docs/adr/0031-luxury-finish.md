@@ -7,8 +7,9 @@ an optional luxury finish to AI assembly, plus Refined luxury and Modern
 luxury buttons in the editor's Look sheet. This is an ordinary timeline edit
 covered by undo, not another model request or an extra generation charge.
 
-The finish keeps source clips, order, duration, captions and music. It pairs
-Bodoni Moda editorial headlines with Archivo supporting type, uses one short
+The finish keeps source clips, order, duration, captions and music. After phone-size review, the finish uses bold Archivo with larger minimum
+sizes, tighter tracking, immediate appearance and stronger contrast. Bodoni
+remains a manual choice rather than the default. It uses one short
 snap-out on the first suitable shot, softens lens edges and favours clean cuts. It removes existing whip accents
 rather than adding arbitrary transition motion. The manual Look presets include a matching
 grade. During AI assembly, grading remains controlled by the separate

@@ -62,6 +62,16 @@ export default async function ExportPage({
   const reelSound = soundAsset?.instagramAudioId
     ? instagramChoiceForSound({ audioId: soundAsset.instagramAudioId, title: soundAsset.instagramTitle ?? soundAsset.fileName, artist: soundAsset.instagramArtist })
     : null;
+  const scheduled = await prisma.scheduledPost.findFirst({
+    where: { renderJobId: job.id, workspaceId: user.workspaceId, status: { in: ["SCHEDULED", "PUBLISHING"] } },
+    orderBy: { createdAt: "desc" },
+    select: { audioId: true, audioTitle: true, audioArtist: true, audioVolume: true, videoVolume: true },
+  });
+  const scheduledSound = scheduled
+    ? scheduled.audioId
+      ? { audioId: scheduled.audioId, title: scheduled.audioTitle ?? scheduled.audioId, artist: scheduled.audioArtist, audioVolume: scheduled.audioVolume ?? 100, videoVolume: scheduled.videoVolume ?? 0 }
+      : null
+    : undefined;
   const active = isActive(job.status);
   const progress = exportProgressText(job, new Date());
 
@@ -114,7 +124,7 @@ export default async function ExportPage({
               </div>
               <div className="export-actions">
                 {instagram && plan.instagram ? (
-                  <InstagramPublishing jobId={job.id} username={instagram.username} live={isInstagramConfigured() || isFakeInstagram()} reelSound={reelSound} />
+                  <InstagramPublishing jobId={job.id} username={instagram.username} live={isInstagramConfigured() || isFakeInstagram()} reelSound={reelSound} scheduledSound={scheduledSound} />
                 ) : null}
                 {planId === "FREE" && isInstagramConfigured() ? (
                   <Link className="btn btn-quiet" href="/account#plan" prefetch={false}>

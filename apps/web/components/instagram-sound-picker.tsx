@@ -35,15 +35,17 @@ export function InstagramSoundPicker({
   onChange,
   disabled = false,
   compact = false,
+  onOpenChange,
 }: {
   value: InstagramAudioChoice | null;
   onChange(choice: InstagramAudioChoice | null): void;
   disabled?: boolean;
   /** A small "Sound" button for list rows, instead of the full-width one. */
   compact?: boolean;
+  onOpenChange?(open: boolean): void;
 }) {
   const [open, setOpen] = useState(false);
-  const close = useCallback(() => setOpen(false), []);
+  const close = useCallback(() => { setOpen(false); onOpenChange?.(false); }, [onOpenChange]);
   const label = value ? instagramAudioLabel(value) : null;
 
   return (
@@ -51,7 +53,7 @@ export function InstagramSoundPicker({
       <button
         type="button"
         className={`btn btn-quiet sound-button${value ? " sound-button-set" : ""}`}
-        onClick={() => setOpen(true)}
+        onClick={() => { setOpen(true); onOpenChange?.(true); }}
         disabled={disabled}
         aria-haspopup="dialog"
         aria-label={label ? `Instagram sound: ${label}. Change` : "Add an Instagram sound"}
@@ -73,7 +75,7 @@ export function InstagramSoundPicker({
           onClose={close}
           onPick={(choice) => {
             onChange(choice);
-            setOpen(false);
+            close();
           }}
         />
       ) : null}

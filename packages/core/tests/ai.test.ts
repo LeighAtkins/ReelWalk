@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AI_CLIP_SECONDS, AI_PLAN_CREDITS, AI_TOP_UP, AI_TRIAL_CREDITS, PLANS, aiClipCostCents, aiClipCredits, aiCreditWindow } from "../src";
+import { AI_CLIP_SECONDS, AI_PLAN_CREDITS, AI_TOP_UP, AI_TRIAL_CREDITS, PLANS, aiClipCostCents, aiClipCredits, aiCreditWindow, aiDefaultClipSeconds } from "../src";
 
 describe("AI video allowance windows", () => {
   const anchor = new Date("2026-01-31T15:30:00Z");
@@ -24,5 +24,11 @@ describe("AI video allowance windows", () => {
     expect(AI_PLAN_CREDITS).toEqual({ FREE: 2, AGENT: 20, OFFICE: 60 });
     expect(AI_TRIAL_CREDITS * 4).toBe(8);
     expect(AI_TOP_UP).toEqual({ priceCents: 1500, credits: 10 });
+  });
+  it("defaults timelapses to 8 seconds and every other move to 4", () => {
+    expect(aiDefaultClipSeconds("day-night")).toBe(8);
+    expect(aiDefaultClipSeconds("construction")).toBe(8);
+    expect(aiDefaultClipSeconds("bridge")).toBe(4);
+    expect(aiDefaultClipSeconds(undefined)).toBe(4);
   });
 });

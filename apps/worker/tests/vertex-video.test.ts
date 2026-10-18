@@ -8,6 +8,16 @@ import { federatedVideoAuth, VertexVideo, vertexVideoParameters } from "../src/v
 
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 describe("Vertex video", () => {
+  it("sends real first and last frames as provider inputs, keeping the fixed spend parameters", async () => {
+    const fetcher = vi.fn().mockResolvedValue(Response.json({ name: "operations/bridge" }));
+    vi.stubGlobal("fetch", fetcher);
+    const first = { bytesBase64Encoded: "first-frame", mimeType: "image/jpeg" };
+    const last = { bytesBase64Encoded: "last-frame", mimeType: "image/jpeg" };
+    await new VertexVideo("test-project").submit("veo-3.1-fast-generate-001", 8, "Connect these shots", first, last);
+    const payload = JSON.parse(fetcher.mock.calls[0]![1].body);
+    expect(payload.instances).toEqual([{ prompt: "Connect these shots", image: first, lastFrame: last }]);
+    expect(payload.parameters).toMatchObject({ sampleCount: 1, durationSeconds: 8, resolution: "1080p" });
+  });
   it("refreshes ECS credentials and forwards the session token for keyless Google exchange", async () => {
     vi.stubEnv("AWS_REGION", "us-east-2");
     const credentials = vi.fn().mockResolvedValueOnce({ accessKeyId: "first", secretAccessKey: "secret", sessionToken: "session" })
@@ -20,7 +30,7 @@ describe("Vertex video", () => {
     expect(await options.aws_security_credentials_supplier.getAwsSecurityCredentials()).toEqual({ accessKeyId: "first", secretAccessKey: "secret", token: "session" });
     expect(await options.aws_security_credentials_supplier.getAwsSecurityCredentials()).toEqual({ accessKeyId: "refreshed", secretAccessKey: "new-secret", token: "new-session" });
   });
-  it("always requests exactly one silent eight-second 1080p portrait clip", async () => {
+  it("requests exactly one silent 1080p portrait clip of the paid length", async () => {
     const fetcher = vi.fn().mockResolvedValue(Response.json({ name: "projects/test/operations/one" }));
     vi.stubGlobal("fetch", fetcher);
     await new VertexVideo("test-project").submit("veo-3.1-fast-generate-001", 4, "A slow camera move");

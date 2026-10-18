@@ -22,9 +22,9 @@ export function ExportStage({ children }: { children: ReactNode }) {
 }
 
 /** The rendered reel, muted and looping, as before; "Play with sound" takes it over while it plays. */
-export function ExportVideo({ src }: { src: string }) {
+export function ExportVideo({ src, originalAudio = false }: { src: string; originalAudio?: boolean }) {
   const stage = useContext(StageContext);
-  return <video ref={stage?.setVideo} src={src} controls playsInline autoPlay muted loop data-testid="export-video" />;
+  return <video ref={stage?.setVideo} src={src} controls playsInline autoPlay={!originalAudio} muted={!originalAudio} loop data-testid="export-video" />;
 }
 
 type PlayState = "idle" | "loading" | "playing" | "paused";

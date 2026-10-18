@@ -11,6 +11,7 @@ import {
   hasDetails,
   listingDetailsSchema,
   clipDurationMs,
+  clipSourceAvailability,
   FILTERS,
   DEFAULT_PANO,
   INSTAGRAM_MUSIC_SUGGESTIONS,
@@ -43,7 +44,8 @@ import {
   type TextOverlay,
   type TextStyle,
 } from "@reelwalk/core";
-import { ELEGANT_FONT_FAMILY, FILTER_CSS, FILTER_LABELS, TEXT_ANIMATION_LABELS, TEXT_STYLE_LABELS, textCss } from "@reelwalk/render/reel";
+import { ClipSourceInfo } from "./clip-source-info";
+import { ELEGANT_FONT_FAMILY, FILTER_CSS, FILTER_LABELS, TEXT_ANIMATION_LABELS, TEXT_STYLE_LABELS, textTreatmentCss } from "@reelwalk/render/reel";
 import { formatDuration } from "@/lib/format";
 import type { LibraryAsset } from "@/lib/library";
 import Link from "next/link";
@@ -191,6 +193,7 @@ export function MediaSheet({
                   onClick={() => toggle(asset.id)}
                 >
                   {asset.thumbUrl ? <img src={asset.thumbUrl} alt="" /> : null}
+                  {asset.isAiGenerated ? <span className="library-ai-badge ai-source-badge">AI</span> : null}
                   <span className="chip timecode">{order >= 0 ? order + 1 : asset.isPano ? "360" : asset.durationMs ? formatDuration(asset.durationMs) : "Photo"}</span>
                 </button>
               );
@@ -240,11 +243,13 @@ export function TrimSheet({
     );
   }
 
+  const available = clipSourceAvailability(clip, asset?.durationMs);
   const sourceLength = Math.max(asset?.durationMs ?? clip.sourceEndMs, clip.sourceEndMs);
   const minWindow = Math.ceil(MIN_CLIP_MS * clip.speed);
   const pct = (ms: number) => `${(ms / sourceLength) * 100}%`;
   return (
-    <Sheet title="Trim" onClose={onClose}>
+    <Sheet title={asset?.isAiGenerated ? "Trim AI shot" : "Trim"} onClose={onClose}>
+      <ClipSourceInfo clip={clip} asset={asset} />
       <div className="trim-clip">
         <div className="trim-strip" style={{ backgroundImage: asset?.thumbUrl ? `url("${asset.thumbUrl}")` : undefined }}>
           <span
@@ -271,6 +276,10 @@ export function TrimSheet({
         display={formatDuration(clip.sourceEndMs, true)}
         onChange={(value) => onChange({ sourceStartMs: Math.min(clip.sourceStartMs, value - minWindow), sourceEndMs: value })}
       />
+      {available.sourceMs !== null && (available.beforeMs > 0 || (available.afterMs ?? 0) > 0) ? (
+        <button type="button" className="btn btn-block" onClick={() => onChange({ sourceStartMs: 0, sourceEndMs: available.sourceMs! })}>Use full source</button>
+      ) : null}
+      {asset?.isAiGenerated ? <p className="muted small">Unused footage uses no new AI credits. Preview it before extending; it may contain changes. Going beyond the full source requires a new generation.</p> : null}
       <p className="muted small">
         Plays for {formatDuration(clipDurationMs(clip), true)}
         {clip.speed !== 1 ? ` at ${clip.speed}×` : ""}, from a {formatDuration(sourceLength)} video.
@@ -304,16 +313,24 @@ export function LookSheet({
   asset,
   onChange,
   onApplyAll,
+  onLens,
+  onLuxury,
   onClose,
 }: {
   clip: Clip;
   asset: LibraryAsset | undefined;
   onChange(filter: Filter): void;
   onApplyAll(): void;
+  onLens?(value: number): void;
+  onLuxury?(variant: "refined" | "modern"): void;
   onClose(): void;
 }) {
   return (
     <Sheet title="Look" onClose={onClose}>
+      {onLuxury ? <div className="field"><span>Finish the whole reel</span><div className="segmented">
+        <button type="button" onClick={() => onLuxury("refined")}>Refined luxury</button>
+        <button type="button" onClick={() => onLuxury("modern")}>Modern luxury</button>
+      </div><p className="muted small">Adds text contrast, one snap zoom, matching colour and soft lens edges. Keeps your text size and typeface. Keeps your clips and timing. Undo restores the previous edit.</p></div> : null}
       <div className="look-strip" role="group" aria-label="Colour filters">
         {FILTERS.map((filter) => (
           <button key={filter} type="button" className="look" aria-pressed={clip.filter === filter} onClick={() => onChange(filter)}>
@@ -327,11 +344,12 @@ export function LookSheet({
       <button type="button" className="btn btn-quiet btn-block" onClick={onApplyAll}>
         Use {FILTER_LABELS[clip.filter]} on every clip
       </button>
+      {onLens ? <Range label="Soft lens edges" value={clip.lensSoftness ?? 0} min={0} max={1} step={0.05} display={`${Math.round((clip.lensSoftness ?? 0) * 100)}%`} onChange={onLens} /> : null}
     </Sheet>
   );
 }
 
-const MOTION_LABELS: Record<Motion, string> = { none: "Still", "zoom-in": "Zoom in", "zoom-out": "Zoom out", pan: "Pan" };
+const MOTION_LABELS: Record<Motion, string> = { none: "Still", "zoom-in": "Zoom in", "zoom-out": "Zoom out", pan: "Pan", "snap-in": "Snap in", "snap-out": "Snap out" };
 
 /** A closer crop of one shot, about its centre. */
 export function ZoomSheet({ clip, onChange, onClose }: { clip: Clip; onChange(zoom: number): void; onClose(): void }) {
@@ -423,9 +441,9 @@ export function LogoSheet({
 
 export function MotionSheet({ clip, onChange, onClose }: { clip: Clip; onChange(motion: Motion): void; onClose(): void }) {
   return (
-    <Sheet title="Photo motion" onClose={onClose}>
+    <Sheet title="Camera motion" onClose={onClose}>
       <Segmented label="Motion" options={MOTIONS} value={clip.motion} onChange={onChange} format={(motion) => MOTION_LABELS[motion]} />
-      <p className="muted small">A slow zoom or pan keeps a still photo of a room from looking frozen.</p>
+      <p className="muted small">Use a gentle push or pan, or a short snap zoom to accent a cut. Works on photos and video.</p>
     </Sheet>
   );
 }
@@ -526,12 +544,14 @@ export function TransitionSheet({
   clip,
   canWalkHere,
   onChange,
+  onDirection,
   onClose,
 }: {
   clip: Clip;
   /** True when this clip and the one before are 360 photos with known positions. */
   canWalkHere: boolean;
   onChange(transition: Clip["transitionIn"]): void;
+  onDirection(value: NonNullable<Clip["whipDirection"]>): void;
   onClose(): void;
 }) {
   return (
@@ -543,7 +563,8 @@ export function TransitionSheet({
         onChange={onChange}
         format={(transition) => (transition === "cut" ? "Cut" : transition === "fade" ? "Fade through black" : transition === "whip" ? "Whip pan" : "Walk there")}
       />
-      <p className="muted small">Whip pan smears the cut sideways with a whoosh, the fast transition of house-tour reels.</p>
+      {clip.transitionIn === "whip" ? <Segmented label="Camera pan direction" options={["left", "right", "up", "down"] as const} value={clip.whipDirection ?? "right"} onChange={onDirection} format={direction => direction[0].toUpperCase() + direction.slice(1)} /> : null}
+      <p className="muted small">Whip is silent. Choose the camera pan direction to match the footage; use a clean cut when the shots do not share a move.</p>
       {canWalkHere ? <p className="muted small">Walk there moves the camera across the floor plan from the last 360 photo to this one.</p> : null}
     </Sheet>
   );
@@ -664,7 +685,7 @@ export function PlanSheet({
 
 // ── Text ────────────────────────────────────────────────────────
 
-export type TextDraft = Pick<TextOverlay, "text" | "style" | "color" | "size" | "animation">;
+export type TextDraft = Pick<TextOverlay, "text" | "style" | "color" | "size" | "animation" | "font" | "tracking" | "path" | "shadow">;
 
 /** The "Elegant" style chip, set in the serif it puts on the reel. */
 const ELEGANT_CHIP: CSSProperties = { fontFamily: ELEGANT_FONT_FAMILY, fontWeight: 500, fontSize: "1.12em", letterSpacing: "0.06em" };
@@ -679,7 +700,7 @@ export function TextSheet({
   onClose(): void;
 }) {
   const [draft, setDraft] = useState<TextDraft>(initial ?? { text: "", style: "plain", color: "#ffffff", size: 1, animation: "auto" });
-  const previewCss = textCss(draft.style, draft.color, draft.size);
+  const previewCss = textTreatmentCss(draft);
 
   return (
     <Sheet title={initial ? "Edit text" : "Add text"} onClose={onClose}>
@@ -717,6 +738,15 @@ export function TextSheet({
         ))}
       </div>
       <Range label="Size" value={draft.size} min={minTextSize(draft.style)} max={TEXT_SIZE_MAX} step={0.1} display={`${Math.round(draft.size * 100)}%`} onChange={(size) => setDraft({ ...draft, size })} />
+      <Segmented label="Typeface" options={["auto", "serif", "sans", "editorial"] as const} value={draft.font ?? "auto"} onChange={font => setDraft({ ...draft, font })}
+        format={font => ({ auto: "Style default", serif: "Cormorant", sans: "Archivo", editorial: "Bodoni" })[font]} />
+      <Segmented label="Text shadow" options={["auto", "soft", "strong", "none"] as const} value={draft.shadow ?? "auto"} onChange={shadow => setDraft({ ...draft, shadow })} format={shadow => ({ auto: "Auto contrast", soft: "Soft", strong: "Strong", none: "None" })[shadow]} />
+      <p className="muted small">Auto contrast protects small text over bright footage without changing its size or font.</p>
+      <Range label="Letter spacing" value={draft.tracking ?? 0.06} min={-0.04} max={0.24} step={0.01} display={`${(draft.tracking ?? 0.06).toFixed(2)}em`} onChange={tracking => setDraft({ ...draft, tracking })} />
+      <label className="field">Text movement<select className="text-input" value={draft.path ? "path" : "still"} onChange={event => {
+        const move = event.target.value;
+        setDraft({ ...draft, path: move === "still" ? undefined : move === "path" ? draft.path : [{ t: 0, x: 0, y: 0 }, { t: 1, x: move === "left" ? -0.04 : 0.04, y: 0 }] });
+      }}><option value="still">Still</option>{draft.path ? <option value="path">Keep current motion path</option> : null}<option value="left">Drift left</option><option value="right">Drift right</option></select></label>
       <Segmented<TextAnimation> label="Arrives" options={TEXT_ANIMATIONS} value={draft.animation} onChange={(animation) => setDraft({ ...draft, animation })} format={(animation) => TEXT_ANIMATION_LABELS[animation]} />
       <button type="button" className="btn btn-block" disabled={!draft.text.trim()} onClick={() => onSave({ ...draft, text: draft.text.trim() })}>
         {initial ? "Save text" : "Add text"}
@@ -1125,6 +1155,7 @@ const ASK_EXAMPLES = ["Make the kitchen clip longer", "Calmer music", "Warmer lo
  * request can be put another way. A brief that worked can be kept as a preset.
  */
 export function AskSheet({
+  onDirector,
   briefs,
   fresh,
   onAsk,
@@ -1132,6 +1163,7 @@ export function AskSheet({
   onDeleteBrief,
   onClose,
 }: {
+  onDirector?: () => void;
   briefs: Brief[];
   /** The reel has not been cut yet, so briefs lead. */
   fresh: boolean;
@@ -1174,6 +1206,7 @@ export function AskSheet({
 
   return (
     <Sheet title={fresh ? "Cut it for me" : "Ask for a change"} onClose={onClose}>
+      {onDirector ? <button type="button" className="btn btn-quiet btn-block" onClick={onDirector}>Direct and review with Opus</button> : null}
       <p className="muted small">
         {fresh
           ? "Pick a way to cut it, or say what you want in your own words. The reel is cut from what you have uploaded; undo takes it back."

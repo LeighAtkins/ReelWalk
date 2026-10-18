@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import type { PlayerRef } from "@remotion/player";
 import {
   addClips,
+  insertAiShot,
+  luxuryFinish,
   addRoomLabels,
   canWalk,
   hasRoomLabels,
@@ -93,6 +95,8 @@ import {
   VolumeIcon,
 } from "../icons";
 import { createClock, useClock, type Clock } from "./clock";
+import { ClipSourceInfo } from "./clip-source-info";
+import { DirectorSheet } from "./director-sheet";
 import { Filmstrip, type PendingUpload, type Selection } from "./filmstrip";
 import { historyReducer, initHistory } from "./history";
 import {
@@ -157,6 +161,7 @@ type SheetName =
   | "caption"
   | "export"
   | "ask"
+  | "director"
   | "autopilot"
   | "review-text"
   | "review-timing"
@@ -868,6 +873,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
             <Tool label="Volume" onClick={() => setSheet("volume")}>
               <VolumeIcon />
             </Tool>
+            <Tool label="Motion" onClick={() => setSheet("motion")}><MotionIcon /></Tool>
           </>
         ) : (
           <>
@@ -1112,6 +1118,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
 
       {review ? null : (
       <>
+      <div>
       <div className="transport">
         <button type="button" className="icon-btn" aria-label={playing ? "Pause" : "Play"} onClick={togglePlay} disabled={!hasClips}>
           {playing ? <PauseIcon /> : <PlayIcon />}
@@ -1130,6 +1137,8 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         </button>
       </div>
 
+      {selectedClip ? <ClipSourceInfo clip={selectedClip} asset={library[selectedClip.assetId]} onTrim={() => setSheet("trim")} /> : null}
+      </div>
       <Filmstrip
         timeline={timeline}
         library={library}
@@ -1193,9 +1202,14 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
       ) : null}
 
       {sheet === "ai-video" ? <Sheet title="AI video" onClose={closeSheet}>
-        <AiVideoPanel photos={libraryList} onAdd={asset => {
+        <AiVideoPanel photos={libraryList} clips={timeline.clips} selectedClip={selectedClip} reelId={reel.id} beforeGenerate={autosave.flush} onAdd={(asset, shot) => {
+          const clip = { ...clipFromAsset(asset), id: `ai-insert-${asset.id}` };
+          if (shot && insertAiShot(timeline, clip, shot) === timeline) {
+            showToast("The source cut changed or this shot is already placed. Add the saved clip from Media to choose a new position.", 6000);
+            return;
+          }
           setLibrary(current => ({ ...current, [asset.id]: asset }));
-          apply(current => addClips(current, [clipFromAsset(asset)]));
+          apply(current => shot ? insertAiShot(current, clip, shot) : addClips(current, [clip]));
           setSheet(null);
         }} />
       </Sheet> : null}
@@ -1243,6 +1257,8 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
           clip={selectedClip}
           asset={library[selectedClip.assetId]}
           onChange={(filter) => apply((current) => updateClip(current, selectedClip.id, { filter }))}
+          onLens={lensSoftness => apply(current => updateClip(current, selectedClip.id, { lensSoftness }), `lens-${selectedClip.id}`)}
+          onLuxury={variant => { apply(current => luxuryFinish(current, variant)); showToast("Luxury finish applied. Adjust type and camera moves, or Undo."); }}
           onApplyAll={() => {
             apply((current) => current.clips.reduce((next, clip) => updateClip(next, clip.id, { filter: selectedClip.filter }), current));
             showToast("Applied to every clip.");
@@ -1275,6 +1291,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
           clip={selectedClip}
           canWalkHere={canWalk(timeline.clips[timeline.clips.indexOf(selectedClip) - 1], selectedClip)}
           onChange={(transitionIn) => apply((current) => updateClip(current, selectedClip.id, { transitionIn }))}
+          onDirection={whipDirection => apply(current => updateClip(current, selectedClip.id, { whipDirection }))}
           onClose={closeSheet}
         />
       ) : null}
@@ -1369,6 +1386,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
 
       {sheet === "ask" ? (
         <AskSheet
+          onDirector={() => setSheet("director")}
           briefs={briefs}
           fresh={isFresh(timeline)}
           onAsk={async (request, answers) => {
@@ -1407,6 +1425,18 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
           onClose={closeSheet}
         />
       ) : null}
+
+      {sheet === "director" ? <DirectorSheet reelId={reel.id} timeline={timeline} library={libraryList} onClose={closeSheet} onApply={(review) => {
+        if (JSON.stringify(timeline) !== JSON.stringify(review.baseline)) return false;
+        if (review.assets.length) setLibrary(current => ({ ...current, ...Object.fromEntries(review.assets.map(asset => [asset.id, asset])) }));
+        apply(() => parseTimeline(review.timeline));
+        if (review.plan.edit.caption) {
+          setCaption(review.plan.edit.caption);
+          void saveCaption({ id: reel.id, caption: review.plan.edit.caption }).catch(() => undefined);
+        }
+        showToast("Applied Opus's proposed edit. Undo takes it back.");
+        return true;
+      }} /> : null}
 
       {sheet === "review-timing" ? (
         <TimingChoices

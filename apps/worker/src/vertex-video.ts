@@ -62,9 +62,9 @@ export class VertexVideo {
     return response.json();
   }
 
-  async submit(model: string, durationSeconds: number, prompt: string, image?: { bytesBase64Encoded: string; mimeType: string }) {
+  async submit(model: string, durationSeconds: number, prompt: string, image?: { bytesBase64Encoded: string; mimeType: string }, lastFrame?: { bytesBase64Encoded: string; mimeType: string }) {
     const result = await this.request(model, "predictLongRunning", {
-      instances: [{ prompt, ...(image ? { image } : {}) }], parameters: vertexVideoParameters(durationSeconds),
+      instances: [{ prompt, ...(image ? { image } : {}), ...(lastFrame ? { lastFrame } : {}) }], parameters: vertexVideoParameters(durationSeconds),
     });
     if (typeof result.name !== "string") throw new Error("Google did not return a video operation.");
     return result.name as string;

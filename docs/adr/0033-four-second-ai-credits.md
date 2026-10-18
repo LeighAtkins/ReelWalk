@@ -19,17 +19,17 @@ clips:
 The model, resolution, audio setting and sample count stay fixed on the
 server. The only choice the client gets is the length, and the API accepts only
 4 or 8. The worker refuses any other length before it reaches the paid
-endpoint. Clips default to 4 seconds. When AI shot direction lands, its
-day-to-night and construction timelapses will default to 8 because they need
-the time to progress.
+endpoint. Day-to-night and construction timelapses default to 8 seconds
+because they need the time to progress; every other move defaults to 4.
 
 ## Why
 
-The clips are mostly used in short pieces. In practice we generated 8 seconds and used about 2–3. Veo also
+The clips are mostly used in short pieces: bridges play over 4 seconds and
+bursts over 2. In practice we generated 8 seconds and used about 2–3. Veo also
 drifts from the reference image as a clip runs on. On 2026-10-18 a photo-based
 exterior stayed faithful for about 2 seconds, then invented geometry past the
-photo's edge. Shorter clips cost half as much per try and stay closer to the
-photo.
+photo's edge. Shorter clips cost half as much per try, stay closer to the
+photo, and let a 4-second bridge play at natural speed instead of 2x.
 
 ## Accounting
 

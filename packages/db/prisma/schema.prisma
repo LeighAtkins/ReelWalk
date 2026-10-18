@@ -100,6 +100,8 @@ model AiGeneration {
   prompt        String
   referenceKey  String?
   referenceType String?
+  shot          Json?
+  frameSources  Json?
   model         String
   // A submission with an unknown outcome is never repeated automatically.
   status        String @default("QUEUED")

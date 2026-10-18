@@ -1,4 +1,5 @@
 import { isEquirect, spotSchema, type MediaKind, type Spot } from "@reelwalk/core";
+import { prisma } from "@reelwalk/db";
 import { mediaUrl } from "./storage";
 
 /** A media asset as the editor sees it: what it is and where the browser can load it. */
@@ -6,6 +7,8 @@ export type LibraryAsset = {
   id: string;
   kind: MediaKind;
   fileName: string;
+  /** Confirmed by a completed generation record, independent of filename. */
+  isAiGenerated?: boolean;
   url: string;
   thumbUrl: string | null;
   durationMs: number | null;
@@ -31,7 +34,7 @@ export type LibraryAsset = {
   instagram: { audioId: string; title: string; artist: string | null } | null;
 };
 
-export async function toLibraryAsset(asset: {
+type LibraryAssetInput = {
   id: string;
   kind: MediaKind;
   fileName: string;
@@ -52,7 +55,9 @@ export async function toLibraryAsset(asset: {
   instagramAudioId?: string | null;
   instagramTitle?: string | null;
   instagramArtist?: string | null;
-}): Promise<LibraryAsset> {
+};
+
+async function serializeLibraryAsset(asset: LibraryAssetInput, isAiGenerated: boolean): Promise<LibraryAsset> {
   const spot = spotSchema.safeParse(asset.spot);
   // The editor plays the light preview rendition when one exists; exports always use the original.
   const [url, thumbUrl] = await Promise.all([mediaUrl(asset.previewKey ?? asset.objectKey), asset.thumbKey ? mediaUrl(asset.thumbKey) : null]);
@@ -60,6 +65,7 @@ export async function toLibraryAsset(asset: {
     id: asset.id,
     kind: asset.kind,
     fileName: asset.fileName,
+    isAiGenerated,
     url,
     // A photo is its own thumbnail.
     thumbUrl: thumbUrl ?? (asset.kind === "IMAGE" ? url : null),
@@ -78,4 +84,18 @@ export async function toLibraryAsset(asset: {
       ? { audioId: asset.instagramAudioId, title: asset.instagramTitle ?? asset.fileName, artist: asset.instagramArtist ?? null }
       : null,
   };
+}
+
+/** Resolve provenance once for a library page, without one database query per clip. */
+export async function toLibraryAssets(assets: LibraryAssetInput[]): Promise<LibraryAsset[]> {
+  const ids = assets.filter(asset => asset.kind === "VIDEO").map(asset => asset.id);
+  const jobs = ids.length ? await prisma.aiGeneration.findMany({
+    where: { status: "SUCCEEDED", assetId: { in: ids } }, select: { assetId: true },
+  }) : [];
+  const generated = new Set(jobs.map(job => job.assetId));
+  return Promise.all(assets.map(asset => serializeLibraryAsset(asset, generated.has(asset.id))));
+}
+
+export async function toLibraryAsset(asset: LibraryAssetInput): Promise<LibraryAsset> {
+  return (await toLibraryAssets([asset]))[0];
 }

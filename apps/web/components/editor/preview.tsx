@@ -3,8 +3,8 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { Player, type PlayerRef } from "@remotion/player";
 import { prefetch } from "remotion";
-import { INSTAGRAM, minTextSize, REEL_FORMAT, TEXT_SIZE_MAX, textsAt, type TextOverlay, type Timeline } from "@reelwalk/core";
-import { ReelComposition, reelDurationInFrames, textCss, type ReelAsset } from "@reelwalk/render/reel";
+import { INSTAGRAM, minTextSize, REEL_FORMAT, TEXT_SIZE_MAX, textsAt, textPositionAt, type TextOverlay, type Timeline } from "@reelwalk/core";
+import { ReelComposition, reelDurationInFrames, textTreatmentCss, type ReelAsset } from "@reelwalk/render/reel";
 import { PlayIcon } from "../icons";
 import { useClock, type Clock } from "./clock";
 
@@ -44,7 +44,7 @@ const clamp = (value: number, min: number, max: number) => Math.min(max, Math.ma
 
 /** An invisible copy of the text at preview scale, which gives a box the text's exact size. */
 function Ghost({ text, scale }: { text: TextOverlay; scale: number }) {
-  const css = textCss(text.style, text.color, text.size);
+  const css = textTreatmentCss(text);
   return (
     // As wide as the words, up to the width the reel wraps text at, so the box hugs the text.
     <span style={{ display: "block", zoom: scale, width: "max-content", maxWidth: REEL_FORMAT.width * 0.86, pointerEvents: "none" }}>
@@ -61,6 +61,7 @@ function Ghost({ text, scale }: { text: TextOverlay; scale: number }) {
  */
 function TextHandle({
   text,
+  clock,
   scale,
   frame,
   onMove,
@@ -68,6 +69,7 @@ function TextHandle({
   onEdit,
 }: {
   text: TextOverlay;
+  clock: Clock;
   scale: number;
   frame: RefObject<HTMLDivElement | null>;
   onMove(x: number, y: number, gesture: string): void;
@@ -75,12 +77,14 @@ function TextHandle({
   onEdit(): void;
 }) {
   const grab = useRef<{ dx: number; dy: number; gesture: string } | null>(null);
+  const now = useClock(clock);
+  const position = textPositionAt(text, (now - text.startMs) / (text.endMs - text.startMs));
   return (
     <button
       type="button"
       className="text-handle"
       aria-label={`Move text "${text.text}". Drag to place it, drag the corner to resize, double-click to edit.`}
-      style={{ left: `${text.x * 100}%`, top: `${text.y * 100}%` }}
+      style={{ left: `${position.x * 100}%`, top: `${position.y * 100}%` }}
       onDoubleClick={onEdit}
       onPointerDown={(event) => {
         if (event.button !== 0 || !frame.current) return;
@@ -176,7 +180,7 @@ function TextTargets({
             className="text-hit"
             aria-label={`Select text "${text.text}"`}
             data-testid="text-target"
-            style={{ left: `${text.x * 100}%`, top: `${text.y * 100}%` }}
+            style={{ left: `${textPositionAt(text, (now - text.startMs) / (text.endMs - text.startMs)).x * 100}%`, top: `${textPositionAt(text, (now - text.startMs) / (text.endMs - text.startMs)).y * 100}%` }}
             onClick={() => onSelect(text.id)}
             onDoubleClick={() => onEdit(text.id)}
           >
@@ -345,6 +349,7 @@ export function Preview({
         {selectedText && !playing && !theater ? (
           <TextHandle
             text={selectedText}
+            clock={clock}
             scale={scale}
             frame={frame}
             onMove={(x, y, gesture) => onMoveText(selectedText.id, x, y, gesture)}

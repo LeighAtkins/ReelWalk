@@ -1,22 +1,25 @@
-/**
- * The one call ReelWalk makes to OpenAI: a structured answer from the
- * Responses API (ADR 0020). Plain fetch, no SDK: one endpoint, one shape.
- *
- * OPENAI_API_KEY turns it on. OPENAI_MODEL picks the model; the default is
- * gpt-6-luna ($0.10 / $0.50 per million tokens), the cheapest; gpt-6.1-sol
- * ($2 / $10, cached input $0.10) is the step up if Luna misreads requests. With
- * no key, DEV_FAKE_AI=true makes the app answer from rules instead, so local
- * stacks and tests can exercise the whole path.
- *
- * An OpenRouter key (sk-or-…) works too: OpenRouter serves the same Responses
- * API at its own address, names the models "openai/<model>", and passes
- * OpenAI's prices through for them. OPENAI_BASE_URL overrides either.
- */
+/** Server-only structured editing answers. Claude is selected when configured;
+ * the existing OpenAI transport remains available for explicit rollback. */
 
 export const DEFAULT_AI_MODEL = "gpt-6-luna";
 
+export const DEFAULT_CLAUDE_MODEL = "claude-opus-5-5";
+
+function configuredKey(name: string): string | undefined {
+  const key = process.env[name]?.trim();
+  return key && key !== "unset" ? key : undefined;
+}
+
+export function aiProvider(): "anthropic" | "openai" {
+  const provider = process.env.AI_PROVIDER?.trim();
+  if (provider && provider !== "anthropic" && provider !== "openai") throw new AiError("Unknown AI provider configuration.", false);
+  return provider === "anthropic" || provider === "openai" ? provider : (configuredKey("ANTHROPIC_API_KEY") ? "anthropic" : "openai");
+}
+
 export function aiModel(): string {
-  return process.env.OPENAI_MODEL || DEFAULT_AI_MODEL;
+  return aiProvider() === "anthropic"
+    ? process.env.ANTHROPIC_MODEL || DEFAULT_CLAUDE_MODEL
+    : process.env.OPENAI_MODEL || DEFAULT_AI_MODEL;
 }
 
 function viaOpenRouter(): boolean {
@@ -34,7 +37,7 @@ function providerModel(model: string): string {
 }
 
 export function isAiConfigured(): boolean {
-  return Boolean(process.env.OPENAI_API_KEY);
+  return Boolean(configuredKey(aiProvider() === "anthropic" ? "ANTHROPIC_API_KEY" : "OPENAI_API_KEY"));
 }
 
 export function isFakeAi(): boolean {
@@ -46,7 +49,7 @@ export function isAiAvailable(): boolean {
   return isAiConfigured() || isFakeAi();
 }
 
-export type AiUsage = { inputTokens: number; cachedTokens: number; outputTokens: number };
+export type AiUsage = { inputTokens: number; cachedTokens: number; outputTokens: number; cacheWriteTokens?: number };
 
 export class AiError extends Error {
   constructor(
@@ -85,7 +88,8 @@ export async function structuredAnswer(options: {
   maxOutputTokens?: number;
   signal?: AbortSignal;
 }): Promise<{ json: unknown; usage: AiUsage; model: string }> {
-  const key = process.env.OPENAI_API_KEY;
+  if (aiProvider() === "anthropic") return claudeAnswer(options);
+  const key = configuredKey("OPENAI_API_KEY");
   if (!key) throw new AiError("Asking for changes is not set up on this deployment.", false);
   const model = aiModel();
   const body: Record<string, unknown> = {
@@ -149,14 +153,95 @@ export async function structuredAnswer(options: {
   };
 }
 
+type AnswerOptions = Parameters<typeof structuredAnswer>[0];
+
+/** Claude limits union-heavy schemas. Encode each operation's arguments as JSON,
+ * then restore the existing plan shape for the caller's unchanged Zod validation. */
+function claudeEditWire(options: AnswerOptions) {
+  if (options.schemaName !== "reel_edit_plan") return null;
+  const properties = options.schema.properties as Record<string, Record<string, unknown>>;
+  const items = properties.ops.items as Record<string, unknown>;
+  const opProperties = items.properties as Record<string, unknown>;
+  return {
+    schema: { ...options.schema, properties: { ...properties, ops: { type: "array", items: {
+      type: "object", additionalProperties: false, required: ["op", "arguments"],
+      properties: { op: opProperties.op, arguments: { type: "string", description: "A JSON object containing only the relevant non-null operation fields. For example: {\"clip\":1,\"speed\":1}" } },
+    } } } },
+    instructions: `${options.instructions}\nTransport format: each ops item has op and arguments. arguments is a JSON-encoded object with the relevant fields from this operation schema; omit unused fields, which become null. Never put op inside arguments. The editor validates every decoded field before applying. Operation fields: ${JSON.stringify(opProperties)}`,
+    decode(json: unknown): unknown {
+      if (!json || typeof json !== "object" || !Array.isArray((json as { ops?: unknown }).ops)) throw new AiError("Claude sent an invalid edit plan.", false);
+      const plan = json as { ops: Array<{ op?: unknown; arguments?: unknown }> };
+      return { ...plan, ops: plan.ops.map(operation => {
+        if (typeof operation.arguments !== "string") throw new AiError("Claude sent invalid operation arguments.", false);
+        let args: unknown;
+        try { args = JSON.parse(operation.arguments); } catch { throw new AiError("Claude sent invalid operation JSON.", false); }
+        if (!args || typeof args !== "object" || Array.isArray(args) || Object.keys(args).some(key => key === "op" || !Object.hasOwn(opProperties, key))) throw new AiError("Claude sent unknown operation fields.", false);
+        return { ...Object.fromEntries((items.required as string[]).map(key => [key, null])), ...args, op: operation.op };
+      }) };
+    },
+  };
+}
+
+async function claudeAnswer(options: AnswerOptions): Promise<{ json: unknown; usage: AiUsage; model: string }> {
+  const key = configuredKey("ANTHROPIC_API_KEY");
+  if (!key) throw new AiError("Claude editing is not configured on this deployment.", false);
+  const model = aiModel();
+  const wire = claudeEditWire(options);
+  // Only owned, preprocessed image data is accepted. Never make the provider fetch arbitrary URLs.
+  const images = (options.images ?? []).map((url) => {
+    const match = /^data:(image\/(?:jpeg|png|gif|webp));base64,([A-Za-z0-9+/=]+)$/.exec(url);
+    if (!match) throw new AiError("The editing image is not a supported image data URL.", false);
+    return { type: "image", source: { type: "base64", media_type: match[1], data: match[2] } };
+  });
+  let response: Response;
+  try {
+    response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+      body: JSON.stringify({
+        model,
+        // Opus 5.5 always thinks; leave room for reasoning as well as the edit JSON.
+        max_tokens: Math.min(16000, Math.max(4096, (options.maxOutputTokens ?? 1200) + 2048)),
+        system: wire?.instructions ?? options.instructions,
+        messages: [{ role: "user", content: [{ type: "text", text: options.input }, ...images] }],
+        output_config: { effort: "medium", format: { type: "json_schema", schema: wire?.schema ?? options.schema } },
+      }),
+      signal: options.signal ?? AbortSignal.timeout(60_000),
+    });
+  } catch {
+    throw new AiError("Could not reach Claude.", true);
+  }
+  const data = await response.json().catch(() => ({})) as {
+    stop_reason?: string; model?: string; content?: Array<{ type?: string; text?: string }>;
+    usage?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number };
+  };
+  if (!response.ok) {
+    // Do not echo provider error bodies: they can contain request content or credentials.
+    throw new AiError(`Claude could not answer (HTTP ${response.status}).`, response.status === 429 || response.status >= 500);
+  }
+  if (data.stop_reason === "refusal") throw new AiError("Claude declined this edit request.", false);
+  if (data.stop_reason !== "end_turn") throw new AiError("Claude stopped before completing the edit plan.", false);
+  const text = data.content?.filter(part => part.type === "text").map(part => part.text ?? "").join("");
+  let json: unknown;
+  try { json = JSON.parse(text ?? ""); } catch { throw new AiError("Claude's answer was not valid edit JSON.", false); }
+  const usage = data.usage;
+  const cachedTokens = usage?.cache_read_input_tokens ?? 0;
+  const cacheWriteTokens = usage?.cache_creation_input_tokens ?? 0;
+  return { json: wire ? wire.decode(json) : json, model: data.model ?? model, usage: {
+    inputTokens: (usage?.input_tokens ?? 0) + cachedTokens + cacheWriteTokens,
+    outputTokens: usage?.output_tokens ?? 0, cachedTokens, cacheWriteTokens,
+  } };
+}
+
 /** What a call cost in dollars, from the model's list price, for logs and the admin page. */
 export function usageCostUsd(model: string, usage: AiUsage): number {
-  const prices: Record<string, { input: number; cached: number; output: number }> = {
+  const prices: Record<string, { input: number; cached: number; output: number; cacheWrite?: number }> = {
+    "claude-opus-5-5": { input: 4, cached: 0.2, cacheWrite: 5, output: 20 },
     "gpt-6.1-sol": { input: 2, cached: 0.1, output: 10 },
     "gpt-6-sol": { input: 2, cached: 0.2, output: 10 },
     "gpt-6-luna": { input: 0.1, cached: 0.01, output: 0.5 },
   };
   const price = prices[model.replace(/^openai\//, "")] ?? prices[DEFAULT_AI_MODEL];
-  const fresh = Math.max(0, usage.inputTokens - usage.cachedTokens);
-  return (fresh * price.input + usage.cachedTokens * price.cached + usage.outputTokens * price.output) / 1_000_000;
+  const fresh = Math.max(0, usage.inputTokens - usage.cachedTokens - (usage.cacheWriteTokens ?? 0));
+  return (fresh * price.input + usage.cachedTokens * price.cached + usage.outputTokens * price.output + (usage.cacheWriteTokens ?? 0) * (price.cacheWrite ?? price.input)) / 1_000_000;
 }

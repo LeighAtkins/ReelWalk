@@ -148,6 +148,33 @@ variable "pixabay_api_key" {
   default   = ""
 }
 
+# Direct Anthropic API for editing chat; keep the key in encrypted SSM.
+variable "ai_provider" {
+  type    = string
+  default = "anthropic"
+  validation {
+    condition     = contains(["anthropic", "openai"], var.ai_provider)
+    error_message = "AI provider must be anthropic or openai."
+  }
+}
+
+variable "anthropic_api_key" {
+  type      = string
+  sensitive = true
+  default   = ""
+}
+
+# Use an existing encrypted parameter without putting its value in Terraform inputs.
+variable "anthropic_api_key_ssm_arn" {
+  type    = string
+  default = ""
+}
+
+variable "anthropic_model" {
+  type    = string
+  default = "claude-opus-5-5"
+}
+
 # Asking for a change in words (ADR 0020). Empty hides the feature.
 variable "openai_api_key" {
   type      = string

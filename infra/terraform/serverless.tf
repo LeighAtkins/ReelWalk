@@ -33,11 +33,13 @@ locals {
     # Transactional email through SES (email.tf). Unset means log instead of send.
     EMAIL_FROM = "ReelWalk <hello@${var.app_domain}>"
     # The model behind "ask for a change" (ADR 0020).
-    OPENAI_MODEL = var.openai_model
+    AI_PROVIDER     = var.ai_provider
+    ANTHROPIC_MODEL = var.anthropic_model
+    OPENAI_MODEL    = var.openai_model
   }
 
   # Parameter Store holds the credentials; both runtimes read them at start.
-  app_secrets = {
+  app_secrets = merge({
     DATABASE_URL         = var.database_url
     META_APP_ID          = var.meta_app_id
     META_APP_SECRET      = var.meta_app_secret
@@ -51,7 +53,7 @@ locals {
     STRIPE_WEBHOOK_SECRET = var.stripe_webhook_secret
     # Bearer secret EventBridge sends to /api/scheduled-posts/run (scheduled_posts.tf).
     SCHEDULER_SECRET = random_password.scheduler.result
-  }
+  }, var.anthropic_api_key_ssm_arn == "" ? { ANTHROPIC_API_KEY = var.anthropic_api_key } : {})
 }
 
 resource "aws_ssm_parameter" "app" {
@@ -102,7 +104,7 @@ resource "aws_iam_role_policy_attachment" "task_execution" {
 data "aws_iam_policy_document" "read_parameters" {
   statement {
     actions   = ["ssm:GetParameters", "ssm:GetParameter"]
-    resources = [for p in aws_ssm_parameter.app : p.arn]
+    resources = concat([for p in aws_ssm_parameter.app : p.arn], var.anthropic_api_key_ssm_arn == "" ? [] : [var.anthropic_api_key_ssm_arn])
   }
 }
 
@@ -227,7 +229,7 @@ data "aws_iam_policy_document" "web_instance" {
   statement {
     sid       = "ReadParameters"
     actions   = ["ssm:GetParameters", "ssm:GetParameter"]
-    resources = [for p in aws_ssm_parameter.app : p.arn]
+    resources = concat([for p in aws_ssm_parameter.app : p.arn], var.anthropic_api_key_ssm_arn == "" ? [] : [var.anthropic_api_key_ssm_arn])
   }
 
   statement {
@@ -304,7 +306,7 @@ resource "aws_apprunner_service" "web" {
           SAMPLE_REEL_URL        = var.sample_reel_urls
           SAMPLE_REEL_POSTER_URL = var.sample_reel_poster_urls
         })
-        runtime_environment_secrets = { for k, p in aws_ssm_parameter.app : k => p.arn }
+        runtime_environment_secrets = merge({ for k, p in aws_ssm_parameter.app : k => p.arn }, var.anthropic_api_key_ssm_arn == "" ? {} : { ANTHROPIC_API_KEY = var.anthropic_api_key_ssm_arn })
       }
     }
   }

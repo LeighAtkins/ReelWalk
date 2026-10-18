@@ -1,9 +1,17 @@
-export const AI_CLIP_SECONDS = 8;
-export const AI_CLIP_COST_CENTS = 80;
 export const AI_VIDEO_MODEL = "veo-3.1-fast-generate-001";
 
-export const AI_PLAN_CREDITS = { FREE: 1, AGENT: 10, OFFICE: 30 } as const;
-export const AI_TOP_UP = { priceCents: 1500, credits: 5 } as const;
+/** One credit buys 4 seconds of video: a 4-second clip costs 1 credit and an 8-second clip costs 2. */
+export const AI_CLIP_SECONDS = [4, 8] as const;
+export type AiClipSeconds = (typeof AI_CLIP_SECONDS)[number];
+export const AI_SECONDS_PER_CREDIT = 4;
+/** Veo 3.1 Fast, 1080p, silent: provider cost reserved per second generated. */
+export const AI_COST_CENTS_PER_SECOND = 10;
+export const aiClipCredits = (seconds: AiClipSeconds) => seconds / AI_SECONDS_PER_CREDIT;
+export const aiClipCostCents = (seconds: AiClipSeconds) => seconds * AI_COST_CENTS_PER_SECOND;
+
+export const AI_TRIAL_CREDITS = 2;
+export const AI_PLAN_CREDITS = { FREE: 2, AGENT: 20, OFFICE: 60 } as const;
+export const AI_TOP_UP = { priceCents: 1500, credits: 10 } as const;
 
 /** Monthly windows stay anchored to the subscription day, including Jan 31. */
 export function aiCreditWindow(anchor: Date, paidThrough: Date, now = new Date()): { start: Date; end: Date } | null {

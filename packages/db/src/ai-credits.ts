@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { AI_PLAN_CREDITS, aiCreditWindow } from "@reelwalk/core";
+import { AI_PLAN_CREDITS, AI_TRIAL_CREDITS, aiClipCredits, aiCreditWindow, type AiClipSeconds } from "@reelwalk/core";
 import type { Prisma, PrismaClient } from "./generated/prisma/client";
 
 type Tx = Prisma.TransactionClient;
@@ -13,7 +13,7 @@ export async function lockBillingAccount(tx: Tx, workspaceId: string, now = new 
   const account = await tx.workspace.findUniqueOrThrow({ where: { id: workspaceId } });
   await tx.aiCreditGrant.upsert({
     where: { source: `trial:${workspaceId}` },
-    create: { workspaceId, source: `trial:${workspaceId}`, kind: "TRIAL", amount: 1, remaining: 1 }, update: {},
+    create: { workspaceId, source: `trial:${workspaceId}`, kind: "TRIAL", amount: AI_TRIAL_CREDITS, remaining: AI_TRIAL_CREDITS }, update: {},
   });
   if (account.aiPaidPeriodStart && account.aiPaidThrough && account.aiPaidPlan !== "FREE") {
     const window = aiCreditWindow(account.aiPaidPeriodStart, account.aiPaidThrough, now);
@@ -55,7 +55,7 @@ export class AiCreditError extends Error {}
 /** Account lock + conditional debit + budget reservation + job commit together. */
 export async function reserveAiGeneration(db: PrismaClient, input: {
   workspaceId: string; userId: string; requestId: string; prompt: string;
-  referenceKey?: string; referenceType?: string; model: string; costCents: number; budgetCents: number;
+  referenceKey?: string; referenceType?: string; model: string; durationSeconds: AiClipSeconds; costCents: number; budgetCents: number;
   shot?: Prisma.InputJsonValue; frameSources?: Prisma.InputJsonValue;
 }, now = new Date()) {
   return db.$transaction(async (tx) => {
@@ -69,23 +69,36 @@ export async function reserveAiGeneration(db: PrismaClient, input: {
     const recent = await tx.aiGeneration.count({ where: { workspaceId: input.workspaceId, createdAt: { gt: new Date(now.getTime() - 3600_000) } } });
     if (recent >= 10) throw new AiCreditError("You've reached the hourly generation limit. Please try again later.");
     // Spend expiring monthly credits before lifetime trial/purchased credits.
-    const [grant] = await tx.$queryRaw<{ id: string }[]>`
-      SELECT "id" FROM "AiCreditGrant" WHERE "workspaceId" = ${input.workspaceId}
+    // An 8-second clip may draw on two grants, so plan the whole debit before taking any of it.
+    const credits = aiClipCredits(input.durationSeconds);
+    const grants = await tx.$queryRaw<{ id: string; remaining: number }[]>`
+      SELECT "id", "remaining" FROM "AiCreditGrant" WHERE "workspaceId" = ${input.workspaceId}
       AND "remaining" > 0 AND ("expiresAt" IS NULL OR "expiresAt" > ${now})
-      ORDER BY "expiresAt" ASC NULLS LAST, "createdAt" ASC LIMIT 1 FOR UPDATE`;
-    if (!grant) throw new AiCreditError("No AI credits left. Choose a plan or add more credits in Account.");
+      ORDER BY "expiresAt" ASC NULLS LAST, "createdAt" ASC FOR UPDATE`;
+    const available = grants.reduce((sum, grant) => sum + grant.remaining, 0);
+    if (!available) throw new AiCreditError("No AI credits left. Choose a plan or add more credits in Account.");
+    if (available < credits) throw new AiCreditError(`An ${input.durationSeconds}-second clip needs ${credits} credits and you have ${available}. Choose 4 seconds or add credits in Account.`);
+    const debits: { grantId: string; credits: number }[] = [];
+    for (const grant of grants) {
+      const owed = credits - debits.reduce((sum, debit) => sum + debit.credits, 0);
+      if (!owed) break;
+      debits.push({ grantId: grant.id, credits: Math.min(owed, grant.remaining) });
+    }
     await tx.aiSpendBudget.upsert({ where: { id: "vertex-video" }, create: { id: "vertex-video" }, update: {} });
     const reserved = await tx.aiSpendBudget.updateMany({
       where: { id: "vertex-video", reservedCents: { lte: input.budgetCents - input.costCents } },
       data: { reservedCents: { increment: input.costCents } },
     });
     if (reserved.count !== 1) throw new AiCreditError("AI generation is temporarily paused. Your credits have not been used.");
-    await tx.aiCreditGrant.update({ where: { id: grant.id }, data: { remaining: { decrement: 1 } } });
+    for (const debit of debits) {
+      await tx.aiCreditGrant.update({ where: { id: debit.grantId }, data: { remaining: { decrement: debit.credits } } });
+    }
     return tx.aiGeneration.create({ data: {
       workspaceId: input.workspaceId, createdById: input.userId, requestId: input.requestId,
       prompt: input.prompt, referenceKey: input.referenceKey, referenceType: input.referenceType,
       shot: input.shot, frameSources: input.frameSources,
-      model: input.model, grantId: grant.id, costCents: input.costCents,
+      model: input.model, grantId: debits[0].grantId, costCents: input.costCents,
+      durationSeconds: input.durationSeconds, credits, grantDebits: debits.length > 1 ? debits : undefined,
     } });
   });
 }
@@ -100,7 +113,10 @@ export async function failAiGeneration(db: PrismaClient, id: string, error: stri
       data: { status: "FAILED", error: error.slice(0, 400), finishedAt: new Date(), leaseUntil: null, leaseToken: null },
     });
     if (!changed.count) return;
-    await tx.aiCreditGrant.update({ where: { id: job.grantId }, data: { remaining: { increment: 1 } } });
+    const debits = (job.grantDebits as { grantId: string; credits: number }[] | null) ?? [{ grantId: job.grantId, credits: job.credits }];
+    for (const debit of debits) {
+      await tx.aiCreditGrant.update({ where: { id: debit.grantId }, data: { remaining: { increment: debit.credits } } });
+    }
     if (releaseBudget) await tx.aiSpendBudget.update({ where: { id: "vertex-video" }, data: { reservedCents: { decrement: job.costCents } } });
   });
 }

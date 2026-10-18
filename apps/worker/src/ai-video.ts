@@ -36,7 +36,7 @@ export async function processAiVideo(s3: S3Client, bucket: string): Promise<bool
         const bytes = await result.Body.transformToByteArray();
         image = { bytesBase64Encoded: Buffer.from(bytes).toString("base64"), mimeType: job.referenceType! };
       }
-      const operationName = await provider.submit(job.model, job.prompt, image, lastFrame);
+      const operationName = await provider.submit(job.model, job.durationSeconds, job.prompt, image, lastFrame);
       await prisma.aiGeneration.updateMany({ where: { id: job.id, leaseToken: job.leaseToken, status: "SUBMITTING" }, data: {
         status: "RUNNING", operationName, nextPollAt: new Date(Date.now() + 15_000), leaseToken: null, leaseUntil: null,
       } });
@@ -63,7 +63,7 @@ export async function processAiVideo(s3: S3Client, bucket: string): Promise<bool
           await tx.mediaAsset.upsert({ where: { objectKey }, update: { thumbKey }, create: {
             id: `ai-${job.id}`, workspaceId: job.workspaceId, kind: "VIDEO", objectKey, thumbKey, previewKey: objectKey,
             contentType: "video/mp4", fileName: `AI shot — ${job.prompt.slice(0, 60)}.mp4`,
-            sizeBytes: BigInt(result.video!.length), durationMs: 8000, width: 1080, height: 1920,
+            sizeBytes: BigInt(result.video!.length), durationMs: job.durationSeconds * 1000, width: 1080, height: 1920,
             attribution: "AI-generated with Google Veo",
           } });
           const shot = aiShotSchema.safeParse(job.shot);
@@ -72,7 +72,7 @@ export async function processAiVideo(s3: S3Client, bucket: string): Promise<bool
             const parsed = timelineSchema.safeParse(source?.timeline);
             if (source && parsed.success) {
               const timeline = parsed.data;
-              const clip = clipSchema.parse({ id: `ai-insert-ai-${job.id}`, assetId: `ai-${job.id}`, kind: "VIDEO", sourceStartMs: 0, sourceEndMs: 8000 });
+              const clip = clipSchema.parse({ id: `ai-insert-ai-${job.id}`, assetId: `ai-${job.id}`, kind: "VIDEO", sourceStartMs: 0, sourceEndMs: job.durationSeconds * 1000 });
               const next = insertAiShot(timeline, clip, shot.data);
               // A changed/deleted boundary leaves the clip in the library for review.
               if (next !== timeline) await tx.reel.upsert({ where: { id: `ai-promo-${job.id}` }, update: {}, create: {

@@ -13,7 +13,7 @@ describe("Vertex video", () => {
     vi.stubGlobal("fetch", fetcher);
     const first = { bytesBase64Encoded: "first-frame", mimeType: "image/jpeg" };
     const last = { bytesBase64Encoded: "last-frame", mimeType: "image/jpeg" };
-    await new VertexVideo("test-project").submit("veo-3.1-fast-generate-001", "Connect these shots", first, last);
+    await new VertexVideo("test-project").submit("veo-3.1-fast-generate-001", 8, "Connect these shots", first, last);
     const payload = JSON.parse(fetcher.mock.calls[0]![1].body);
     expect(payload.instances).toEqual([{ prompt: "Connect these shots", image: first, lastFrame: last }]);
     expect(payload.parameters).toMatchObject({ sampleCount: 1, durationSeconds: 8, resolution: "1080p" });
@@ -30,18 +30,20 @@ describe("Vertex video", () => {
     expect(await options.aws_security_credentials_supplier.getAwsSecurityCredentials()).toEqual({ accessKeyId: "first", secretAccessKey: "secret", token: "session" });
     expect(await options.aws_security_credentials_supplier.getAwsSecurityCredentials()).toEqual({ accessKeyId: "refreshed", secretAccessKey: "new-secret", token: "new-session" });
   });
-  it("always requests exactly one silent eight-second 1080p portrait clip", async () => {
+  it("requests exactly one silent 1080p portrait clip of the paid length", async () => {
     const fetcher = vi.fn().mockResolvedValue(Response.json({ name: "projects/test/operations/one" }));
     vi.stubGlobal("fetch", fetcher);
-    await new VertexVideo("test-project").submit("veo-3.1-fast-generate-001", "A slow camera move");
+    await new VertexVideo("test-project").submit("veo-3.1-fast-generate-001", 4, "A slow camera move");
     expect(JSON.parse(fetcher.mock.calls[0]![1].body)).toMatchObject({ parameters: {
-      sampleCount: 1, durationSeconds: 8, generateAudio: false, resolution: "1080p", aspectRatio: "9:16",
+      sampleCount: 1, durationSeconds: 4, generateAudio: false, resolution: "1080p", aspectRatio: "9:16",
     } });
-    expect(vertexVideoParameters().sampleCount).toBe(1);
+    expect(vertexVideoParameters(8).durationSeconds).toBe(8);
+    // Only lengths that have a credit price can reach the paid API.
+    expect(() => vertexVideoParameters(6)).toThrow("Unsupported");
   });
   it("does not retry an ambiguous paid submission", async () => {
     const fetcher = vi.fn().mockRejectedValue(new Error("timeout")); vi.stubGlobal("fetch", fetcher);
-    await expect(new VertexVideo("test-project").submit("veo-3.1-fast-generate-001", "A room")).rejects.toThrow("timeout");
+    await expect(new VertexVideo("test-project").submit("veo-3.1-fast-generate-001", 4, "A room")).rejects.toThrow("timeout");
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
   it("returns a filtered result as a refundable failure", async () => {

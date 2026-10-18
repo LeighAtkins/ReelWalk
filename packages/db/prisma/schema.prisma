@@ -108,6 +108,12 @@ model AiGeneration {
   operationName String?
   assetId       String? @unique
   costCents     Int @default(80)
+  // Requested clip length (4 or 8 s) and credits debited at 4 s per credit.
+  // Defaults describe rows created before 4-second credits: 8 s, 2 credits after the doubling.
+  durationSeconds Int @default(8)
+  credits       Int @default(2)
+  // [{ grantId, credits }] when the debit spans grants; null means all of it came from grantId.
+  grantDebits   Json?
   error         String?
   leaseToken    String?
   leaseUntil    DateTime?

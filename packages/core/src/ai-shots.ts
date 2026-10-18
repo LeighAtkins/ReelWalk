@@ -22,6 +22,8 @@ export const AI_SHOT_ATMOSPHERE_LABELS: Record<AiShotAtmosphere, string> = {
   "blue-hour": "Blue hour + glowing windows", sunny: "Clear sky + soft sunshine", mist: "Soft cinematic mist", rain: "Rain + reflective surfaces",
 };
 export const aiConnectsClips = (mode: AiShotMode) => ["bridge", "burst", "construction"].includes(mode);
+/** Timelapses need the full 8 seconds to progress; every other move fits a 4-second clip. */
+export const aiDefaultClipSeconds = (mode?: AiShotMode): 4 | 8 => mode === "day-night" || mode === "construction" ? 8 : 4;
 export const aiReplacesStill = (mode: AiShotMode) => ["gimbal", "drone", "orbit", "fly-through", "day-night"].includes(mode);
 const frame = z.object({
   assetId: z.string().min(1).max(64), atMs: z.number().int().min(0).max(86_400_000).default(0),
@@ -123,10 +125,13 @@ export function insertAiShot(timeline: Timeline, generated: Clip, shot: AiShot):
   if (shot.next && !same(timeline.clips[index + 1], shot.next)) return timeline;
   const bridge = aiConnectsClips(shot.mode);
   const replace = aiReplacesStill(shot.mode) && shot.anchor?.kind === "IMAGE";
-  const duration = replace ? clipDurationMs(shot.anchor!) : shot.mode === "burst" ? 2000 : ["custom", "day-night", "construction"].includes(shot.mode) ? 8000 : 4000;
+  // Generated clips are 4 or 8 seconds; full-length modes play at 1x, moves fit 4 s, bursts 2 s.
+  const sourceMs = generated.sourceEndMs - generated.sourceStartMs;
+  const duration = replace ? clipDurationMs(shot.anchor!) : shot.mode === "burst" ? Math.min(2000, sourceMs)
+    : ["custom", "day-night", "construction"].includes(shot.mode) ? sourceMs : Math.min(4000, sourceMs);
   if (replace && duration > 32000) return timeline;
-  const clip: Clip = { ...generated, volume: 0, sourceStartMs: 0, sourceEndMs: 8000,
-    speed: Math.max(0.25, Math.min(4, 8000 / duration)), transitionIn: replace ? shot.anchor!.transitionIn : "cut",
+  const clip: Clip = { ...generated, volume: 0, sourceStartMs: 0, sourceEndMs: sourceMs,
+    speed: Math.max(0.25, Math.min(4, sourceMs / duration)), transitionIn: replace ? shot.anchor!.transitionIn : "cut",
     filter: shot.anchor?.filter ?? "none", zoom: replace ? 1 : shot.anchor?.zoom ?? 1 };
   const grade = aiShotGrade(shot);
   const finish = (edit: Timeline): Timeline => {
@@ -136,7 +141,7 @@ export function insertAiShot(timeline: Timeline, generated: Clip, shot: AiShot):
   if (replace) {
     // Keep the clip ID for cover/text anchors and preserve the still's duration.
     const replacement = { ...clip, id: shot.anchor!.id, room: shot.anchor!.room, spot: shot.anchor!.spot,
-      sourceEndMs: Math.min(8000, Math.round(duration * clip.speed)) };
+      sourceEndMs: Math.min(sourceMs, Math.round(duration * clip.speed)) };
     return finish({ ...timeline, clips: timeline.clips.map((c, i) => i === index ? replacement : c) });
   }
   const insertionIndex = index < 0 ? timeline.clips.length : index + 1;

@@ -17,7 +17,7 @@ import { processAiVideo } from "../src/ai-video";
 const a = clipSchema.parse({ id: "a", assetId: "real-a", kind: "VIDEO", sourceStartMs: 1000, sourceEndMs: 5000 });
 const b = clipSchema.parse({ id: "b", assetId: "real-b", kind: "VIDEO", sourceStartMs: 0, sourceEndMs: 4000 });
 const source = { id: "reel", title: "My listing", timeline: { ...emptyTimeline(), clips: [a, b] }, caption: "My caption" };
-const job = { id: "one", workspaceId: "studio", status: "SUBMITTING", leaseToken: "mine", model: "veo", prompt: "Move", frameSources: ["frames"],
+const job = { id: "one", workspaceId: "studio", status: "SUBMITTING", leaseToken: "mine", model: "veo", durationSeconds: 8, prompt: "Move", frameSources: ["frames"],
   shot: { ...aiShotFromClips("burst", a, b), draftReelId: "reel" }, createdAt: new Date(), operationName: "saved-operation" };
 const s3 = { config: {}, send: vi.fn() } as unknown as S3Client;
 
@@ -37,7 +37,7 @@ describe("AI shot worker", () => {
   it("submits both decoded boundary frames and saves the operation for polling", async () => {
     claim.mockResolvedValue(job);
     await processAiVideo(s3, "media");
-    expect(submit).toHaveBeenCalledWith("veo", "Move", { bytesBase64Encoded: "first", mimeType: "image/jpeg" }, { bytesBase64Encoded: "last", mimeType: "image/jpeg" });
+    expect(submit).toHaveBeenCalledWith("veo", 8, "Move", { bytesBase64Encoded: "first", mimeType: "image/jpeg" }, { bytesBase64Encoded: "last", mimeType: "image/jpeg" });
     expect(db.aiGeneration.updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "one", leaseToken: "mine", status: "SUBMITTING" }, data: expect.objectContaining({ operationName: "operation-one" }) }));
   });
   it("refunds failed extraction and releases budget without calling the paid API", async () => {

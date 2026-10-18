@@ -109,4 +109,14 @@ describe("footage anchored AI edits", () => {
     expect(next.clips[0].spot).toEqual(photo.spot);
     expect(next.clips[1]).toEqual(b);
   });
+  it("plays a 4-second generation at natural speed for moves, half the burst and full length for custom shots", () => {
+    const short = clipSchema.parse({ id: "insert-short", assetId: "generated", kind: "VIDEO", sourceStartMs: 0, sourceEndMs: 4000 });
+    const a = clipSchema.parse({ id: "a", assetId: "real-a", kind: "VIDEO", sourceStartMs: 0, sourceEndMs: 3000 });
+    const b = clipSchema.parse({ id: "b", assetId: "real-b", kind: "VIDEO", sourceStartMs: 0, sourceEndMs: 3000 });
+    const timeline = parseTimeline({ ...emptyTimeline(), clips: [a, b] });
+    expect(insertAiShot(timeline, short, aiShotFromClips("bridge", a, b)).clips[1]).toMatchObject({ sourceEndMs: 4000, speed: 1 });
+    expect(insertAiShot(timeline, short, aiShotFromClips("burst", a, b)).clips[1]).toMatchObject({ sourceEndMs: 4000, speed: 2 });
+    const custom = insertAiShot(timeline, short, { mode: "custom" });
+    expect(clipDurationMs(custom.clips[2]!)).toBe(4000);
+  });
 });

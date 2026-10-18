@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AI_SHOT_LABELS, AI_SHOT_MODES, AI_SHOT_STYLES, AI_SHOT_STYLE_LABELS, AI_SHOT_ATMOSPHERES, AI_SHOT_ATMOSPHERE_LABELS,
-  aiBoundary, aiConnectsClips, aiShotSchema, aiShotStyle, type AiShot, type AiShotMode, type AiShotStyle, type AiShotAtmosphere, type Clip } from "@reelwalk/core";
+  aiBoundary, aiClipCredits, aiConnectsClips, aiDefaultClipSeconds, aiShotSchema, aiShotStyle, type AiShot, type AiShotMode, type AiShotStyle, type AiShotAtmosphere, type Clip } from "@reelwalk/core";
 import type { LibraryAsset } from "@/lib/library";
 
 type Job = { id: string; prompt: string; status: string; error: string | null; asset: LibraryAsset | null; shot: unknown; draftId: string | null };
@@ -29,6 +29,8 @@ export function AiVideoPanel({ photos, clips = [], selectedClip, reelId, beforeG
   const [harmonize, setHarmonize] = useState(true);
   const [polish, setPolish] = useState(true);
   const [useEndReference, setUseEndReference] = useState(false);
+  // null follows the shot type: 8 s for timelapses, 4 s for everything else.
+  const [chosenSeconds, setChosenSeconds] = useState<4 | 8 | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const requestId = useRef<string | null>(null);
@@ -55,6 +57,8 @@ export function AiVideoPanel({ photos, clips = [], selectedClip, reelId, beforeG
   }, [running, refresh]);
 
   const bridge = aiConnectsClips(mode);
+  const seconds = chosenSeconds ?? aiDefaultClipSeconds(mode);
+  const credits = aiClipCredits(seconds);
   const camera = mode === "gimbal" || mode === "drone";
   const available = photos.filter(a => !a.isPano && (a.kind === "VIDEO" || (a.kind === "IMAGE" && /\.(jpe?g|png)$/i.test(a.fileName))));
   const anchor = photo.startsWith("clip:") ? clips.find(c => c.id === photo.slice(5)) : undefined;
@@ -105,7 +109,7 @@ export function AiVideoPanel({ photos, clips = [], selectedClip, reelId, beforeG
     setBusy(true);
     try {
       if (beforeGenerate && !await beforeGenerate()) throw new Error("Save your reel before generating this shot.");
-      const payload = { prompt, shot: shot.data };
+      const payload = { prompt, shot: shot.data, durationSeconds: seconds };
       const signature = JSON.stringify(payload);
       if (signature !== requestSignature.current) { requestSignature.current = signature; requestId.current = null; }
       requestId.current ??= crypto.randomUUID();
@@ -123,7 +127,7 @@ export function AiVideoPanel({ photos, clips = [], selectedClip, reelId, beforeG
 
   return <div className="ai-video-panel">
     <p className="ai-credit-count" role="status">{state ? `${state.balance.remaining} AI ${state.balance.remaining === 1 ? "credit" : "credits"} available` : "Loading your credits…"}</p>
-    <p className="muted small">One credit generates 8 seconds of silent 1080p video. Bridges use the full move in 4 seconds; bursts in 2 seconds. Your real footage stays in the reel.</p>
+    <p className="muted small">One credit generates 4 seconds of silent 1080p video; an 8-second clip uses 2. Bridges play over 4 seconds and bursts over 2. Your real footage stays in the reel.</p>
     {state && !state.enabled ? <p className="toast" role="status">AI video is being connected. Your credits are ready for when it opens.</p> : null}
     <form onSubmit={generate} className="ai-video-form">
       <label className="field">Make a shot
@@ -142,7 +146,13 @@ export function AiVideoPanel({ photos, clips = [], selectedClip, reelId, beforeG
       {mode === "orbit" ? <p className="muted small">Choose an exterior with space around the building. An ending view from another angle helps guide the orbit; unseen sides are interpreted by AI.</p> : null}
       {mode === "fly-through" ? <p className="muted small">Use a wide view with visible openings. Add a landing frame from the next room to guide the flight.</p> : null}
       {mode === "day-night" ? <p className="muted small">A fixed view works best: daylight, moving shadows, sunset and glowing windows. An optional night reference guides the finish.</p> : null}
-      {mode === "construction" ? <p className="muted small">Use before and after views from a similar angle. Creates an AI construction concept between them; the full eight-second build stays in the edit.</p> : null}
+      {mode === "construction" ? <p className="muted small">Use before and after views from a similar angle. Creates an AI construction concept between them; the full build stays in the edit, so 8 seconds is recommended.</p> : null}
+      <label className="field">Clip length
+        <select className="text-input" value={seconds} disabled={busy} onChange={e => setChosenSeconds(Number(e.target.value) as 4 | 8)}>
+          <option value={4}>4 seconds · 1 credit</option><option value={8}>8 seconds · 2 credits</option>
+        </select>
+        <span className="muted small">Shorter clips stay closer to your photo; 8 seconds gives a timelapse room to progress.</span>
+      </label>
       <label className="field">Cinematic style
         <select className="text-input" value={style} disabled={busy} onChange={e => setStyle(e.target.value as AiShotStyle)}>
           {AI_SHOT_STYLES.map(value => <option key={value} value={value}>{AI_SHOT_STYLE_LABELS[value]}</option>)}
@@ -172,10 +182,10 @@ export function AiVideoPanel({ photos, clips = [], selectedClip, reelId, beforeG
       {anchor && reelId ? <label className="field"><span><input type="checkbox" checked={draft} disabled={busy} onChange={e => setDraft(e.target.checked)} /> Automatically make a separate promo draft</span>
         <span className="muted small">Completes while you are away. Keeps your original reel, music and captions. Changed boundaries wait for review.</span></label> : null}
       <p className="muted small">References use the original frame with a centre crop to portrait. Review joins, especially with zoom, colour effects or letterboxing.</p>
-      <p className="muted small">Each new version uses a credit. Technical failures return it. Review generated property details before publishing.</p>
+      <p className="muted small">Each new version uses credits. Technical failures return them. Review generated property details before publishing.</p>
       {error ? <p className="error small" role="alert">{error}</p> : null}
-      <button className="btn btn-block" type="submit" disabled={busy || !state?.enabled || state.balance.remaining < 1 || state.jobs.filter(active).length >= 2}>
-        {busy ? "Starting…" : "Generate 8-second clip · 1 credit"}
+      <button className="btn btn-block" type="submit" disabled={busy || !state?.enabled || state.balance.remaining < credits || state.jobs.filter(active).length >= 2}>
+        {busy ? "Starting…" : `Generate ${seconds}-second clip · ${credits} ${credits === 1 ? "credit" : "credits"}`}
       </button>
       <p className="muted small"><Link href="/account">Plans and more credits</Link></p>
     </form>

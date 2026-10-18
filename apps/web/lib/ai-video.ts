@@ -1,4 +1,4 @@
-import { AI_CLIP_COST_CENTS, AI_VIDEO_MODEL } from "@reelwalk/core";
+import { AI_VIDEO_MODEL, aiClipCostCents } from "@reelwalk/core";
 import { aiCreditSummary, prisma, reserveAiGeneration } from "@reelwalk/db";
 import { z } from "zod";
 import { mediaScope } from "./workspace";
@@ -11,6 +11,7 @@ export function aiVideoConfigured(): boolean {
 export const generationInput = z.object({
   requestId: z.string().uuid(), prompt: z.string().trim().min(10).max(2000),
   referenceAssetId: z.string().min(1).max(64).optional(),
+  durationSeconds: z.union([z.literal(4), z.literal(8)]).default(4),
 });
 
 export async function createAiGeneration(user: { id: string; workspaceId: string; email: string }, input: z.infer<typeof generationInput>) {
@@ -25,12 +26,13 @@ export async function createAiGeneration(user: { id: string; workspaceId: string
   if (input.referenceAssetId && (!reference || reference.sizeBytes > 20 * 1024 * 1024)) {
     throw new Error("Choose a JPEG or PNG photo under 20 MB from your media library.");
   }
+  const { durationSeconds } = input;
   const budgetCents = Number(process.env.AI_VIDEO_BUDGET_CENTS ?? 24000);
-  if (!Number.isSafeInteger(budgetCents) || budgetCents < AI_CLIP_COST_CENTS) throw new Error("AI generation is temporarily paused.");
+  if (!Number.isSafeInteger(budgetCents) || budgetCents < aiClipCostCents(durationSeconds)) throw new Error("AI generation is temporarily paused.");
   return reserveAiGeneration(prisma, {
     workspaceId: user.workspaceId, userId: user.id, requestId: input.requestId, prompt: input.prompt,
     referenceKey: reference?.objectKey, referenceType: reference?.contentType,
-    model: AI_VIDEO_MODEL, costCents: AI_CLIP_COST_CENTS, budgetCents,
+    model: AI_VIDEO_MODEL, durationSeconds, costCents: aiClipCostCents(durationSeconds), budgetCents,
   });
 }
 

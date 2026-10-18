@@ -36,10 +36,10 @@ describe.skipIf(!process.env.DATABASE_URL)("Stripe AI funding (Postgres)", () =>
   it("paid invoice replay cannot restore spent monthly credits", async () => {
     const w = await studio(); const paid = invoice(w.stripeCustomerId!);
     await applyAiInvoice(paid, subscription(w));
-    expect((await aiCreditSummary(prisma, w.id)).monthly).toBe(10);
-    await reserveAiGeneration(prisma, { workspaceId: w.id, userId: w.users[0]!.id, requestId: randomUUID(), prompt: "A sunny room", model: "test", costCents: 80, budgetCents: 1_000_000 }); charged += 80;
+    expect((await aiCreditSummary(prisma, w.id)).monthly).toBe(20);
+    await reserveAiGeneration(prisma, { workspaceId: w.id, userId: w.users[0]!.id, requestId: randomUUID(), prompt: "A sunny room", model: "test", durationSeconds: 4, costCents: 40, budgetCents: 1_000_000 }); charged += 40;
     await applyAiInvoice(paid, subscription(w));
-    expect((await aiCreditSummary(prisma, w.id)).monthly).toBe(9);
+    expect((await aiCreditSummary(prisma, w.id)).monthly).toBe(19);
   });
   it("a paid prorated upgrade adds only the difference and ignores older invoices", async () => {
     const w = await studio();
@@ -47,7 +47,7 @@ describe.skipIf(!process.env.DATABASE_URL)("Stripe AI funding (Postgres)", () =>
     const upgrade = invoice(w.stripeCustomerId!, "price-studio", now + 1);
     upgrade.lines.data.unshift({ amount: -1000, pricing: { price_details: { price: "price-agent" } } } as typeof upgrade.lines.data[number]);
     await applyAiInvoice(upgrade, subscription(w));
-    expect((await aiCreditSummary(prisma, w.id)).monthly).toBe(30);
+    expect((await aiCreditSummary(prisma, w.id)).monthly).toBe(60);
     await applyAiInvoice(invoice(w.stripeCustomerId!), subscription(w));
     expect((await prisma.workspace.findUniqueOrThrow({ where: { id: w.id } })).aiPaidPlan).toBe("OFFICE");
   });
@@ -61,19 +61,19 @@ describe.skipIf(!process.env.DATABASE_URL)("Stripe AI funding (Postgres)", () =>
     mocks.listLineItems.mockResolvedValue({ data: [{ price: { id: "price-top-up" }, quantity: 1 }] });
     const session = { id: `cs_${randomUUID()}`, mode: "payment", payment_status: "paid", metadata: { purpose: "ai-top-up" }, currency: "usd", amount_subtotal: 1500, amount_total: 1500, customer: w.stripeCustomerId, client_reference_id: w.id } as unknown as Parameters<typeof applyAiTopUp>[0];
     await Promise.all([applyAiTopUp(session), applyAiTopUp(session)]);
-    expect((await aiCreditSummary(prisma, w.id)).topUp).toBe(5);
+    expect((await aiCreditSummary(prisma, w.id)).topUp).toBe(10);
     await expect(applyAiTopUp({ ...session, id: `cs_${randomUUID()}`, customer: "cus_wrong" })).rejects.toThrow("does not match");
-    expect((await aiCreditSummary(prisma, w.id)).topUp).toBe(5);
+    expect((await aiCreditSummary(prisma, w.id)).topUp).toBe(10);
   });
   it("funds a $15 top-up with sales tax, but rejects discounts and unexplained totals", async () => {
     const w = await studio(); process.env.STRIPE_PRICE_AI_TOP_UP = "price-top-up";
     mocks.listLineItems.mockResolvedValue({ data: [{ price: { id: "price-top-up" }, quantity: 1 }] });
     const session = { id: `cs_${randomUUID()}`, mode: "payment", payment_status: "paid", metadata: { purpose: "ai-top-up" }, currency: "usd", amount_subtotal: 1500, amount_total: 1650, total_details: { amount_tax: 150, amount_discount: 0, amount_shipping: 0 }, customer: w.stripeCustomerId, client_reference_id: w.id } as unknown as Parameters<typeof applyAiTopUp>[0];
     await applyAiTopUp(session);
-    expect((await aiCreditSummary(prisma, w.id)).topUp).toBe(5);
+    expect((await aiCreditSummary(prisma, w.id)).topUp).toBe(10);
     await expect(applyAiTopUp({ ...session, id: `cs_${randomUUID()}`, amount_total: 1500 })).rejects.toThrow("Unexpected");
     await expect(applyAiTopUp({ ...session, id: `cs_${randomUUID()}`, total_details: { ...session.total_details!, amount_discount: 150 } })).rejects.toThrow("Unexpected");
     await expect(applyAiTopUp({ ...session, id: `cs_${randomUUID()}`, amount_subtotal: 1400 })).rejects.toThrow("Unexpected");
-    expect((await aiCreditSummary(prisma, w.id)).topUp).toBe(5);
+    expect((await aiCreditSummary(prisma, w.id)).topUp).toBe(10);
   });
 });

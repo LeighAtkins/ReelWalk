@@ -26,7 +26,7 @@ export async function processAiVideo(s3: S3Client, bucket: string): Promise<bool
         const bytes = await result.Body.transformToByteArray();
         image = { bytesBase64Encoded: Buffer.from(bytes).toString("base64"), mimeType: job.referenceType! };
       }
-      const operationName = await provider.submit(job.model, job.prompt, image);
+      const operationName = await provider.submit(job.model, job.durationSeconds, job.prompt, image);
       await prisma.aiGeneration.updateMany({ where: { id: job.id, leaseToken: job.leaseToken, status: "SUBMITTING" }, data: {
         status: "RUNNING", operationName, nextPollAt: new Date(Date.now() + 15_000), leaseToken: null, leaseUntil: null,
       } });
@@ -50,7 +50,7 @@ export async function processAiVideo(s3: S3Client, bucket: string): Promise<bool
           await tx.mediaAsset.upsert({ where: { objectKey }, update: {}, create: {
             id: `ai-${job.id}`, workspaceId: job.workspaceId, kind: "VIDEO", objectKey, previewKey: objectKey,
             contentType: "video/mp4", fileName: `AI shot — ${job.prompt.slice(0, 60)}.mp4`,
-            sizeBytes: BigInt(result.video!.length), durationMs: 8000, width: 1080, height: 1920,
+            sizeBytes: BigInt(result.video!.length), durationMs: job.durationSeconds * 1000, width: 1080, height: 1920,
             attribution: "AI-generated with Google Veo",
           } });
         });

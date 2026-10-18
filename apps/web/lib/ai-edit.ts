@@ -211,7 +211,9 @@ export async function askForChange(input: {
       applied: result.applied,
       skipped: result.skipped,
       model,
-      ...usage,
+      inputTokens: usage.inputTokens,
+      cachedTokens: usage.cachedTokens,
+      outputTokens: usage.outputTokens,
     },
     select: { id: true },
   });

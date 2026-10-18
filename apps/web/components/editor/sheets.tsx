@@ -1155,6 +1155,7 @@ const ASK_EXAMPLES = ["Make the kitchen clip longer", "Calmer music", "Warmer lo
  * request can be put another way. A brief that worked can be kept as a preset.
  */
 export function AskSheet({
+  onDirector,
   briefs,
   fresh,
   onAsk,
@@ -1162,6 +1163,7 @@ export function AskSheet({
   onDeleteBrief,
   onClose,
 }: {
+  onDirector?: () => void;
   briefs: Brief[];
   /** The reel has not been cut yet, so briefs lead. */
   fresh: boolean;
@@ -1204,6 +1206,7 @@ export function AskSheet({
 
   return (
     <Sheet title={fresh ? "Cut it for me" : "Ask for a change"} onClose={onClose}>
+      {onDirector ? <button type="button" className="btn btn-quiet btn-block" onClick={onDirector}>Direct and review with Opus</button> : null}
       <p className="muted small">
         {fresh
           ? "Pick a way to cut it, or say what you want in your own words. The reel is cut from what you have uploaded; undo takes it back."

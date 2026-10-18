@@ -12,12 +12,17 @@ export async function runAiJob<T>(url: string, body: unknown): Promise<T | { ok:
     return { ok: false, message: "Could not reach ReelWalk. Check the connection and try again." };
   }
   if (!started.ok) return started;
+  return waitForAiJob<T>(started.jobId);
+}
+
+/** Resumes polling an existing request without submitting another paid model call. */
+export async function waitForAiJob<T>(jobId: string): Promise<T | { ok: false; message: string }> {
   const deadline = Date.now() + 5 * 60_000;
   let misses = 0;
   while (Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 2000));
     try {
-      const response = await fetch(`/api/ai-jobs/${started.jobId}`, { cache: "no-store" });
+      const response = await fetch(`/api/ai-jobs/${jobId}`, { cache: "no-store" });
       const job = (await response.json()) as { status: string; result?: T; error?: string };
       misses = 0;
       if (job.status === "DONE") return job.result as T;

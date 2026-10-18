@@ -23,7 +23,7 @@ import { isUnlimited } from "@/lib/quotas";
 import { instagramSongs } from "@/lib/instagram-songs";
 import { labelRooms } from "@/lib/room-labels";
 import { aimPano } from "@/lib/pano-aim";
-import { toLibraryAsset, type LibraryAsset } from "@/lib/library";
+import { toLibraryAssets, type LibraryAsset } from "@/lib/library";
 import { mediaScope } from "@/lib/workspace";
 
 /** Library entries for media a new timeline uses that the old one did not: a song the AI picked plays at once. */
@@ -32,7 +32,7 @@ export async function newAssets(workspaceId: string, before: Timeline, after: Ti
   const ids = referencedAssetIds(after).filter((id) => !had.has(id));
   if (ids.length === 0) return [];
   const rows = await prisma.mediaAsset.findMany({ where: { id: { in: ids }, ...mediaScope(workspaceId) } });
-  return Promise.all(rows.map(toLibraryAsset));
+  return toLibraryAssets(rows);
 }
 
 /**

@@ -4,7 +4,7 @@ import { prisma } from "@reelwalk/db";
 import { AiVideoPanel } from "@/components/ai-video-panel";
 import { TabBar } from "@/components/tab-bar";
 import { getCurrentUser, mediaScope } from "@/lib/workspace";
-import { toLibraryAsset } from "@/lib/library";
+import { toLibraryAssets } from "@/lib/library";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "AI video · ReelWalk" };
@@ -15,6 +15,6 @@ export default async function AiVideoPage() {
   return <><main className="shell">
     <p className="small muted"><Link href="/account">Back to Account</Link></p>
     <h1>AI video</h1>
-    <AiVideoPanel photos={await Promise.all(photos.map(toLibraryAsset))} />
+    <AiVideoPanel photos={await toLibraryAssets(photos)} />
   </main><TabBar /></>;
 }

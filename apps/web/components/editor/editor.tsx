@@ -95,6 +95,7 @@ import {
   VolumeIcon,
 } from "../icons";
 import { createClock, useClock, type Clock } from "./clock";
+import { ClipSourceInfo } from "./clip-source-info";
 import { Filmstrip, type PendingUpload, type Selection } from "./filmstrip";
 import { historyReducer, initHistory } from "./history";
 import {
@@ -1115,6 +1116,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
 
       {review ? null : (
       <>
+      <div>
       <div className="transport">
         <button type="button" className="icon-btn" aria-label={playing ? "Pause" : "Play"} onClick={togglePlay} disabled={!hasClips}>
           {playing ? <PauseIcon /> : <PlayIcon />}
@@ -1133,6 +1135,8 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         </button>
       </div>
 
+      {selectedClip ? <ClipSourceInfo clip={selectedClip} asset={library[selectedClip.assetId]} onTrim={() => setSheet("trim")} /> : null}
+      </div>
       <Filmstrip
         timeline={timeline}
         library={library}

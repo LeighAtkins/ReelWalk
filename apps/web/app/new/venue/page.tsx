@@ -3,7 +3,7 @@ import Link from "next/link";
 import { prisma } from "@reelwalk/db";
 import { BackIcon } from "@/components/icons";
 import { VenueBuilder } from "@/components/venue-builder";
-import { toLibraryAsset } from "@/lib/library";
+import { toLibraryAssets } from "@/lib/library";
 import { isStockConfigured } from "@/lib/stock";
 import { getCurrentUser, mediaScope } from "@/lib/workspace";
 
@@ -17,7 +17,7 @@ export default async function NewVenueReelPage() {
     orderBy: [{ shared: "asc" }, { createdAt: "desc" }],
     take: 160,
   });
-  const library = await Promise.all(rows.map(toLibraryAsset));
+  const library = await toLibraryAssets(rows);
 
   return (
     <main className="shell">

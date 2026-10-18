@@ -288,6 +288,19 @@ export function clipDurationMs(clip: Clip): number {
   return Math.round((clip.sourceEndMs - clip.sourceStartMs) / speed);
 }
 
+/** Available source footage, expressed in reel time at the clip's current speed. */
+export function clipSourceAvailability(clip: Clip, durationMs: number | null | undefined) {
+  const speed = clip.kind === "IMAGE" ? 1 : clip.speed;
+  const sourceMs = typeof durationMs === "number" && Number.isFinite(durationMs) && durationMs > 0 && durationMs >= clip.sourceEndMs ? durationMs : null;
+  return {
+    usedMs: clipDurationMs(clip),
+    sourceMs,
+    beforeMs: Math.round(clip.sourceStartMs / speed),
+    afterMs: sourceMs === null ? null : Math.round((sourceMs - clip.sourceEndMs) / speed),
+    fullLengthMs: sourceMs === null ? null : Math.round(sourceMs / speed),
+  };
+}
+
 export function timelineDurationMs(timeline: Timeline): number {
   return timeline.clips.reduce((total, clip) => total + clipDurationMs(clip), 0);
 }

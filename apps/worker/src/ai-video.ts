@@ -1,6 +1,7 @@
 import { GetObjectCommand, PutObjectCommand, type S3Client } from "@aws-sdk/client-s3";
 import { claimAiGeneration, failAiGeneration, prisma } from "@reelwalk/db";
 import { VertexError, VertexVideo } from "./vertex-video";
+import { aiThumbnail } from "./ai-thumbnail";
 import { aiFrames } from "./ai-frames";
 import { aiShotSchema, clipSchema, insertAiShot, timelineSchema } from "@reelwalk/core";
 
@@ -51,13 +52,16 @@ export async function processAiVideo(s3: S3Client, bucket: string): Promise<bool
       } else if (result.video) {
         const objectKey = `workspaces/${job.workspaceId}/ai/${job.id}.mp4`;
         await s3.send(new PutObjectCommand({ Bucket: bucket, Key: objectKey, Body: result.video, ContentType: "video/mp4" }));
+        const thumbKey = `workspaces/${job.workspaceId}/ai/${job.id}.jpg`;
+        const thumbnail = await aiThumbnail(result.video);
+        await s3.send(new PutObjectCommand({ Bucket: bucket, Key: thumbKey, Body: thumbnail, ContentType: "image/jpeg" }));
         await prisma.$transaction(async tx => {
           const changed = await tx.aiGeneration.updateMany({ where: { id: job.id, leaseToken: job.leaseToken, status: "RUNNING" }, data: {
             status: "SUCCEEDED", assetId: `ai-${job.id}`, finishedAt: new Date(), leaseToken: null, leaseUntil: null,
           } });
           if (!changed.count) return;
-          await tx.mediaAsset.upsert({ where: { objectKey }, update: {}, create: {
-            id: `ai-${job.id}`, workspaceId: job.workspaceId, kind: "VIDEO", objectKey, previewKey: objectKey,
+          await tx.mediaAsset.upsert({ where: { objectKey }, update: { thumbKey }, create: {
+            id: `ai-${job.id}`, workspaceId: job.workspaceId, kind: "VIDEO", objectKey, thumbKey, previewKey: objectKey,
             contentType: "video/mp4", fileName: `AI shot — ${job.prompt.slice(0, 60)}.mp4`,
             sizeBytes: BigInt(result.video!.length), durationMs: 8000, width: 1080, height: 1920,
             attribution: "AI-generated with Google Veo",

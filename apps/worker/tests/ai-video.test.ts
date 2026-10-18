@@ -1,12 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { aiShotFromClips, clipSchema, emptyTimeline } from "@reelwalk/core";
 import type { S3Client } from "@aws-sdk/client-s3";
-const { claim, fail, frames, submit, poll, tx, db } = vi.hoisted(() => {
+const { claim, fail, frames, thumbnail, submit, poll, tx, db } = vi.hoisted(() => {
   const tx = { aiGeneration: { updateMany: vi.fn() }, mediaAsset: { upsert: vi.fn() }, reel: { findFirst: vi.fn(), upsert: vi.fn() } };
-  return { claim: vi.fn(), fail: vi.fn(), frames: vi.fn(), submit: vi.fn(), poll: vi.fn(), tx,
+  return { claim: vi.fn(), fail: vi.fn(), frames: vi.fn(), thumbnail: vi.fn(), submit: vi.fn(), poll: vi.fn(), tx,
     db: { aiGeneration: { findFirst: vi.fn(), updateMany: vi.fn() }, $transaction: vi.fn() } };
 });
 vi.mock("@reelwalk/db", () => ({ claimAiGeneration: claim, failAiGeneration: fail, prisma: db }));
+vi.mock("../src/ai-thumbnail", () => ({ aiThumbnail: thumbnail }));
 vi.mock("../src/ai-frames", () => ({ aiFrames: frames }));
 vi.mock("../src/vertex-video", () => ({
   VertexError: class extends Error {}, VertexVideo: class { submit = submit; poll = poll; },
@@ -26,6 +27,7 @@ beforeEach(() => {
   tx.aiGeneration.updateMany.mockResolvedValue({ count: 1 });
   db.$transaction.mockImplementation(async fn => fn(tx));
   frames.mockResolvedValue([{ bytesBase64Encoded: "first", mimeType: "image/jpeg" }, { bytesBase64Encoded: "last", mimeType: "image/jpeg" }]);
+  thumbnail.mockResolvedValue(Buffer.from([0xff, 0xd8, 0xff]));
   submit.mockResolvedValue("operation-one");
   poll.mockResolvedValue({ done: true, video: Buffer.alloc(1000) });
   tx.reel.findFirst.mockResolvedValue(source);
@@ -72,6 +74,27 @@ describe("AI shot worker", () => {
     expect(timeline.clips.map((clip: { filter: string }) => clip.filter)).toEqual(["cool", "cool", "cool"]);
     expect(source.timeline.clips.map(clip => clip.filter)).toEqual(["none", "none"]);
     expect(submit).not.toHaveBeenCalled();
+  });
+  it("saves a real frame thumbnail before exposing the completed AI clip", async () => {
+    claim.mockResolvedValue({ ...job, status: "RUNNING" });
+    await processAiVideo(s3, "media");
+    expect(thumbnail).toHaveBeenCalledWith(expect.any(Buffer));
+    expect(tx.mediaAsset.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      update: { thumbKey: "workspaces/studio/ai/one.jpg" },
+      create: expect.objectContaining({ thumbKey: "workspaces/studio/ai/one.jpg" }),
+    }));
+    expect((s3.send as ReturnType<typeof vi.fn>).mock.calls.some(([command]) => command.input.ContentType === "image/jpeg")).toBe(true);
+  });
+  it("retries thumbnail import through the saved operation without another generation or refund", async () => {
+    claim.mockResolvedValue({ ...job, status: "RUNNING" });
+    thumbnail.mockRejectedValueOnce(new Error("temporary decode failure"));
+    await processAiVideo(s3, "media");
+    expect(submit).not.toHaveBeenCalled();
+    expect(fail).not.toHaveBeenCalled();
+    expect(tx.mediaAsset.upsert).not.toHaveBeenCalled();
+    expect(db.aiGeneration.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: "one", leaseToken: "mine" }, data: expect.objectContaining({ nextPollAt: expect.any(Date) }),
+    }));
   });
   it("a lost lease cannot create an output or draft", async () => {
     claim.mockResolvedValue({ ...job, status: "RUNNING" });

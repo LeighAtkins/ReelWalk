@@ -6,7 +6,7 @@ import { Editor } from "@/components/editor/editor";
 import { isFakeInstagram, isInstagramConfigured } from "@/lib/instagram";
 import { isAiAvailable } from "@/lib/openai";
 import { instagramSoundProblem } from "@/lib/instagram-sound";
-import { toLibraryAsset } from "@/lib/library";
+import { toLibraryAssets } from "@/lib/library";
 import { readTimeline } from "@/lib/reels";
 import { getCurrentUser, mediaScope } from "@/lib/workspace";
 
@@ -34,7 +34,7 @@ export default async function EditReelPage({
     prisma.mediaAsset.findMany({ where: mediaScope(user.workspaceId), orderBy: { createdAt: "desc" }, take: 120 }),
   ]);
   const unique = new Map([...recent, ...used].map((asset) => [asset.id, asset]));
-  const library = await Promise.all([...unique.values()].map(toLibraryAsset));
+  const library = await toLibraryAssets([...unique.values()]);
 
   // Floor plans of the tours this media belongs to.
   const tourIds = [...new Set(library.map((asset) => asset.tourId).filter((value): value is string => value !== null))];

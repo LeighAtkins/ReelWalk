@@ -404,7 +404,8 @@ export function Filmstrip({
                   role="listitem"
                   className="clip-block"
                   aria-pressed={selected}
-                  aria-label={`Clip ${index + 1}, ${clip.pano ? "360 photo" : asset?.kind === "IMAGE" ? "photo" : "video"}, ${formatDuration(duration, true)}`}
+                  title={asset?.isAiGenerated ? `AI-generated video · ${seconds1(duration)} on reel · ${asset.durationMs ? seconds1(asset.durationMs) + " source" : "source length unknown"}` : asset?.fileName}
+                  aria-label={`Clip ${index + 1}, ${asset?.isAiGenerated ? "AI-generated " : ""}${clip.pano ? "360 photo" : asset?.kind === "IMAGE" ? "photo" : "video"}, ${formatDuration(duration, true)}`}
                   data-testid="clip"
                   style={{
                     left: pad + px(starts[index]) + 1,
@@ -425,6 +426,7 @@ export function Filmstrip({
                     </>
                   ) : null}
                   {clip.transitionIn !== "cut" && index > 0 ? <span className="clip-fade" aria-hidden="true" /> : null}
+                  {asset?.isAiGenerated ? <span className="clip-ai-badge">AI</span> : null}
                   <span className="clip-meta">
                     {clip.pano ? "360 " : ""}
                     {clip.kind === "VIDEO" && clip.speed !== 1 ? `${clip.speed}× ` : ""}

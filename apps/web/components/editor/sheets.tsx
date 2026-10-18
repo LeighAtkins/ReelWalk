@@ -11,6 +11,7 @@ import {
   hasDetails,
   listingDetailsSchema,
   clipDurationMs,
+  clipSourceAvailability,
   FILTERS,
   DEFAULT_PANO,
   INSTAGRAM_MUSIC_SUGGESTIONS,
@@ -43,6 +44,7 @@ import {
   type TextOverlay,
   type TextStyle,
 } from "@reelwalk/core";
+import { ClipSourceInfo } from "./clip-source-info";
 import { ELEGANT_FONT_FAMILY, FILTER_CSS, FILTER_LABELS, TEXT_ANIMATION_LABELS, TEXT_STYLE_LABELS, textTreatmentCss } from "@reelwalk/render/reel";
 import { formatDuration } from "@/lib/format";
 import type { LibraryAsset } from "@/lib/library";
@@ -191,6 +193,7 @@ export function MediaSheet({
                   onClick={() => toggle(asset.id)}
                 >
                   {asset.thumbUrl ? <img src={asset.thumbUrl} alt="" /> : null}
+                  {asset.isAiGenerated ? <span className="library-ai-badge ai-source-badge">AI</span> : null}
                   <span className="chip timecode">{order >= 0 ? order + 1 : asset.isPano ? "360" : asset.durationMs ? formatDuration(asset.durationMs) : "Photo"}</span>
                 </button>
               );
@@ -240,11 +243,13 @@ export function TrimSheet({
     );
   }
 
+  const available = clipSourceAvailability(clip, asset?.durationMs);
   const sourceLength = Math.max(asset?.durationMs ?? clip.sourceEndMs, clip.sourceEndMs);
   const minWindow = Math.ceil(MIN_CLIP_MS * clip.speed);
   const pct = (ms: number) => `${(ms / sourceLength) * 100}%`;
   return (
-    <Sheet title="Trim" onClose={onClose}>
+    <Sheet title={asset?.isAiGenerated ? "Trim AI shot" : "Trim"} onClose={onClose}>
+      <ClipSourceInfo clip={clip} asset={asset} />
       <div className="trim-clip">
         <div className="trim-strip" style={{ backgroundImage: asset?.thumbUrl ? `url("${asset.thumbUrl}")` : undefined }}>
           <span
@@ -271,6 +276,10 @@ export function TrimSheet({
         display={formatDuration(clip.sourceEndMs, true)}
         onChange={(value) => onChange({ sourceStartMs: Math.min(clip.sourceStartMs, value - minWindow), sourceEndMs: value })}
       />
+      {available.sourceMs !== null && (available.beforeMs > 0 || (available.afterMs ?? 0) > 0) ? (
+        <button type="button" className="btn btn-block" onClick={() => onChange({ sourceStartMs: 0, sourceEndMs: available.sourceMs! })}>Use full source</button>
+      ) : null}
+      {asset?.isAiGenerated ? <p className="muted small">Unused footage uses no new AI credits. Preview it before extending; it may contain changes. Going beyond the full source requires a new generation.</p> : null}
       <p className="muted small">
         Plays for {formatDuration(clipDurationMs(clip), true)}
         {clip.speed !== 1 ? ` at ${clip.speed}×` : ""}, from a {formatDuration(sourceLength)} video.

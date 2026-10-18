@@ -24,7 +24,7 @@ import {
   type Issue,
 } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
-import { toLibraryAsset, type LibraryAsset } from "@/lib/library";
+import { toLibraryAsset, toLibraryAssets, type LibraryAsset } from "@/lib/library";
 import { saveReelFor, type SaveResult } from "@/lib/save-reel";
 import { workspacePlan } from "@/lib/plans";
 import { exportBlockedReason, retryBlockedReason, storageBlockedReason } from "@/lib/quotas";
@@ -123,7 +123,7 @@ export async function readyPreviews(input: { ids: string[] }): Promise<{ id: str
     where: { id: { in: ids.data }, previewKey: { not: null }, ...mediaScope(user.workspaceId) },
     select: { id: true, kind: true, fileName: true, objectKey: true, thumbKey: true, previewKey: true, durationMs: true, width: true, height: true },
   });
-  return Promise.all(assets.map(async (asset) => ({ id: asset.id, url: (await toLibraryAsset(asset)).url })));
+  return (await toLibraryAssets(assets)).map(asset => ({ id: asset.id, url: asset.url }));
 }
 
 export async function saveCaption(input: { id: string; caption: string }): Promise<{ ok: boolean }> {

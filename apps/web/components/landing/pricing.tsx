@@ -23,7 +23,7 @@ export function PricingSection({ viewer, id = "pricing" }: { viewer: PricingView
     <section className={styles.pricing} id={id} aria-labelledby={`${id}-title`} data-testid="pricing">
       <div className={styles.pricingHead}>
         <h2 id={`${id}-title`}>Plans</h2>
-        <p className={styles.lede}>Start free, no card. Pay when the agents start asking for the next one.</p>
+        <p className={styles.lede}>Preview free without an account. Save for seven days of full access, then choose a plan. No card needed to try.</p>
         {yearlyOn ? (
           <fieldset className={styles.interval} data-testid="interval">
             <legend className="visually-hidden">Billing interval</legend>
@@ -50,7 +50,7 @@ function PlanCard({ plan, viewer, yearlyOn }: { plan: PlanDef; viewer: PricingVi
   const featured = plan.id === "AGENT";
   return (
     <li className={styles.plan} data-featured={featured} data-testid={`plan-${plan.id.toLowerCase()}`}>
-      <h3>{plan.name}</h3>
+      <h3>{paid ? plan.name : "Free trial"}</h3>
       <p className={styles.who}>{audience(plan)}</p>
       {paid ? (
         <>
@@ -60,7 +60,7 @@ function PlanCard({ plan, viewer, yearlyOn }: { plan: PlanDef; viewer: PricingVi
       ) : (
         <p className={styles.price}>
           <span className={styles.amount}>$0</span>
-          <span className={styles.per}>for as long as you like</span>
+          <span className={styles.per}>seven days after sign-up</span>
         </p>
       )}
       <ul className={styles.features}>
@@ -90,8 +90,8 @@ function PlanAction({ plan, viewer, yearlyOn }: { plan: PlanDef; viewer: Pricing
   const paid = plan.priceUsd > 0;
   if (!viewer.signedIn) {
     return (
-      <Link href="/signup" className={`btn btn-block ${plan.id === "AGENT" ? "" : "btn-quiet"}`} data-testid={`cta-${plan.id.toLowerCase()}`}>
-        {paid ? `Start free, then ${plan.name}` : "Start free, no card"}
+      <Link href="/try" className={`btn btn-block ${plan.id === "AGENT" ? "" : "btn-quiet"}`} data-testid={`cta-${plan.id.toLowerCase()}`}>
+        {paid ? `Start free, then ${plan.name}` : "Preview free, no account"}
       </Link>
     );
   }
@@ -135,11 +135,12 @@ function audience(plan: PlanDef): string {
 }
 
 function features(plan: PlanDef): string[] {
+  if (plan.id === "FREE") return ["Preview before signing up", "Seven days of full-size exports after sign-up", "2 AI video credits included; approval required", "Connect Instagram and schedule during the trial", "Keep your drafts and unused credits when you sign up"];
   const size = plan.outputWidth === 1080 ? "1080×1920, Instagram's full size" : "720×1280 with a small ReelWalk mark";
   return [
     `${plan.exportsPerMonth} rendered reels a month`,
     `${plan.aiEditsPerMonth} changes asked for in words`,
-    plan.id === "FREE" ? `${plan.aiVideoCredits} free 4-second AI video clips` : `${plan.aiVideoCredits} AI video clips a month, 4 seconds each (8-second clips use 2)`,
+    `${plan.aiVideoCredits} AI video clips a month, 4 seconds each (8-second clips use 2)`,
     size,
     plan.instagram ? "Post to Instagram in one tap" : "Download, or share a link",
     `${plan.storageGb} GB for your photos and clips`,

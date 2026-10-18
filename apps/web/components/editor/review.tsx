@@ -35,7 +35,7 @@ const CHANGES: { id: ReviewChange; label: string }[] = [
   { id: "ask", label: "Ask" },
 ];
 
-export function ReviewBar({ timeline, polishing = false, onChange, onFullEditor }: { timeline: Timeline; /** The model's cut is still on its way (ADR 0024). */ polishing?: boolean; onChange(change: ReviewChange): void; onFullEditor(): void }) {
+export function ReviewBar({ timeline, polishing = false, onSaveTrial, onAiVideo, aiVideoLabel, onChange, onFullEditor }: { timeline: Timeline; aiVideoLabel?: string; onSaveTrial?(): void; onAiVideo?(): void; /** The model's cut is still on its way (ADR 0024). */ polishing?: boolean; onChange(change: ReviewChange): void; onFullEditor(): void }) {
   return (
     <div className="review-bar" data-testid="review-bar" data-polishing={polishing || undefined}>
       <p className="review-summary muted small">
@@ -48,6 +48,8 @@ export function ReviewBar({ timeline, polishing = false, onChange, onFullEditor 
           "Tap what you want different."
         )}
       </p>
+      {onSaveTrial ? <button type="button" className="btn btn-signal btn-block" onClick={onSaveTrial}>Save my reel - 7 days free</button> : null}
+      {onAiVideo ? <button type="button" className="btn btn-quiet btn-block" onClick={onAiVideo}>{aiVideoLabel ?? "AI video ideas for my photos"}</button> : null}
       <div className="review-changes" role="group" aria-label="Change">
         {CHANGES.map((change) => (
           <button key={change.id} type="button" className="review-change" onClick={() => onChange(change.id)} data-testid={`review-${change.id}`}>

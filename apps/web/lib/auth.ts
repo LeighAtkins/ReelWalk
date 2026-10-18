@@ -23,9 +23,9 @@ function secureCookies(): boolean {
 }
 
 /** Signs a browser in: one Session row and the cookie that points at it. Server Actions and Route Handlers only. */
-export async function createSession(userId: string): Promise<void> {
+export async function createSession(userId: string, days = SESSION_DAYS): Promise<void> {
   const token = randomBytes(32).toString("base64url");
-  const expiresAt = new Date(Date.now() + SESSION_DAYS * 24 * 3600 * 1000);
+  const expiresAt = new Date(Date.now() + days * 24 * 3600 * 1000);
   const userAgent = (await headers()).get("user-agent")?.slice(0, 200) ?? null;
   await prisma.session.create({ data: { id: hashToken(token), userId, expiresAt, userAgent } });
   (await cookies()).set(SESSION_COOKIE, token, {

@@ -157,7 +157,7 @@ export async function setShareLink(input: { id: string; enabled: boolean }): Pro
   return { url: shareToken ? `${await appUrl()}/r/${shareToken}` : null };
 }
 
-export type ExportResult = { ok: false; issues: Issue[]; message?: string; /** A bigger plan would lift the limit that stopped it. */ upgrade?: boolean };
+export type ExportResult = { ok: false; issues: Issue[]; message?: string; /** A bigger plan would lift the limit that stopped it. */ upgrade?: boolean; signup?: boolean };
 
 /**
  * Freezes the current timeline into a render job and queues it. The checks
@@ -166,6 +166,7 @@ export type ExportResult = { ok: false; issues: Issue[]; message?: string; /** A
  */
 export async function exportReel(input: { id: string }): Promise<ExportResult> {
   const user = await getCurrentUser();
+  if (user.isGuest) return { ok: false, issues: [], signup: true, message: "Save your account to export and start seven days free." };
   const reel = await prisma.reel.findFirst({ where: { id: input.id, workspaceId: user.workspaceId } });
   if (!reel) return { ok: false, issues: [], message: "This reel was deleted." };
 

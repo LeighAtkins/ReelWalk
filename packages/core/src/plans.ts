@@ -85,6 +85,11 @@ export function yearlyMonthsFree(plan: PlanDef): number {
  * The plan a workspace is on right now. A paid plan wins; otherwise a plan
  * given by hand (testers, goodwill) counts until its date; otherwise Free.
  */
+/** Saving a guest reel (or signing up) unlocks the full Agent plan for a week; after that, Free or paid. */
+export const TRIAL_DAYS = 7;
+export const TRIAL_PLAN = "AGENT" satisfies PlanId;
+export const trialEndsAt = (now: Date = new Date()) => new Date(now.getTime() + TRIAL_DAYS * 24 * 3600 * 1000);
+
 export function effectivePlan(
   workspace: { plan: PlanId; compedPlan: PlanId | null; compedUntil: Date | null },
   now: Date = new Date(),
@@ -102,4 +107,13 @@ export function monthStart(now: Date = new Date()): Date {
 /** Frame size of an export: 9:16 at the given width. */
 export function outputSize(width: OutputWidth): { width: number; height: number } {
   return { width, height: (width * 16) / 9 };
+}
+
+/** A trial grants features, never permission to spend credits automatically. */
+export function canDirectAiVideo(workspace: { plan: string; aiVideoMode: string }): boolean {
+  return workspace.plan !== "FREE" && workspace.aiVideoMode === "AUTO";
+}
+
+export function listingTrialExpired(workspace: { plan: string; trialStartedAt: Date | null; compedUntil: Date | null }, now = new Date()): boolean {
+  return workspace.plan === "FREE" && workspace.trialStartedAt !== null && workspace.compedUntil !== null && workspace.compedUntil <= now;
 }

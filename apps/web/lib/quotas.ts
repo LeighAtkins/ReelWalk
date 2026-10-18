@@ -1,4 +1,4 @@
-import { nextPlan, PLANS } from "@reelwalk/core";
+import { listingTrialExpired, nextPlan, PLANS } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
 import { exportsThisMonth, storageUsed, workspacePlan } from "@/lib/plans";
 
@@ -20,6 +20,9 @@ const gb = (bytes: number) => `${(bytes / 1024 ** 3).toFixed(bytes < 10 * 1024 *
 
 /** Why another export cannot start now, or null if it can. */
 export async function exportBlockedReason(workspaceId: string): Promise<Limit | null> {
+  if (await prisma.user.count({ where: { workspaceId, isGuest: true } })) return { message: "Save your account to export and start seven days free.", upgrade: false };
+  const trial = await prisma.workspace.findUniqueOrThrow({ where: { id: workspaceId }, select: { plan: true, trialStartedAt: true, compedUntil: true } });
+  if (listingTrialExpired(trial)) return { message: "Your seven-day trial has ended. Choose a plan to keep exporting.", upgrade: true };
   const [{ plan, id }, active, lastDay, thisMonth, unlimited] = await Promise.all([
     workspacePlan(workspaceId),
     prisma.renderJob.count({ where: { workspaceId, kind: { not: "PREVIEW" }, status: { in: ["QUEUED", "RUNNING"] } } }),

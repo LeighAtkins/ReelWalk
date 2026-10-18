@@ -16,7 +16,7 @@ export async function GET() {
   const assets = await prisma.mediaAsset.findMany({ where: { workspaceId: user.workspaceId, id: { in: jobs.flatMap(j => j.assetId ? [j.assetId] : []) } } });
   const library = new Map(await Promise.all(assets.map(async a => [a.id, await toLibraryAsset(a)] as const)));
   if (jobs.some(j => ["QUEUED", "SUBMITTING", "RUNNING"].includes(j.status))) await ensureWorkerRunning();
-  return Response.json({ enabled: aiVideoConfigured(), balance, jobs: jobs.map(j => ({
+  return Response.json({ mode: user.workspace.plan !== "FREE" ? user.workspace.aiVideoMode : "ASK", enabled: aiVideoConfigured(), balance, jobs: jobs.map(j => ({
     id: j.id, prompt: j.prompt, status: j.status, error: j.error,
     createdAt: j.createdAt.toISOString(), asset: j.assetId ? library.get(j.assetId) ?? null : null,
   })) }, { headers: { "Cache-Control": "private, no-store" } });

@@ -19,10 +19,11 @@ export default async function EditReelPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ library?: string; auto?: string; review?: string }>;
+  searchParams: Promise<{ library?: string; auto?: string; review?: string; export?: string }>;
 }) {
   const { id } = await params;
-  const { library: openLibrary, auto, review } = await searchParams;
+  const query = await searchParams;
+  const { library: openLibrary, auto, review } = query;
   const user = await getCurrentUser();
   const reel = await prisma.reel.findFirst({ where: { id, workspaceId: user.workspaceId } });
   if (!reel) notFound();
@@ -55,6 +56,8 @@ export default async function EditReelPage({
   return (
     <Editor
       key={reel.id}
+      guest={user.isGuest}
+      exportReady={query.export === "1"}
       openLibrary={openLibrary === "1"}
       reel={{ id: reel.id, title: reel.title, revision: reel.revision, caption: reel.caption }}
       timeline={timeline}

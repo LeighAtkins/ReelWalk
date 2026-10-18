@@ -34,3 +34,5 @@ export const prisma: PrismaClient = globalForPrisma.reelwalkPrisma ?? createClie
 if (process.env.NODE_ENV !== "production") {
   globalForPrisma.reelwalkPrisma = prisma;
 }
+
+export * from "./guest";

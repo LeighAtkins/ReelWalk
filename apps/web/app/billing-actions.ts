@@ -24,6 +24,7 @@ async function customerFor(workspaceId: string, email: string, name: string): Pr
  */
 export async function startCheckout(formData: FormData): Promise<void> {
   const user = await getCurrentUser();
+  if (user.isGuest) redirect("/signup");
   // Existing subscribers change plans in the portal rather than creating a
   // second subscription with a second monthly charge.
   if (user.workspace.stripeSubscriptionId) return openBillingPortal();
@@ -58,6 +59,7 @@ export async function startCheckout(formData: FormData): Promise<void> {
 /** One-off credits do not expire with a monthly allowance. */
 export async function buyAiCredits(): Promise<void> {
   const user = await getCurrentUser();
+  if (user.isGuest) redirect("/signup");
   const price = aiTopUpPrice();
   if (!isBillingConfigured() || !price || user.email === "demo@reelwalk.local") redirect("/account?billing=unavailable");
   const customer = await customerFor(user.workspaceId, user.email, user.workspace.name);
@@ -74,6 +76,7 @@ export async function buyAiCredits(): Promise<void> {
 /** Stripe's own page for changing card, plan or cancelling. */
 export async function openBillingPortal(): Promise<void> {
   const user = await getCurrentUser();
+  if (user.isGuest) redirect("/signup");
   const workspace = await prisma.workspace.findUniqueOrThrow({ where: { id: user.workspaceId }, select: { stripeCustomerId: true } });
   if (!isBillingConfigured() || !workspace.stripeCustomerId) redirect("/account?billing=unavailable");
   const base = await appUrl();

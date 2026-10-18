@@ -1,5 +1,6 @@
 import { parseTimeline, referencedAssetIds, type ListingInfo } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
+import { videoIdeaForCut } from "@/lib/listing-assistance";
 import { getSessionUser } from "@/lib/auth";
 import { newAssets } from "@/lib/ai-edit";
 import { startAiJob } from "@/lib/ai-jobs";
@@ -57,7 +58,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   // Over a minute of work: run it in the background and let the browser check back (lib/ai-jobs.ts).
   const jobId = await startAiJob({ workspaceId: user.workspaceId, reelId: reel.id, kind: "autopilot" }, async () => {
     const result = await makeItForMe({ user, reel, timeline, styleId, info });
-    return result.ok ? { ...result, assets: await newAssets(user.workspaceId, timeline, result.timeline) } : result;
+    return result.ok ? { ...result, videoIdea: await videoIdeaForCut(user, result.timeline), assets: await newAssets(user.workspaceId, timeline, result.timeline) } : result;
   });
   return Response.json({ ok: true, jobId });
 }

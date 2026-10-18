@@ -1,3 +1,4 @@
+import { saveAiVideoMode } from "../ai-preference-actions";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { LocalTime } from "@/components/local-time";
@@ -29,6 +30,7 @@ export default async function AccountPage({
 }) {
   const { saved, error, instagram: igStatus, billing, feedback, message, replies: repliesStatus } = await searchParams;
   const user = await getCurrentUser();
+  if (user.isGuest) return <main className="shell"><h1>Your free studio</h1><p>Your drafts and uploads are saved in this browser session. Create your account to export and start seven days with Instagram scheduling.</p><Link className="btn" href="/signup">Save my studio & start 7 days free</Link></main>;
   const aiBalance = await getAiBalance(user.workspaceId);
   const [reels, exports, own, shared, sessions, instagram, current, usedThisMonth, usedBytes, aiUsage, triggers, recentReplies] = await Promise.all([
     prisma.reel.count({ where: { workspaceId: user.workspaceId } }),
@@ -62,6 +64,7 @@ export default async function AccountPage({
           Studio since <LocalTime date={user.workspace.createdAt} />
         </p>
 
+        <section className="card" id="ai-video-mode"><h2>Who approves AI video credits?</h2><p>Every new Veo shot and regeneration uses credits. Technical failures refund them; a creative redo uses new credits.</p><form action={saveAiVideoMode}><label className="field">Veo approval mode<select className="text-input" name="mode" defaultValue={user.workspace.plan === "FREE" ? "ASK" : user.workspace.aiVideoMode}><option value="ASK">Ask me before using Veo credits</option><option value="AUTO" disabled={user.workspace.plan === "FREE"}>Make it for me - Opus may use my available credits</option></select></label><p className="muted small">Automatic mode is for paid plans. Trials always ask first. Your available balance and spending limits still apply.</p><SubmitButton className="btn" pendingLabel="Saving...">Save AI video preference</SubmitButton></form></section>
         <ul className="stat-row">
           <li>
             <strong>{reels}</strong>
@@ -88,7 +91,7 @@ export default async function AccountPage({
           </h2>
           {current.comped ? (
             <p className="muted small">
-              Tester access: {plan.name} is on the house until <LocalTime date={current.compedUntil!} />. Thank you for trying ReelWalk early.
+              {user.workspace.trialStartedAt ? "Your full trial ends" : "Tester access ends"} <LocalTime date={current.compedUntil!} />. Choose a paid plan to keep exporting afterward.
             </p>
           ) : current.planRenewsAt ? (
             <p className="muted small">

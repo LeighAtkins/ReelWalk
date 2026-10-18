@@ -135,6 +135,8 @@ test("a studio can pick an Instagram sound, schedule with it, then change and re
     await page.goto("/scheduled");
     const row = page.locator(`[data-testid="scheduled-row"][data-id="${postId}"]`);
     await expect(row).toHaveAttribute("data-status", "SCHEDULED");
+    await row.getByTestId("scheduled-music-edit").click();
+    await expect(row.getByTestId("sound-comparison")).toBeVisible();
     await expect(row.getByTestId("sound-control")).toHaveAttribute("data-audio-id", "fake-music-2");
     await expect(row.getByTestId("sound-chosen")).toHaveText("Sunlit Kitchen · The Floor Plans");
 
@@ -148,15 +150,35 @@ test("a studio can pick an Instagram sound, schedule with it, then change and re
     await sheet.locator('[data-testid="sound-option"][data-audio-id="fake-sound-2"]').click();
     await sheet.getByTestId("sound-confirm").click();
     await expect(row.getByTestId("sound-chosen")).toHaveText("Just listed (remix) · @agent.demo");
-    await expect(row.getByTestId("scheduled-sound")).not.toHaveAttribute("data-pending", /.*/);
+    // Audition the actual reel before saving, and compare to the exported audio.
+    await row.getByTestId("play-with-sound-button").click();
+    await expect(row.getByTestId("play-with-sound-audio")).toHaveAttribute("src", /fake-sound-2/);
+    await row.getByRole("button", { name: "Original export", exact: true }).click();
+    await expect(row.getByTestId("play-with-sound-audio")).toHaveCount(0);
+    await expect(row.getByTestId("export-video")).toHaveJSProperty("muted", false);
+    await row.getByRole("button", { name: "Instagram mix", exact: true }).click();
+    await expect(row.getByTestId("export-video")).toHaveJSProperty("muted", true);
+    // Cancelling leaves the saved queue unchanged.
+    await row.getByRole("button", { name: "Cancel changes" }).click();
+    await row.getByTestId("scheduled-music-edit").click();
+    await expect(row.getByTestId("sound-control")).toHaveAttribute("data-audio-id", "fake-music-2");
+    await row.getByTestId("sound-open").click();
+    await sheet.getByTestId("sound-tab-trending").click();
+    await sheet.locator('[data-testid="sound-option"][data-audio-id="fake-sound-2"]').click();
+    await sheet.getByTestId("sound-confirm").click();
+    await row.getByTestId("scheduled-music-save").click();
+    await expect(row.getByTestId("scheduled-music-panel")).toHaveCount(0);
     await page.reload();
+    await row.getByTestId("scheduled-music-edit").click();
     await expect(row.getByTestId("sound-control")).toHaveAttribute("data-audio-id", "fake-sound-2");
 
     // Remove it; it stays removed.
     await row.getByTestId("sound-clear").click();
-    await expect(row.getByTestId("sound-chosen")).toHaveText("Sound");
-    await expect(row.getByTestId("scheduled-sound")).not.toHaveAttribute("data-pending", /.*/);
+    await expect(row.getByTestId("sound-chosen")).toHaveText("Add Instagram sound");
+    await row.getByTestId("scheduled-music-save").click();
+    await expect(row.getByTestId("scheduled-music-panel")).toHaveCount(0);
     await page.reload();
+    await row.getByTestId("scheduled-music-edit").click();
     await expect(row.getByTestId("sound-control")).toHaveAttribute("data-audio-id", "");
     await expect(row.getByTestId("sound-clear")).toHaveCount(0);
 

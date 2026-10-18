@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { INSTAGRAM, parseInstagramAudioChoice, publishAtProblem, zonedLocalToUtc } from "@reelwalk/core";
 import { cancelScheduledPost as cancelPost, prisma, setScheduledPostAudio } from "@reelwalk/db";
 import { COVER_FRAME_MS, reelCoverMs } from "@/lib/instagram";
+import { mediaUrl } from "@/lib/storage";
 import { postingProblem } from "@/lib/scheduled-posts";
 import { getCurrentUser } from "@/lib/workspace";
 
@@ -84,4 +85,16 @@ export async function setScheduledSound(input: { id: string; audio: unknown }): 
   const changed = await setScheduledPostAudio(prisma, { id: String(input.id ?? ""), workspaceId: user.workspaceId, audio });
   revalidatePath("/scheduled");
   return changed ? { ok: true } : { ok: false, error: "That post has already started going out, so its sound can no longer change." };
+}
+
+/** Sign only the requested queued export, after checking workspace ownership. */
+export async function scheduledSoundPreview(id: string): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
+  const user = await getCurrentUser();
+  const post = await prisma.scheduledPost.findFirst({
+    where: { id, workspaceId: user.workspaceId, status: "SCHEDULED" },
+    select: { renderJob: { select: { output: { select: { objectKey: true } } } } },
+  });
+  const key = post?.renderJob.output?.objectKey;
+  if (!key) return { ok: false, error: "This post is no longer waiting, or its export is unavailable." };
+  return { ok: true, url: await mediaUrl(key) };
 }

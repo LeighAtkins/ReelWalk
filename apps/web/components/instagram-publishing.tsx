@@ -22,19 +22,26 @@ export function InstagramPublishing({
   username,
   live,
   reelSound = null,
+  scheduledSound,
 }: {
   jobId: string;
   username: string;
   live: boolean;
   reelSound?: InstagramAudioChoice | null;
+  scheduledSound?: InstagramAudioChoice | null;
 }) {
-  const [audio, setAudio] = useState<InstagramAudioChoice | null>(reelSound);
+  const [audio, setAudio] = useState<InstagramAudioChoice | null>(scheduledSound === undefined ? reelSound : scheduledSound);
   return (
     <>
       {live ? (
         <div className="export-sound" style={{ gridColumn: "1 / -1" }}>
           <InstagramSoundPicker value={audio} onChange={setAudio} />
-          {reelSound ? (
+          {scheduledSound !== undefined ? (
+            <p className="muted small" data-testid="scheduled-sound-note">
+              {scheduledSound ? `Scheduled music: ${instagramAudioLabel(scheduledSound)}. Use Play with sound to hear the Instagram mix; the video controls and download play the original export.` : "This post is scheduled with its original export audio."}
+              {" "}<a href="/scheduled">Change and save scheduled music</a>. Choices here do not update an existing scheduled post.
+            </p>
+          ) : reelSound ? (
             <p className="muted small" data-testid="reel-sound-note">
               {audio?.audioId === reelSound.audioId
                 ? `You edited this reel to “${instagramAudioLabel(reelSound)}”. The video file has only your clips' own sound; Instagram adds this one when it posts.`

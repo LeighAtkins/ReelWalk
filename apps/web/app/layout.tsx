@@ -13,7 +13,7 @@ import { WheelScroll } from "@/components/wheel-scroll";
 
 export const metadata: Metadata = {
   title: "ReelWalk",
-  description: "Edit Instagram Reels for your listings, on your phone.",
+  description: "Shoot the rooms, add your listing and let Opus make the reel. Preview free, then export and schedule to Instagram.",
   appleWebApp: { capable: true, title: "ReelWalk", statusBarStyle: "black-translucent" },
 };
 

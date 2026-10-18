@@ -1,5 +1,6 @@
 "use client";
 
+import { runAiJob } from "@/lib/ai-jobs-client";
 import { useId, useRef, useState, type CSSProperties } from "react";
 import {
   acceptFor,
@@ -1043,6 +1044,7 @@ export function CaptionSheet({
 }
 
 export function ExportSheet({
+  signupHref,
   issues,
   durationMs,
   busy,
@@ -1053,6 +1055,7 @@ export function ExportSheet({
   onShowIssue,
   onClose,
 }: {
+  signupHref?: string;
   issues: Issue[];
   durationMs: number;
   busy: boolean;
@@ -1066,6 +1069,7 @@ export function ExportSheet({
   onClose(): void;
 }) {
   const ready = canExport(issues);
+  if (signupHref && ready) return <Sheet title="Your reel is ready" onClose={onClose}><p>Save your account to export this reel and start seven days of full-size exports and Instagram scheduling.</p><Link href={signupHref} className="btn btn-signal btn-block" data-testid="guest-export-signup">Save my reel & start 7 days free</Link><p className="muted small">No card needed. Your edit and unused AI credits stay with you.</p></Sheet>;
   return (
     <Sheet title={ready ? "Export for Instagram" : "Not ready to export"} onClose={onClose}>
       <p className="muted">
@@ -1301,6 +1305,7 @@ const AUTOPILOT_STYLE_CHOICES = [
  * without another tap, showing each step as it happens.
  */
 export function AutopilotSheet({
+  onUpload,
   phase,
   uploading,
   shots,
@@ -1312,6 +1317,7 @@ export function AutopilotSheet({
   onGo,
   onClose,
 }: {
+  onUpload?(files: File[]): Promise<void>;
   phase: AutopilotPhase;
   /** Files still uploading. */
   uploading: number;
@@ -1329,6 +1335,19 @@ export function AutopilotSheet({
 }) {
   const [style, setStyle] = useState("just-listed");
   const [units, setUnits] = useState(true);
+  const [listingText, setListingText] = useState("");
+  const [readingListing, setReadingListing] = useState(false);
+  const [listingError, setListingError] = useState<string | null>(null);
+  async function readListing() {
+    setReadingListing(true); setListingError(null);
+    try {
+      const result = await runAiJob<{ ok: true; fields: AutopilotInfo }>("/api/listing-assistance", { kind: "listing", text: listingText });
+      if (!result.ok) throw new Error(result.message);
+      setInfo(current => ({ ...current, ...result.fields }));
+      setUnits(false);
+    } catch (error) { setListingError(error instanceof Error ? error.message : "Could not read the listing."); }
+    finally { setReadingListing(false); }
+  }
   const [info, setInfo] = useState<AutopilotInfo>({ address: "", price: "", beds: "", baths: "", area: "", openHouse: "" });
   const titleId = useId();
   const running = phase !== "form";
@@ -1351,7 +1370,12 @@ export function AutopilotSheet({
       <div className="panel-body">
         {!running ? (
           <>
-            <p className="muted small">Pick a style and add what you know. Everything is optional; leave it blank and ReelWalk still makes the reel.</p>
+            <p className="muted small">Shoot 5-10 seconds in each room. Add exterior photos and paste your listing below. Opus names rooms, chooses shots, music and readable listing text. Review the draft and ask for changes.</p>
+            {onUpload ? <label className="field">Room videos and exterior photos<input className="text-input" type="file" multiple accept={acceptFor(["IMAGE", "VIDEO"])} onChange={event => { const files = Array.from(event.target.files ?? []); if (files.length) void onUpload(files); event.target.value = ""; }} /></label> : null}
+            <label className="field">Paste listing details (optional)<textarea className="text-input" rows={4} value={listingText} maxLength={12000} onChange={event => setListingText(event.target.value)} placeholder="Paste the listing description, price, beds, baths and contact details..." /></label>
+            <button type="button" className="btn btn-quiet" disabled={readingListing || listingText.trim().length < 10} onClick={() => void readListing()}>{readingListing ? "Reading listing..." : "Fill details from this text"}</button>
+            {listingError ? <p role="alert" className="error">{listingError}</p> : null}
+            <p className="muted small">Check the details below before making your reel. Exterior AI video is optional and uses credits only with your approval.</p>
             <div className="ask-examples" aria-label="Style">
               {AUTOPILOT_STYLE_CHOICES.map((choice) => (
                 <button
@@ -1459,7 +1483,7 @@ export function AutopilotSheet({
       <footer className="panel-foot">
         {/* One line of fixed height: the count changing never moves the fields. */}
         <p className="panel-status" role="status">
-          {error ? <span className="error">{error}</span> : uploading > 0 ? `Uploading your shots: ${uploading} to go.` : running ? "Working on it…" : "Your shots are up."}
+          {error ? <span className="error">{error}</span> : uploading > 0 ? `Uploading your shots: ${uploading} to go.` : running ? "Working on it…" : shots.length ? "Your shots are up." : "Add your room videos and exterior photos to begin."}
         </p>
         {error && upgrade ? (
           <Link href="/pricing" className="btn btn-quiet btn-block">
@@ -1470,6 +1494,7 @@ export function AutopilotSheet({
           <button
             type="button"
             className="btn btn-signal btn-block"
+            disabled={readingListing || (shots.length === 0 && uploading === 0)}
             onClick={() => onGo(style, units ? { ...info, price: formatPrice(info.price), area: formatArea(info.area) } : info)}
             data-testid="autopilot-go"
           >

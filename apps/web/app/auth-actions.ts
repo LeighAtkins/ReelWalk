@@ -4,7 +4,7 @@ import { randomBytes } from "node:crypto";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { DEFAULT_USER_EMAIL, hashPassword, prisma, verifyPassword } from "@reelwalk/db";
-import { renderSourceKeyFor } from "@reelwalk/core";
+import { trialEndsAt, TRIAL_PLAN, renderSourceKeyFor } from "@reelwalk/core";
 import { createSession, destroySession } from "@/lib/auth";
 import { deleteObjects } from "@/lib/storage";
 import { clearAttempts, clientIp, countAttempt, MINUTE, overLimit, type Limit } from "@/lib/throttle";
@@ -62,7 +62,7 @@ export async function signInDemo(): Promise<void> {
 const signUpSchema = z.object({
   name: z.string().trim().min(1, "Tell us your name").max(80),
   studio: z.string().trim().max(80),
-  email: z.string().trim().toLowerCase().email("That email does not look right").max(200),
+  email: z.string().trim().toLowerCase().email("That email does not look right").max(200).refine(v => !v.endsWith("@guest.reelwalk.local")),
   password: z.string().min(8, "Use at least 8 characters").max(200),
 });
 
@@ -102,7 +102,7 @@ export async function signUp(formData: FormData): Promise<void> {
   const passwordHash = await hashPassword(password);
   const user = await prisma.$transaction(async (tx) => {
     const workspace = await tx.workspace.create({
-      data: { slug: `${slugify(studio) || "studio"}-${randomBytes(3).toString("hex")}`, name: studio },
+      data: { slug: `${slugify(studio) || "studio"}-${randomBytes(3).toString("hex")}`, name: studio, trialStartedAt: new Date(), compedPlan: TRIAL_PLAN, compedUntil: trialEndsAt() },
     });
     return tx.user.create({ data: { email, name, passwordHash, workspaceId: workspace.id } });
   });

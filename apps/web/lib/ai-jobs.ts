@@ -8,7 +8,7 @@ import { prisma } from "@reelwalk/db";
  * browser asks /api/ai-jobs/<id> every couple of seconds until it is done.
  * Those check-ins also keep the instance's CPU awake while it works.
  */
-export async function startAiJob(input: { workspaceId: string; reelId: string; kind: "ask" | "autopilot" }, work: () => Promise<unknown>): Promise<string> {
+export async function startAiJob(input: { workspaceId: string; reelId?: string; kind: "ask" | "autopilot" | "video-suggestion" | "listing" }, work: () => Promise<unknown>): Promise<string> {
   const job = await prisma.aiJob.create({ data: { workspaceId: input.workspaceId, reelId: input.reelId, kind: input.kind }, select: { id: true } });
   void (async () => {
     try {

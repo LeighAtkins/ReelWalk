@@ -7,14 +7,14 @@ test.describe("signed out", () => {
     await page.goto("/");
     await expect(page).toHaveURL(/\/$/);
     await expect(page.getByTestId("hero-title")).toBeVisible();
-    await expect(page.getByTestId("hero-cta")).toHaveAttribute("href", "/signup");
+    await expect(page.getByRole("button", { name: "Try free - AI credits included" })).toBeVisible();
     await expect(page.getByTestId("sample")).toBeVisible();
 
     const pricing = page.getByTestId("pricing");
     await expect(pricing.getByTestId("plan-free")).toBeVisible();
     await expect(pricing.getByTestId("plan-agent")).toBeVisible();
     await expect(pricing.getByTestId("plan-office")).toBeVisible();
-    await expect(pricing.getByTestId("cta-agent")).toHaveAttribute("href", "/signup");
+    await expect(pricing.getByTestId("cta-agent")).toHaveAttribute("href", "/try");
 
     // The monthly/yearly switch is two radios and a CSS rule: yearly prices show once it is flipped.
     const agent = pricing.getByTestId("plan-agent");
@@ -29,7 +29,7 @@ test.describe("signed out", () => {
     await expect(page).toHaveURL(/\/pricing$/);
     await expect(page.getByRole("heading", { name: "Plans" })).toBeVisible();
     await expect(page.getByTestId("plan-agent")).toBeVisible();
-    await expect(page.getByTestId("top-cta")).toHaveAttribute("href", "/signup");
+    await expect(page.getByTestId("top-cta")).toHaveAttribute("href", "/try");
   });
 });
 

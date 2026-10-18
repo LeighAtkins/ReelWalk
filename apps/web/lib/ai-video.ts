@@ -1,4 +1,4 @@
-import { AI_VIDEO_MODEL, aiClipCostCents } from "@reelwalk/core";
+import { AI_VIDEO_MODEL, aiClipCostCents, canDirectAiVideo } from "@reelwalk/core";
 import { aiCreditSummary, prisma, reserveAiGeneration } from "@reelwalk/db";
 import { z } from "zod";
 import { mediaScope } from "./workspace";
@@ -11,10 +11,14 @@ export function aiVideoConfigured(): boolean {
 export const generationInput = z.object({
   requestId: z.string().uuid(), prompt: z.string().trim().min(10).max(2000),
   referenceAssetId: z.string().min(1).max(64).optional(),
+  consent: z.boolean().default(false),
+  execution: z.enum(["manual", "director"]).default("manual"),
   durationSeconds: z.union([z.literal(4), z.literal(8)]).default(4),
 });
 
 export async function createAiGeneration(user: { id: string; workspaceId: string; email: string }, input: z.infer<typeof generationInput>) {
+  const workspace = await prisma.workspace.findUniqueOrThrow({ where: { id: user.workspaceId }, select: { plan: true, aiVideoMode: true } });
+  if (input.execution === "director" ? !canDirectAiVideo(workspace) : !input.consent) throw new Error("Approve the Veo credit cost before generating this shot.");
   if (!aiVideoConfigured()) throw new Error("AI video is being connected. Please check back soon.");
   // The shared demo is public and must never spend the trial credit.
   if (user.email === "demo@reelwalk.local") throw new Error("Create your own account to try AI video.");

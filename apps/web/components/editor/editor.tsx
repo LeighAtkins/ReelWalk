@@ -123,7 +123,7 @@ import {
 } from "./sheets";
 import { analyseStoredAudio, uploadFile } from "./upload";
 import { useAutosave } from "./use-autosave";
-import { AiVideoPanel } from "../ai-video-panel";
+import { AiVideoPanel, type VideoIdea } from "../ai-video-panel";
 import { Sheet } from "./sheets";
 
 // The Player only runs in the browser.
@@ -166,6 +166,8 @@ type SheetName =
 export type EditorProps = {
   /** Open the media library straight away (a reel started from the library). */
   openLibrary?: boolean;
+  guest?: boolean;
+  exportReady?: boolean;
   /** Floor plans of the home tours the library media belongs to. */
   tours?: Record<string, { name: string; plan: Plan }>;
   reel: { id: string; title: string; revision: number; caption: string };
@@ -248,9 +250,10 @@ function Tool({
   );
 }
 
-export function Editor({ reel, timeline: initialTimeline, library: initialLibrary, openLibrary, tours = {}, instagramSounds = null, askAvailable = false, briefs: initialBriefs = [], autopilot = false, review: startInReview = false }: EditorProps) {
+export function Editor({ guest = false, exportReady = false, reel, timeline: initialTimeline, library: initialLibrary, openLibrary, tours = {}, instagramSounds = null, askAvailable = false, briefs: initialBriefs = [], autopilot = false, review: startInReview = false }: EditorProps) {
   const [review, setReview] = useState(startInReview);
   const [briefs, setBriefs] = useState<Brief[]>(initialBriefs);
+  const [videoIdea, setVideoIdea] = useState<VideoIdea | undefined>(undefined);
   const [autopilotPhase, setAutopilotPhase] = useState<AutopilotPhase>("form");
   const [autopilotError, setAutopilotError] = useState<{ message: string; upgrade: boolean } | null>(null);
   const autopilotRequest = useRef<{ style: string; info: AutopilotInfo } | null>(null);
@@ -260,7 +263,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
   const [title, setTitle] = useState(reel.title);
   const [caption, setCaption] = useState(reel.caption);
   const [selection, setSelection] = useState<Selection>(null);
-  const [sheet, setSheet] = useState<SheetName | null>(autopilot ? "autopilot" : openLibrary && initialTimeline.clips.length === 0 ? "media" : null);
+  const [sheet, setSheet] = useState<SheetName | null>(exportReady ? "export" : autopilot ? "autopilot" : openLibrary && initialTimeline.clips.length === 0 ? "media" : null);
   const [library, setLibrary] = useState<Record<string, LibraryAsset>>(() => Object.fromEntries(initialLibrary.map((asset) => [asset.id, asset])));
   const [uploads, setUploads] = useState<PendingUpload[]>([]);
   const [musicUploading, setMusicUploading] = useState(false);
@@ -678,6 +681,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
     }
     // On success the action redirects to the export screen.
     const result = await exportReel({ id: reel.id });
+    if (result && !result.ok && result.signup) { window.location.assign(`/signup?reelId=${encodeURIComponent(reel.id)}`); return; }
     if (result && !result.ok) setExportState({ busy: false, error: result.message ?? null, issues: result.issues, upgrade: result.upgrade });
   }, [autosave, reel.id]);
 
@@ -707,8 +711,9 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         setAutopilotPhase("form");
         setAutopilotError({ message, upgrade });
       };
-      type Cut = { ok: true; timeline: unknown; note: string; assets?: LibraryAsset[]; instagramPick?: InstagramAudioTrack } | { ok: false; message: string };
+      type Cut = { ok: true; videoIdea?: VideoIdea; timeline: unknown; note: string; assets?: LibraryAsset[]; instagramPick?: InstagramAudioTrack } | { ok: false; message: string };
       const takeIn = async (data: Cut & { ok: true }) => {
+        if (data.videoIdea) setVideoIdea(data.videoIdea);
         if (data.assets?.length) setLibrary((current) => ({ ...current, ...Object.fromEntries(data.assets!.map((asset) => [asset.id, asset])) }));
         apply(() => parseTimeline(data.timeline));
         // An Instagram sound is fetched and the cuts snapped to it.
@@ -1100,7 +1105,10 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
 
       {review ? (
         <ReviewBar
+          onSaveTrial={guest ? openExport : undefined}
+          onAiVideo={timeline.clips.some(clip => clip.kind === "IMAGE") ? () => setSheet("ai-video") : undefined}
           timeline={timeline}
+          aiVideoLabel={videoIdea ? `Suggested: ${videoIdea.suggestion.title}` : undefined}
           polishing={polishing}
           onChange={(change) => {
             playerRef.current?.pause();
@@ -1193,7 +1201,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
       ) : null}
 
       {sheet === "ai-video" ? <Sheet title="AI video" onClose={closeSheet}>
-        <AiVideoPanel photos={libraryList} onAdd={asset => {
+        <AiVideoPanel initialIdea={videoIdea} preferredPhotoId={timeline.clips.find(clip => clip.kind === "IMAGE")?.assetId} photos={libraryList} onAdd={asset => {
           setLibrary(current => ({ ...current, [asset.id]: asset }));
           apply(current => addClips(current, [clipFromAsset(asset)]));
           setSheet(null);
@@ -1466,6 +1474,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
 
       {sheet === "autopilot" ? (
         <AutopilotSheet
+          onUpload={addFiles}
           phase={autopilotPhase}
           uploading={uploads.length}
           shots={timeline.clips.map((clip) => ({ id: clip.id, thumbUrl: library[clip.assetId]?.thumbUrl ?? null, room: clip.room }))}
@@ -1487,6 +1496,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
 
       {sheet === "export" ? (
         <ExportSheet
+          signupHref={guest ? `/signup?reelId=${encodeURIComponent(reel.id)}` : undefined}
           issues={issues}
           durationMs={totalMs}
           busy={exportState.busy}

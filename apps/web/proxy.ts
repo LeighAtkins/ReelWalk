@@ -14,6 +14,7 @@ const PUBLIC_PATHS = [
   /^\/pricing$/,
   /^\/login$/,
   /^\/signup$/,
+  /^\/try$/,
   /^\/forgot$/,
   /^\/reset\/[^/]+$/,
   /^\/r\/[^/]+$/,

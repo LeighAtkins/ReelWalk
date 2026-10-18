@@ -71,6 +71,8 @@ model Workspace {
   aiPaidPlan           Plan @default(FREE)
   aiPaidPeriodStart    DateTime?
   aiLastInvoiceCreated Int @default(0)
+  trialStartedAt DateTime?
+  aiVideoMode String @default("ASK")
 }
 
 model AiCreditGrant {
@@ -146,6 +148,9 @@ model User {
   passwordHash String?
   // May open /admin/*. Set by hand (packages/db/scripts/set-admin.ts), never by the app.
   isAdmin     Boolean     @default(false)
+  // A try-before-signing-up account: no email of its own (a placeholder) and no password.
+  // Saving the first export turns it into a normal account (apps/web/lib/guest.ts).
+  isGuest     Boolean     @default(false)
   workspaceId String
   workspace   Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   createdAt   DateTime    @default(now())

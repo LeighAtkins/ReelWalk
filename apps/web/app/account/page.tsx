@@ -175,11 +175,11 @@ export default async function AccountPage({
           <p><strong>{aiBalance.remaining}</strong> {aiBalance.remaining === 1 ? "credit" : "credits"} available</p>
           <p className="muted small">{aiBalance.monthly} monthly · {aiBalance.trial} trial · {aiBalance.topUp} purchased</p>
           {aiBalance.resetsAt ? <p className="muted small">Monthly allowance resets <LocalTime date={new Date(aiBalance.resetsAt)} />.</p> : null}
-          <p className="muted small">One credit creates an 8-second clip. Agent includes 10 a month; Studio includes 30. Monthly credits reset without rollover, including on yearly plans. Purchased credits do not expire.</p>
+          <p className="muted small">One credit creates a 4-second clip; an 8-second clip uses 2. Agent includes 20 a month; Studio includes 60. Monthly credits reset without rollover, including on yearly plans. Purchased credits do not expire.</p>
           {billing === "credits" ? <p className="toast" role="status">Thank you. Your credits appear once payment is confirmed.</p> : null}
           <Link className="btn btn-block" href="/ai-video">Generate AI video</Link>
           {billingOn && aiTopUpPrice() ? <form action={buyAiCredits} style={{ marginTop: 12 }}>
-            <SubmitButton className="btn btn-quiet btn-block" pendingLabel="Opening checkout…">5 extra AI clips · $15</SubmitButton>
+            <SubmitButton className="btn btn-quiet btn-block" pendingLabel="Opening checkout…">10 extra AI credits · $15</SubmitButton>
           </form> : null}
         </section>
 

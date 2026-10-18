@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { aiClipCredits } from "@reelwalk/core";
 import type { LibraryAsset } from "@/lib/library";
 
 type Job = { id: string; prompt: string; status: string; error: string | null; asset: LibraryAsset | null };
@@ -12,6 +13,8 @@ export function AiVideoPanel({ photos, onAdd }: { photos: LibraryAsset[]; onAdd?
   const [state, setState] = useState<State | null>(null);
   const [prompt, setPrompt] = useState("");
   const [photo, setPhoto] = useState("");
+  const [seconds, setSeconds] = useState<4 | 8>(4);
+  const credits = aiClipCredits(seconds);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const requestId = useRef<string | null>(null);
@@ -43,7 +46,7 @@ export function AiVideoPanel({ photos, onAdd }: { photos: LibraryAsset[]; onAdd?
     try {
       const response = await fetch("/api/ai/generations", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ requestId: requestId.current, prompt, ...(photo ? { referenceAssetId: photo } : {}) }),
+        body: JSON.stringify({ requestId: requestId.current, prompt, durationSeconds: seconds, ...(photo ? { referenceAssetId: photo } : {}) }),
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Could not start this shot.");
@@ -55,7 +58,7 @@ export function AiVideoPanel({ photos, onAdd }: { photos: LibraryAsset[]; onAdd?
 
   return <div className="ai-video-panel">
     <p className="ai-credit-count" role="status">{state ? `${state.balance.remaining} AI ${state.balance.remaining === 1 ? "credit" : "credits"} available` : "Loading your credits…"}</p>
-    <p className="muted small">One credit makes an 8-second vertical clip at 1080p, without sound. Add music in the editor.</p>
+    <p className="muted small">One credit makes a 4-second vertical clip at 1080p, without sound; an 8-second clip uses 2. Add music in the editor.</p>
     {state && !state.enabled ? <p className="toast" role="status">AI video is being connected. Your credits are ready for when it opens.</p> : null}
     <form onSubmit={generate} className="ai-video-form">
       <label className="field">Start from a photo (optional)
@@ -65,15 +68,21 @@ export function AiVideoPanel({ photos, onAdd }: { photos: LibraryAsset[]; onAdd?
         </select>
       </label>
       {photo ? <img className="ai-reference" src={photos.find(p => p.id === photo)?.url} alt="Reference photo for this shot" /> : null}
+      <label className="field">Clip length
+        <select className="text-input" value={seconds} disabled={busy} onChange={e => { setSeconds(Number(e.target.value) as 4 | 8); requestId.current = null; }}>
+          <option value={4}>4 seconds · 1 credit</option><option value={8}>8 seconds · 2 credits</option>
+        </select>
+        <span className="muted small">Shorter clips stay closer to your photo.</span>
+      </label>
       <label className="field">Describe the shot
         <textarea className="text-input" rows={4} minLength={10} maxLength={2000} required value={prompt}
           placeholder="A slow, smooth camera push into a bright living room, morning light through the windows. Keep the layout and furniture unchanged."
           disabled={busy} onChange={e => { setPrompt(e.target.value); requestId.current = null; }} />
       </label>
-      <p className="muted small">Each new version uses a credit. Technical failures return it. Review generated property details before publishing.</p>
+      <p className="muted small">Each new version uses credits. Technical failures return them. Review generated property details before publishing.</p>
       {error ? <p className="error small" role="alert">{error}</p> : null}
-      <button className="btn btn-block" type="submit" disabled={busy || !state?.enabled || state.balance.remaining < 1 || state.jobs.filter(active).length >= 2}>
-        {busy ? "Starting…" : "Generate 8-second clip · 1 credit"}
+      <button className="btn btn-block" type="submit" disabled={busy || !state?.enabled || state.balance.remaining < credits || state.jobs.filter(active).length >= 2}>
+        {busy ? "Starting…" : `Generate ${seconds}-second clip · ${credits} ${credits === 1 ? "credit" : "credits"}`}
       </button>
       <p className="muted small"><Link href="/account">Plans and more credits</Link></p>
     </form>

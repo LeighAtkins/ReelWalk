@@ -96,6 +96,7 @@ import {
 } from "../icons";
 import { createClock, useClock, type Clock } from "./clock";
 import { ClipSourceInfo } from "./clip-source-info";
+import { DirectorSheet } from "./director-sheet";
 import { Filmstrip, type PendingUpload, type Selection } from "./filmstrip";
 import { historyReducer, initHistory } from "./history";
 import {
@@ -160,6 +161,7 @@ type SheetName =
   | "caption"
   | "export"
   | "ask"
+  | "director"
   | "autopilot"
   | "review-text"
   | "review-timing"
@@ -1384,6 +1386,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
 
       {sheet === "ask" ? (
         <AskSheet
+          onDirector={() => setSheet("director")}
           briefs={briefs}
           fresh={isFresh(timeline)}
           onAsk={async (request, answers) => {
@@ -1422,6 +1425,18 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
           onClose={closeSheet}
         />
       ) : null}
+
+      {sheet === "director" ? <DirectorSheet reelId={reel.id} timeline={timeline} library={libraryList} onClose={closeSheet} onApply={(review) => {
+        if (JSON.stringify(timeline) !== JSON.stringify(review.baseline)) return false;
+        if (review.assets.length) setLibrary(current => ({ ...current, ...Object.fromEntries(review.assets.map(asset => [asset.id, asset])) }));
+        apply(() => parseTimeline(review.timeline));
+        if (review.plan.edit.caption) {
+          setCaption(review.plan.edit.caption);
+          void saveCaption({ id: reel.id, caption: review.plan.edit.caption }).catch(() => undefined);
+        }
+        showToast("Applied Opus's proposed edit. Undo takes it back.");
+        return true;
+      }} /> : null}
 
       {sheet === "review-timing" ? (
         <TimingChoices

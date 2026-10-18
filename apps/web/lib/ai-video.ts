@@ -15,7 +15,7 @@ export const generationInput = z.object({
   durationSeconds: z.union([z.literal(4), z.literal(8)]).optional(),
 });
 
-export async function createAiGeneration(user: { id: string; workspaceId: string; email: string }, input: z.infer<typeof generationInput>) {
+export async function createAiGeneration(user: { id: string; workspaceId: string; email: string }, input: z.infer<typeof generationInput>, options: { exactPrompt?: boolean } = {}) {
   if (!aiVideoConfigured()) throw new Error("AI video is being connected. Please check back soon.");
   // The shared demo is public and must never spend the trial credit.
   if (user.email === "demo@reelwalk.local") throw new Error("Create your own account to try AI video.");
@@ -53,7 +53,7 @@ export async function createAiGeneration(user: { id: string; workspaceId: string
   if (!Number.isSafeInteger(budgetCents) || budgetCents < aiClipCostCents(durationSeconds)) throw new Error("AI generation is temporarily paused.");
   return reserveAiGeneration(prisma, {
     workspaceId: user.workspaceId, userId: user.id, requestId: input.requestId,
-    prompt: input.shot ? aiShotPrompt(input.shot.mode, input.prompt, input.shot) : input.prompt,
+    prompt: input.shot && !options.exactPrompt ? aiShotPrompt(input.shot.mode, input.prompt, input.shot) : input.prompt,
     shot: input.shot, frameSources: frames.length ? frames : undefined,
     referenceKey: reference?.objectKey, referenceType: reference?.contentType,
     model: AI_VIDEO_MODEL, durationSeconds, costCents: aiClipCostCents(durationSeconds), budgetCents,

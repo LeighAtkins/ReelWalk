@@ -53,7 +53,7 @@ export function DirectorSheet({ reelId, timeline, library, onApply, onClose }: {
   async function generate(index: number) {
     if (!review) return; setApproving(index); setMessage("");
     try {
-      const response = await fetch(`/api/reels/${reelId}/director/generate`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ editId: review.editId, index, approved: true }) });
+      const response = await fetch(`/api/reels/${reelId}/director/generate`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ editId: review.editId, index, quotedCredits: aiClipCredits(review.plan.shots[index].durationSeconds), approved: true }) });
       const data = await response.json(); if (!response.ok) throw new Error(data.error ?? "Generation did not start.");
       setGenerated(g => ({ ...g, [`${review.editId}:${index}`]: data.id }));
       setMessage("Shot queued. Opus must review the result before it is added to your reel. This approval cannot charge for a second take.");

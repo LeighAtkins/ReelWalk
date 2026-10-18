@@ -19,7 +19,7 @@ const { POST: direct } = await import(directorModule);
 
 const params = { params: Promise.resolve({ id: "reel" }) };
 const plan = directorPlanSchema.parse({ note: "Review scale", verdict: "needs-generation", issues: [], limitations: "Sampled frames only", checks: Object.fromEntries(["scale", "cameraContinuity", "presenterContinuity", "propertyIdentity"].map(k => [k, { result: "uncertain", evidence: "No complete source evidence" }])),  edit: { ops: [], note: "", questions: [], caption: null }, shots: [{ title: "Descent", reason: "Keep human scale", prompt: "An uninterrupted human-scale descent into the referenced room.", durationSeconds: 8, first: { assetId: "house", atMs: 1000 }, last: { assetId: "room", atMs: 0 } }] });
-const body = { editId: "edit", index: 0, approved: true };
+const body = { editId: "edit", index: 0, quotedCredits: 2, approved: true };
 const request = (data: unknown, origin = "https://reelwalking.com") => new Request("https://reelwalking.com/api/reels/reel/director", { method: "POST", headers: { origin, "content-type": "application/json" }, body: JSON.stringify(data) });
 
 beforeEach(() => {
@@ -36,6 +36,7 @@ describe("Opus generation approval", () => {
     mocks.user = { id: "u", workspaceId: "w", email: "owner@test.invalid" };
     expect((await approve(request(body, "https://other.invalid"), params)).status).toBe(403);
     expect((await approve(request({ ...body, approved: false }), params)).status).toBe(400);
+    expect((await approve(request({ ...body, quotedCredits: 1 }), params)).status).toBe(409);
     expect(mocks.generate).not.toHaveBeenCalled();
   });
   it("scopes decisions to this workspace and reel; rejects foreign and non-Opus plans", async () => {

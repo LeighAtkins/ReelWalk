@@ -84,7 +84,8 @@ export async function reserveAiGeneration(db: PrismaClient, input: {
       if (!owed) break;
       debits.push({ grantId: grant.id, credits: Math.min(owed, grant.remaining) });
     }
-    await tx.aiSpendBudget.upsert({ where: { id: "vertex-video" }, create: { id: "vertex-video" }, update: {} });
+    // Prisma upsert is select-then-insert, so two first-ever reservations can race to create the row.
+    await tx.$executeRaw`INSERT INTO "AiSpendBudget" ("id") VALUES ('vertex-video') ON CONFLICT ("id") DO NOTHING`;
     const reserved = await tx.aiSpendBudget.updateMany({
       where: { id: "vertex-video", reservedCents: { lte: input.budgetCents - input.costCents } },
       data: { reservedCents: { increment: input.costCents } },

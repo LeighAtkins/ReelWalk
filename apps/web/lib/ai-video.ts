@@ -4,6 +4,11 @@ import { z } from "zod";
 import { mediaScope } from "./workspace";
 import { storageBlockedReason } from "./quotas";
 
+/** Voiced takes (ADR 0038) need the voice and lip-sync keys on the worker; the web only needs the switch. */
+export function aiVoiceConfigured(): boolean {
+  return process.env.VOICE_ENABLED === "true";
+}
+
 export function aiVideoConfigured(): boolean {
   return process.env.AI_VIDEO_ENABLED === "true" && Boolean(process.env.GOOGLE_CLOUD_PROJECT);
 }
@@ -51,15 +56,17 @@ export async function createAiGeneration(user: { id: string; workspaceId: string
     const compose = role === "first" ? input.shot?.compose?.first : role === "last" ? input.shot?.compose?.last : undefined;
     frames.push({ key: asset.objectKey, kind: asset.kind, atMs: asset.kind === "IMAGE" ? 0 : frame.atMs, role, ...(compose ? { compose } : {}) });
   }
+  const voiced = Boolean(input.shot?.voice);
+  if (voiced && !aiVoiceConfigured()) throw new Error("Voiced shots are being connected. Please check back soon.");
   const durationSeconds = input.durationSeconds ?? aiDefaultClipSeconds(input.shot?.mode);
   const budgetCents = Number(process.env.AI_VIDEO_BUDGET_CENTS ?? 24000);
-  if (!Number.isSafeInteger(budgetCents) || budgetCents < aiClipCostCents(durationSeconds)) throw new Error("AI generation is temporarily paused.");
+  if (!Number.isSafeInteger(budgetCents) || budgetCents < aiClipCostCents(durationSeconds, voiced)) throw new Error("AI generation is temporarily paused.");
   return reserveAiGeneration(prisma, {
     workspaceId: user.workspaceId, userId: user.id, requestId: input.requestId,
     prompt: input.shot && !options.exactPrompt ? aiShotPrompt(input.shot.mode, input.prompt, input.shot) : input.prompt,
     shot: input.shot, frameSources: frames.length ? frames : undefined,
     referenceKey: reference?.objectKey, referenceType: reference?.contentType,
-    model: AI_VIDEO_MODEL, durationSeconds, costCents: aiClipCostCents(durationSeconds), budgetCents,
+    model: AI_VIDEO_MODEL, durationSeconds, costCents: aiClipCostCents(durationSeconds, voiced), budgetCents, voiced,
   });
 }
 

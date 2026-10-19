@@ -31,7 +31,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const plan = directorPlanSchema.safeParse(stored?.plan);
   if (!record || !/^claude-opus-/.test(record.model) || stored?.kind !== "director" || !plan.success || !plan.data.shots[body.data.index]) return Response.json({ error: "That Opus proposal is not available." }, { status: 404 });
   const proposal = plan.data.shots[body.data.index];
-  if (body.data.quotedCredits !== aiClipCredits(proposal.durationSeconds)) return Response.json({ error: "The credit quote changed. Reload the proposal before approving." }, { status: 409 });
+  if (body.data.quotedCredits !== aiClipCredits(proposal.durationSeconds, Boolean(proposal.voice))) return Response.json({ error: "The credit quote changed. Reload the proposal before approving." }, { status: 409 });
   if (body.data.auto) {
     const { runId, budgetCredits } = body.data.auto;
     if (body.data.editId !== runId && stored.runId !== runId) return Response.json({ error: "That proposal is not part of this run." }, { status: 409 });
@@ -45,6 +45,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       prompt: proposal.prompt, durationSeconds: proposal.durationSeconds,
       shot: {
         mode: "custom", ...(proposal.first ? { first: proposal.first } : {}), ...(proposal.last ? { last: proposal.last } : {}),
+        ...(proposal.line && proposal.voice ? { line: proposal.line, voice: proposal.voice } : {}),
         ...(proposal.compose ? { compose: { presenter: proposal.compose.presenter, ...(proposal.compose.first ? { first: proposal.compose.first } : {}), ...(proposal.compose.last ? { last: proposal.compose.last } : {}) } } : {}),
       },
     }, { exactPrompt: true });

@@ -6,8 +6,11 @@ export type AiClipSeconds = (typeof AI_CLIP_SECONDS)[number];
 export const AI_SECONDS_PER_CREDIT = 4;
 /** Veo 3.1 Fast, 1080p, silent: provider cost reserved per second generated. */
 export const AI_COST_CENTS_PER_SECOND = 10;
-export const aiClipCredits = (seconds: AiClipSeconds) => seconds / AI_SECONDS_PER_CREDIT;
-export const aiClipCostCents = (seconds: AiClipSeconds) => seconds * AI_COST_CENTS_PER_SECOND;
+/** A spoken line (ADR 0038): one credit on top of the clip, covering the voice and the lip-sync pass or Veo's audio. */
+export const AI_VOICED_CREDITS = 1;
+export const AI_VOICE_COST_CENTS_PER_SECOND = 5;
+export const aiClipCredits = (seconds: AiClipSeconds, voiced = false) => seconds / AI_SECONDS_PER_CREDIT + (voiced ? AI_VOICED_CREDITS : 0);
+export const aiClipCostCents = (seconds: AiClipSeconds, voiced = false) => seconds * (AI_COST_CENTS_PER_SECOND + (voiced ? AI_VOICE_COST_CENTS_PER_SECOND : 0));
 
 export const AI_TRIAL_CREDITS = 2;
 export const AI_PLAN_CREDITS = { FREE: 2, AGENT: 20, OFFICE: 60 } as const;

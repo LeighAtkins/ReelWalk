@@ -40,6 +40,9 @@ export const aiShotSchema = z.object({
   energy: z.enum(["subtle", "bold"]).optional(), harmonize: z.boolean().optional(),
   polish: z.boolean().optional(),
   compose: aiComposeSchema.optional(),
+  /** A spoken line and how it is voiced (ADR 0038): lipsync = fixed voice over the silent take; veo = Veo's own audio. */
+  line: z.string().trim().min(3).max(200).optional(),
+  voice: z.enum(["lipsync", "veo"]).optional(),
   // Snapshots prevent inserting against a boundary the user has since changed.
   anchor: clipSchema.optional(), next: clipSchema.optional(),
   draftReelId: z.string().min(1).max(64).optional(),
@@ -47,6 +50,7 @@ export const aiShotSchema = z.object({
   if (shot.mode !== "custom" && !shot.first) ctx.addIssue({ code: "custom", message: "Choose a source image or video." });
   if (aiConnectsClips(shot.mode) && !shot.last) ctx.addIssue({ code: "custom", message: "Choose an ending frame (the completed building for a construction timelapse)." });
   if (shot.last && !shot.first) ctx.addIssue({ code: "custom", message: "An ending frame needs a starting frame." });
+  if (shot.voice && !shot.line) ctx.addIssue({ code: "custom", message: "A voiced shot needs a line to say." });
   if (shot.compose?.first && !shot.first) ctx.addIssue({ code: "custom", message: "A composed starting frame needs a starting frame." });
   if (shot.compose?.last && !shot.last) ctx.addIssue({ code: "custom", message: "A composed ending frame needs an ending frame." });
   if (aiConnectsClips(shot.mode) && Boolean(shot.anchor) !== Boolean(shot.next)) {

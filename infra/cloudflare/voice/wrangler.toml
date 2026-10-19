@@ -1,0 +1,12 @@
+# The presenter voice (ADR 0038). Deploy: npx wrangler deploy (from this directory).
+# Secret: npx wrangler secret put VOICE_KEY — the same value goes in terraform.tfvars as voice_tts_key.
+name = "reelwalk-voice"
+main = "src/index.ts"
+compatibility_date = "2026-10-01"
+workers_dev = true
+
+[ai]
+binding = "AI"
+
+[observability]
+enabled = true

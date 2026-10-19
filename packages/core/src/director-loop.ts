@@ -17,17 +17,17 @@ export type DirectorLoopStep = { kind: "done"; reason: string } | { kind: "gener
 const plural = (n: number) => `${n} ${n === 1 ? "credit" : "credits"}`;
 
 /** What to do after a review in a run. */
-export function directorLoopStep(plan: Pick<DirectorPlan, "verdict" | "shots">, state: DirectorLoopState): DirectorLoopStep {
+export function directorLoopStep(plan: { verdict: DirectorPlan["verdict"]; shots: { durationSeconds: 4 | 8; voice?: "lipsync" | "veo" | null }[] }, state: DirectorLoopState): DirectorLoopStep {
   if (plan.verdict === "ready") return { kind: "done", reason: "Opus is happy with the reel. The run is finished." };
   if (!plan.shots.length) return { kind: "done", reason: "Opus made its changes and has no new shot to suggest. The run is finished." };
   if (state.round >= state.maxRounds) return { kind: "done", reason: `Stopped after ${state.maxRounds} rounds with ${plural(state.spentCredits)} used. Opus still suggests a shot; ask again to continue.` };
   const remaining = state.budgetCredits - state.spentCredits;
-  const index = plan.shots.findIndex(shot => aiClipCredits(shot.durationSeconds) <= remaining);
+  const index = plan.shots.findIndex(shot => aiClipCredits(shot.durationSeconds, Boolean(shot.voice)) <= remaining);
   if (index < 0) {
-    const cheapest = Math.min(...plan.shots.map(shot => aiClipCredits(shot.durationSeconds)));
+    const cheapest = Math.min(...plan.shots.map(shot => aiClipCredits(shot.durationSeconds, Boolean(shot.voice))));
     return { kind: "done", reason: `The next shot needs ${plural(cheapest)} and ${plural(Math.max(0, remaining))} of the budget ${remaining === state.budgetCredits ? "is" : "are"} left, so the run stopped. Raise the budget to continue.` };
   }
-  return { kind: "generate", index, credits: aiClipCredits(plan.shots[index].durationSeconds) };
+  return { kind: "generate", index, credits: aiClipCredits(plan.shots[index].durationSeconds, Boolean(plan.shots[index].voice)) };
 }
 
 /** The brief for a follow-up round: the original ask plus the take to check. */

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DIRECTOR_LOOP_MAX_ROUNDS, directorLoopBrief, directorLoopStep } from "../src";
 
-const shot = (durationSeconds: 4 | 8) => ({ durationSeconds }) as never;
+const shot = (durationSeconds: 4 | 8, voice: "lipsync" | "veo" | null = null) => ({ durationSeconds, voice });
 const state = { round: 0, maxRounds: DIRECTOR_LOOP_MAX_ROUNDS, budgetCredits: 3, spentCredits: 0 };
 
 describe("director run decisions", () => {
@@ -13,6 +13,7 @@ describe("director run decisions", () => {
   it("makes the first shot that fits what is left of the budget", () => {
     expect(directorLoopStep({ verdict: "needs-generation", shots: [shot(8), shot(4)] }, state)).toEqual({ kind: "generate", index: 0, credits: 2 });
     expect(directorLoopStep({ verdict: "needs-generation", shots: [shot(8), shot(4)] }, { ...state, spentCredits: 2 })).toEqual({ kind: "generate", index: 1, credits: 1 });
+    expect(directorLoopStep({ verdict: "needs-generation", shots: [shot(4, "lipsync")] }, { ...state, spentCredits: 2 })).toMatchObject({ kind: "done" });
     const over = directorLoopStep({ verdict: "needs-generation", shots: [shot(8)] }, { ...state, spentCredits: 2 });
     expect(over).toMatchObject({ kind: "done" });
     expect((over as { reason: string }).reason).toContain("needs 2 credits");

@@ -7,6 +7,13 @@ function plan() {
 }
 const assets = { house: { kind: "VIDEO", durationMs: 4000 }, room: { kind: "IMAGE", durationMs: null } };
 describe("in-app Opus direction", () => {
+  it("keeps a spoken line with a voice, and drops a voice without a line", () => {
+    const base = plan().shots[0];
+    const parse = (extra: Record<string, unknown>) => directorPlanSchema.parse({ ...plan(), shots: [{ ...base, ...extra }] }).shots[0];
+    expect(parse({ line: "Worth dropping in.", voice: "veo" })).toMatchObject({ line: "Worth dropping in.", voice: "veo" });
+    expect(parse({ line: "Worth dropping in.", voice: null })).toMatchObject({ voice: "lipsync" });
+    expect(parse({ line: null, voice: "lipsync" })).toMatchObject({ line: null, voice: null });
+  });
   it("keeps a composed keyframe only for an end that has a real frame and a presenter", () => {
     const base = plan().shots[0];
     const parse = (compose: unknown, last: unknown = base.last) => directorPlanSchema.parse({ ...plan(), shots: [{ ...base, last, compose }] }).shots[0].compose;

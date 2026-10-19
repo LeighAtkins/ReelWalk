@@ -13,7 +13,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   if (!user) return Response.json({ error: "Sign in to view direction." }, { status: 401 });
   const { id } = await params;
   const records = await prisma.aiEdit.findMany({ where: { workspaceId: user.workspaceId, reelId: id, plan: { path: ["kind"], equals: "director" } }, orderBy: { createdAt: "desc" }, take: 5, select: { id: true, model: true, createdAt: true, plan: true, applied: true, skipped: true } });
-  const pending = await prisma.aiJob.findMany({ where: { workspaceId: user.workspaceId, reelId: id, kind: "director", status: { in: ["RUNNING", "FAILED"] } }, orderBy: { createdAt: "desc" }, take: 5, select: { id: true, status: true } });
+  const pending = await prisma.aiJob.findMany({ where: { workspaceId: user.workspaceId, reelId: id, kind: "director", status: "RUNNING" }, orderBy: { createdAt: "desc" }, take: 5, select: { id: true, status: true } });
   const reviews = await Promise.all(records.map(async record => {
     const stored = record.plan as unknown as { plan: unknown; baseline: unknown; timeline: unknown };
     return { ...stored, ok: true, editId: record.id, model: record.model, applied: record.applied, skipped: record.skipped, assets: await newAssets(user.workspaceId, parseTimeline(stored.baseline), parseTimeline(stored.timeline)) };
@@ -49,8 +49,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       const result = await directReel(user, reel, parsed.data);
       await prisma.aiJob.update({ where: { id: jobId }, data: { status: "DONE", result: { ...result, requestHash } as never } });
     } catch (error) {
-      console.error("Opus director failed", error instanceof Error ? error.message : "unknown");
-      await prisma.aiJob.update({ where: { id: jobId }, data: { status: "FAILED", error: "Opus could not complete this review. Check its saved status before starting a new paid request." } }).catch(() => undefined);
+      const reason = error instanceof Error ? error.message : "unknown";
+      console.error("Opus director failed", reason);
+      const message = reason === "Could not reach Claude." ? "Opus took too long to answer. Try again; nothing was changed." : `Opus could not finish: ${reason.slice(0, 200)}`;
+      await prisma.aiJob.update({ where: { id: jobId }, data: { status: "FAILED", error: message } }).catch(() => undefined);
     }
   })();
   return Response.json({ ok: true, jobId }, { status: 202 });

@@ -9,7 +9,7 @@ import { mediaScope } from "./workspace";
 
 export const directorInput = z.object({
   requestId: z.string().uuid(), request: z.string().trim().min(3).max(4000),
-  timeline: z.unknown(), candidates: z.array(z.string().min(1).max(64)).max(3),
+  timeline: z.unknown(), candidates: z.array(z.string().min(1).max(64)).max(6),
   evidence: z.array(z.object({
     assetId: z.string().min(1).max(64), timesMs: z.array(z.number().int().nonnegative()).min(1).max(40),
     image: z.string().startsWith("data:image/jpeg;base64,").max(1_200_000),
@@ -60,6 +60,8 @@ export async function directReel(user: { id: string; workspaceId: string }, reel
     instructions: `${AI_EDIT_SYSTEM_PROMPT}\n\n${DIRECTOR_INSTRUCTIONS}`,
     input: `${describeReel({ title: reel.title, timeline, ...available })}\n\nUser brief: ${input.request}\n\nConfirmed AI-generated asset IDs: ${JSON.stringify(aiSources.map(a => a.assetId))}\nReview candidates: ${JSON.stringify(input.candidates)}\nSource frame sheets in order: ${JSON.stringify(evidence.map(e => ({ assetId: e.assetId, timesMs: e.timesMs })))}\nNo source sheets supplied for other shots: do not claim those were visually reviewed.`,
     images: evidence.map(e => e.image), imageDetail: "high", schemaName: "opus_director", schema: DIRECTOR_PLAN_JSON_SCHEMA as unknown as Record<string, unknown>, maxOutputTokens: 8000,
+    // Opus thinks over many frame sheets; the 60-second default cut real reviews off. This runs as a background job.
+    signal: AbortSignal.timeout(300_000),
   });
   const plan = directorPlanSchema.parse(answer.json);
   if (plan.verdict === "ready" && (!evidence.length || aiSources.some(a => !evidence.some(e => e.assetId === a.assetId && e.timesMs.length >= 3)))) throw new Error("Opus reported ready without enough AI source-frame evidence. No edit or generation was applied.");

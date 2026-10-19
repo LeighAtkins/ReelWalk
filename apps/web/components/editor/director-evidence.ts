@@ -16,12 +16,12 @@ function event(target: HTMLVideoElement, name: "loadeddata" | "seeked", action: 
 /** Mechanical source sampling. It makes no creative choices or claims about playback. */
 export async function captureDirectorEvidence(timeline: Timeline, assets: LibraryAsset[], candidates: string[], progress: (message: string) => void) {
   const byId = new Map(assets.map(a => [a.id, a]));
-  const ids = [...new Set([...candidates, ...timeline.clips.filter(c => byId.get(c.assetId)?.isAiGenerated).map(c => c.assetId), ...timeline.clips.map(c => c.assetId)])].slice(0, 10);
+  const ids = [...new Set([...timeline.clips.filter(c => byId.get(c.assetId)?.isAiGenerated).map(c => c.assetId), ...candidates, ...timeline.clips.map(c => c.assetId)])].slice(0, 10);
   const result: DirectorEvidence[] = [];
   for (const [i, id] of ids.entries()) {
     const asset = byId.get(id);
     if (!asset || !["IMAGE", "VIDEO"].includes(asset.kind) || asset.isPano) continue;
-    progress(`Sampling source ${i + 1} of ${ids.length}: ${asset.fileName}`);
+    progress(`Opus is looking through your clips (${i + 1} of ${ids.length})…`);
     if (asset.kind === "IMAGE") {
       const image = new Image(); image.crossOrigin = "anonymous";
       await new Promise<void>((resolve, reject) => {
@@ -44,7 +44,7 @@ export async function captureDirectorEvidence(timeline: Timeline, assets: Librar
       const end = Math.max(0, Math.min(asset.durationMs, video.duration * 1000) - 80);
       const windows = timeline.clips.filter(c => c.assetId === id);
       const dense = candidates.includes(id) || asset.isAiGenerated;
-      const count = Math.min(40, Math.max(1, Math.ceil(end / 250)));
+      const count = Math.min(candidates.includes(id) ? 24 : 40, Math.max(1, Math.ceil(end / 250)));
       const timesMs = dense ? Array.from({ length: count }, (_, n) => Math.round(count === 1 ? 0 : n * end / (count - 1)))
         : [...new Set(windows.flatMap(c => [c.sourceStartMs + 50, (c.sourceStartMs + c.sourceEndMs) / 2, c.sourceEndMs - 80]).map(t => Math.round(Math.min(end, Math.max(0, t)))))];
       if (!timesMs.length) timesMs.push(0);

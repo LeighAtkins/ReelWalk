@@ -1206,7 +1206,7 @@ export function AskSheet({
 
   return (
     <Sheet title={fresh ? "Cut it for me" : "Ask for a change"} onClose={onClose}>
-      {onDirector ? <button type="button" className="btn btn-quiet btn-block" onClick={onDirector}>Direct and review with Opus</button> : null}
+      {onDirector ? <button type="button" className="btn btn-quiet btn-block" onClick={onDirector}>Tell Opus what you think of the whole reel</button> : null}
       <p className="muted small">
         {fresh
           ? "Pick a way to cut it, or say what you want in your own words. The reel is cut from what you have uploaded; undo takes it back."

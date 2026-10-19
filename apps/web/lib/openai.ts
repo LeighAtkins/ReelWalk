@@ -157,17 +157,16 @@ type AnswerOptions = Parameters<typeof structuredAnswer>[0];
 
 /** Claude limits union-heavy schemas. Encode each operation's arguments as JSON,
  * then restore the existing plan shape for the caller's unchanged Zod validation. */
-function claudeEditWire(options: AnswerOptions) {
-  if (options.schemaName !== "reel_edit_plan") return null;
-  const properties = options.schema.properties as Record<string, Record<string, unknown>>;
+function editPlanWire(editSchema: Record<string, unknown>) {
+  const properties = editSchema.properties as Record<string, Record<string, unknown>>;
   const items = properties.ops.items as Record<string, unknown>;
   const opProperties = items.properties as Record<string, unknown>;
   return {
-    schema: { ...options.schema, properties: { ...properties, ops: { type: "array", items: {
+    schema: { ...editSchema, properties: { ...properties, ops: { type: "array", items: {
       type: "object", additionalProperties: false, required: ["op", "arguments"],
       properties: { op: opProperties.op, arguments: { type: "string", description: "A JSON object containing only the relevant non-null operation fields. For example: {\"clip\":1,\"speed\":1}" } },
     } } } },
-    instructions: `${options.instructions}\nTransport format: each ops item has op and arguments. arguments is a JSON-encoded object with the relevant fields from this operation schema; omit unused fields, which become null. Never put op inside arguments. The editor validates every decoded field before applying. Operation fields: ${JSON.stringify(opProperties)}`,
+    instructions: `Transport format: each ops item has op and arguments. arguments is a JSON-encoded object with the relevant fields from this operation schema; omit unused fields, which become null. Never put op inside arguments. The editor validates every decoded field before applying. Operation fields: ${JSON.stringify(opProperties)}`,
     decode(json: unknown): unknown {
       if (!json || typeof json !== "object" || !Array.isArray((json as { ops?: unknown }).ops)) throw new AiError("Claude sent an invalid edit plan.", false);
       const plan = json as { ops: Array<{ op?: unknown; arguments?: unknown }> };
@@ -180,6 +179,27 @@ function claudeEditWire(options: AnswerOptions) {
       }) };
     },
   };
+}
+
+/** The edit plan sits at the root of an edit request and under `edit` in a director review. */
+function claudeEditWire(options: AnswerOptions) {
+  if (options.schemaName === "reel_edit_plan") {
+    const wire = editPlanWire(options.schema);
+    return { schema: wire.schema, instructions: `${options.instructions}\n${wire.instructions}`, decode: wire.decode };
+  }
+  if (options.schemaName === "opus_director") {
+    const properties = options.schema.properties as Record<string, Record<string, unknown>>;
+    const wire = editPlanWire(properties.edit);
+    return {
+      schema: { ...options.schema, properties: { ...properties, edit: wire.schema } },
+      instructions: `${options.instructions}\nThe edit object uses this transport. ${wire.instructions}`,
+      decode(json: unknown): unknown {
+        if (!json || typeof json !== "object") throw new AiError("Claude sent an invalid director review.", false);
+        return { ...json, edit: wire.decode((json as { edit?: unknown }).edit) };
+      },
+    };
+  }
+  return null;
 }
 
 async function claudeAnswer(options: AnswerOptions): Promise<{ json: unknown; usage: AiUsage; model: string }> {

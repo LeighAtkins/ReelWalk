@@ -32,3 +32,4 @@ export * from "./ai-director";
 export * from "./transcript";
 export * from "./guards";
 export * from "./motion";
+export * from "./ducking";

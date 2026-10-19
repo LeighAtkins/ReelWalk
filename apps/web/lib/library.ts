@@ -1,4 +1,4 @@
-import { isEquirect, spotSchema, type MediaKind, type Spot } from "@reelwalk/core";
+import { isEquirect, spotSchema, transcriptSchema, type MediaKind, type Spot, type Transcript } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
 import { mediaUrl } from "./storage";
 
@@ -32,6 +32,8 @@ export type LibraryAsset = {
    * edited against, never exported. Instagram plays it from its start.
    */
   instagram: { audioId: string; title: string; artist: string | null } | null;
+  /** Speech with word timings, once the worker has transcribed a video (ADR 0035). */
+  transcript: Transcript | null;
 };
 
 type LibraryAssetInput = {
@@ -55,6 +57,7 @@ type LibraryAssetInput = {
   instagramAudioId?: string | null;
   instagramTitle?: string | null;
   instagramArtist?: string | null;
+  transcript?: unknown;
 };
 
 async function serializeLibraryAsset(asset: LibraryAssetInput, isAiGenerated: boolean): Promise<LibraryAsset> {
@@ -83,6 +86,7 @@ async function serializeLibraryAsset(asset: LibraryAssetInput, isAiGenerated: bo
     instagram: asset.instagramAudioId
       ? { audioId: asset.instagramAudioId, title: asset.instagramTitle ?? asset.fileName, artist: asset.instagramArtist ?? null }
       : null,
+    transcript: asset.transcript ? transcriptSchema.safeParse(asset.transcript).data ?? null : null,
   };
 }
 

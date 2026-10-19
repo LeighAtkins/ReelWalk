@@ -8,6 +8,7 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { frameThumbKeyFor, inputFilenameFor, outputKeyFor, parseReelExportPayload, reelRenderPlan, renderSourceKeyFor } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
 import { probe, run } from "./library/tools";
+import { normaliseLoudness } from "./loudness";
 import { transcribeVideo, transcriptionAvailable } from "./transcribe";
 
 /** Longest side of a clip the renderer is handed. Output is 1080x1920, so nothing is lost. */
@@ -175,11 +176,12 @@ export async function renderJob(
       for (const [index, [id, asset]] of entries.entries()) {
         const key = asset.kind === "VIDEO" ? await renderSourceKey(s3, bucket, workdir, id, asset.objectKey, (line) => console.log(`[${job.id}] ${line}`)) : asset.objectKey;
         const src = await getSignedUrl(s3, new GetObjectCommand({ Bucket: bucket, Key: key }), { expiresIn: 3600 });
-        assets[id] = { src, kind: asset.kind };
+        assets[id] = { src, kind: asset.kind, ...(asset.transcript ? { transcript: asset.transcript } : {}) };
         // Preparing sources is the first fifth of the bar; Remotion reports the rest.
         report(((index + 1) / entries.length) * 0.2);
       }
       await renderReel({ timeline: plan.timeline, assets, output: outputPath, concurrency, width: payload.output.width, watermark: payload.output.watermark }, report);
+      await normaliseLoudness(outputPath, (line) => console.log(`[${job.id}] ${line}`));
     } else if (job.kind === "EDITOR") {
       // Editor projects carried media URLs chosen by the client, so rendering
       // one made the worker fetch any host it named (SSRF). The route that

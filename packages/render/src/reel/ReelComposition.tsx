@@ -15,7 +15,7 @@ import {
 // WebCodecs-based video, used when the worker renders: about twice as fast as
 // OffthreadVideo here, and it falls back to it for files it cannot decode.
 import { Video as RenderVideo } from "@remotion/media";
-import { cameraAt, cameraMoveAt, textPositionAt, framePlan, INSTAGRAM, isInstagramMusic, REEL_FORMAT, timelineDurationMs, walkInto, type Clip, type Logo, type Plan, type TextOverlay, type Timeline } from "@reelwalk/core";
+import { cameraAt, cameraMoveAt, textPositionAt, duckGain, framePlan, INSTAGRAM, isInstagramMusic, speechWindows, REEL_FORMAT, timelineDurationMs, walkInto, type Clip, type Logo, type Plan, type TextOverlay, type Timeline } from "@reelwalk/core";
 import { whipGeometry } from "./whip";
 import { useFontsFor } from "./fonts";
 import { ELEGANT_FADE_S, FILTER_CSS, textTreatmentCss } from "./look";
@@ -277,9 +277,11 @@ const LogoView: React.FC<{ logo: Logo; asset: ReelAsset | undefined }> = ({ logo
   );
 };
 
-const MusicTrack: React.FC<{ timeline: Timeline; asset: ReelAsset }> = ({ timeline, asset }) => {
+const MusicTrack: React.FC<{ timeline: Timeline; asset: ReelAsset; assets: Record<string, ReelAsset> }> = ({ timeline, asset, assets }) => {
   const { fps, durationInFrames } = useVideoConfig();
   const music = timeline.music!;
+  // Dips under speech come from the transcripts, so they follow every edit (ADR 0035).
+  const speech = React.useMemo(() => speechWindows(timeline, Object.fromEntries(Object.entries(assets).map(([id, entry]) => [id, entry.transcript]))), [timeline, assets]);
   const fadeFrames = Math.min(fps, Math.floor(durationInFrames / 3));
   return (
     <Audio
@@ -291,6 +293,7 @@ const MusicTrack: React.FC<{ timeline: Timeline; asset: ReelAsset }> = ({ timeli
       // Fade out over the last second so the reel does not end mid-note.
       volume={(frame) =>
         music.volume *
+        duckGain(speech, (frame * 1000) / fps) *
         interpolate(frame, [durationInFrames - fadeFrames, durationInFrames], [1, 0], {
           extrapolateLeft: "clamp",
           extrapolateRight: "clamp",
@@ -334,7 +337,7 @@ export const ReelComposition: React.FC<ReelProps> = ({ timeline, assets, waterma
       <DetailsCardView timeline={timeline} />
       {timeline.logo ? <LogoView logo={timeline.logo} asset={assets[timeline.logo.assetId]} /> : null}
       {watermark ? <Watermark /> : null}
-      {musicAsset ? <MusicTrack timeline={timeline} asset={musicAsset} /> : null}
+      {musicAsset ? <MusicTrack timeline={timeline} asset={musicAsset} assets={assets} /> : null}
 
     </AbsoluteFill>
   );

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { isInstagramMusic, referencedAssetIds, timelineSchema, type Timeline } from "./timeline";
+import { transcriptSchema, type Transcript } from "./transcript";
 
 /**
  * What a REEL render job carries in RenderJob.payload: the timeline as it was
@@ -27,6 +28,8 @@ export const reelExportPayloadSchema = z.object({
        * handed to the renderer. Older payloads have none.
        */
       instagramAudio: z.boolean().optional(),
+      /** Speech with word timings, so the render can duck the music under it. */
+      transcript: transcriptSchema.nullable().optional(),
     }),
   ),
 });
@@ -42,7 +45,7 @@ export function parseReelExportPayload(value: unknown): ReelExportPayload {
 /** Builds the payload, keeping only the assets the timeline uses. */
 export function buildReelExportPayload(
   timeline: Timeline,
-  library: { id: string; objectKey: string; kind: "VIDEO" | "IMAGE" | "AUDIO"; instagramAudioId?: string | null }[],
+  library: { id: string; objectKey: string; kind: "VIDEO" | "IMAGE" | "AUDIO"; instagramAudioId?: string | null; transcript?: unknown }[],
   output: ReelExportPayload["output"] = { width: 1080, watermark: false },
 ): ReelExportPayload {
   const byId = new Map(library.map((asset) => [asset.id, asset]));
@@ -50,7 +53,8 @@ export function buildReelExportPayload(
   for (const id of referencedAssetIds(timeline)) {
     const asset = byId.get(id);
     if (!asset) throw new Error("This reel uses media that no longer exists. Remove it and try again.");
-    assets[id] = { objectKey: asset.objectKey, kind: asset.kind, instagramAudio: Boolean(asset.instagramAudioId) };
+    const transcript = asset.transcript ? transcriptSchema.safeParse(asset.transcript).data ?? null : null;
+    assets[id] = { objectKey: asset.objectKey, kind: asset.kind, instagramAudio: Boolean(asset.instagramAudioId), ...(transcript ? { transcript } : {}) };
   }
   return { timeline, assets, output };
 }
@@ -70,16 +74,16 @@ export function instagramSoundAssetId(payload: Pick<ReelExportPayload, "timeline
  */
 export function reelRenderPlan(payload: Pick<ReelExportPayload, "timeline" | "assets">): {
   timeline: Timeline;
-  assets: Record<string, { objectKey: string; kind: "VIDEO" | "IMAGE" | "AUDIO" }>;
+  assets: Record<string, { objectKey: string; kind: "VIDEO" | "IMAGE" | "AUDIO"; transcript?: Transcript | null }>;
 } {
   const dropped = new Set(Object.entries(payload.assets).filter(([, asset]) => asset.instagramAudio).map(([id]) => id));
   const sound = instagramSoundAssetId(payload);
   if (sound) dropped.add(sound);
   const timeline = sound ? { ...payload.timeline, music: null } : payload.timeline;
   const used = new Set(referencedAssetIds(timeline));
-  const assets: Record<string, { objectKey: string; kind: "VIDEO" | "IMAGE" | "AUDIO" }> = {};
+  const assets: Record<string, { objectKey: string; kind: "VIDEO" | "IMAGE" | "AUDIO"; transcript?: Transcript | null }> = {};
   for (const [id, asset] of Object.entries(payload.assets)) {
-    if (!dropped.has(id) && used.has(id)) assets[id] = { objectKey: asset.objectKey, kind: asset.kind };
+    if (!dropped.has(id) && used.has(id)) assets[id] = { objectKey: asset.objectKey, kind: asset.kind, ...(asset.transcript ? { transcript: asset.transcript } : {}) };
   }
   return { timeline, assets };
 }

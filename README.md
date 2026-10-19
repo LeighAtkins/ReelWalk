@@ -190,8 +190,10 @@ docker compose -f docker-compose.yml -f docker-compose.aws.yml --env-file .env.a
 Production is https://reelwalking.com: the web image on AWS App Runner,
 render workers as Fargate tasks the web app starts on demand, Postgres on
 Neon, all from `infra/terraform` ([ADR 0015](docs/adr/0015-serverless-under-thirty-dollars.md)).
-Deploy by pushing an image tag and running `terraform apply` with
-`image_tag` set. It costs about $10-15 a month and nothing renders while
+Deploy with `bash infra/deploy.sh [sha]` from the checkout that holds
+`infra/terraform/terraform.tfvars`: it waits for CI's images, sets
+`image_tag`, refuses a plan that would change the worker's environment,
+applies, and checks App Runner and `/api/ready`. It costs about $10-15 a month and nothing renders while
 nobody exports. (An EKS version ran for a day, ADR 0014, and was retired for cost.)
 
 ## Product docs

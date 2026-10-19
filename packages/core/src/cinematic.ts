@@ -31,6 +31,18 @@ export function pinnedProgress(timeline: Timeline, text: TextOverlay, reelMs: nu
   return span > 0 ? (sourceMs - text.pin.fromMs) / span : 0;
 }
 
+/** The tracked plane's corners at `progress`, interpolated between keyframes; null when the text has no planar track. */
+export function textQuadAt(text: TextOverlay, progress: number): number[] | null {
+  if (!text.path || !text.pin?.quad || progress === PINNED_ELSEWHERE) return null;
+  const t = Math.max(0, Math.min(1, progress));
+  const found = text.path.findIndex(p => p.t >= t);
+  const end = found < 0 ? text.path.length - 1 : found;
+  const b = text.path[Math.max(0, end)], a = text.path[Math.max(0, end - 1)];
+  if (!a.q || !b.q) return null;
+  const mix = b.t === a.t ? 0 : (t - a.t) / (b.t - a.t);
+  return a.q.map((v, i) => v + (b.q![i] - v) * mix);
+}
+
 export function textPositionAt(text: TextOverlay, progress: number): { x: number; y: number; scale: number; rotation: number } {
   if (!text.path) return { x: text.x, y: text.y, scale: 1, rotation: 0 };
   if (text.pin && progress === PINNED_ELSEWHERE) return { x: text.x, y: text.y, scale: 1, rotation: 0 };

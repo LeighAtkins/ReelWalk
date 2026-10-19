@@ -155,13 +155,17 @@ export const textSchema = z
      * Set when `path` was tracked on a clip (ADR 0039): the keyframes' t runs over
      * this source window of that asset, so the pin survives trims and reorders.
      */
-    pin: z.object({ assetId: z.string().min(1), fromMs: ms, toMs: ms }).optional(),
+    pin: z.object({ assetId: z.string().min(1), fromMs: ms, toMs: ms, /** The corners the text was laid on at pin time, matching each keyframe's `q`. */ quad: z.array(z.number().min(-2).max(3)).length(8).optional() }).optional(),
     /** People in the clips this text overlaps pass in front of it (ADR 0039). */
     behind: z.boolean().optional(),
     /** An extruded, 3D-looking title. */
     depth: z.enum(["flat", "extruded"]).optional(),
     /** Offsets from x/y across this overlay's lifetime, with optional scale and rotation (degrees): a drift, or a surface tracked through the shot (ADR 0039). */
-    path: z.array(z.object({ t: unit, x: z.number().min(-0.5).max(0.5), y: z.number().min(-0.5).max(0.5), s: z.number().min(0.2).max(5).optional(), r: z.number().min(-180).max(180).optional() }))
+    path: z.array(z.object({
+      t: unit, x: z.number().min(-0.5).max(0.5), y: z.number().min(-0.5).max(0.5), s: z.number().min(0.2).max(5).optional(), r: z.number().min(-180).max(180).optional(),
+      /** The four tracked corners of the surface (tl, tr, br, bl) as frame fractions: a plane the text sits on, in perspective. */
+      q: z.array(z.number().min(-2).max(3)).length(8).optional(),
+    }))
       .min(2).max(64).refine(points => points[0].t === 0 && points.at(-1)!.t === 1 && points.every((p, i) => i === 0 || p.t > points[i - 1].t), "Motion path must run in order from 0 to 1").optional(),
   })
   .refine((text) => text.endMs > text.startMs, { message: "Text must be on screen for a positive time" })

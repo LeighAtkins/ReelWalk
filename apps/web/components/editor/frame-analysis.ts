@@ -1,4 +1,4 @@
-import { pickMatchingFrame, smoothKeyframes, trackPatch, type Clip, type Gray, type TextOverlay } from "@reelwalk/core";
+import { pickMatchingFrame, smoothKeyframes, trackPatch, type Clip, type Gray, type Quad, type TextOverlay } from "@reelwalk/core";
 import type { LibraryAsset } from "@/lib/library";
 
 /** Browser side of @reelwalk/core's motion module: small grayscale frames from a video element. */
@@ -70,12 +70,17 @@ export async function trackTextPath(
     video = await load(asset);
     await seek(video, firstSource);
     let prev = grayFrame(video, TRACK_WIDTH, TRACK_HEIGHT);
-    const half = Math.round(TRACK_WIDTH * 0.12), radius = Math.round(TRACK_WIDTH * 0.045), range = Math.round(TRACK_WIDTH * 0.06);
-    const centre = { x: Math.round(text.x * TRACK_WIDTH), y: Math.round(text.y * TRACK_HEIGHT) };
-    let left = { x: Math.max(half, centre.x - half), y: centre.y }, right = { x: Math.min(TRACK_WIDTH - 1 - half, centre.x + half), y: centre.y };
-    const baseDistance = Math.hypot(right.x - left.x, right.y - left.y) || 1;
-    const baseAngle = Math.atan2(right.y - left.y, right.x - left.x);
-    const path: NonNullable<TextOverlay["path"]> = [{ t: 0, x: 0, y: 0, s: 1, r: 0 }];
+    const radius = Math.round(TRACK_WIDTH * 0.045), range = Math.round(TRACK_WIDTH * 0.06);
+    const centre = { x: text.x * TRACK_WIDTH, y: text.y * TRACK_HEIGHT };
+    // Four corners of a plane around the text, kept inside the frame with room for a patch.
+    const hw = TRACK_WIDTH * 0.2, hh = TRACK_HEIGHT * 0.075, margin = radius + 1;
+    const cx = Math.max(margin + hw, Math.min(TRACK_WIDTH - 1 - margin - hw, centre.x)), cy = Math.max(margin + hh, Math.min(TRACK_HEIGHT - 1 - margin - hh, centre.y));
+    let corners = [{ x: cx - hw, y: cy - hh }, { x: cx + hw, y: cy - hh }, { x: cx + hw, y: cy + hh }, { x: cx - hw, y: cy + hh }];
+    const quad0 = corners.flatMap(c => [c.x / TRACK_WIDTH, c.y / TRACK_HEIGHT]) as Quad;
+    const left0 = corners[0], right0 = corners[1];
+    const baseDistance = Math.hypot(right0.x - left0.x, right0.y - left0.y) || 1;
+    const baseAngle = Math.atan2(right0.y - left0.y, right0.x - left0.x);
+    const path: NonNullable<TextOverlay["path"]> = [{ t: 0, x: 0, y: 0, s: 1, r: 0, q: quad0 }];
     let held = false;
     for (let source = firstSource + stepMs; source <= lastSource + 1; source += stepMs) {
       const at = Math.min(source, lastSource);
@@ -83,24 +88,27 @@ export async function trackTextPath(
       const next = grayFrame(video, TRACK_WIDTH, TRACK_HEIGHT);
       const t = Math.min(1, (at - firstSource) / (lastSource - firstSource));
       if (!held) {
-        const l = trackPatch(prev, next, left.x, left.y, { radius, range }), r = trackPatch(prev, next, right.x, right.y, { radius, range });
-        if (l.lost && r.lost) held = true;
+        const tracked = corners.map(c => trackPatch(prev, next, c.x, c.y, { radius, range }));
+        const good = tracked.filter(c => !c.lost);
+        if (good.length < 2) held = true;
         else {
-          // One lost patch rides along with the other, so a hand or a doorway crossing one side does not throw the text.
-          const dl = l.lost ? { x: r.x - right.x, y: r.y - right.y } : { x: l.x - left.x, y: l.y - left.y };
-          const dr = r.lost ? dl : { x: r.x - right.x, y: r.y - right.y };
-          left = { x: left.x + dl.x, y: left.y + dl.y }; right = { x: right.x + dr.x, y: right.y + dr.y };
+          // A lost corner rides along with the mean move of the good ones, so a hand or a doorway crossing it does not bend the plane.
+          const moves = tracked.flatMap((c, i) => c.lost ? [] : [{ x: c.x - corners[i].x, y: c.y - corners[i].y }]);
+          const mean = { x: moves.reduce((s, m) => s + m.x, 0) / moves.length, y: moves.reduce((s, m) => s + m.y, 0) / moves.length };
+          corners = corners.map((c, i) => tracked[i].lost ? { x: c.x + mean.x, y: c.y + mean.y } : { x: tracked[i].x, y: tracked[i].y });
         }
       }
-      const mid = { x: (left.x + right.x) / 2, y: (left.y + right.y) / 2 };
-      const distance = Math.hypot(right.x - left.x, right.y - left.y) || 1;
-      const angle = Math.atan2(right.y - left.y, right.x - left.x);
+      const [tl, tr, br, bl] = corners;
+      const mid = { x: (tl.x + tr.x + br.x + bl.x) / 4, y: (tl.y + tr.y + br.y + bl.y) / 4 };
+      const distance = Math.hypot(tr.x - tl.x, tr.y - tl.y) || 1;
+      const angle = Math.atan2(tr.y - tl.y, tr.x - tl.x);
       path.push({
         t: Number(t.toFixed(4)),
         x: Number(Math.max(-0.5, Math.min(0.5, mid.x / TRACK_WIDTH - text.x)).toFixed(4)),
         y: Number(Math.max(-0.5, Math.min(0.5, mid.y / TRACK_HEIGHT - text.y)).toFixed(4)),
         s: Number(Math.max(0.2, Math.min(5, distance / baseDistance)).toFixed(3)),
         r: Number(Math.max(-180, Math.min(180, ((angle - baseAngle) * 180) / Math.PI)).toFixed(2)),
+        q: corners.flatMap(c => [Number(Math.max(-2, Math.min(3, c.x / TRACK_WIDTH)).toFixed(4)), Number(Math.max(-2, Math.min(3, c.y / TRACK_HEIGHT)).toFixed(4))]) as Quad,
       });
       prev = next;
       onProgress?.((at - firstSource) / (lastSource - firstSource));
@@ -112,7 +120,7 @@ export async function trackTextPath(
     else last.t = 1;
     // Strictly increasing t, no duplicates.
     const clean = smoothKeyframes(path.filter((p, i) => i === 0 || p.t > path[i - 1].t));
-    return clean.length >= 2 ? { path: clean, pin: { assetId: asset.id, fromMs: Math.round(firstSource), toMs: Math.round(lastSource) } } : null;
+    return clean.length >= 2 ? { path: clean, pin: { assetId: asset.id, fromMs: Math.round(firstSource), toMs: Math.round(lastSource), quad: quad0 } } : null;
   } catch {
     return null;
   } finally {

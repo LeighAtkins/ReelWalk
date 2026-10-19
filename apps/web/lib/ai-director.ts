@@ -73,7 +73,7 @@ export async function directReel(user: { id: string; workspaceId: string }, reel
   if (plan.verdict === "needs-generation" && !plan.shots.length) throw new Error("Opus asked for a new shot but did not write it. Ask again.");
   validateDirectorReferences(plan, available.assets);
   const applied = applyAiEditPlan(timeline, plan.edit, { ...available, newId: () => crypto.randomUUID() });
-  const stored = { kind: "director", ...(input.runId ? { runId: input.runId } : {}), plan, baseline: timeline, timeline: applied.timeline, evidence: evidence.map(e => ({ assetId: e.assetId, timesMs: e.timesMs, sha256: e.sha256 })) };
+  const stored = { kind: "director", ...(input.runId ? { runId: input.runId } : {}), plan, baseline: timeline, instagramPick: applied.instagramPick ?? null, timeline: applied.timeline, evidence: evidence.map(e => ({ assetId: e.assetId, timesMs: e.timesMs, sha256: e.sha256 })) };
   await prisma.aiEdit.update({ where: { id: record.id }, data: {
     model: answer.model, note: plan.note, plan: stored as never, applied: applied.applied, skipped: applied.skipped,
     inputTokens: answer.usage.inputTokens, cachedTokens: answer.usage.cachedTokens, outputTokens: answer.usage.outputTokens,

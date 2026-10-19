@@ -16,7 +16,8 @@ function reel(): Timeline {
     clips: [{ id: "c1", assetId: "v", kind: "VIDEO", sourceStartMs: 0, sourceEndMs: 8000 }],
     texts: [
       { id: "a", text: "first", startMs: 1000, endMs: 2000, style: "elegant" },
-      { id: "b", text: "second", startMs: 5000, endMs: 7000, style: "elegant" },
+      // Its own line, so a test that moves "first" onto its time is about following, not sharing a line.
+      { id: "b", text: "second", startMs: 5000, endMs: 7000, style: "elegant", y: 0.6 },
     ],
     music: null,
   });

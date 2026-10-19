@@ -95,8 +95,9 @@ describe("applyAiEditPlan", () => {
     };
     const { timeline, applied, skipped } = applyAiEditPlan(reel(), plan, { assets, songs, newId: () => "new" });
     expect(timeline.texts.map((text) => text.text)).toEqual(["Just listed in Austin", "Open Saturday"]);
-    expect(timeline.texts[1]).toMatchObject({ id: "new", style: "elegant", y: 0.8, startMs: 4000, endMs: 7000 });
-    expect(applied).toEqual(['added text "Open Saturday"', 'text "Just listed" changed to "Just listed in Austin"']);
+    // y 0.8 is under Instagram's buttons: the editor keeps the text inside the safe band and says so.
+    expect(timeline.texts[1]).toMatchObject({ id: "new", style: "elegant", y: 0.72, startMs: 4000, endMs: 7000 });
+    expect(applied).toEqual(['added text "Open Saturday"', 'text "Just listed" changed to "Just listed in Austin"', 'moved "Open Saturday" into the safe area']);
     expect(skipped).toEqual(['addText: "Too late" would start after the reel ends']);
   });
 
@@ -129,7 +130,8 @@ describe("keeping the rest of the reel in step", () => {
   it("text over a clip moves with the clip when an earlier one is removed or lengthened", () => {
     const base = reel();
     // "Lounge" sits over clip 2 (4.0–7.0 s), one second in.
-    const withText = { ...base, texts: [...base.texts, { ...base.texts[0], id: "t2", text: "Lounge", startMs: 5000, endMs: 7000 }] };
+    // On its own line (y 0.6), so the test is about following the clip, not two texts sharing a line.
+    const withText = { ...base, texts: [...base.texts, { ...base.texts[0], id: "t2", text: "Lounge", startMs: 5000, endMs: 7000, y: 0.6 }] };
     const longer = applyAiEditPlan(withText, { ops: [op({ op: "trim", clip: 1, lengthMs: 6000 })], note: "" }, { assets, songs });
     expect(longer.timeline.texts.find((text) => text.id === "t2")).toMatchObject({ startMs: 7000, endMs: 9000 });
     const removed = applyAiEditPlan(withText, { ops: [op({ op: "remove", clip: 1 })], note: "" }, { assets, songs });

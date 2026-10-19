@@ -41,7 +41,7 @@ export async function directReel(user: { id: string; workspaceId: string }, reel
   const ids = [...new Set([...referencedAssetIds(timeline), ...input.candidates])];
   const selected = await prisma.mediaAsset.findMany({ where: { ...mediaScope(user.workspaceId), id: { in: ids } }, select: { id: true, kind: true, fileName: true, durationMs: true, width: true, height: true, bpm: true, beatOffsetMs: true, room: true } });
   for (const row of selected) {
-    const asset = { id: row.id, kind: row.kind, title: row.fileName, durationMs: row.durationMs, isPano: isEquirect(row.width, row.height), bpm: row.bpm, beatOffsetMs: row.beatOffsetMs, room: row.room };
+    const asset = { id: row.id, kind: row.kind, title: row.fileName, durationMs: row.durationMs, isPano: isEquirect(row.width, row.height), bpm: row.bpm, beatOffsetMs: row.beatOffsetMs, room: row.room, aiGenerated: row.id.startsWith("ai-") };
     if (input.candidates.includes(row.id) && (!['IMAGE', 'VIDEO'].includes(row.kind) || asset.isPano)) throw new Error("Choose a flat photo or video as a review candidate.");
     available.assets[row.id] = asset;
     if (input.candidates.includes(row.id) && !timeline.clips.some(c => c.assetId === row.id) && !available.unused.some(a => a.id === row.id)) available.unused.push(asset);

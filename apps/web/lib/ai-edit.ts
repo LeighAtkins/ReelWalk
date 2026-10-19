@@ -101,6 +101,8 @@ export async function context(workspaceId: string, timeline: Timeline): Promise<
     beatOffsetMs: row.beatOffsetMs,
     room: row.room,
     transcript: row.transcript ? transcriptSchema.safeParse(row.transcript).data ?? null : null,
+    // Generated assets carry an "ai-" id (app shots and registered avatar takes alike).
+    aiGenerated: row.id.startsWith("ai-"),
   });
   const assets: Record<string, AiAsset> = {};
   const songs: AiSong[] = [];

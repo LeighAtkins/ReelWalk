@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyHomography, bestShift, describeMotion, fitHomography, homography, matrix3d, motionFlags, motionProfile, pickMatchingFrame, planePoints, robustHomography, smoothKeyframes, trackPatch, trackPlane, type Gray, type Quad } from "../src";
+import { applyHomography, bestShift, describeMotion, fitAffine, fitHomography, fitSimilarity, homography, matrix3d, motionFlags, motionProfile, pickMatchingFrame, planePoints, robustHomography, robustFit, smoothKeyframes, stepChange, trackPatch, trackPlane, type Gray, type Quad } from "../src";
 
 /** A textured frame (a fixed noise pattern, like a wall or floor) shifted by (sx, sy); another `seed` is a different picture. */
 function frame(sx: number, sy: number, seed = 1, width = 24, height = 40): Gray {
@@ -103,5 +103,41 @@ describe("rigid plane tracking", () => {
     // A blank frame has nothing to follow.
     const flat: Gray = { data: new Float32Array(120 * 140).fill(100), width: 120, height: 140 };
     expect(planePoints(flat, quad)).toEqual([]);
+  });
+});
+
+describe("constrained plane fits and gates", () => {
+  const pts: [number, number][] = Array.from({ length: 16 }, (_, i) => [20 + (i % 4) * 25, 20 + Math.floor(i / 4) * 25]);
+  const sim = (x: number, y: number): [number, number] => [1.05 * (Math.cos(0.05) * x - Math.sin(0.05) * y) + 3, 1.05 * (Math.sin(0.05) * x + Math.cos(0.05) * y) - 2];
+
+  it("recovers a similarity exactly and refuses to shear", () => {
+    const h = fitSimilarity(pts, pts.map(p => sim(p[0], p[1])))!;
+    for (const p of pts) { const [u, v] = applyHomography(h, p[0], p[1]); const [eu, ev] = sim(p[0], p[1]); expect(u).toBeCloseTo(eu, 6); expect(v).toBeCloseTo(ev, 6); }
+    // Rotation part stays orthogonal: no shear, equal scale on both axes.
+    expect(h[0]).toBeCloseTo(h[4], 9); expect(h[1]).toBeCloseTo(-h[3], 9);
+    expect(fitSimilarity(pts.slice(0, 1), pts.slice(0, 1))).toBeNull();
+  });
+
+  it("recovers an affine map", () => {
+    const aff = (x: number, y: number): [number, number] => [1.1 * x + 0.2 * y + 5, -0.1 * x + 0.9 * y - 4];
+    const h = fitAffine(pts, pts.map(p => aff(p[0], p[1])))!;
+    expect(h.slice(0, 6).map(v => Number(v.toFixed(6)))).toEqual([1.1, 0.2, 5, -0.1, 0.9, -4]);
+  });
+
+  it("refuses a step that would collapse or spin the plane", () => {
+    const quad: Quad = [8, 8, 90, 8, 90, 110, 8, 110];
+    const textured = (dx: number, dy: number, k = 1): Gray => { const width = 120, height = 140; const data = new Float32Array(width * height); for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) data[y * width + x] = 128 + 60 * Math.sin((x - dx) * 0.7 * k) * Math.cos((y - dy) * 0.9 * k) + 40 * Math.sin((x - dx) * 0.23 + (y - dy) * 0.31); return { data, width, height }; };
+    const a = textured(0, 0);
+    const points = planePoints(a, quad, { grid: 5, radius: 4 });
+    // A plain pan passes, as a similarity, reporting its scale and turn.
+    const ok = trackPlane(a, textured(3, 2), points, quad, { radius: 5, range: 6 })!;
+    expect(ok.model).toBe("similarity"); expect(ok.scale).toBeCloseTo(1, 1); expect(Math.abs(ok.rotation)).toBeLessThan(1);
+    // The same frames with a tiny gate are refused rather than accepted with a jump.
+    expect(trackPlane(a, textured(3, 2), points, quad, { radius: 5, range: 6, maxScaleStep: 0.0001, maxRotationStep: 0.0001 })).toBeNull();
+    // A step whose fit says the plane doubled is refused by the default gate.
+    const doubled = points.map(p => [p[0] * 2 - 50, p[1] * 2 - 60] as [number, number]);
+    expect(robustFit("similarity", points, doubled)!.h[0]).toBeCloseTo(2, 6);
+    const centre: [number, number] = [49, 59];
+    expect(stepChange(robustFit("similarity", points, doubled)!.h, centre).scale).toBeCloseTo(2, 6);
   });
 });

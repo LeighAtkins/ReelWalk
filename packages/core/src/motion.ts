@@ -248,53 +248,148 @@ export function fitHomography(from: [number, number][], to: [number, number][]):
   return H.map(v => v / H[8]);
 }
 
+/** The homography most of the tracked points agree on (RANSAC then refit); see `robustFit`. */
+export function robustHomography(from: [number, number][], to: [number, number][], options: { tolerance?: number; rounds?: number; seed?: number } = {}): { h: number[]; inliers: number } | null {
+  return robustFit("homography", from, to, options);
+}
+
+export type PlaneModel = "similarity" | "affine" | "homography";
+
 /**
- * The homography most of the tracked points agree on (RANSAC over 4-point
- * samples, then a least-squares refit on the inliers), so a hand, a doorway
- * or a reflection crossing part of the surface does not bend the plane.
+ * Least-squares similarity (scale, rotation, translation; 4 unknowns) from
+ * two or more point pairs, as a row-major 3×3. The model a wall title needs
+ * through a pan: it cannot shear or collapse.
+ */
+export function fitSimilarity(from: [number, number][], to: [number, number][]): number[] | null {
+  const n = Math.min(from.length, to.length);
+  if (n < 2) return null;
+  // Normal equations for [a, b, tx, ty] with x' = a x - b y + tx, y' = b x + a y + ty.
+  let saa = 0, sx = 0, sy = 0, su = 0, sv = 0, sxu = 0, syv = 0, sxv = 0, syu = 0;
+  for (let i = 0; i < n; i++) {
+    const [x, y] = from[i], [u, v] = to[i];
+    saa += x * x + y * y; sx += x; sy += y; su += u; sv += v; sxu += x * u; syv += y * v; sxv += x * v; syu += y * u;
+  }
+  // Solve the 4×4 system by elimination.
+  const M = [
+    [saa, 0, sx, sy, sxu + syv],
+    [0, saa, -sy, sx, sxv - syu],
+    [sx, -sy, n, 0, su],
+    [sy, sx, 0, n, sv],
+  ];
+  for (let col = 0; col < 4; col++) {
+    let pivot = col;
+    for (let r = col + 1; r < 4; r++) if (Math.abs(M[r][col]) > Math.abs(M[pivot][col])) pivot = r;
+    if (Math.abs(M[pivot][col]) < 1e-12) return null;
+    [M[col], M[pivot]] = [M[pivot], M[col]];
+    for (let r = 0; r < 4; r++) {
+      if (r === col) continue;
+      const f = M[r][col] / M[col][col];
+      for (let c = col; c < 5; c++) M[r][c] -= f * M[col][c];
+    }
+  }
+  const [a, b, tx, ty] = M.map((row, i) => row[4] / row[i]);
+  return [a, -b, tx, b, a, ty, 0, 0, 1];
+}
+
+/** Least-squares affine (6 unknowns) from three or more point pairs, row-major 3×3. */
+export function fitAffine(from: [number, number][], to: [number, number][]): number[] | null {
+  const n = Math.min(from.length, to.length);
+  if (n < 3) return null;
+  // Two independent 3-unknown systems: u = p x + q y + r, v = s x + t y + w.
+  const solve = (rhs: (i: number) => number) => {
+    const A = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]];
+    for (let i = 0; i < n; i++) {
+      const row = [from[i][0], from[i][1], 1], k = rhs(i);
+      for (let r = 0; r < 3; r++) { for (let c = 0; c < 3; c++) A[r][c] += row[r] * row[c]; A[r][3] += row[r] * k; }
+    }
+    for (let col = 0; col < 3; col++) {
+      let pivot = col;
+      for (let r = col + 1; r < 3; r++) if (Math.abs(A[r][col]) > Math.abs(A[pivot][col])) pivot = r;
+      if (Math.abs(A[pivot][col]) < 1e-12) return null;
+      [A[col], A[pivot]] = [A[pivot], A[col]];
+      for (let r = 0; r < 3; r++) {
+        if (r === col) continue;
+        const f = A[r][col] / A[col][col];
+        for (let c = col; c < 4; c++) A[r][c] -= f * A[col][c];
+      }
+    }
+    return A.map((row, i) => row[3] / row[i]);
+  };
+  const top = solve(i => to[i][0]), bottom = solve(i => to[i][1]);
+  if (!top || !bottom) return null;
+  return [top[0], top[1], top[2], bottom[0], bottom[1], bottom[2], 0, 0, 1];
+}
+
+const MODEL_SAMPLE: Record<PlaneModel, number> = { similarity: 2, affine: 3, homography: 4 };
+function fitModel(model: PlaneModel, from: [number, number][], to: [number, number][]): number[] | null {
+  return model === "similarity" ? fitSimilarity(from, to) : model === "affine" ? fitAffine(from, to) : fitHomography(from, to);
+}
+
+/**
+ * The transform of the chosen model most of the tracked points agree on
+ * (RANSAC over minimal samples, then a least-squares refit on the inliers).
  * `inliers` says how many points fit within `tolerance` pixels.
  */
-export function robustHomography(from: [number, number][], to: [number, number][], { tolerance = 1.5, rounds = 64, seed = 7 }: { tolerance?: number; rounds?: number; seed?: number } = {}): { h: number[]; inliers: number } | null {
-  const n = Math.min(from.length, to.length);
-  if (n < 4) return null;
+export function robustFit(model: PlaneModel, from: [number, number][], to: [number, number][], { tolerance = 1.5, rounds = 64, seed = 7 }: { tolerance?: number; rounds?: number; seed?: number } = {}): { h: number[]; inliers: number } | null {
+  const n = Math.min(from.length, to.length), k = MODEL_SAMPLE[model];
+  if (n < k) return null;
   let state = seed;
   const random = () => { state = (state * 1103515245 + 12345) & 0x7fffffff; return state / 0x7fffffff; };
   const errors = (h: number[]) => from.slice(0, n).map((p, i) => { const [u, v] = applyHomography(h, p[0], p[1]); return Math.hypot(u - to[i][0], v - to[i][1]); });
   let best: { h: number[]; inliers: number[] } | null = null;
-  const attempts = n === 4 ? 1 : rounds;
+  const attempts = n === k ? 1 : rounds;
   for (let round = 0; round < attempts; round++) {
     const picked = new Set<number>();
-    while (picked.size < 4) picked.add(Math.floor(random() * n));
+    while (picked.size < k) picked.add(Math.floor(random() * n));
     const idx = [...picked];
-    const h = fitHomography(idx.map(i => from[i]), idx.map(i => to[i]));
+    const h = fitModel(model, idx.map(i => from[i]), idx.map(i => to[i]));
     if (!h) continue;
     const inliers = errors(h).flatMap((e, i) => (e <= tolerance ? [i] : []));
     if (!best || inliers.length > best.inliers.length) best = { h, inliers };
     if (inliers.length === n) break;
   }
-  if (!best || best.inliers.length < 4) return null;
-  const refit = fitHomography(best.inliers.map(i => from[i]), best.inliers.map(i => to[i])) ?? best.h;
+  if (!best || best.inliers.length < k) return null;
+  const refit = fitModel(model, best.inliers.map(i => from[i]), best.inliers.map(i => to[i])) ?? best.h;
   return { h: refit, inliers: best.inliers.length };
 }
 
+/** Scale and rotation a transform applies near a point: how much a plane step grew and turned. */
+export function stepChange(h: number[], at: [number, number]): { scale: number; rotation: number } {
+  const [x0, y0] = applyHomography(h, at[0], at[1]);
+  const [x1, y1] = applyHomography(h, at[0] + 10, at[1]);
+  const [x2, y2] = applyHomography(h, at[0], at[1] + 10);
+  const sx = Math.hypot(x1 - x0, y1 - y0) / 10, sy = Math.hypot(x2 - x0, y2 - y0) / 10;
+  return { scale: Math.sqrt(sx * sy), rotation: (Math.atan2(y1 - y0, x1 - x0) * 180) / Math.PI };
+}
+
+export type PlaneStep = { points: [number, number][]; quad: Quad; h: number[]; inliers: number; model: PlaneModel; scale: number; rotation: number };
+
 /**
  * Where a flat surface went between two frames: every point of `points` is
- * followed with `trackPatch`, one rigid homography is fitted to the ones
- * that agree, and the quad's corners are moved by that homography, so the
- * corners cannot drift apart (ADR 0039, second attempt). Points that were
- * lost or voted out are moved by the plane too, ready for the next frame.
- * Null when fewer than four points agree, so a tracker can hold.
+ * followed with `trackPatch`, one transform is fitted to the ones that agree,
+ * and the quad's corners are moved by it, so the corners cannot drift apart
+ * (ADR 0039). The model is a similarity by default (a wall title through a
+ * pan scales, turns and slides; it does not shear or collapse), affine when
+ * many points agree, and a full homography only when asked for. A step that
+ * would grow, shrink or turn the plane more than a camera can between two
+ * samples is refused (null), so the caller holds instead of jumping.
  */
-export function trackPlane(prev: Gray, next: Gray, points: [number, number][], quad: Quad, options: { radius?: number; range?: number; lostAt?: number; tolerance?: number } = {}): { points: [number, number][]; quad: Quad; h: number[]; inliers: number } | null {
-  const { tolerance = 1.5, ...patch } = options;
+export function trackPlane(prev: Gray, next: Gray, points: [number, number][], quad: Quad, options: { radius?: number; range?: number; lostAt?: number; tolerance?: number; model?: PlaneModel; maxScaleStep?: number; maxRotationStep?: number; minInliers?: number } = {}): PlaneStep | null {
+  const { tolerance = 1.5, model = "similarity", maxScaleStep = 0.12, maxRotationStep = 4, minInliers = 4, ...patch } = options;
   const moved = points.map(([x, y]) => trackPatch(prev, next, x, y, patch));
   const kept = moved.flatMap((m, i) => (m.lost ? [] : [i]));
-  if (kept.length < 4) return null;
-  const fit = robustHomography(kept.map(i => points[i]), kept.map(i => [moved[i].x, moved[i].y] as [number, number]), { tolerance });
-  if (!fit || fit.inliers < 4) return null;
+  if (kept.length < Math.max(minInliers, MODEL_SAMPLE[model])) return null;
+  const from = kept.map(i => points[i]), to = kept.map(i => [moved[i].x, moved[i].y] as [number, number]);
+  // Affine needs enough agreeing points to be better than a similarity, not worse.
+  const chosen: PlaneModel = model === "affine" && kept.length < 12 ? "similarity" : model === "homography" && kept.length < 16 ? "affine" : model;
+  const fit = robustFit(chosen, from, to, { tolerance });
+  if (!fit || fit.inliers < Math.max(minInliers, MODEL_SAMPLE[chosen])) return null;
+  const centre: [number, number] = [(quad[0] + quad[2] + quad[4] + quad[6]) / 4, (quad[1] + quad[3] + quad[5] + quad[7]) / 4];
+  const change = stepChange(fit.h, centre);
+  if (Math.abs(Math.log(change.scale)) > Math.log(1 + maxScaleStep) || Math.abs(change.rotation) > maxRotationStep) return null;
   const nextQuad = [0, 1, 2, 3].flatMap(i => applyHomography(fit.h, quad[i * 2], quad[i * 2 + 1])) as Quad;
   const nextPoints = points.map(p => applyHomography(fit.h, p[0], p[1]));
-  return { points: nextPoints, quad: nextQuad, h: fit.h, inliers: fit.inliers };
+  return { points: nextPoints, quad: nextQuad, h: fit.h, inliers: fit.inliers, model: chosen, scale: change.scale, rotation: change.rotation };
 }
 
 /**

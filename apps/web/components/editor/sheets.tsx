@@ -842,9 +842,10 @@ export function PinSheet({ text, clip, asset, clipStartMs, onPath, onClose }: {
     setBusy(false);
     if (!tracked) { setStatus("Could not follow this shot. Try placing the text on a surface with some detail."); return; }
     onPath({ path: tracked.path, pin: tracked.pin }, wholeShot ? timing : undefined);
-    const { path, lostAtMs } = tracked;
+    const { path, lostAtMs, quality } = tracked;
     const lostNote = lostAtMs !== null ? ` The surface was lost ${((lostAtMs - tracked.pin.fromMs) / 1000 / (clip.speed || 1)).toFixed(1)} s in, so the title fades there.` : "";
-    setStatus(`Pinned through ${path.length} keyframes as one rigid plane${wholeShot ? ", for the whole shot" : ""}.${lostNote} Play it back; unpin to go back to still text.`);
+    const gradeNote = quality.grade === "good" ? `Good track: ${quality.inliers} points agreed on every step.` : quality.grade === "weak" ? `Weak track: only ${quality.inliers} points agreed and ${quality.held} of ${quality.steps} steps were held. Try a surface with more detail, or a bigger area of it.` : "The surface could not be followed to the end.";
+    setStatus(`${gradeNote} ${path.length} keyframes${wholeShot ? ", for the whole shot" : ""}.${lostNote} Play it back; unpin to go back to still text.`);
   }
   return (
     <Sheet title="Pin to the picture" onClose={onClose}>

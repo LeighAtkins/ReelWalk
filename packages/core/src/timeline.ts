@@ -151,6 +151,11 @@ export const textSchema = z
     font: z.enum(["auto", "serif", "sans", "editorial"]).optional(),
     shadow: z.enum(["auto", "soft", "strong", "none"]).optional(),
     tracking: z.number().min(-0.04).max(0.24).optional(),
+    /**
+     * Set when `path` was tracked on a clip (ADR 0039): the keyframes' t runs over
+     * this source window of that asset, so the pin survives trims and reorders.
+     */
+    pin: z.object({ assetId: z.string().min(1), fromMs: ms, toMs: ms }).optional(),
     /** People in the clips this text overlaps pass in front of it (ADR 0039). */
     behind: z.boolean().optional(),
     /** An extruded, 3D-looking title. */

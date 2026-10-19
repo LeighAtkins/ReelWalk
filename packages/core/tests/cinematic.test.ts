@@ -43,3 +43,19 @@ describe("text keyframes", () => {
     expect(textPositionAt(text, 1)).toEqual({ x: 0.6, y: 0.5, scale: 2, rotation: 10 });
   });
 });
+
+describe("pinned text", () => {
+  it("runs its path on the clip's source time and holds still on other clips", async () => {
+    const { pinnedProgress, PINNED_ELSEWHERE, clipSchema, emptyTimeline, parseTimeline, textSchema } = await import("../src");
+    const a = clipSchema.parse({ id: "a", assetId: "wall", kind: "VIDEO", sourceStartMs: 2000, sourceEndMs: 6000, speed: 2 });
+    const b = clipSchema.parse({ id: "b", assetId: "other", kind: "VIDEO", sourceStartMs: 0, sourceEndMs: 3000 });
+    const timeline = parseTimeline({ ...emptyTimeline(), clips: [b, a] });
+    const text = textSchema.parse({ id: "t", text: "Hi", startMs: 0, endMs: 5000, pin: { assetId: "wall", fromMs: 2000, toMs: 4000 }, path: [{ t: 0, x: 0, y: 0 }, { t: 1, x: 0.2, y: 0 }] });
+    expect(pinnedProgress(timeline, text, 1000)).toBe(PINNED_ELSEWHERE);
+    // Clip a starts at 3 s; 0.5 s into it at 2x is source 3000 ms: halfway along the tracked window.
+    expect(pinnedProgress(timeline, text, 3500)).toBeCloseTo(0.5);
+    // Trimming a's start to 3000 ms moves the same picture earlier in the reel; the pin follows it.
+    const trimmed = { ...timeline, clips: [b, { ...a, sourceStartMs: 3000 }] };
+    expect(pinnedProgress(trimmed, text, 3000)).toBeCloseTo(0.5);
+  });
+});

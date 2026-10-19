@@ -15,7 +15,7 @@ import {
 // WebCodecs-based video, used when the worker renders: about twice as fast as
 // OffthreadVideo here, and it falls back to it for files it cannot decode.
 import { Video as RenderVideo } from "@remotion/media";
-import { cameraAt, cameraMoveAt, textPositionAt, duckGain, framePlan, INSTAGRAM, isInstagramMusic, speechWindows, REEL_FORMAT, timelineDurationMs, walkInto, type Clip, type Logo, type Plan, type TextOverlay, type Timeline } from "@reelwalk/core";
+import { cameraAt, cameraMoveAt, pinnedProgress, textPositionAt, duckGain, framePlan, INSTAGRAM, isInstagramMusic, speechWindows, REEL_FORMAT, timelineDurationMs, walkInto, type Clip, type Logo, type Plan, type TextOverlay, type Timeline } from "@reelwalk/core";
 import { whipGeometry } from "./whip";
 import { useFontsFor } from "./fonts";
 import { ELEGANT_FADE_S, FILTER_CSS, textTreatmentCss } from "./look";
@@ -219,11 +219,12 @@ function extrudedShadow(color: string): string {
   return `${layers.join(", ")}, 0 0 1px ${color}`;
 }
 
-const TextView: React.FC<{ text: TextOverlay; durationInFrames: number }> = ({ text, durationInFrames }) => {
+const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline: Timeline; from: number }> = ({ text, durationInFrames, timeline, from }) => {
   const frame = useCurrentFrame();
   const { fps, width, height } = useVideoConfig();
   const css = textTreatmentCss(text);
-  const position = textPositionAt(text, durationInFrames > 1 ? frame / (durationInFrames - 1) : 0);
+  // A pinned path runs on its clip's source time (ADR 0039); a drift runs over the text's own life.
+  const position = textPositionAt(text, text.pin ? pinnedProgress(timeline, text, ((from + frame) * 1000) / fps) : durationInFrames > 1 ? frame / (durationInFrames - 1) : 0);
   useFontsFor(text.text, Number(css.fontWeight ?? 600));
   const { scale, opacity, rise, chars } = textMotion(text, frame, fps, durationInFrames);
   // The typewriter keeps the full text in place, invisible, so the box never changes size while it writes.
@@ -340,7 +341,7 @@ export const ReelComposition: React.FC<ReelProps> = ({ timeline, assets, waterma
       <PlanOverlayView timeline={timeline} />
       {plan.texts.map(({ text, from, durationInFrames }) => (
         <Sequence key={text.id} from={from} durationInFrames={durationInFrames} name={`text ${text.text.slice(0, 12)}`}>
-          <TextView text={text} durationInFrames={durationInFrames} />
+          <TextView text={text} durationInFrames={durationInFrames} timeline={timeline} from={from} />
         </Sequence>
       ))}
       {/* People in front of the type (ADR 0039): a person-only matte of each clip a "behind" text overlaps, above the text layer. */}

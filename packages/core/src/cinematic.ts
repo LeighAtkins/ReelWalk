@@ -13,14 +13,19 @@ export function cameraMoveAt(motion: Clip["motion"], progress: number, elapsedSe
   }
 }
 
-export function textPositionAt(text: TextOverlay, progress: number) {
-  if (!text.path) return { x: text.x, y: text.y };
+export function textPositionAt(text: TextOverlay, progress: number): { x: number; y: number; scale: number; rotation: number } {
+  if (!text.path) return { x: text.x, y: text.y, scale: 1, rotation: 0 };
   const t = Math.max(0, Math.min(1, progress));
-  const end = text.path.findIndex(p => p.t >= t);
+  const found = text.path.findIndex(p => p.t >= t);
+  const end = found < 0 ? text.path.length - 1 : found;
   const b = text.path[Math.max(0, end)];
   const a = text.path[Math.max(0, end - 1)];
   const mix = b.t === a.t ? 0 : (t - a.t) / (b.t - a.t);
-  return { x: Math.max(0, Math.min(1, text.x + a.x + (b.x - a.x) * mix)), y: Math.max(0, Math.min(1, text.y + a.y + (b.y - a.y) * mix)) };
+  const lerp = (from: number, to: number) => from + (to - from) * mix;
+  return {
+    x: Math.max(0, Math.min(1, text.x + lerp(a.x, b.x))), y: Math.max(0, Math.min(1, text.y + lerp(a.y, b.y))),
+    scale: lerp(a.s ?? 1, b.s ?? 1), rotation: lerp(a.r ?? 0, b.r ?? 0),
+  };
 }
 
 /** An editable finish: keep footage/order/timing, use readable type and one accent move. */

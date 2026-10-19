@@ -24,6 +24,7 @@ import { PanoView } from "./PanoView";
 import { PlanOverlayView } from "./PlanOverlayView";
 import type { ReelAsset, ReelProps } from "./types";
 import { Watermark } from "./Watermark";
+import { PersonMatteView } from "./PersonMatte";
 
 /** Frames of the dip-to-black on each side of a "fade" transition. */
 const FADE_FRAMES = 8;
@@ -210,6 +211,14 @@ function textMotion(text: TextOverlay, frame: number, fps: number, durationInFra
   }
 }
 
+/** A stack of offset shadows that reads as extruded type, darker as it recedes, with a soft ground shadow. */
+function extrudedShadow(color: string): string {
+  const layers: string[] = [];
+  for (let i = 1; i <= 14; i++) layers.push(`${i * 0.9}px ${i * 1.1}px 0 rgba(0,0,0,${0.55 + i * 0.02})`);
+  layers.push("22px 30px 28px rgba(0,0,0,0.45)");
+  return `${layers.join(", ")}, 0 0 1px ${color}`;
+}
+
 const TextView: React.FC<{ text: TextOverlay; durationInFrames: number }> = ({ text, durationInFrames }) => {
   const frame = useCurrentFrame();
   const { fps, width, height } = useVideoConfig();
@@ -231,12 +240,12 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number }> = ({ t
           width: width * 0.86,
           display: "flex",
           justifyContent: "center",
-          transform: `translate(-50%, calc(-50% + ${rise * 40}px)) scale(${scale})`,
+          transform: `translate(-50%, calc(-50% + ${rise * 40}px)) scale(${scale * position.scale}) rotate(${position.rotation}deg)`,
           opacity,
         }}
       >
         {chars === null ? (
-          <span style={css}>{text.text}</span>
+          <span style={{ ...css, ...(text.depth === "extruded" ? { textShadow: extrudedShadow(text.color), WebkitTextStroke: "0.5px rgba(0,0,0,0.25)" } : {}) }}>{text.text}</span>
         ) : (
           <span style={{ ...css, position: "relative" }}>
             <span style={{ visibility: "hidden" }}>{text.text}</span>
@@ -334,6 +343,13 @@ export const ReelComposition: React.FC<ReelProps> = ({ timeline, assets, waterma
           <TextView text={text} durationInFrames={durationInFrames} />
         </Sequence>
       ))}
+      {/* People in front of the type (ADR 0039): a person-only matte of each clip a "behind" text overlaps, above the text layer. */}
+      {plan.clips.map(({ clip, from, durationInFrames }) => {
+        const asset = assets[clip.assetId];
+        const startMs = (from * 1000) / fps, endMs = ((from + durationInFrames) * 1000) / fps;
+        if (!asset || asset.kind !== "VIDEO" || !timeline.texts.some(text => text.behind && text.startMs < endMs && text.endMs > startMs)) return null;
+        return <Sequence key={`matte-${clip.id}`} from={from} durationInFrames={durationInFrames} name={`matte ${clip.id}`}><PersonMatteView clip={clip} asset={asset} /></Sequence>;
+      })}
       <DetailsCardView timeline={timeline} />
       {timeline.logo ? <LogoView logo={timeline.logo} asset={assets[timeline.logo.assetId]} /> : null}
       {watermark ? <Watermark /> : null}

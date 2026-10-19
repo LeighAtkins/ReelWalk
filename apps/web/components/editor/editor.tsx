@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "r
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import type { PlayerRef } from "@remotion/player";
-import {
+import { locate,
   addClips,
   insertAiShot,
   luxuryFinish,
@@ -100,7 +100,7 @@ import { ClipSourceInfo } from "./clip-source-info";
 import { DirectorSheet } from "./director-sheet";
 import { Filmstrip, type PendingUpload, type Selection } from "./filmstrip";
 import { historyReducer, initHistory } from "./history";
-import {
+import { PinSheet,
   AskSheet,
   AutopilotSheet,
   type AutopilotInfo,
@@ -156,6 +156,7 @@ type SheetName =
   | "text-new"
   | "text-edit"
   | "timing"
+  | "pin"
   | "music"
   | "zoom"
   | "logo"
@@ -943,6 +944,9 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         <Tool label="Timing" onClick={() => setSheet("timing")}>
           <ClockIcon />
         </Tool>
+        <Tool label="Pin" pressed={Boolean(selectedText.path && selectedText.path.length > 2)} onClick={() => setSheet("pin")}>
+          <MotionIcon />
+        </Tool>
         <Tool label="Guides" pressed={guides} onClick={() => setGuides(!guides)}>
           <GuidesIcon />
         </Tool>
@@ -1300,6 +1304,12 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
 
       {sheet === "text-new" ? <TextSheet initial={null} onSave={saveText} onClose={closeSheet} /> : null}
       {sheet === "text-edit" && selectedText ? <TextSheet initial={selectedText} onSave={saveText} onClose={closeSheet} /> : null}
+      {sheet === "pin" && selectedText ? (() => {
+        const at = locate(timeline, selectedText.startMs);
+        const clip = at ? timeline.clips[at.index] : null;
+        return <PinSheet text={selectedText} clip={clip} asset={clip ? library[clip.assetId] : undefined} clipStartMs={at ? selectedText.startMs - at.offsetMs : 0}
+          onPath={(path) => apply((current) => updateText(current, selectedText.id, { path }), `pin-${selectedText.id}`)} onClose={closeSheet} />;
+      })() : null}
       {sheet === "timing" && selectedText ? (
         <TimingSheet
           text={selectedText}

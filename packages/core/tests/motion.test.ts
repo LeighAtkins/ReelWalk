@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bestShift, describeMotion, motionFlags, motionProfile, pickMatchingFrame, type Gray } from "../src";
+import { bestShift, describeMotion, motionFlags, motionProfile, pickMatchingFrame, trackPatch, type Gray } from "../src";
 
 /** A textured frame (a fixed noise pattern, like a wall or floor) shifted by (sx, sy); another `seed` is a different picture. */
 function frame(sx: number, sy: number, seed = 1, width = 24, height = 40): Gray {
@@ -31,6 +31,12 @@ describe("measured motion", () => {
   it("ignores jitter under the deadband", () => {
     const frames = [frame(0, 0), frame(0, 1), frame(0, 0), frame(0, 1)].map((gray, i) => ({ t: i * 250, gray }));
     expect(motionFlags(motionProfile(frames))).toEqual([]);
+  });
+
+  it("follows a patch between frames and says when it is lost", () => {
+    const followed = trackPatch(frame(0, 0, 1, 48, 80), frame(3, -4, 1, 48, 80), 20, 40, { radius: 6, range: 8 });
+    expect(followed).toMatchObject({ x: 23, y: 36, lost: false });
+    expect(trackPatch(frame(0, 0, 1, 48, 80), frame(0, 0, 2, 48, 80), 20, 40, { radius: 6, range: 8 }).lost).toBe(true);
   });
 
   it("picks the frame that best matches the next shot's first frame", () => {

@@ -88,6 +88,33 @@ export function describeMotion(samples: MotionSample[], flags = motionFlags(samp
   return `${steps.join("; ")}${notes.length ? `. Flags: ${notes.join(", ")}` : ". No reversals or abrupt changes."}`;
 }
 
+/** Mean squared difference, 0–1, between a square patch of `a` centred at (ax, ay) and the same-size patch of `b` at (bx, by). */
+export function patchDifference(a: Gray, b: Gray, ax: number, ay: number, bx: number, by: number, radius: number): number {
+  let sum = 0, count = 0;
+  for (let dy = -radius; dy <= radius; dy++) for (let dx = -radius; dx <= radius; dx++) {
+    const x1 = ax + dx, y1 = ay + dy, x2 = bx + dx, y2 = by + dy;
+    if (x1 < 0 || y1 < 0 || x2 < 0 || y2 < 0 || x1 >= a.width || y1 >= a.height || x2 >= b.width || y2 >= b.height) continue;
+    const d = a.data[y1 * a.width + x1] - b.data[y2 * b.width + x2];
+    sum += d * d; count++;
+  }
+  return count ? sum / count / 65025 : 1;
+}
+
+/**
+ * Where the patch of `prev` centred at (x, y) went in `next`: the integer
+ * position within ±range with the smallest difference. `lost` is set when
+ * even the best match is a different picture, so a tracker can hold.
+ */
+export function trackPatch(prev: Gray, next: Gray, x: number, y: number, { radius = 10, range = 12, lostAt = 0.05 }: { radius?: number; range?: number; lostAt?: number } = {}): { x: number; y: number; change: number; lost: boolean } {
+  let best = { x, y, change: patchDifference(prev, next, x, y, x, y, radius) };
+  for (let dy = -range; dy <= range; dy++) for (let dx = -range; dx <= range; dx++) {
+    if (!dx && !dy) continue;
+    const change = patchDifference(prev, next, x, y, x + dx, y + dy, radius);
+    if (change < best.change) best = { x: x + dx, y: y + dy, change };
+  }
+  return { ...best, lost: best.change > lostAt };
+}
+
 /**
  * Among candidate frames from the end of one shot, the one most like the
  * first frame of the next. `close` says whether it is a real match (the

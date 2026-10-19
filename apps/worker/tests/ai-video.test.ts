@@ -10,7 +10,7 @@ vi.mock("@reelwalk/db", () => ({ claimAiGeneration: claim, failAiGeneration: fai
 vi.mock("../src/ai-thumbnail", () => ({ aiThumbnail: thumbnail }));
 vi.mock("../src/ai-frames", async (importOriginal) => ({ ...(await importOriginal<typeof import("../src/ai-frames")>()), aiFrames: frames }));
 vi.mock("../src/vertex-images", () => ({ VertexImages: class { compose = compose; } }));
-vi.mock("../src/voice", () => ({ voiceConfigured: () => true, voicedPrompt: (p: string, l: string) => `${p} [${l}]`, synthesiseLine: tts, startLipsync: startSync, pollLipsync: pollSync, fetchVideo: fetchTake }));
+vi.mock("../src/voice", () => ({ lipsyncConfigured: () => true, voicedPrompt: (p: string, l: string) => `${p} [${l}]`, synthesiseLine: tts, startLipsync: startSync, pollLipsync: pollSync, fetchVideo: fetchTake }));
 vi.mock("../src/transcribe", () => ({ transcriptionAvailable: () => false, transcribeVideo: async () => null }));
 vi.mock("@aws-sdk/s3-request-presigner", () => ({ getSignedUrl: async (_s3: unknown, command: { input: { Key: string } }) => `https://signed/${command.input.Key}` }));
 vi.mock("../src/vertex-video", () => ({

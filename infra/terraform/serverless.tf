@@ -26,10 +26,10 @@ locals {
     AI_VIDEO_BUDGET_CENTS        = tostring(var.ai_video_budget_cents)
     GOOGLE_CLOUD_PROJECT         = var.google_cloud_project
     GOOGLE_CLOUD_LOCATION        = "us-central1"
-    # Voiced AI takes (ADR 0038): a fixed presenter voice on Workers AI, lip-synced by sync.so.
-    VOICE_ENABLED         = tostring(var.voice_enabled)
-    CLOUDFLARE_ACCOUNT_ID = var.cloudflare_account_id
-    PRESENTER_VOICE       = var.presenter_voice
+    # Voiced AI takes (ADR 0038): a fixed presenter voice behind our Cloudflare Worker, lip-synced by sync.so.
+    VOICE_ENABLED   = tostring(var.voice_enabled)
+    VOICE_TTS_URL   = var.voice_tts_url
+    PRESENTER_VOICE = var.presenter_voice
   }
 
   # Web-only settings (the worker sends no mail).
@@ -53,7 +53,7 @@ locals {
     INSTAGRAM_APP_SECRET  = var.instagram_app_secret
     PIXABAY_API_KEY       = var.pixabay_api_key
     OPENAI_API_KEY        = var.openai_api_key
-    CLOUDFLARE_AI_TOKEN   = var.cloudflare_ai_token
+    VOICE_TTS_KEY         = var.voice_tts_key
     SYNC_API_KEY          = var.sync_api_key
     STRIPE_SECRET_KEY     = var.stripe_secret_key
     STRIPE_WEBHOOK_SECRET = var.stripe_webhook_secret
@@ -175,7 +175,7 @@ resource "aws_ecs_task_definition" "worker" {
           BACKUP_BUCKET = aws_s3_bucket.backups.bucket
         }) : { name = k, value = v }
       ]
-      secrets = [for k, p in aws_ssm_parameter.app : { name = k, valueFrom = p.arn } if contains(["DATABASE_URL", "CLOUDFLARE_AI_TOKEN", "SYNC_API_KEY"], k)]
+      secrets = [for k, p in aws_ssm_parameter.app : { name = k, valueFrom = p.arn } if contains(["DATABASE_URL", "VOICE_TTS_KEY", "SYNC_API_KEY"], k)]
       logConfiguration = {
         logDriver = "awslogs"
         options = {

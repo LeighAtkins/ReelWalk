@@ -8,7 +8,7 @@ import { VertexError, VertexVideo } from "./vertex-video";
 import { aiThumbnail } from "./ai-thumbnail";
 import { aiFrames, keyframes, type DecodedFrame } from "./ai-frames";
 import { VertexImages, type InlineImage } from "./vertex-images";
-import { fetchVideo, pollLipsync, startLipsync, synthesiseLine, voiceConfigured, voicedPrompt } from "./voice";
+import { fetchVideo, lipsyncConfigured, pollLipsync, startLipsync, synthesiseLine, voicedPrompt } from "./voice";
 import { transcribeVideo, transcriptionAvailable } from "./transcribe";
 import { aiShotSchema, clipSchema, insertAiShot, timelineSchema, type AiShot } from "@reelwalk/core";
 
@@ -72,7 +72,7 @@ export async function processAiVideo(s3: S3Client, bucket: string): Promise<bool
         const bytes = await result.Body.transformToByteArray();
         image = { bytesBase64Encoded: Buffer.from(bytes).toString("base64"), mimeType: job.referenceType! };
       }
-      if (voice?.mode === "lipsync" && !voiceConfigured()) {
+      if (voice?.mode === "lipsync" && !lipsyncConfigured()) {
         await failAiGeneration(prisma, job.id, "Voiced shots are not available yet. Your credit was returned.", true);
         return true;
       }

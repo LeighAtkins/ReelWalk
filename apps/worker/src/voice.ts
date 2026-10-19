@@ -1,16 +1,21 @@
 /**
  * A fixed presenter voice for AI takes (ADR 0038). Veo invents a new voice
  * on every take; the villa reel's two voiced takes were two different
- * women. Here the line is spoken by one configured text-to-speech voice on
- * Cloudflare Workers AI, and sync.so moves the presenter's mouth to it on
- * the silent Veo take. Veo's own audio stays available for shouted action
+ * women. Here the line is spoken by one configured text-to-speech voice
+ * behind our Cloudflare Worker (infra/cloudflare/voice, Workers AI
+ * binding), and sync.so moves the presenter's mouth to it on the silent
+ * Veo take. Veo's own audio stays available for shouted action
  * lines where lip sync will not hold.
  */
 
 export type PresenterVoice = { model: "melotts"; lang: string } | { model: "aura-1" | "aura-2"; speaker: string };
 
 export function voiceConfigured(): boolean {
-  return process.env.VOICE_ENABLED === "true" && Boolean(process.env.CLOUDFLARE_ACCOUNT_ID && process.env.CLOUDFLARE_AI_TOKEN && process.env.SYNC_API_KEY);
+  return process.env.VOICE_ENABLED === "true" && Boolean(process.env.VOICE_TTS_URL && process.env.VOICE_TTS_KEY);
+}
+/** Lip sync needs sync.so as well; without it only Veo's own audio is possible. */
+export function lipsyncConfigured(): boolean {
+  return voiceConfigured() && Boolean(process.env.SYNC_API_KEY);
 }
 
 /** PRESENTER_VOICE: "melotts:en" (default) or "aura-1:luna". The voice is the same for every take, which is the point. */
@@ -20,14 +25,12 @@ export function presenterVoice(value = process.env.PRESENTER_VOICE || "melotts:e
   return { model: "melotts", lang: option || "en" };
 }
 
-/** The Workers AI request for a line in the configured voice. */
-export function ttsRequest(voice: PresenterVoice, line: string, accountId: string): { url: string; body: Record<string, unknown> } {
-  const base = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/`;
-  if (voice.model === "melotts") return { url: `${base}@cf/myshell-ai/melotts`, body: { prompt: line, lang: voice.lang } };
-  return { url: `${base}@cf/deepgram/${voice.model}`, body: { text: line, speaker: voice.speaker, encoding: "mp3" } };
+/** The request to our voice Worker for a line in the configured voice. */
+export function ttsRequest(voice: PresenterVoice, line: string, url: string): { url: string; body: Record<string, unknown> } {
+  return { url, body: { text: line, voice: voice.model === "melotts" ? `melotts:${voice.lang}` : `${voice.model}:${voice.speaker}` } };
 }
 
-/** Workers AI answers with raw MP3 or with JSON carrying it base64; both become bytes. */
+/** The Worker answers with MP3; JSON with base64 audio is accepted too. */
 export async function ttsAudio(response: { headers: { get(name: string): string | null }; arrayBuffer(): Promise<ArrayBuffer>; json(): Promise<unknown> }): Promise<Buffer> {
   if ((response.headers.get("content-type") ?? "").startsWith("audio/")) return Buffer.from(await response.arrayBuffer());
   const data = await response.json() as { result?: { audio?: string }; audio?: string };
@@ -37,9 +40,9 @@ export async function ttsAudio(response: { headers: { get(name: string): string 
 }
 
 export async function synthesiseLine(line: string): Promise<Buffer> {
-  const request = ttsRequest(presenterVoice(), line, process.env.CLOUDFLARE_ACCOUNT_ID!);
+  const request = ttsRequest(presenterVoice(), line, process.env.VOICE_TTS_URL!);
   const response = await fetch(request.url, {
-    method: "POST", headers: { Authorization: `Bearer ${process.env.CLOUDFLARE_AI_TOKEN}`, "Content-Type": "application/json" },
+    method: "POST", headers: { "x-voice-key": process.env.VOICE_TTS_KEY!, "Content-Type": "application/json" },
     body: JSON.stringify(request.body), signal: AbortSignal.timeout(60_000),
   });
   // Never persist provider bodies: they may echo request data.

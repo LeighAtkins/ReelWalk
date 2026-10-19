@@ -36,17 +36,22 @@ are transcribed when they land, so captions and ducking work on them like
 any upload. Opus proposes `line` and `voice` from the director sheet and is
 told the voice is fixed per workspace.
 
-Keys: `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_AI_TOKEN`, `SYNC_API_KEY` in
-Parameter Store, injected into the worker task; `VOICE_ENABLED` gates the
-feature in web and worker.
+The voice runs as our own Cloudflare Worker (`infra/cloudflare/voice`,
+`reelwalk-voice`) with the Workers AI binding and a shared key, so no
+Cloudflare API token is needed and the render worker only knows a URL
+(`VOICE_TTS_URL`) and the key (`VOICE_TTS_KEY`, Parameter Store).
+`SYNC_API_KEY` is the second secret; `VOICE_ENABLED` gates the feature.
+Without the sync.so key only the `veo` mode works and a `lipsync` request
+refunds.
 
 ## Consequences
 
 - One more vendor (sync.so). Workers AI has no lip-sync model, so a
   Cloudflare-only pipeline was not possible.
-- The accent depends on the chosen Workers AI voice; whether MeloTTS's
-  Australian English is reachable through Cloudflare's `lang` parameter is
-  to be confirmed with a live key, otherwise an Aura speaker is used and
-  the accent is American until a cloned voice is added.
+- The accent depends on the chosen Workers AI voice. Tested 2026-10-19:
+  MeloTTS answers for `en` but rejects `en-au` on Workers AI, and Aura-1
+  speakers are American English; so the presenter voice is a fixed
+  English voice without the Australian accent until a cloned voice
+  (ElevenLabs or similar) is added behind the same Worker.
 - Lip sync is weakest on wide, fast-moving shots; the director prompt
   steers `lipsync` to settled, face-visible shots and `veo` to action.

@@ -279,11 +279,12 @@ variable "voice_enabled" {
   type    = bool
   default = false
 }
-variable "cloudflare_account_id" {
+# The voice Worker (infra/cloudflare/voice): its workers.dev URL and the VOICE_KEY secret set on it.
+variable "voice_tts_url" {
   type    = string
   default = ""
 }
-variable "cloudflare_ai_token" {
+variable "voice_tts_key" {
   type      = string
   default   = ""
   sensitive = true

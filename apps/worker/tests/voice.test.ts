@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import { lipsyncRequest, lipsyncStatus, presenterVoice, ttsAudio, ttsRequest, voicedPrompt } from "../src/voice";
 
 describe("presenter voice", () => {
-  it("builds the Workers AI request for the configured voice", () => {
-    expect(ttsRequest(presenterVoice("melotts:en"), "Worth dropping in.", "acct")).toEqual({ url: "https://api.cloudflare.com/client/v4/accounts/acct/ai/run/@cf/myshell-ai/melotts", body: { prompt: "Worth dropping in.", lang: "en" } });
-    expect(ttsRequest(presenterVoice("aura-1:luna"), "Hi", "acct")).toEqual({ url: "https://api.cloudflare.com/client/v4/accounts/acct/ai/run/@cf/deepgram/aura-1", body: { text: "Hi", speaker: "luna", encoding: "mp3" } });
+  it("builds the voice Worker request for the configured voice", () => {
+    expect(ttsRequest(presenterVoice("melotts:en"), "Worth dropping in.", "https://voice")).toEqual({ url: "https://voice", body: { text: "Worth dropping in.", voice: "melotts:en" } });
+    expect(ttsRequest(presenterVoice("aura-1:luna"), "Hi", "https://voice")).toEqual({ url: "https://voice", body: { text: "Hi", voice: "aura-1:luna" } });
     expect(presenterVoice(undefined as never)).toEqual({ model: "melotts", lang: "en" });
   });
 

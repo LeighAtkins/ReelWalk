@@ -63,6 +63,8 @@ export function DirectorSheet({ reelId, timeline, library, onApply, onClose }: {
       }
       setMessage("Opus is watching the frames and working out what to change. This takes a minute or two…");
       const result = await runAiJob<Review>(`/api/reels/${reelId}/director`, retry.current.body);
+      // A failed request keeps its id on the server, so asking again with the same brief would only fetch the same failure back.
+      if (!result.ok) retry.current = null;
       await acceptResult(result);
       return result.ok ? result : null;
     } catch (error) { setMessage(error instanceof Error ? error.message : "Review could not finish. Check saved requests before retrying."); return null; }

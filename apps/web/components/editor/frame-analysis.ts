@@ -48,6 +48,20 @@ async function load(asset: LibraryAsset): Promise<HTMLVideoElement> {
 export const TRACK_WIDTH = 360;
 export const TRACK_HEIGHT = 640;
 
+/** How well a pin followed its surface: what the Pin sheet shows before the user trusts it. */
+export type TrackQuality = {
+  /** Points with detail found on the surface at the start. */
+  points: number;
+  /** Mean points agreeing with the plane per step. */
+  inliers: number;
+  /** Steps refused by the gates (held instead of jumping). */
+  held: number;
+  /** Steps taken. */
+  steps: number;
+  /** "good" tracks cleanly; "weak" held often or had few points; "lost" faded before the end. */
+  grade: "good" | "weak" | "lost";
+};
+
 /**
  * Pin a text to the picture (ADR 0039): follow the surface under it through
  * the clip it starts on and return a path of position, scale, rotation and
@@ -60,7 +74,7 @@ export const TRACK_HEIGHT = 640;
 export async function trackTextPath(
   asset: LibraryAsset, clip: Clip, clipStartMs: number, text: Pick<TextOverlay, "x" | "y" | "startMs" | "endMs">,
   onProgress?: (fraction: number) => void,
-): Promise<{ path: NonNullable<TextOverlay["path"]>; pin: NonNullable<TextOverlay["pin"]>; lostAtMs: number | null } | null> {
+): Promise<{ path: NonNullable<TextOverlay["path"]>; pin: NonNullable<TextOverlay["pin"]>; lostAtMs: number | null; quality: TrackQuality } | null> {
   const speed = clip.speed || 1;
   const lifeMs = text.endMs - text.startMs;
   const firstSource = clip.sourceStartMs + Math.max(0, text.startMs - clipStartMs) * speed;
@@ -88,6 +102,8 @@ export async function trackTextPath(
     const path: NonNullable<TextOverlay["path"]> = [{ t: 0, x: 0, y: 0, s: 1, r: 0, q: quad0 }];
     const fadeSpan = Math.min(1, 250 / (lastSource - firstSource));
     let lostAtT: number | null = null, lostAtMs: number | null = null;
+    const quality: TrackQuality = { points: points.length, inliers: 0, held: 0, steps: 0, grade: "good" };
+    let misses = 0, inlierSum = 0;
     const inFrame = (p: [number, number]) => p[0] >= margin && p[1] >= margin && p[0] < TRACK_WIDTH - margin && p[1] < TRACK_HEIGHT - margin;
     for (let source = firstSource + stepMs; source <= lastSource + 1; source += stepMs) {
       const at = Math.min(source, lastSource);
@@ -95,9 +111,14 @@ export async function trackTextPath(
       const next = grayFrame(video, TRACK_WIDTH, TRACK_HEIGHT);
       const t = Math.min(1, (at - firstSource) / (lastSource - firstSource));
       if (lostAtT === null) {
-        const moved = trackPlane(prev, next, points.filter(inFrame), quad, { radius, range, tolerance });
-        if (!moved) { lostAtT = t; lostAtMs = Math.round(at); }
-        else {
+        quality.steps++;
+        const moved = trackPlane(prev, next, points.filter(inFrame), quad, { radius, range, tolerance, model: "affine" });
+        if (!moved) {
+          // Hold this step (a hand, a flare, a bad fit); three in a row and the surface is gone.
+          quality.held++;
+          if (++misses >= 3) { lostAtT = t; lostAtMs = Math.round(at); }
+        } else {
+          misses = 0; inlierSum += moved.inliers;
           quad = moved.quad;
           points = moved.points.filter(inFrame);
           // Keep the plane well covered as it slides across the frame: top up from the current picture.
@@ -128,7 +149,9 @@ export async function trackTextPath(
     else last.t = 1;
     // Strictly increasing t, no duplicates.
     const clean = smoothKeyframes(path.filter((p, i) => i === 0 || p.t > path[i - 1].t));
-    return clean.length >= 2 ? { path: clean, pin: { assetId: asset.id, fromMs: Math.round(firstSource), toMs: Math.round(lastSource), quad: quad0 }, lostAtMs } : null;
+    quality.inliers = quality.steps ? Math.round(inlierSum / Math.max(1, quality.steps - quality.held)) : 0;
+    quality.grade = lostAtMs !== null ? "lost" : quality.held > quality.steps * 0.15 || quality.inliers < 8 ? "weak" : "good";
+    return clean.length >= 2 ? { path: clean, pin: { assetId: asset.id, fromMs: Math.round(firstSource), toMs: Math.round(lastSource), quad: quad0 }, lostAtMs, quality } : null;
   } catch {
     return null;
   } finally {

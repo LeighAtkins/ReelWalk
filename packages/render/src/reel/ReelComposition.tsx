@@ -247,9 +247,10 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
     const H = homography([0, 0, w, 0, w, h, 0, h], now);
     return (
       <AbsoluteFill style={{ pointerEvents: "none", perspective: "none" }}>
-        <div style={{ position: "absolute", left, top, width: w, height: h, display: "flex", alignItems: "center", justifyContent: "center", transformOrigin: "0 0", transform: H ? matrix3d(H) : undefined, opacity: visible, whiteSpace: /\s/.test(text.text) ? "normal" : "nowrap", textAlign: "center", ...meet }}>
-          {/* The tracked box is only as wide as the surface the pin followed; a single word must never break inside it. */}
-          <span style={{ ...face, ...(/\s/.test(text.text) ? {} : { whiteSpace: "nowrap", overflowWrap: "normal" }), transform: `scale(${scale})` }}>{text.text}</span>
+        <div style={{ position: "absolute", left, top, width: w, height: h, display: "flex", alignItems: "center", justifyContent: "center", transformOrigin: "0 0", transform: H ? matrix3d(H) : undefined, opacity: visible, whiteSpace: "nowrap", textAlign: "center", ...meet }}>
+          {/* The tracked box is only the plane's frame, narrower than most titles: the words sit on one line (or the lines the author typed) and overflow it, warped with it. */}
+          <span style={{ ...face, whiteSpace: /
+/.test(text.text) ? "pre" : "nowrap", overflowWrap: "normal", wordBreak: "keep-all", transform: `scale(${scale})` }}>{text.text}</span>
         </div>
       </AbsoluteFill>
     );

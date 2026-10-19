@@ -230,9 +230,10 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
   const position = textPositionAt(text, progress);
   const quad = textQuadAt(text, progress);
   // A pinned title belongs to its shot: while another clip is on screen it is not drawn at all.
-  if (text.pin && progress === PINNED_ELSEWHERE) return null;
+  // Hooks first: a pinned title on another clip returns nothing, but only after every hook has run (React 300 otherwise).
   useFontsFor(text.text, Number(css.fontWeight ?? 600));
   const { scale, opacity, rise, chars } = textMotion(text, frame, fps, durationInFrames);
+  if (text.pin && progress === PINNED_ELSEWHERE) return null;
   const face = { ...css, ...(text.depth === "extruded" ? { textShadow: extrudedShadow(text.color, Number(css.fontSize) || 64), WebkitTextStroke: `${Math.max(0.5, (Number(css.fontSize) || 64) * 0.01)}px rgba(0,0,0,0.35)` } : {}) };
   // Paint on the surface: hard-light keeps the wall's own light and grain through the letters (white lightens, dark darkens), with the footage's softness.
   const meet = text.blend === "surface" ? { mixBlendMode: "hard-light" as const, filter: "blur(0.6px)", opacity: 0.92 } : {};

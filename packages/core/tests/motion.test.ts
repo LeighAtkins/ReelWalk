@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bestShift, describeMotion, motionFlags, motionProfile, pickMatchingFrame, trackPatch, type Gray } from "../src";
+import { bestShift, describeMotion, motionFlags, motionProfile, pickMatchingFrame, smoothKeyframes, trackPatch, type Gray } from "../src";
 
 /** A textured frame (a fixed noise pattern, like a wall or floor) shifted by (sx, sy); another `seed` is a different picture. */
 function frame(sx: number, sy: number, seed = 1, width = 24, height = 40): Gray {
@@ -35,8 +35,19 @@ describe("measured motion", () => {
 
   it("follows a patch between frames and says when it is lost", () => {
     const followed = trackPatch(frame(0, 0, 1, 48, 80), frame(3, -4, 1, 48, 80), 20, 40, { radius: 6, range: 8 });
-    expect(followed).toMatchObject({ x: 23, y: 36, lost: false });
+    expect(followed.x).toBeCloseTo(23, 0); expect(followed.y).toBeCloseTo(36, 0); expect(followed.lost).toBe(false);
+    // A fractional start keeps its fraction: the displacement is what is measured.
+    expect(trackPatch(frame(0, 0, 1, 48, 80), frame(3, -4, 1, 48, 80), 20.3, 40.3, { radius: 6, range: 8 }).x).toBeCloseTo(23.3, 0);
     expect(trackPatch(frame(0, 0, 1, 48, 80), frame(0, 0, 2, 48, 80), 20, 40, { radius: 6, range: 8 }).lost).toBe(true);
+  });
+
+  it("smooths tracker jitter without lagging the motion", () => {
+    const ramp = Array.from({ length: 11 }, (_, i) => ({ t: i / 10, x: i * 0.02 + (i % 2 ? 0.004 : -0.004), y: 0 }));
+    const smooth = smoothKeyframes(ramp);
+    const jitter = (pts: { x: number }[]) => pts.slice(1, -1).reduce((sum, p, i) => sum + Math.abs(p.x - (pts[i].x + pts[i + 2].x) / 2), 0);
+    expect(jitter(smooth)).toBeLessThan(jitter(ramp) / 3);
+    expect(smooth[10].x).toBeCloseTo(ramp[10].x, 2);
+    expect(smooth[5].x).toBeCloseTo(0.1, 2);
   });
 
   it("picks the frame that best matches the next shot's first frame", () => {

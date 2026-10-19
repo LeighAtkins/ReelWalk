@@ -1,4 +1,4 @@
-import { pickMatchingFrame, trackPatch, type Clip, type Gray, type TextOverlay } from "@reelwalk/core";
+import { pickMatchingFrame, smoothKeyframes, trackPatch, type Clip, type Gray, type TextOverlay } from "@reelwalk/core";
 import type { LibraryAsset } from "@/lib/library";
 
 /** Browser side of @reelwalk/core's motion module: small grayscale frames from a video element. */
@@ -44,8 +44,9 @@ async function load(asset: LibraryAsset): Promise<HTMLVideoElement> {
   return video;
 }
 
-export const TRACK_WIDTH = 216;
-export const TRACK_HEIGHT = 384;
+// A third of 1080×1920: fine enough that a sub-pixel match is under two output pixels.
+export const TRACK_WIDTH = 360;
+export const TRACK_HEIGHT = 640;
 
 /**
  * Pin a text to the picture (ADR 0039): follow the surface under it through
@@ -69,7 +70,7 @@ export async function trackTextPath(
     video = await load(asset);
     await seek(video, firstSource);
     let prev = grayFrame(video, TRACK_WIDTH, TRACK_HEIGHT);
-    const half = Math.round(TRACK_WIDTH * 0.12);
+    const half = Math.round(TRACK_WIDTH * 0.12), radius = Math.round(TRACK_WIDTH * 0.045), range = Math.round(TRACK_WIDTH * 0.06);
     const centre = { x: Math.round(text.x * TRACK_WIDTH), y: Math.round(text.y * TRACK_HEIGHT) };
     let left = { x: Math.max(half, centre.x - half), y: centre.y }, right = { x: Math.min(TRACK_WIDTH - 1 - half, centre.x + half), y: centre.y };
     const baseDistance = Math.hypot(right.x - left.x, right.y - left.y) || 1;
@@ -82,7 +83,7 @@ export async function trackTextPath(
       const next = grayFrame(video, TRACK_WIDTH, TRACK_HEIGHT);
       const t = Math.min(1, (at - firstSource) / (lastSource - firstSource));
       if (!held) {
-        const l = trackPatch(prev, next, left.x, left.y), r = trackPatch(prev, next, right.x, right.y);
+        const l = trackPatch(prev, next, left.x, left.y, { radius, range }), r = trackPatch(prev, next, right.x, right.y, { radius, range });
         if (l.lost && r.lost) held = true;
         else {
           // One lost patch rides along with the other, so a hand or a doorway crossing one side does not throw the text.
@@ -110,7 +111,7 @@ export async function trackTextPath(
     if (last.t < 1) path.push({ ...last, t: 1 });
     else last.t = 1;
     // Strictly increasing t, no duplicates.
-    const clean = path.filter((p, i) => i === 0 || p.t > path[i - 1].t);
+    const clean = smoothKeyframes(path.filter((p, i) => i === 0 || p.t > path[i - 1].t));
     return clean.length >= 2 ? { path: clean, pin: { assetId: asset.id, fromMs: Math.round(firstSource), toMs: Math.round(lastSource) } } : null;
   } catch {
     return null;

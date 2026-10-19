@@ -46,6 +46,15 @@ const nextConfig: NextConfig = {
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },
+  // The person matte (ADR 0039) runs MediaPipe in the editor's preview. Its
+  // WASM loader is a script, and script-src is 'self', so the runtime and the
+  // model are served from this origin by rewrite rather than from the CDNs.
+  async rewrites() {
+    return [
+      { source: "/mediapipe/wasm/:path*", destination: "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.1.1/wasm/:path*" },
+      { source: "/mediapipe/selfie_segmenter.tflite", destination: "https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite" },
+    ];
+  },
 };
 
 export default nextConfig;

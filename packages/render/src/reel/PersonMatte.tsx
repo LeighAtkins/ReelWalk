@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { AbsoluteFill, Html5Video, continueRender, delayRender, useVideoConfig } from "remotion";
+import { AbsoluteFill, Html5Video, continueRender, delayRender, useRemotionEnvironment, useVideoConfig } from "remotion";
 import type { Clip } from "@reelwalk/core";
 import { FILTER_CSS } from "./look";
 import type { ReelAsset } from "./types";
@@ -11,18 +11,22 @@ import type { ReelAsset } from "./types";
  * from the public MediaPipe CDN; the first frame waits for them.
  */
 
-const WASM = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.1.1/wasm";
-const MODEL = "https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite";
+// In the editor the app's CSP allows scripts from its own origin only, so the
+// web app serves these paths by rewrite; the render's headless Chrome has no
+// CSP and reads the CDNs directly.
+const CDN = { wasm: "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.1.1/wasm", model: "https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite" };
+const SAME_ORIGIN = { wasm: "/mediapipe/wasm", model: "/mediapipe/selfie_segmenter.tflite" };
 
 type Segmenter = { segment(image: CanvasImageSource): { confidenceMasks?: { width: number; height: number; getAsFloat32Array(): Float32Array; close(): void }[]; close(): void } };
 let loading: Promise<Segmenter> | null = null;
 
-function loadSegmenter(): Promise<Segmenter> {
+function loadSegmenter(isRendering: boolean): Promise<Segmenter> {
+  const from = isRendering ? CDN : SAME_ORIGIN;
   loading ??= (async () => {
     const vision = await import("@mediapipe/tasks-vision");
-    const files = await vision.FilesetResolver.forVisionTasks(WASM);
+    const files = await vision.FilesetResolver.forVisionTasks(from.wasm);
     return vision.ImageSegmenter.createFromOptions(files, {
-      baseOptions: { modelAssetPath: MODEL },
+      baseOptions: { modelAssetPath: from.model },
       runningMode: "IMAGE", outputConfidenceMasks: true, outputCategoryMask: false,
     }) as unknown as Segmenter;
   })().catch((error) => { loading = null; throw error; });
@@ -57,14 +61,15 @@ export function drawPersonOnly(segmenter: Segmenter, frame: CanvasImageSource, o
 
 export const PersonMatteView: React.FC<{ clip: Clip; asset: ReelAsset }> = ({ clip, asset }) => {
   const { fps, width, height } = useVideoConfig();
+  const { isRendering } = useRemotionEnvironment();
   const canvas = useRef<HTMLCanvasElement>(null);
   const scratch = useRef<HTMLCanvasElement | null>(null);
   const [segmenter, setSegmenter] = useState<Segmenter | null>(null);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
     const handle = delayRender("Loading the person matte", { timeoutInMilliseconds: 60_000 });
-    loadSegmenter().then(setSegmenter).catch(() => setFailed(true)).finally(() => continueRender(handle));
-  }, []);
+    loadSegmenter(isRendering).then(setSegmenter).catch(() => setFailed(true)).finally(() => continueRender(handle));
+  }, [isRendering]);
   if (failed || asset.kind !== "VIDEO") return null;
   const toFrame = (ms: number) => Math.round((ms * fps) / 1000);
   return (

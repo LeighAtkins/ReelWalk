@@ -106,13 +106,41 @@ export function patchDifference(a: Gray, b: Gray, ax: number, ay: number, bx: nu
  * even the best match is a different picture, so a tracker can hold.
  */
 export function trackPatch(prev: Gray, next: Gray, x: number, y: number, { radius = 10, range = 12, lostAt = 0.05 }: { radius?: number; range?: number; lostAt?: number } = {}): { x: number; y: number; change: number; lost: boolean } {
-  let best = { x, y, change: patchDifference(prev, next, x, y, x, y, radius) };
+  const cx = Math.round(x), cy = Math.round(y);
+  const at = (bx: number, by: number) => patchDifference(prev, next, cx, cy, bx, by, radius);
+  let best = { x: cx, y: cy, change: at(cx, cy) };
   for (let dy = -range; dy <= range; dy++) for (let dx = -range; dx <= range; dx++) {
     if (!dx && !dy) continue;
-    const change = patchDifference(prev, next, x, y, x + dx, y + dy, radius);
-    if (change < best.change) best = { x: x + dx, y: y + dy, change };
+    const change = at(cx + dx, cy + dy);
+    if (change < best.change) best = { x: cx + dx, y: cy + dy, change };
   }
-  return { ...best, lost: best.change > lostAt };
+  // Sub-pixel: fit a parabola through the best match and its neighbours on each axis, so a
+  // smooth pan does not snap to the analysis grid (one analysis pixel is several output pixels).
+  const refine = (minus: number, zero: number, plus: number) => {
+    const curve = minus - 2 * zero + plus;
+    return curve > 1e-9 ? Math.max(-0.5, Math.min(0.5, (minus - plus) / (2 * curve))) : 0;
+  };
+  const fx = refine(at(best.x - 1, best.y), best.change, at(best.x + 1, best.y));
+  const fy = refine(at(best.x, best.y - 1), best.change, at(best.x, best.y + 1));
+  // Keep the caller's fractional position: the match moved the rounded centre, so apply the same displacement.
+  return { x: x + (best.x + fx - cx), y: y + (best.y + fy - cy), change: best.change, lost: best.change > lostAt };
+}
+
+/**
+ * Smooths tracked keyframes without lag: `passes` of a centred 1-2-1 average
+ * over x, y, scale and rotation, end points left where they were measured.
+ * Picture motion from a handheld or gimbal pan is smooth; the residual
+ * jitter is the tracker's, not the shot's.
+ */
+export function smoothKeyframes<T extends { t: number; x: number; y: number; s?: number; r?: number }>(points: T[], passes = 2): T[] {
+  if (points.length < 3) return points;
+  const keys = ["x", "y", "s", "r"] as const;
+  const values = points.map(p => ({ x: p.x, y: p.y, s: p.s ?? 1, r: p.r ?? 0 }));
+  for (let pass = 0; pass < passes; pass++) {
+    const before = values.map(v => ({ ...v }));
+    for (let i = 1; i < values.length - 1; i++) for (const k of keys) values[i][k] = (before[i - 1][k] + 2 * before[i][k] + before[i + 1][k]) / 4;
+  }
+  return points.map((p, i) => ({ ...p, x: Number(values[i].x.toFixed(4)), y: Number(values[i].y.toFixed(4)), ...(p.s !== undefined ? { s: Number(values[i].s.toFixed(3)) } : {}), ...(p.r !== undefined ? { r: Number(values[i].r.toFixed(2)) } : {}) }));
 }
 
 /**

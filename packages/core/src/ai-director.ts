@@ -33,7 +33,8 @@ export const directorPlanSchema = z.object({
   checks: z.object({
     scale: checkSchema(), cameraContinuity: checkSchema(), presenterContinuity: checkSchema(), propertyIdentity: checkSchema(),
   }),
-  edit: aiEditPlanSchema,
+  // The ask flow rejects a long note; a paid review is shortened instead.
+  edit: aiEditPlanSchema.extend({ note: z.string().trim().transform(text => text.length > 400 ? `${text.slice(0, 399).trimEnd()}…` : text) }),
   shots: z.array(directorShotSchema).max(3),
 }).refine(p => p.verdict !== "ready" || Object.values(p.checks).every(c => c.result === "pass"), "A ready verdict needs passing scale, camera, presenter and property checks.");
 export type DirectorPlan = z.infer<typeof directorPlanSchema>;

@@ -7,6 +7,11 @@ function plan() {
 }
 const assets = { house: { kind: "VIDEO", durationMs: 4000 }, room: { kind: "IMAGE", durationMs: null } };
 describe("in-app Opus direction", () => {
+  it("shortens a long edit note rather than discarding the review", () => {
+    const raw = JSON.parse(JSON.stringify({ ...plan(), edit: { ops: [], note: "x".repeat(900), questions: [], caption: null } }));
+    const parsed = directorPlanSchema.parse(raw);
+    expect(parsed.edit.note.length).toBe(400); expect(parsed.edit.note.endsWith("…")).toBe(true);
+  });
   it("accepts owned first/last frames without turning a proposal into edit operations", () => {
     const p = plan(); expect(() => validateDirectorReferences(p, assets)).not.toThrow();
     expect(p.edit.ops).toEqual([]); expect(p.shots[0].durationSeconds).toBe(8);

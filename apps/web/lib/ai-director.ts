@@ -10,6 +10,8 @@ import { mediaScope } from "./workspace";
 export const directorInput = z.object({
   requestId: z.string().uuid(), request: z.string().trim().min(3).max(4000),
   timeline: z.unknown(), candidates: z.array(z.string().min(1).max(64)).max(6),
+  /** The first review's edit id when this review is a later round of a "make it for me" run (ADR 0037). */
+  runId: z.string().min(1).max(64).optional(),
   evidence: z.array(z.object({
     assetId: z.string().min(1).max(64), timesMs: z.array(z.number().int().nonnegative()).min(1).max(40),
     image: z.string().startsWith("data:image/jpeg;base64,").max(1_200_000),
@@ -51,6 +53,7 @@ export async function directReel(user: { id: string; workspaceId: string }, reel
   for (const id of input.candidates) if (!available.assets[id]) throw new Error("A candidate is no longer available. Reopen the director.");
   if (await prisma.mediaAsset.count({ where: { ...mediaScope(user.workspaceId), id: { in: ids } } }) !== ids.length) throw new Error("The reel contains unavailable media.");
   const evidence = await pictures(input, available.assets);
+  if (input.runId && !await prisma.aiEdit.findFirst({ where: { id: input.runId, reelId: reel.id, workspaceId: user.workspaceId, plan: { path: ["kind"], equals: "director" } }, select: { id: true } })) throw new Error("That run is not available. Start a new one.");
   const aiSources = await prisma.aiGeneration.findMany({ where: { workspaceId: user.workspaceId, status: "SUCCEEDED", assetId: { in: ids } }, select: { assetId: true } });
   const record = await prisma.aiEdit.create({ data: {
     workspaceId: user.workspaceId, userId: user.id, reelId: reel.id, request: input.request,
@@ -70,7 +73,7 @@ export async function directReel(user: { id: string; workspaceId: string }, reel
   if (plan.verdict === "needs-generation" && !plan.shots.length) throw new Error("Opus asked for a new shot but did not write it. Ask again.");
   validateDirectorReferences(plan, available.assets);
   const applied = applyAiEditPlan(timeline, plan.edit, { ...available, newId: () => crypto.randomUUID() });
-  const stored = { kind: "director", plan, baseline: timeline, timeline: applied.timeline, evidence: evidence.map(e => ({ assetId: e.assetId, timesMs: e.timesMs, sha256: e.sha256 })) };
+  const stored = { kind: "director", ...(input.runId ? { runId: input.runId } : {}), plan, baseline: timeline, timeline: applied.timeline, evidence: evidence.map(e => ({ assetId: e.assetId, timesMs: e.timesMs, sha256: e.sha256 })) };
   await prisma.aiEdit.update({ where: { id: record.id }, data: {
     model: answer.model, note: plan.note, plan: stored as never, applied: applied.applied, skipped: applied.skipped,
     inputTokens: answer.usage.inputTokens, cachedTokens: answer.usage.cachedTokens, outputTokens: answer.usage.outputTokens,

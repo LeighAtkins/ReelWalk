@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { aiBoundary, aiShotFromClips, aiShotSchema, aiShotPrompt, aiShotStyle, clipDurationMs, clipSchema, emptyTimeline, insertAiShot, parseTimeline, type AiShotMode } from "../src";
+import { aiBoundary, aiClipCostCents, aiClipCredits, aiShotFromClips, aiShotSchema, aiShotPrompt, aiShotStyle, clipDurationMs, clipSchema, emptyTimeline, insertAiShot, parseTimeline, type AiShotMode } from "../src";
 
 const a = clipSchema.parse({ id: "a", assetId: "real-a", kind: "VIDEO", sourceStartMs: 1000, sourceEndMs: 7000, speed: 2 });
 const b = clipSchema.parse({ id: "b", assetId: "real-b", kind: "VIDEO", sourceStartMs: 2300, sourceEndMs: 5300, transitionIn: "whip" });
@@ -7,6 +7,11 @@ const ai = clipSchema.parse({ id: "insert-one", assetId: "generated", kind: "VID
 const original = { ...emptyTimeline(), clips: [a, b] };
 
 describe("footage anchored AI edits", () => {
+  it("prices and validates a spoken line", () => {
+    expect(aiShotSchema.safeParse({ mode: "custom", voice: "lipsync" }).success).toBe(false);
+    expect(aiShotSchema.safeParse({ mode: "custom", line: "Who needs a front door?", voice: "lipsync" }).success).toBe(true);
+    expect(aiClipCredits(4, true)).toBe(2); expect(aiClipCredits(8)).toBe(2); expect(aiClipCostCents(4, true)).toBe(60);
+  });
   it("composes a start or end still only around a real frame", () => {
     const compose = { presenter: { assetId: "real-b", atMs: 2300 }, first: "In the open doorway, shoulder height to the door handle." };
     expect(aiShotSchema.safeParse({ mode: "custom", compose }).success).toBe(false);

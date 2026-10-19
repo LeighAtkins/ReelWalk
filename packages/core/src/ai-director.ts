@@ -24,6 +24,9 @@ export const directorShotSchema = z.object({
   last: frameSchema.nullable(),
   /** Composed keyframes (ADR 0036): the presenter from a supplied frame placed into the start/end stills as described. */
   compose: z.object({ presenter: frameSchema.nullable(), first: z.string().trim().nullable(), last: z.string().trim().nullable() }).nullable().optional(),
+  /** What she says in the take and how it is voiced (ADR 0038); null for a silent take. */
+  line: z.string().trim().nullable().optional(),
+  voice: z.enum(["lipsync", "veo"]).nullable().optional(),
 }).transform(s => {
   // Veo needs a starting frame for an ending frame. Drop the stray ending frame (a text-only shot) rather than the whole review.
   const shot = s.last && !s.first ? { ...s, last: null } : s;
@@ -32,7 +35,8 @@ export const directorShotSchema = z.object({
   const first = shot.first ? text(shot.compose?.first) : null;
   const last = shot.last ? text(shot.compose?.last) : null;
   const compose = shot.compose?.presenter && (first || last) ? { presenter: shot.compose.presenter, first, last } : null;
-  return { ...shot, compose };
+  const line = shot.line && shot.line.length >= 3 ? shot.line.slice(0, 200) : null;
+  return { ...shot, compose, line, voice: line ? shot.voice ?? "lipsync" : null };
 });
 
 export const directorPlanSchema = z.object({
@@ -59,7 +63,7 @@ export const DIRECTOR_PLAN_JSON_SCHEMA = {
     edit: AI_EDIT_PLAN_JSON_SCHEMA,
     shots: { type: "array", items: {
       type: "object", additionalProperties: false,
-      required: ["title", "reason", "prompt", "durationSeconds", "first", "last", "compose"],
+      required: ["title", "reason", "prompt", "durationSeconds", "first", "last", "compose", "line", "voice"],
       properties: {
         title: { type: "string" }, reason: { type: "string" }, prompt: { type: "string" },
         durationSeconds: { type: "integer", enum: [4, 8] },
@@ -71,6 +75,8 @@ export const DIRECTOR_PLAN_JSON_SCHEMA = {
             first: { type: ["string", "null"], description: "Where she is in the composed starting still and her size against a named object. Under 500 characters." },
             last: { type: ["string", "null"], description: "Where she is in the composed ending still and her size against a named object. Under 500 characters." },
           } },
+        line: { type: ["string", "null"], description: "The one line she says in this take, under 200 characters, or null for a silent take." },
+        voice: { type: ["string", "null"], enum: ["lipsync", "veo", null], description: "lipsync: her fixed voice over a settled, face-visible take. veo: Veo's own audio for a shouted action line. Null when silent." },
       },
     } },
     checks: { type: "object", additionalProperties: false, required: ["scale", "cameraContinuity", "presenterContinuity", "propertyIdentity"], properties: {
@@ -111,4 +117,4 @@ Do not speed ordinary footage to 3x or shorten it beyond comprehension. Choose m
 Your edit uses ONLY the supplied edit-operation schema and available assets. All changes remain ordinary editable clips and text. Preserve dialogue source windows; the app cannot infer word timestamps. Do not disturb music ducking by moving dialogue unless you flag that the audio mix must be updated. Apply every change that does not depend on a new take now (captions, trims, removals, volume); leave out only the operations that need a take that does not exist yet. Your note may describe only changes that are actually in edit.ops, and new takes that are actually in shots. If your verdict is needs-generation, shots must contain at least one complete proposal.
 Veo proposals are suggestions, NOT executions. Every new take or retry requires its own explicit user generation approval and credit quote. Up to3 proposals. Write the exact full prompt yourself, 10-2000 characters, and choose 4 or8 seconds plus owned first/last source frames. No arbitrary URLs or storage keys. References must exist in the supplied assets. Silent Veo is the currently supported app generation mode: do not promise a generated speaking voice. Existing voiced footage can be reused. Every voiced Veo take invents its own voice and accent, so keep the presenter's own speech from at most ONE AI take in the reel: set the sound of every other presenter take to 0 and carry its line as a caption. You cannot hear audio, so treat any AI clip with sound above 0% as possibly voiced. Never automatically rerun a failed or ambiguous provider submission. Prefer reusing usable windows of completed takes over spending again.
 A shot may have an ending frame only if it also has a starting frame; a text-only shot has neither. Reference timestamps must be inside the video's duration, never equal to its end; prefer the exact sampled timestamps supplied with evidence. Photo timestamps are zero.
-Composed keyframes: when a proposed shot needs the presenter somewhere the real frame does not show her (arriving, landing, entering, sitting down), set compose: presenter = a supplied frame where she is clear and full length, and first/last = one sentence each saying where she is in that still and her size against a named object (door, chair, bench). The app composes those stills with an image model before Veo, so the take starts and ends with her in place at human scale, which is what stops a take rising before it falls or morphing between rooms. Leave compose null when the real frames already show what the shot needs.\nIf the user asks only for direction or a prompt, do not edit the reel. Issues must be concrete; limitations must be candid. Never label a take ready from a thumbnail alone.`;
+Spoken lines: a shot may carry one line (under 200 characters) with voice "lipsync" (the workspace's fixed presenter voice spoken over the take, for settled shots where her face is clearly visible) or "veo" (Veo's own audio, for shouted action lines where lip sync cannot hold). A voiced take costs one credit more. Captions for the line are made from its transcript after the take lands; do not add them yourself.\nComposed keyframes: when a proposed shot needs the presenter somewhere the real frame does not show her (arriving, landing, entering, sitting down), set compose: presenter = a supplied frame where she is clear and full length, and first/last = one sentence each saying where she is in that still and her size against a named object (door, chair, bench). The app composes those stills with an image model before Veo, so the take starts and ends with her in place at human scale, which is what stops a take rising before it falls or morphing between rooms. Leave compose null when the real frames already show what the shot needs.\nIf the user asks only for direction or a prompt, do not edit the reel. Issues must be concrete; limitations must be candid. Never label a take ready from a thumbnail alone.`;

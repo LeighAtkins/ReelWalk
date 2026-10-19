@@ -1,15 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { aiShotFromClips, clipSchema, emptyTimeline } from "@reelwalk/core";
 import type { S3Client } from "@aws-sdk/client-s3";
-const { claim, fail, frames, thumbnail, submit, poll, compose, tx, db } = vi.hoisted(() => {
+const { claim, fail, frames, thumbnail, submit, poll, compose, tts, startSync, pollSync, fetchTake, tx, db } = vi.hoisted(() => {
   const tx = { aiGeneration: { updateMany: vi.fn() }, mediaAsset: { upsert: vi.fn() }, reel: { findFirst: vi.fn(), upsert: vi.fn() } };
-  return { claim: vi.fn(), fail: vi.fn(), frames: vi.fn(), thumbnail: vi.fn(), submit: vi.fn(), poll: vi.fn(), compose: vi.fn(), tx,
+  return { claim: vi.fn(), fail: vi.fn(), frames: vi.fn(), thumbnail: vi.fn(), submit: vi.fn(), poll: vi.fn(), compose: vi.fn(), tts: vi.fn(), startSync: vi.fn(), pollSync: vi.fn(), fetchTake: vi.fn(), tx,
     db: { aiGeneration: { findFirst: vi.fn(), updateMany: vi.fn() }, $transaction: vi.fn() } };
 });
 vi.mock("@reelwalk/db", () => ({ claimAiGeneration: claim, failAiGeneration: fail, prisma: db }));
 vi.mock("../src/ai-thumbnail", () => ({ aiThumbnail: thumbnail }));
 vi.mock("../src/ai-frames", async (importOriginal) => ({ ...(await importOriginal<typeof import("../src/ai-frames")>()), aiFrames: frames }));
 vi.mock("../src/vertex-images", () => ({ VertexImages: class { compose = compose; } }));
+vi.mock("../src/voice", () => ({ voiceConfigured: () => true, voicedPrompt: (p: string, l: string) => `${p} [${l}]`, synthesiseLine: tts, startLipsync: startSync, pollLipsync: pollSync, fetchVideo: fetchTake }));
+vi.mock("../src/transcribe", () => ({ transcriptionAvailable: () => false, transcribeVideo: async () => null }));
+vi.mock("@aws-sdk/s3-request-presigner", () => ({ getSignedUrl: async (_s3: unknown, command: { input: { Key: string } }) => `https://signed/${command.input.Key}` }));
 vi.mock("../src/vertex-video", () => ({
   VertexError: class extends Error {}, VertexVideo: class { submit = submit; poll = poll; },
 }));
@@ -38,7 +41,7 @@ describe("AI shot worker", () => {
   it("submits both decoded boundary frames and saves the operation for polling", async () => {
     claim.mockResolvedValue(job);
     await processAiVideo(s3, "media");
-    expect(submit).toHaveBeenCalledWith("veo", 8, "Move", { bytesBase64Encoded: "first", mimeType: "image/jpeg" }, { bytesBase64Encoded: "last", mimeType: "image/jpeg" });
+    expect(submit).toHaveBeenCalledWith("veo", 8, "Move", { bytesBase64Encoded: "first", mimeType: "image/jpeg" }, { bytesBase64Encoded: "last", mimeType: "image/jpeg" }, false);
     expect(db.aiGeneration.updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "one", leaseToken: "mine", status: "SUBMITTING" }, data: expect.objectContaining({ operationName: "operation-one" }) }));
   });
   const composed = [{ bytesBase64Encoded: "first", mimeType: "image/jpeg", role: "first", compose: "At the door, head below the lintel." }, { bytesBase64Encoded: "last", mimeType: "image/jpeg", role: "last" }, { bytesBase64Encoded: "her", mimeType: "image/jpeg", role: "presenter" }];
@@ -47,7 +50,7 @@ describe("AI shot worker", () => {
     compose.mockResolvedValueOnce({ bytesBase64Encoded: "composed", mimeType: "image/jpeg" });
     await processAiVideo(s3, "media");
     expect(compose).toHaveBeenCalledWith("first", "At the door, head below the lintel.", { bytesBase64Encoded: "first", mimeType: "image/jpeg" }, { bytesBase64Encoded: "her", mimeType: "image/jpeg" });
-    expect(submit).toHaveBeenCalledWith("veo", 8, "Move", { bytesBase64Encoded: "composed", mimeType: "image/jpeg" }, { bytesBase64Encoded: "last", mimeType: "image/jpeg" });
+    expect(submit).toHaveBeenCalledWith("veo", 8, "Move", { bytesBase64Encoded: "composed", mimeType: "image/jpeg" }, { bytesBase64Encoded: "last", mimeType: "image/jpeg" }, false);
     expect((s3.send as ReturnType<typeof vi.fn>).mock.calls.map(([command]) => command.input?.Key)).toContain("workspaces/studio/ai/one-first.jpg");
   });
   it("refunds when a still cannot be composed, before anything is paid", async () => {
@@ -55,6 +58,28 @@ describe("AI shot worker", () => {
     await processAiVideo(s3, "media");
     expect(submit).not.toHaveBeenCalled();
     expect(fail).toHaveBeenCalledWith(db, "one", expect.stringContaining("composed"), true);
+  });
+  const spoken = { ...job, shot: { mode: "custom", line: "Who needs a front door?", voice: "lipsync" } };
+  it("submits a lipsync take silent with the line in the prompt, then hands the finished take to sync.so", async () => {
+    claim.mockResolvedValue(spoken);
+    await processAiVideo(s3, "media");
+    expect(submit).toHaveBeenCalledWith("veo", 8, "Move [Who needs a front door?]", expect.anything(), expect.anything(), false);
+    claim.mockResolvedValue({ ...spoken, status: "RUNNING" }); tts.mockResolvedValue(Buffer.from("mp3")); startSync.mockResolvedValue("sync-1");
+    await processAiVideo(s3, "media");
+    expect(startSync).toHaveBeenCalledWith("https://signed/workspaces/studio/ai/one-silent.mp4", "https://signed/workspaces/studio/ai/one-line.mp3", "reelwalk-one");
+    expect(db.aiGeneration.updateMany).toHaveBeenLastCalledWith(expect.objectContaining({ data: expect.objectContaining({ operationName: "lipsync:sync-1" }) }));
+    expect(tx.mediaAsset.upsert).not.toHaveBeenCalled();
+  });
+  it("stores the lip-synced take when sync.so finishes, and asks Veo for audio in veo mode", async () => {
+    claim.mockResolvedValue({ ...spoken, status: "RUNNING", operationName: "lipsync:sync-1" });
+    pollSync.mockResolvedValue({ done: true, url: "https://out/take.mp4" }); fetchTake.mockResolvedValue(Buffer.alloc(2000));
+    await processAiVideo(s3, "media");
+    expect(poll).not.toHaveBeenCalled();
+    expect(tx.mediaAsset.upsert).toHaveBeenCalledWith(expect.objectContaining({ create: expect.objectContaining({ fileName: expect.stringContaining("Who needs a front door?") }) }));
+    vi.clearAllMocks(); db.$transaction.mockImplementation(async fn => fn(tx)); tx.aiGeneration.updateMany.mockResolvedValue({ count: 1 });
+    claim.mockResolvedValue({ ...spoken, shot: { ...spoken.shot, voice: "veo" } }); frames.mockResolvedValue([]); submit.mockResolvedValue("op");
+    await processAiVideo(s3, "media");
+    expect(submit).toHaveBeenCalledWith("veo", 8, "Move [Who needs a front door?]", undefined, undefined, true);
   });
   it("refunds failed extraction and releases budget without calling the paid API", async () => {
     claim.mockResolvedValue(job); frames.mockRejectedValueOnce(new Error("decode"));

@@ -274,3 +274,27 @@ variable "scheduled_posts_rate" {
   default = "rate(1 minute)"
 }
 
+# Voiced AI takes (ADR 0038). Empty keys keep the feature off.
+variable "voice_enabled" {
+  type    = bool
+  default = false
+}
+variable "cloudflare_account_id" {
+  type    = string
+  default = ""
+}
+variable "cloudflare_ai_token" {
+  type      = string
+  default   = ""
+  sensitive = true
+}
+variable "sync_api_key" {
+  type      = string
+  default   = ""
+  sensitive = true
+}
+# "melotts:<lang>" or "aura-1:<speaker>"; the same voice on every take.
+variable "presenter_voice" {
+  type    = string
+  default = "melotts:en"
+}

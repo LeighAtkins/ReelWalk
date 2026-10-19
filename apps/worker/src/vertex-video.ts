@@ -25,9 +25,9 @@ export class VertexError extends Error {
   constructor(message: string, public readonly status: number) { super(message); }
 }
 
-export function vertexVideoParameters(durationSeconds: number) {
+export function vertexVideoParameters(durationSeconds: number, generateAudio = false) {
   if (![4, 8].includes(durationSeconds)) throw new Error("Unsupported AI clip length.");
-  return { aspectRatio: "9:16", durationSeconds, sampleCount: 1, resolution: "1080p", generateAudio: false, personGeneration: "allow_adult" };
+  return { aspectRatio: "9:16", durationSeconds, sampleCount: 1, resolution: "1080p", generateAudio, personGeneration: "allow_adult" };
 }
 
 /** A bearer-token source for Vertex: workload identity through the task role when configured, otherwise application default credentials. */
@@ -66,9 +66,9 @@ export class VertexVideo {
     return response.json();
   }
 
-  async submit(model: string, durationSeconds: number, prompt: string, image?: { bytesBase64Encoded: string; mimeType: string }, lastFrame?: { bytesBase64Encoded: string; mimeType: string }) {
+  async submit(model: string, durationSeconds: number, prompt: string, image?: { bytesBase64Encoded: string; mimeType: string }, lastFrame?: { bytesBase64Encoded: string; mimeType: string }, generateAudio = false) {
     const result = await this.request(model, "predictLongRunning", {
-      instances: [{ prompt, ...(image ? { image } : {}), ...(lastFrame ? { lastFrame } : {}) }], parameters: vertexVideoParameters(durationSeconds),
+      instances: [{ prompt, ...(image ? { image } : {}), ...(lastFrame ? { lastFrame } : {}) }], parameters: vertexVideoParameters(durationSeconds, generateAudio),
     });
     if (typeof result.name !== "string") throw new Error("Google did not return a video operation.");
     return result.name as string;

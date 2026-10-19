@@ -57,6 +57,8 @@ export async function reserveAiGeneration(db: PrismaClient, input: {
   workspaceId: string; userId: string; requestId: string; prompt: string;
   referenceKey?: string; referenceType?: string; model: string; durationSeconds: AiClipSeconds; costCents: number; budgetCents: number;
   shot?: Prisma.InputJsonValue; frameSources?: Prisma.InputJsonValue;
+  /** A spoken line: one credit more (ADR 0038). */
+  voiced?: boolean;
 }, now = new Date()) {
   return db.$transaction(async (tx) => {
     await lockBillingAccount(tx, input.workspaceId, now);
@@ -70,14 +72,14 @@ export async function reserveAiGeneration(db: PrismaClient, input: {
     if (recent >= 10) throw new AiCreditError("You've reached the hourly generation limit. Please try again later.");
     // Spend expiring monthly credits before lifetime trial/purchased credits.
     // An 8-second clip may draw on two grants, so plan the whole debit before taking any of it.
-    const credits = aiClipCredits(input.durationSeconds);
+    const credits = aiClipCredits(input.durationSeconds, input.voiced);
     const grants = await tx.$queryRaw<{ id: string; remaining: number }[]>`
       SELECT "id", "remaining" FROM "AiCreditGrant" WHERE "workspaceId" = ${input.workspaceId}
       AND "remaining" > 0 AND ("expiresAt" IS NULL OR "expiresAt" > ${now})
       ORDER BY "expiresAt" ASC NULLS LAST, "createdAt" ASC FOR UPDATE`;
     const available = grants.reduce((sum, grant) => sum + grant.remaining, 0);
     if (!available) throw new AiCreditError("No AI credits left. Choose a plan or add more credits in Account.");
-    if (available < credits) throw new AiCreditError(`An ${input.durationSeconds}-second clip needs ${credits} credits and you have ${available}. Choose 4 seconds or add credits in Account.`);
+    if (available < credits) throw new AiCreditError(`${input.voiced ? "A voiced" : "An"} ${input.durationSeconds}-second clip needs ${credits} credits and you have ${available}. Choose 4 seconds or add credits in Account.`);
     const debits: { grantId: string; credits: number }[] = [];
     for (const grant of grants) {
       const owed = credits - debits.reduce((sum, debit) => sum + debit.credits, 0);

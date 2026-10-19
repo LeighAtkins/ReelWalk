@@ -59,7 +59,8 @@ export async function directReel(user: { id: string; workspaceId: string }, reel
   const answer = await structuredAnswer({
     instructions: `${AI_EDIT_SYSTEM_PROMPT}\n\n${DIRECTOR_INSTRUCTIONS}`,
     input: `${describeReel({ title: reel.title, timeline, ...available })}\n\nUser brief: ${input.request}\n\nConfirmed AI-generated asset IDs: ${JSON.stringify(aiSources.map(a => a.assetId))}\nReview candidates: ${JSON.stringify(input.candidates)}\nSource frame sheets in order: ${JSON.stringify(evidence.map(e => ({ assetId: e.assetId, timesMs: e.timesMs })))}\nNo source sheets supplied for other shots: do not claim those were visually reviewed.`,
-    images: evidence.map(e => e.image), imageDetail: "high", schemaName: "opus_director", schema: DIRECTOR_PLAN_JSON_SCHEMA as unknown as Record<string, unknown>, maxOutputTokens: 8000,
+    images: evidence.map(e => e.image), imageDetail: "high", schemaName: "opus_director", schema: DIRECTOR_PLAN_JSON_SCHEMA as unknown as Record<string, unknown>, // A full direction (caption moves, trims, volume, shots) plus Opus's thinking ran past 10k tokens.
+    maxOutputTokens: 30000,
     // Opus thinks over many frame sheets; the 60-second default cut real reviews off. This runs as a background job.
     signal: AbortSignal.timeout(300_000),
   });

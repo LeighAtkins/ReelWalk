@@ -101,13 +101,17 @@ export const PersonMatteView: React.FC<{ clip: Clip; asset: ReelAsset }> = ({ cl
       finish();
     };
     const onSeeked = () => { element.removeEventListener("seeked", onSeeked); draw(); };
-    if (Math.abs(element.currentTime - sourceSeconds) < 1 / (fps * 2) && element.readyState >= 2) draw();
-    else {
+    element.addEventListener("error", finish, { once: true });
+    if (Math.abs(element.currentTime - sourceSeconds) < 1 / (fps * 2)) {
+      // Already at this time (the first frame of a take, before the file has loaded): setting currentTime
+      // again fires no `seeked`, so wait for the picture instead of a seek.
+      if (element.readyState >= 2) draw();
+      else element.addEventListener("loadeddata", draw, { once: true });
+    } else {
       element.addEventListener("seeked", onSeeked);
-      element.addEventListener("error", finish, { once: true });
       element.currentTime = sourceSeconds;
     }
-    return () => { element.removeEventListener("seeked", onSeeked); finish(); };
+    return () => { element.removeEventListener("seeked", onSeeked); element.removeEventListener("loadeddata", draw); element.removeEventListener("error", finish); finish(); };
   }, [segmenter, frame, fps, clip.sourceStartMs, clip.speed]);
 
   if (failed || asset.kind !== "VIDEO") return null;

@@ -211,11 +211,12 @@ function textMotion(text: TextOverlay, frame: number, fps: number, durationInFra
   }
 }
 
-/** A stack of offset shadows that reads as extruded type, darker as it recedes, with a soft ground shadow. */
-function extrudedShadow(color: string): string {
+/** A stack of offset shadows that reads as extruded type, darker as it recedes, with a soft ground shadow. The depth scales with the type: about a fifth of the cap height. */
+function extrudedShadow(color: string, fontSize: number): string {
+  const step = Math.max(1, fontSize * 0.014);
   const layers: string[] = [];
-  for (let i = 1; i <= 14; i++) layers.push(`${i * 0.9}px ${i * 1.1}px 0 rgba(0,0,0,${0.55 + i * 0.02})`);
-  layers.push("22px 30px 28px rgba(0,0,0,0.45)");
+  for (let i = 1; i <= 14; i++) layers.push(`${(i * step * 0.8).toFixed(1)}px ${(i * step).toFixed(1)}px 0 rgba(0,0,0,${(0.5 + i * 0.025).toFixed(2)})`);
+  layers.push(`${(step * 16).toFixed(0)}px ${(step * 22).toFixed(0)}px ${(step * 20).toFixed(0)}px rgba(0,0,0,0.45)`);
   return `${layers.join(", ")}, 0 0 1px ${color}`;
 }
 
@@ -245,7 +246,7 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number }> = ({ t
         }}
       >
         {chars === null ? (
-          <span style={{ ...css, ...(text.depth === "extruded" ? { textShadow: extrudedShadow(text.color), WebkitTextStroke: "0.5px rgba(0,0,0,0.25)" } : {}) }}>{text.text}</span>
+          <span style={{ ...css, ...(text.depth === "extruded" ? { textShadow: extrudedShadow(text.color, Number(css.fontSize) || 64), WebkitTextStroke: `${Math.max(0.5, (Number(css.fontSize) || 64) * 0.01)}px rgba(0,0,0,0.35)` } : {}) }}>{text.text}</span>
         ) : (
           <span style={{ ...css, position: "relative" }}>
             <span style={{ visibility: "hidden" }}>{text.text}</span>

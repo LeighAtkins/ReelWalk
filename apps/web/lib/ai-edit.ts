@@ -15,6 +15,7 @@ import {
   type AiSong,
   type InstagramAudioTrack,
   type Timeline,
+  transcriptSchema,
 } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
 import { AiError, aiModel, isAiAvailable, isFakeAi, structuredAnswer, usageCostUsd } from "@/lib/openai";
@@ -75,7 +76,7 @@ const title = (fileName: string) => fileName.replace(/\.[a-z0-9]{2,4}$/i, "");
  */
 export async function context(workspaceId: string, timeline: Timeline): Promise<{ assets: Record<string, AiAsset>; songs: AiSong[]; unused: AiAsset[] }> {
   const used = referencedAssetIds(timeline);
-  const select = { id: true, kind: true, fileName: true, durationMs: true, width: true, height: true, bpm: true, beatOffsetMs: true, instagramAudioId: true, room: true, shared: true } as const;
+  const select = { id: true, kind: true, fileName: true, durationMs: true, width: true, height: true, bpm: true, beatOffsetMs: true, instagramAudioId: true, room: true, shared: true, transcript: true } as const;
   const [rows, own] = await Promise.all([
     prisma.mediaAsset.findMany({
       where: { ...mediaScope(workspaceId), OR: [{ id: { in: used } }, { kind: "AUDIO", instagramAudioId: null }] },
@@ -99,6 +100,7 @@ export async function context(workspaceId: string, timeline: Timeline): Promise<
     bpm: row.bpm,
     beatOffsetMs: row.beatOffsetMs,
     room: row.room,
+    transcript: row.transcript ? transcriptSchema.safeParse(row.transcript).data ?? null : null,
   });
   const assets: Record<string, AiAsset> = {};
   const songs: AiSong[] = [];

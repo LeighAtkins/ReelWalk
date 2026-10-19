@@ -394,6 +394,8 @@ model MediaAsset {
   instagramAudioId String?
   instagramTitle   String?
   instagramArtist  String?
+  // What a video says, with word timings, made by the worker after upload (transcriptSchema in @reelwalk/core).
+  transcript  Json?
   createdAt   DateTime    @default(now())
   renderJobs  RenderJob[]
 

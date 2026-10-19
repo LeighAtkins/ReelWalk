@@ -8,6 +8,7 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { frameThumbKeyFor, inputFilenameFor, outputKeyFor, parseReelExportPayload, reelRenderPlan, renderSourceKeyFor } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
 import { probe, run } from "./library/tools";
+import { transcribeVideo, transcriptionAvailable } from "./transcribe";
 
 /** Longest side of a clip the renderer is handed. Output is 1080x1920, so nothing is lost. */
 const MAX_RENDER_SIDE = 1920;
@@ -140,7 +141,17 @@ export async function renderJob(
         thumbKey = null;
         console.warn(`[${job.id}] frame thumbnail not made: ${error instanceof Error ? error.message : error}`);
       }
-      await prisma.mediaAsset.update({ where: { id: job.mediaAssetId }, data: { previewKey: job.previewKey, ...(thumbKey ? { thumbKey } : {}) } });
+      // What it says, with word timings, so captions can sit on the words (ADR 0035).
+      let transcript = null;
+      if (transcriptionAvailable()) {
+        try {
+          transcript = await transcribeVideo(inputPath, workdir);
+          console.log(`[${job.id}] transcript: ${transcript ? `${transcript.words.length} words` : "no speech"}`);
+        } catch (error) {
+          console.warn(`[${job.id}] transcript not made: ${error instanceof Error ? error.message : error}`);
+        }
+      }
+      await prisma.mediaAsset.update({ where: { id: job.mediaAssetId }, data: { previewKey: job.previewKey, ...(thumbKey ? { thumbKey } : {}), ...(transcript ? { transcript: transcript as never } : {}) } });
       // While the original is here, make the copy an export will need, so the
       // first export of phone footage does not spend minutes re-encoding.
       // An export makes it itself if this fails.

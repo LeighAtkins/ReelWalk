@@ -244,7 +244,8 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
     return (
       <AbsoluteFill style={{ pointerEvents: "none", perspective: "none" }}>
         <div style={{ position: "absolute", left, top, width: w, height: h, display: "flex", alignItems: "center", justifyContent: "center", transformOrigin: "0 0", transform: H ? matrix3d(H) : undefined, opacity, whiteSpace: /\s/.test(text.text) ? "normal" : "nowrap", textAlign: "center" }}>
-          <span style={{ ...face, transform: `scale(${scale})` }}>{text.text}</span>
+          {/* The tracked box is only as wide as the surface the pin followed; a single word must never break inside it. */}
+          <span style={{ ...face, ...(/\s/.test(text.text) ? {} : { whiteSpace: "nowrap", overflowWrap: "normal" }), transform: `scale(${scale})` }}>{text.text}</span>
         </div>
       </AbsoluteFill>
     );

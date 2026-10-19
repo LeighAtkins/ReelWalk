@@ -1,14 +1,15 @@
 import React, { useEffect, useRef, useState } from "react";
-import { AbsoluteFill, Html5Video, continueRender, delayRender, useRemotionEnvironment, useVideoConfig } from "remotion";
+import { AbsoluteFill, continueRender, delayRender, useCurrentFrame, useRemotionEnvironment, useVideoConfig } from "remotion";
 import type { Clip } from "@reelwalk/core";
 import { FILTER_CSS } from "./look";
 import type { ReelAsset } from "./types";
 
 /**
  * People in the shot pass in front of the type (ADR 0039). A second decode
- * of the clip runs through MediaPipe's selfie segmenter and only the person
- * pixels are drawn, above the text layer. The model and its runtime come
- * from the public MediaPipe CDN; the first frame waits for them.
+ * of the clip is stepped to the current frame, run through MediaPipe's
+ * selfie segmenter, and only the person pixels are drawn above the text
+ * layer. The decode is our own <video>, seeked per frame and segmented on
+ * `seeked`, so the segmenter always gets a frame with real dimensions.
  */
 
 // In the editor the app's CSP allows scripts from its own origin only, so the
@@ -60,38 +61,59 @@ export function drawPersonOnly(segmenter: Segmenter, frame: CanvasImageSource, o
 }
 
 export const PersonMatteView: React.FC<{ clip: Clip; asset: ReelAsset }> = ({ clip, asset }) => {
+  const frame = useCurrentFrame();
   const { fps, width, height } = useVideoConfig();
   const { isRendering } = useRemotionEnvironment();
   const canvas = useRef<HTMLCanvasElement>(null);
+  const video = useRef<HTMLVideoElement | null>(null);
   const scratch = useRef<HTMLCanvasElement | null>(null);
   const [segmenter, setSegmenter] = useState<Segmenter | null>(null);
   const [failed, setFailed] = useState(false);
+
   useEffect(() => {
     const handle = delayRender("Loading the person matte", { timeoutInMilliseconds: 60_000 });
     loadSegmenter(isRendering).then(setSegmenter).catch(() => setFailed(true)).finally(() => continueRender(handle));
   }, [isRendering]);
+
+  // One decode for the matte, kept for the life of the view.
+  useEffect(() => {
+    if (asset.kind !== "VIDEO") return;
+    const element = document.createElement("video");
+    element.crossOrigin = "anonymous"; element.muted = true; element.preload = "auto"; element.playsInline = true;
+    element.src = asset.src;
+    video.current = element;
+    return () => { element.removeAttribute("src"); element.load(); video.current = null; };
+  }, [asset.kind, asset.src]);
+
+  // Step the decode to this frame's source time and segment it once it has the picture.
+  useEffect(() => {
+    const element = video.current;
+    if (!segmenter || !element || !canvas.current) return;
+    const sourceSeconds = clip.sourceStartMs / 1000 + (frame / fps) * (clip.speed || 1);
+    let done = false;
+    const handle = delayRender(`Person matte frame ${frame}`, { timeoutInMilliseconds: 30_000 });
+    const finish = () => { if (!done) { done = true; continueRender(handle); } };
+    const draw = () => {
+      if (element.videoWidth > 0 && element.readyState >= 2 && canvas.current) {
+        scratch.current ??= document.createElement("canvas");
+        try { drawPersonOnly(segmenter, element, canvas.current, scratch.current); } catch { /* a dropped frame keeps the last matte */ }
+      }
+      finish();
+    };
+    const onSeeked = () => { element.removeEventListener("seeked", onSeeked); draw(); };
+    if (Math.abs(element.currentTime - sourceSeconds) < 1 / (fps * 2) && element.readyState >= 2) draw();
+    else {
+      element.addEventListener("seeked", onSeeked);
+      element.addEventListener("error", finish, { once: true });
+      element.currentTime = sourceSeconds;
+    }
+    return () => { element.removeEventListener("seeked", onSeeked); finish(); };
+  }, [segmenter, frame, fps, clip.sourceStartMs, clip.speed]);
+
   if (failed || asset.kind !== "VIDEO") return null;
-  const toFrame = (ms: number) => Math.round((ms * fps) / 1000);
   return (
     <AbsoluteFill style={{ pointerEvents: "none" }}>
       <canvas ref={canvas} width={width} height={height} style={{ width: "100%", height: "100%", filter: FILTER_CSS[clip.filter] }} />
-      {segmenter ? (
-        <Html5Video
-          src={asset.src}
-          trimBefore={toFrame(clip.sourceStartMs)}
-          trimAfter={toFrame(clip.sourceEndMs)}
-          playbackRate={clip.speed}
-          muted
-          volume={0}
-          // Full size but invisible: the segmenter reads the element's displayed size, and a 1×1 video gives it an empty region.
-          style={{ position: "absolute", inset: 0, width: "100%", height: "100%", opacity: 0, objectFit: "cover" }}
-          onVideoFrame={(frame) => {
-            if (!canvas.current) return;
-            scratch.current ??= document.createElement("canvas");
-            try { drawPersonOnly(segmenter, frame, canvas.current, scratch.current); } catch { /* a dropped frame leaves the last matte */ }
-          }}
-        />
-      ) : null}
     </AbsoluteFill>
   );
 };

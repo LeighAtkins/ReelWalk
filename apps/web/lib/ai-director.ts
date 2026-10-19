@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import sharp from "sharp";
 import { z } from "zod";
-import { DIRECTOR_INSTRUCTIONS, DIRECTOR_PLAN_JSON_SCHEMA, AI_EDIT_SYSTEM_PROMPT, applyAiEditPlan, describeReel, directorPlanSchema, isEquirect, parseTimeline, referencedAssetIds, validateDirectorReferences } from "@reelwalk/core";
+import { DIRECTOR_INSTRUCTIONS, DIRECTOR_PLAN_JSON_SCHEMA, AI_EDIT_SYSTEM_PROMPT, applyAiEditPlan, describeMotion, describeReel, directorPlanSchema, isEquirect, parseTimeline, referencedAssetIds, validateDirectorReferences } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
 import { aiEditBlockedReason, context, newAssets } from "./ai-edit";
 import { aiModel, aiProvider, structuredAnswer } from "./openai";
@@ -13,6 +13,7 @@ export const directorInput = z.object({
   evidence: z.array(z.object({
     assetId: z.string().min(1).max(64), timesMs: z.array(z.number().int().nonnegative()).min(1).max(40),
     image: z.string().startsWith("data:image/jpeg;base64,").max(1_200_000),
+    motion: z.array(z.object({ t: z.number().int().nonnegative(), t2: z.number().int().nonnegative(), dx: z.number().int().min(-64).max(64), dy: z.number().int().min(-64).max(64), change: z.number().min(0).max(1) })).max(40).optional(),
   })).max(10),
 });
 export type DirectorInput = z.infer<typeof directorInput>;
@@ -28,7 +29,7 @@ async function pictures(input: DirectorInput, allowed: Record<string, { kind: st
     total += bytes.length;
     if (total > 6_000_000) throw new Error("Choose fewer review frames.");
     const safe = await sharp(bytes, { limitInputPixels: 16_000_000 }).rotate().resize({ width: 1536, height: 2048, fit: "inside", withoutEnlargement: true }).jpeg({ quality: 85 }).toBuffer();
-    return { image: `data:image/jpeg;base64,${safe.toString("base64")}`, assetId: e.assetId, timesMs: e.timesMs, sha256: createHash("sha256").update(safe).digest("hex") };
+    return { image: `data:image/jpeg;base64,${safe.toString("base64")}`, assetId: e.assetId, timesMs: e.timesMs, motion: e.motion, sha256: createHash("sha256").update(safe).digest("hex") };
   }));
 }
 
@@ -58,7 +59,7 @@ export async function directReel(user: { id: string; workspaceId: string }, reel
   // Deliberately one provider request. Unknown or failed submissions are never automatically repeated.
   const answer = await structuredAnswer({
     instructions: `${AI_EDIT_SYSTEM_PROMPT}\n\n${DIRECTOR_INSTRUCTIONS}`,
-    input: `${describeReel({ title: reel.title, timeline, ...available })}\n\nUser brief: ${input.request}\n\nConfirmed AI-generated asset IDs: ${JSON.stringify(aiSources.map(a => a.assetId))}\nReview candidates: ${JSON.stringify(input.candidates)}\nSource frame sheets in order: ${JSON.stringify(evidence.map(e => ({ assetId: e.assetId, timesMs: e.timesMs })))}\nNo source sheets supplied for other shots: do not claim those were visually reviewed.`,
+    input: `${describeReel({ title: reel.title, timeline, ...available })}\n\nUser brief: ${input.request}\n\nConfirmed AI-generated asset IDs: ${JSON.stringify(aiSources.map(a => a.assetId))}\nReview candidates: ${JSON.stringify(input.candidates)}\nSource frame sheets in order: ${JSON.stringify(evidence.map(e => ({ assetId: e.assetId, timesMs: e.timesMs })))}\nNo source sheets supplied for other shots: do not claim those were visually reviewed.${evidence.filter(e => e.motion?.length).map(e => `\nMeasured motion for ${available.assets[e.assetId]?.title ?? e.assetId} (dominant image shift between consecutive sampled frames, pixels at 48×85; dy > 0 is the picture moving down the frame; CHANGE marks an abrupt new picture): ${describeMotion(e.motion!)}`).join("")}`,
     images: evidence.map(e => e.image), imageDetail: "high", schemaName: "opus_director", schema: DIRECTOR_PLAN_JSON_SCHEMA as unknown as Record<string, unknown>, // A full direction (caption moves, trims, volume, shots) plus Opus's thinking ran past 10k tokens.
     maxOutputTokens: 30000,
     // Opus thinks over many frame sheets; the 60-second default cut real reviews off. This runs as a background job.

@@ -249,8 +249,7 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
       <AbsoluteFill style={{ pointerEvents: "none", perspective: "none" }}>
         <div style={{ position: "absolute", left, top, width: w, height: h, display: "flex", alignItems: "center", justifyContent: "center", transformOrigin: "0 0", transform: H ? matrix3d(H) : undefined, opacity: visible, whiteSpace: "nowrap", textAlign: "center", ...meet }}>
           {/* The tracked box is only the plane's frame, narrower than most titles: the words sit on one line (or the lines the author typed) and overflow it, warped with it. */}
-          <span style={{ ...face, whiteSpace: text.text.includes("
-") ? "pre" : "nowrap", overflowWrap: "normal", wordBreak: "keep-all", transform: `scale(${scale})` }}>{text.text}</span>
+          <span style={{ ...face, whiteSpace: text.text.includes("\n") ? "pre" : "nowrap", overflowWrap: "normal", wordBreak: "keep-all", transform: `scale(${scale})` }}>{text.text}</span>
         </div>
       </AbsoluteFill>
     );

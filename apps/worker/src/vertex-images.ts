@@ -1,4 +1,7 @@
 import { execFile } from "node:child_process";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { promisify } from "node:util";
 import { VertexError, vertexAuth, type AwsCredentials } from "./vertex-video";
 
@@ -39,14 +42,25 @@ export function imageFromResponse(result: unknown): InlineImage | null {
   return null;
 }
 
-/** Any image to the portrait JPEG Veo and the frame path expect. */
+/**
+ * Any image to the portrait JPEG Veo and the frame path expect. The image
+ * goes through a temp file: execFile cannot feed stdin, and an ffmpeg
+ * reading pipe:0 with nothing attached waits forever (it hung the worker).
+ */
 export async function portraitJpeg(image: Buffer): Promise<Buffer> {
-  const { stdout } = await run("ffmpeg", ["-v", "error", "-nostdin", "-i", "pipe:0", "-frames:v", "1",
-    "-vf", "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1",
-    "-f", "image2pipe", "-vcodec", "mjpeg", "-pix_fmt", "yuvj420p", "-q:v", "2", "pipe:1"],
-    { encoding: "buffer", maxBuffer: 16 * 1024 * 1024, timeout: 60_000, windowsHide: true, input: image } as never) as unknown as { stdout: Buffer };
-  if (stdout.length < 100 || stdout[0] !== 0xff || stdout[1] !== 0xd8) throw new Error("The composed frame could not be encoded.");
-  return stdout;
+  const dir = await mkdtemp(path.join(os.tmpdir(), "compose-"));
+  const input = path.join(dir, "frame.img");
+  try {
+    await writeFile(input, image);
+    const { stdout } = await run("ffmpeg", ["-v", "error", "-nostdin", "-i", input, "-frames:v", "1",
+      "-vf", "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1",
+      "-f", "image2pipe", "-vcodec", "mjpeg", "-pix_fmt", "yuvj420p", "-q:v", "2", "pipe:1"],
+      { encoding: "buffer", maxBuffer: 16 * 1024 * 1024, timeout: 60_000, windowsHide: true }) as unknown as { stdout: Buffer };
+    if (stdout.length < 100 || stdout[0] !== 0xff || stdout[1] !== 0xd8) throw new Error("The composed frame could not be encoded.");
+    return stdout;
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 }
 
 export class VertexImages {

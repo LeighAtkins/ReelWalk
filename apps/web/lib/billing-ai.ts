@@ -29,13 +29,17 @@ export async function applyAiInvoice(invoice: Stripe.Invoice, subscription: Stri
     const anchor = current.aiPaidThrough?.getTime() === end.getTime() && current.aiPaidPeriodStart ? current.aiPaidPeriodStart : start;
     await tx.workspace.update({ where: { id: workspace.id }, data: { aiPaidPlan: plan, aiPaidPeriodStart: anchor, aiPaidThrough: end, aiLastInvoiceCreated: invoice.created } });
     await lockBillingAccount(tx, workspace.id);
-  });
+  }, BILLING_TX);
 }
 
 export function aiTopUpPrice(): string | null {
   const value = process.env.STRIPE_PRICE_AI_TOP_UP;
   return value && value !== "unset" ? value : null;
 }
+
+// Stripe retries deliveries in bursts; a duplicate waits for the workspace lock instead of failing on
+// Prisma's 2-second default for starting a transaction.
+const BILLING_TX = { maxWait: 10_000, timeout: 15_000 };
 
 /** Signed Stripe session + exact server-side price + unique source = one grant. */
 export async function applyAiTopUp(session: Stripe.Checkout.Session) {
@@ -56,5 +60,5 @@ export async function applyAiTopUp(session: Stripe.Checkout.Session) {
     await tx.aiCreditGrant.upsert({ where: { source: `checkout:${session.id}` }, update: {}, create: {
       workspaceId, source: `checkout:${session.id}`, kind: "TOP_UP", amount: AI_TOP_UP.credits, remaining: AI_TOP_UP.credits,
     } });
-  });
+  }, BILLING_TX);
 }

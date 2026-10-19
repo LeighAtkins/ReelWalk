@@ -48,8 +48,8 @@ describe.skipIf(!process.env.DATABASE_URL)("AI credits (Postgres)", () => {
 
   it("rolls back the debit when the shared spending ceiling is reached", async () => {
     const input = await studio();
-    const budget = await prisma.aiSpendBudget.findUniqueOrThrow({ where: { id: "vertex-video" } });
-    await expect(reserveAiGeneration(prisma, { ...input, requestId: randomUUID(), budgetCents: budget.reservedCents })).rejects.toThrow("temporarily paused");
+    // A zero ceiling, not the current total: other test files reserve against the same shared row concurrently.
+    await expect(reserveAiGeneration(prisma, { ...input, requestId: randomUUID(), budgetCents: 0 })).rejects.toThrow("temporarily paused");
     expect((await aiCreditSummary(prisma, input.workspaceId)).remaining).toBe(2);
     expect(await prisma.aiGeneration.count({ where: { workspaceId: input.workspaceId } })).toBe(0);
   });

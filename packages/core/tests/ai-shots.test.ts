@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { aiBoundary, aiClipCostCents, aiClipCredits, aiShotFromClips, aiShotSchema, aiShotPrompt, aiShotStyle, clipDurationMs, clipSchema, emptyTimeline, insertAiShot, parseTimeline, type AiShotMode } from "../src";
+import { aiBoundary, aiClipCostCents, aiClipCredits, aiDefaultClipSeconds, aiShotFromClips, aiShotSchema, aiShotPrompt, aiShotStyle, clipDurationMs, clipSchema, emptyTimeline, insertAiShot, parseTimeline, type AiShotMode } from "../src";
 
 const a = clipSchema.parse({ id: "a", assetId: "real-a", kind: "VIDEO", sourceStartMs: 1000, sourceEndMs: 7000, speed: 2 });
 const b = clipSchema.parse({ id: "b", assetId: "real-b", kind: "VIDEO", sourceStartMs: 2300, sourceEndMs: 5300, transitionIn: "whip" });
@@ -27,7 +27,17 @@ describe("footage anchored AI edits", () => {
     expect(clipDurationMs(next.clips[1])).toBe(8000);
     expect(aiShotPrompt(shot.mode, "Show the build", shot)).toContain("conceptual construction visualization");
   });
-  it.each(["orbit", "fly-through", "day-night"] as AiShotMode[])("can animate a still with %s while preserving its timing", mode => {
+  it("writes the operator's camera moves into the prompt and animates a still with them", () => {
+    const shot = aiShotFromClips("cathedral", { ...a, kind: "IMAGE" as const, sourceStartMs: 0, sourceEndMs: 4000, speed: 1 });
+    const prompt = aiShotPrompt(shot.mode, "Living room", shot);
+    expect(prompt).toContain("Start exactly from the supplied first frame");
+    expect(prompt).toContain("tilted up toward the ceiling");
+    expect(prompt).toContain("no cuts");
+    expect(aiShotPrompt("pull-back", "", { mode: "pull-back" })).toContain("walks slowly backwards");
+    expect(aiShotPrompt("static", "", { mode: "static" })).toContain("locked off on a tripod");
+    expect(aiDefaultClipSeconds("tilt")).toBe(4);
+  });
+  it.each(["orbit", "fly-through", "day-night", "wide-walk", "detail-orbit"] as AiShotMode[])("can animate a still with %s while preserving its timing", mode => {
     const photo = { ...a, kind: "IMAGE" as const, sourceStartMs: 0, sourceEndMs: 5000, speed: 1 };
     const timeline = { ...original, clips: [photo, b] };
     const next = insertAiShot(timeline, ai, aiShotFromClips(mode, photo));

@@ -2,14 +2,43 @@ import { z } from "zod";
 import { addClips, clipDurationMs, clipSchema, clipStartsMs, type Clip, type Filter, type Timeline } from "./timeline";
 import { luxuryFinish } from "./cinematic";
 
-export const AI_SHOT_MODES = ["custom", "continue", "bridge", "burst", "gimbal", "drone", "orbit", "fly-through", "day-night", "construction"] as const;
+/**
+ * The listing shots a gimbal operator makes on every job (ADR 0040), as Veo
+ * moves from a photo or a frame: each prompt says what the lens does, what
+ * the body does and what must not change, in the words an operator uses.
+ */
+export const AI_CAMERA_MOVES = ["cathedral", "twist", "tilt", "wide-walk", "pull-back", "detail-orbit", "static"] as const;
+export type AiCameraMove = typeof AI_CAMERA_MOVES[number];
+export const AI_SHOT_MODES = ["custom", "continue", "bridge", "burst", "gimbal", "drone", "orbit", "fly-through", "day-night", "construction", ...AI_CAMERA_MOVES] as const;
 export type AiShotMode = typeof AI_SHOT_MODES[number];
 export const AI_SHOT_LABELS: Record<AiShotMode, string> = {
   custom: "Custom shot", continue: "Continue this shot", bridge: "Connect two shots",
   burst: "Transition burst", gimbal: "Photo to gimbal move", drone: "Photo to drone reveal",
   orbit: "Drone orbit around building", "fly-through": "Sweeping FPV fly-through",
   "day-night": "Day-to-night timelapse", construction: "Construction timelapse · before + after",
+  cathedral: "Cathedral · wide, tilted up, arcing walk", twist: "Twist · sky to room with a roll",
+  tilt: "Tilt · walk in, camera rises", "wide-walk": "Wide · locked, walk forward",
+  "pull-back": "Pull back · walk backwards, level", "detail-orbit": "Detail · creep in, orbit the object",
+  static: "Static · locked off, let it move",
 };
+/** How the operator gets each move, for the panel and for Opus: lens, hands, body. */
+export const AI_CAMERA_MOVE_RECIPES: Record<AiCameraMove, { lens: string; hands: string; prompt: string }> = {
+  cathedral: { lens: "12–24 mm, wide", hands: "Lens tilted up. Walk across the space while twisting slowly so the camera arcs around the room.",
+    prompt: "Ultra-wide lens tilted up toward the ceiling and upper walls. The camera walks sideways across the room while slowly rotating, so the architecture arcs past: a slow lateral arc that keeps the ceiling, cornices and tall openings in frame. Smooth gimbal motion, constant slow speed, no shake, no cuts." },
+  twist: { lens: "12–24 mm, wide · opening shots", hands: "Lens pointed at the sky. Lower it to the facade while twisting the wrist left.",
+    prompt: "Opening move: the ultra-wide lens starts pointed at the sky above the building, then lowers smoothly onto the facade while the frame rolls gently to level, a slow wrist twist that straightens as the house settles into the composition. Smooth gimbal motion, one continuous move, no cuts." },
+  tilt: { lens: "12–24 mm, wide", hands: "Walk forward. Arms stay put; the hands tilt the camera up.",
+    prompt: "Ultra-wide lens. The camera walks slowly forward into the space while tilting up from the floor toward the ceiling and skylights, a steady forward push and rising tilt in one motion. Smooth gimbal motion, no shake, no cuts." },
+  "wide-walk": { lens: "12–24 mm, wide", hands: "Camera locked straight. Walk forward.",
+    prompt: "Ultra-wide lens locked level and straight ahead. The camera walks slowly forward through the room at a constant pace with no pan or tilt, a clean straight push. Smooth gimbal motion, no shake, no cuts." },
+  "pull-back": { lens: "35 mm, medium", hands: "Walk backwards slowly. Keep it level.",
+    prompt: "Medium 35 mm lens held level. The camera walks slowly backwards away from the subject, revealing more of the room, with the horizon kept level and the framing centred. Smooth gimbal motion, constant slow speed, no cuts." },
+  "detail-orbit": { lens: "24–70 mm", hands: "Body creeps forward; the wrist twists slowly to orbit the detail.",
+    prompt: "24–70 mm lens on a close detail: a tap, a handle, a light, a texture. The camera creeps forward very slowly while twisting around the detail, a tight partial orbit that keeps the detail centred and shallow focus on it. Smooth gimbal motion, no cuts." },
+  static: { lens: "24–70 mm on a tripod", hands: "Hands off. Let the water, light or curtains move.",
+    prompt: "Camera locked off on a tripod, perfectly still, 24–70 mm. Nothing moves but the scene itself: water, curtains, leaves, light. Hold the exact composition for the whole take, no camera motion at all." },
+};
+export const isCameraMove = (mode: AiShotMode): mode is AiCameraMove => (AI_CAMERA_MOVES as readonly string[]).includes(mode);
 export const AI_SHOT_STYLES = ["auto", "source", "neon", "refined", "modern"] as const;
 export type AiShotStyle = typeof AI_SHOT_STYLES[number];
 export const AI_SHOT_STYLE_LABELS: Record<AiShotStyle, string> = {
@@ -24,7 +53,7 @@ export const AI_SHOT_ATMOSPHERE_LABELS: Record<AiShotAtmosphere, string> = {
 export const aiConnectsClips = (mode: AiShotMode) => ["bridge", "burst", "construction"].includes(mode);
 /** Timelapses need the full 8 seconds to progress; every other move fits a 4-second clip. */
 export const aiDefaultClipSeconds = (mode?: AiShotMode): 4 | 8 => mode === "day-night" || mode === "construction" ? 8 : 4;
-export const aiReplacesStill = (mode: AiShotMode) => ["gimbal", "drone", "orbit", "fly-through", "day-night"].includes(mode);
+export const aiReplacesStill = (mode: AiShotMode) => ["gimbal", "drone", "orbit", "fly-through", "day-night"].includes(mode) || isCameraMove(mode);
 const frame = z.object({
   assetId: z.string().min(1).max(64), atMs: z.number().int().min(0).max(86_400_000).default(0),
 });
@@ -90,6 +119,7 @@ export function aiShotPrompt(mode: AiShotMode, direction: string, recipe?: AiSho
     orbit: "Fly a smooth cinematic drone orbit around the referenced building, with foreground parallax and a readable facade. Keep the same roofline, footprint and surroundings; use an ending reference for the landing view when supplied.",
     "fly-through": "Create a sweeping FPV camera flight through the referenced property, with a dramatic approach, flowing doorway passes and a smooth deceleration. Maintain believable scale and continuous space; use visible openings rather than flying through solid walls.",
     "day-night": "Create a locked-composition day-to-night timelapse of the referenced property. Advance sunlight and moving shadows into sunset, then blue hour and night as interior lights come on. Keep architecture and camera position stable throughout.",
+    ...(Object.fromEntries(AI_CAMERA_MOVES.map(move => [move, `Start exactly from the supplied first frame. ${AI_CAMERA_MOVE_RECIPES[move].prompt}`])) as Record<AiCameraMove, string>),
     construction: "Create a cinematic accelerated construction timelapse from the supplied BEFORE frame to the supplied completed-building AFTER frame. Show coherent foundations, structure, exterior and finishing stages in chronological order, ending exactly on the completed reference. This is a conceptual construction visualization, not documentary footage.",
   };
   const styles: Record<Exclude<AiShotStyle, "auto">, string> = {

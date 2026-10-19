@@ -102,6 +102,18 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.app }}
           cache-to: type=gha,mode=max,scope=${{ matrix.app }}
 
+      # Draw the first and last frame of every shot of a reel that uses every
+      # feature, with the renderer this image ships (ADR 0042). A frame that
+      # errors or hangs fails here, not in a production export.
+      - name: Render smoke test
+        if: matrix.app == 'worker'
+        timeout-minutes: 12
+        # From the worker's directory: that is where the image's Chrome lives
+        # (ensure-browser ran there) and the only node_modules the `node` user may write.
+        run: >
+          docker run --rm -w /workspace/apps/worker "$IMAGE"
+          node_modules/.bin/tsx ../../packages/render/scripts/render-smoke.ts
+
       # Accepted findings (with reasons) are listed in .trivyignore.yaml.
       - name: Scan image with Trivy
         run: >

@@ -61,7 +61,7 @@ async function renderSourceKey(
 }
 import type { ReelAsset } from "@reelwalk/render/reel-types";
 import { renderStubReel } from "@reelwalk/render/render-job";
-import { renderReel } from "@reelwalk/render/render-reel";
+import { preflightReel, renderReel } from "@reelwalk/render/render-reel";
 import type { ClaimedJob, RenderResult } from "./handler";
 
 /**
@@ -179,6 +179,13 @@ export async function renderJob(
         assets[id] = { src, kind: asset.kind, ...(asset.transcript ? { transcript: asset.transcript } : {}) };
         // Preparing sources is the first fifth of the bar; Remotion reports the rest.
         report(((index + 1) / entries.length) * 0.2);
+      }
+      // Draw the first and last frame of every shot first (ADR 0042): a frame that
+      // errors or hangs fails in seconds, naming the shot, not minutes into the render.
+      if (process.env.RENDER_PREFLIGHT !== "0") {
+        const started = Date.now();
+        await preflightReel({ timeline: plan.timeline, assets }, (done, total) => report(0.2 + 0.08 * (done / total)));
+        console.log(`[${job.id}] preflight: every shot drew (${Math.round((Date.now() - started) / 1000)} s)`);
       }
       await renderReel({ timeline: plan.timeline, assets, output: outputPath, concurrency, width: payload.output.width, watermark: payload.output.watermark }, report);
       await normaliseLoudness(outputPath, (line) => console.log(`[${job.id}] ${line}`));

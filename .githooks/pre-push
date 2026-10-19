@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Nothing reaches CI unchecked: lint, typecheck and unit tests run before every push.
+# Enable once per clone:  git config core.hooksPath .githooks
+# Skip in an emergency:   SKIP_CHECK=1 git push
+set -euo pipefail
+[ "${SKIP_CHECK:-}" = "1" ] && exit 0
+cd "$(git rev-parse --show-toplevel)"
+# pnpm may not be on PATH in a hook's shell, and turbo needs a real `pnpm` binary there:
+# use a project-local copy if present, otherwise a shim over corepack.
+if ! command -v pnpm >/dev/null 2>&1; then
+  if [ -x .tools/bin/pnpm ]; then export PATH="$PWD/.tools/bin:$PATH"
+  elif command -v corepack >/dev/null 2>&1; then
+    # Both a shell shim and a .cmd one: on Windows, package scripts run through cmd.exe.
+    shim=$(mktemp -d); printf '#!/usr/bin/env bash
+exec corepack pnpm "$@"
+' > "$shim/pnpm"; chmod +x "$shim/pnpm"
+    printf '@echo off
+corepack pnpm %%*
+' > "$shim/pnpm.cmd"; export PATH="$shim:$PATH"
+  else echo "pre-push: pnpm not found; set SKIP_CHECK=1 to push unchecked" >&2; exit 1; fi
+fi
+echo "pre-push: pnpm check"
+pnpm check

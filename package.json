@@ -8,6 +8,8 @@
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
     "lint": "eslint .",
+    "check": "eslint . && pnpm -r typecheck && pnpm -r test",
+    "smoke": "pnpm --filter @reelwalk/render smoke",
     "db:generate": "turbo run db:generate",
     "db:migrate": "pnpm --filter @reelwalk/db migrate:deploy",
     "db:seed": "pnpm --filter @reelwalk/db seed",

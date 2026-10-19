@@ -26,7 +26,9 @@ export function composePrompt(end: "first" | "last", instruction: string): strin
     "Photoreal composite for a video keyframe. The first image is the scene: keep its camera position, lens, framing, light, colours and every surface exactly as they are.",
     "Place the person from the second image into that scene as described, keeping her face, hair, outfit, build and skin tone identical:",
     instruction.trim(),
-    "She must be at true human scale against the objects named and the architecture (a door is about 2.1 m, a chair seat 0.45 m, a kitchen bench 0.9 m); never larger than a doorway. Natural shadows and contact with the ground or furniture.",
+    "She must be at true human scale against the objects named and the architecture (a door is about 2.1 m, a chair seat 0.45 m, a kitchen bench 0.9 m); never larger than a doorway.",
+    // The first reel's presenter stood on a coffee table: the model placed her by scale alone, not by the floor.
+    "Her feet stand on visible, clear floor (never on or inside furniture, rugs' edges aside), below the horizon line; anything nearer the camera than that floor spot (a sofa back, a table, a counter) passes in front of her and hides the part of her it covers. She casts a soft contact shadow on the floor that matches the scene's light direction, and the scene's light falls on her the same way.",
     end === "first" ? "This is the first frame of the shot: the moment just before the action starts." : "This is the last frame of the shot: the action has finished and she is settled in place.",
     "Portrait 9:16, 1080×1920. No text, logos, captions or extra people.",
   ].join(" ");

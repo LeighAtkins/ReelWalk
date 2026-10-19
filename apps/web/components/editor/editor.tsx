@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "r
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import type { PlayerRef } from "@remotion/player";
-import { locate,
+import { setHook, wordsBehindHook, locate,
   addClips,
   insertAiShot,
   luxuryFinish,
@@ -64,6 +64,7 @@ import {
   CaptionIcon,
   CheckIcon,
   ClockIcon,
+  SparkIcon,
   CloseIcon,
   CoverIcon,
   DetailsIcon,
@@ -100,7 +101,7 @@ import { ClipSourceInfo } from "./clip-source-info";
 import { DirectorSheet } from "./director-sheet";
 import { Filmstrip, type PendingUpload, type Selection } from "./filmstrip";
 import { historyReducer, initHistory } from "./history";
-import { PinSheet,
+import { HookSheet, PinSheet,
   AskSheet,
   AutopilotSheet,
   type AutopilotInfo,
@@ -160,6 +161,7 @@ type SheetName =
   | "music"
   | "zoom"
   | "logo"
+  | "hook"
   | "caption"
   | "export"
   | "ask"
@@ -994,6 +996,9 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         <Tool label="Details" onClick={() => setSheet("details")}>
           <DetailsIcon />
         </Tool>
+        <Tool label="Hook" disabled={!hasClips} pressed={timeline.hook !== null || timeline.texts.some((t) => t.id.startsWith("hook-word-"))} onClick={() => setSheet("hook")}>
+          <SparkIcon />
+        </Tool>
         <Tool label="Logo" disabled={!hasClips} pressed={timeline.logo !== null} onClick={() => setSheet("logo")}>
           <LogoIcon />
         </Tool>
@@ -1381,6 +1386,15 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
       {sheet === "caption" ? <CaptionSheet reelId={reel.id} caption={caption} askAvailable={askAvailable} onClose={closeSheet} onChange={setCaption} /> : null}
       {sheet === "zoom" && selectedClip ? (
         <ZoomSheet clip={selectedClip} onChange={(zoom) => apply((current) => updateClip(current, selectedClip.id, { zoom }), `zoom-${selectedClip.id}`)} onClose={closeSheet} />
+      ) : null}
+      {sheet === "hook" ? (
+        <HookSheet
+          hook={timeline.hook}
+          hasPerson={Boolean(timeline.clips[0] && library[timeline.clips[0].assetId]?.isAiGenerated)}
+          onChange={(hook) => apply((current) => setHook(current, hook), "hook")}
+          onWords={(words, color) => apply((current) => wordsBehindHook(current, words, { color }), "hook-words")}
+          onClose={closeSheet}
+        />
       ) : null}
       {sheet === "logo" ? (
         <LogoSheet

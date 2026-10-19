@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useRef, useState, type CSSProperties } from "react";
-import {
+import { HOOK_DESCRIPTIONS, HOOK_FONTS, HOOK_LABELS, type Hook, type HookKind,
   acceptFor,
   canExport,
   captionFromDetails,
@@ -772,6 +772,53 @@ export function TextSheet({
       <button type="button" className="btn btn-block" disabled={!draft.text.trim()} onClick={() => onSave({ ...draft, text: draft.text.trim() })}>
         {initial ? "Save text" : "Add text"}
       </button>
+    </Sheet>
+  );
+}
+
+/** Visual hooks (ADR 0041): the opener that stops the scroll. */
+export function HookSheet({ hook, hasPerson, onChange, onWords, onClose }: {
+  hook: Hook | null; hasPerson: boolean;
+  onChange(hook: Hook | null): void; onWords(words: string[], color: string): void; onClose(): void;
+}) {
+  const [kind, setKind] = useState<HookKind | "words-behind">(hook?.kind ?? "words-behind");
+  const [draft, setDraft] = useState<Hook>(hook ?? { kind: "alert", durationMs: 2200, title: "", body: "", action: "", color: "#ff5a5f", font: "sans" });
+  const [words, setWords] = useState("THIS · HOUSE · SOLD");
+  const update = (patch: Partial<Hook>) => setDraft((d) => ({ ...d, ...patch }));
+  return (
+    <Sheet title="Hook" onClose={onClose}>
+      <p className="muted small">The first two seconds decide whether anyone watches. Pick an opener built from your first shot.</p>
+      <div className="field" role="radiogroup" aria-label="Hook">
+        {(["words-behind", "alert", "spotlight", "device"] as const).map((k) => (
+          <label key={k} className="small" style={{ display: "block", marginBottom: 6 }}>
+            <input type="radio" name="hook-kind" checked={kind === k} onChange={() => setKind(k)} /> <strong>{HOOK_LABELS[k]}</strong> — {HOOK_DESCRIPTIONS[k]}
+          </label>
+        ))}
+      </div>
+      {kind === "words-behind" ? (
+        <>
+          <label className="field">Three words, separated by ·<input className="text-input" value={words} onChange={(e) => setWords(e.target.value)} maxLength={60} /></label>
+          {!hasPerson ? <p className="small">Works best when the first shot has a person walking; otherwise the words sit on the picture.</p> : null}
+          <div className="swatches" role="group" aria-label="Colour">{TEXT_COLORS.map((color) => <button key={color} type="button" className="swatch" aria-label={color} aria-pressed={draft.color === color} style={{ background: color }} onClick={() => update({ color })} />)}</div>
+          <button type="button" className="btn btn-signal btn-block" data-testid="hook-apply" onClick={() => { onWords(words.split(/[·,|/]/), draft.color); onClose(); }}>Put the words behind the person</button>
+        </>
+      ) : (
+        <>
+          <label className="field">{kind === "alert" ? "Alert title" : "Big line"}<input className="text-input" value={draft.title} maxLength={80} placeholder={kind === "alert" ? "Price drop" : kind === "spotlight" ? "4 BEDS.\nZERO NEIGHBOURS." : "Swipe in"} onChange={(e) => update({ title: e.target.value })} /></label>
+          {kind === "alert" ? <>
+            <label className="field">Alert text<input className="text-input" value={draft.body} maxLength={140} placeholder="12 Harbour Lane just dropped to $1.2M." onChange={(e) => update({ body: e.target.value })} /></label>
+            <label className="field">Button<input className="text-input" value={draft.action} maxLength={24} placeholder="See inside" onChange={(e) => update({ action: e.target.value })} /></label>
+          </> : null}
+          {kind === "spotlight" ? <>
+            <div className="swatches" role="group" aria-label="Colour">{TEXT_COLORS.filter((c) => c !== "#ffffff").map((color) => <button key={color} type="button" className="swatch" aria-label={color} aria-pressed={draft.color === color} style={{ background: color }} onClick={() => update({ color })} />)}</div>
+            {!hasPerson ? <p className="small">Needs a person in the first shot, ideally a medium shot; the colour sits behind them.</p> : null}
+          </> : null}
+          <Segmented label="Type" options={HOOK_FONTS} value={draft.font} onChange={(font) => update({ font })} format={(f) => ({ sans: "Archivo", serif: "Cormorant" })[f]} />
+          <Range label="Holds for" value={draft.durationMs} min={800} max={4000} step={100} display={formatDuration(draft.durationMs, true)} onChange={(durationMs) => update({ durationMs })} />
+          <button type="button" className="btn btn-signal btn-block" data-testid="hook-apply" onClick={() => { onChange({ ...draft, kind }); onClose(); }}>{hook ? "Update the hook" : "Add the hook"}</button>
+          {hook ? <button type="button" className="btn btn-quiet btn-block" onClick={() => { onChange(null); onClose(); }}>Remove the hook</button> : null}
+        </>
+      )}
     </Sheet>
   );
 }

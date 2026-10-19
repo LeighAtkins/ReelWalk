@@ -16,6 +16,9 @@ import { SchedulePost } from "./schedule-post";
  *
  * `reelSound` is the Instagram sound the reel was edited to (ADR 0019). It
  * starts out chosen, and can still be changed or removed.
+ *
+ * `aiContent`: the reel uses AI-generated clips, so the "AI info" label starts
+ * ticked. Instagram asks for that disclosure; the studio can still untick it.
  */
 export function InstagramPublishing({
   jobId,
@@ -23,16 +26,27 @@ export function InstagramPublishing({
   live,
   reelSound = null,
   scheduledSound,
+  aiContent = false,
 }: {
   jobId: string;
   username: string;
   live: boolean;
   reelSound?: InstagramAudioChoice | null;
   scheduledSound?: InstagramAudioChoice | null;
+  aiContent?: boolean;
 }) {
   const [audio, setAudio] = useState<InstagramAudioChoice | null>(scheduledSound === undefined ? reelSound : scheduledSound);
+  const [aiGenerated, setAiGenerated] = useState(aiContent);
   return (
     <>
+      {live ? (
+        <label className="field" style={{ gridColumn: "1 / -1" }} data-testid="ai-label">
+          <span>
+            <input type="checkbox" checked={aiGenerated} onChange={(event) => setAiGenerated(event.target.checked)} /> Label this post as AI-generated on Instagram
+          </span>
+          <span className="muted small">{aiContent ? "This reel uses AI-generated clips, so Instagram's AI info label is on. " : ""}Instagram shows a small “AI info” note on the post; your caption is unchanged.</span>
+        </label>
+      ) : null}
       {live ? (
         <div className="export-sound" style={{ gridColumn: "1 / -1" }}>
           <InstagramSoundPicker value={audio} onChange={setAudio} />
@@ -53,8 +67,8 @@ export function InstagramPublishing({
           {audio ? <PlayWithSound sound={audio} /> : null}
         </div>
       ) : null}
-      <PostToInstagram jobId={jobId} username={username} audio={audio} />
-      {live ? <SchedulePost jobId={jobId} username={username} audio={audio} /> : null}
+      <PostToInstagram jobId={jobId} username={username} audio={audio} aiGenerated={aiGenerated} />
+      {live ? <SchedulePost jobId={jobId} username={username} audio={audio} aiGenerated={aiGenerated} /> : null}
     </>
   );
 }

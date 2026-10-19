@@ -114,6 +114,8 @@ export type ScheduledPostDeps = {
     coverMs: number;
     /** Sent as audio_configuration; null posts the reel with its own soundtrack. */
     audio: ScheduledPostAudio | null;
+    /** Sent as is_ai_generated, for Instagram's "AI info" label. */
+    aiGenerated: boolean;
   }): Promise<string>;
   containerStatus(containerId: string, token: string): Promise<{ status: ContainerState; detail: string | null }>;
   publish(igUserId: string, containerId: string, token: string): Promise<{ mediaId: string; permalink: string | null }>;
@@ -220,6 +222,7 @@ export async function advanceScheduledPost(
           caption: post.caption,
           coverMs: post.coverMs,
           audio,
+          aiGenerated: post.aiGenerated,
         });
       } catch (error) {
         const failure = deps.classify(error);

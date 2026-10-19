@@ -1,0 +1,1 @@
+ALTER TABLE "ScheduledPost" ADD COLUMN "aiGenerated" BOOLEAN NOT NULL DEFAULT false;

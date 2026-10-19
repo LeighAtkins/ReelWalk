@@ -174,6 +174,8 @@ export async function createReelContainer(input: {
   caption: string;
   coverMs?: number;
   audio?: ReelAudio | null;
+  /** Instagram's self-disclosure of AI usage; the post gets an "AI info" label. */
+  aiGenerated?: boolean;
 }): Promise<string> {
   const body = new URLSearchParams({
     media_type: "REELS",
@@ -183,6 +185,7 @@ export async function createReelContainer(input: {
     thumb_offset: String(Math.max(0, Math.round(input.coverMs ?? COVER_FRAME_MS))),
   });
   if (input.audio) body.set("audio_configuration", instagramAudioConfiguration(input.audio));
+  if (input.aiGenerated) body.set("is_ai_generated", "true");
   const result = await graph<{ id: string }>(`/${input.igUserId}/media`, { method: "POST", body, token: input.token });
   return result.id;
 }

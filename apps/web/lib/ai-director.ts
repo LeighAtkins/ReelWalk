@@ -66,6 +66,7 @@ export async function directReel(user: { id: string; workspaceId: string }, reel
   });
   const plan = directorPlanSchema.parse(answer.json);
   if (plan.verdict === "ready" && (!evidence.length || aiSources.some(a => !evidence.some(e => e.assetId === a.assetId && e.timesMs.length >= 3)))) throw new Error("Opus reported ready without enough AI source-frame evidence. No edit or generation was applied.");
+  if (plan.verdict === "needs-generation" && !plan.shots.length) throw new Error("Opus asked for a new shot but did not write it. Ask again.");
   validateDirectorReferences(plan, available.assets);
   const applied = applyAiEditPlan(timeline, plan.edit, { ...available, newId: () => crypto.randomUUID() });
   const stored = { kind: "director", plan, baseline: timeline, timeline: applied.timeline, evidence: evidence.map(e => ({ assetId: e.assetId, timesMs: e.timesMs, sha256: e.sha256 })) };

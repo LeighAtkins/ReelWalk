@@ -1452,8 +1452,10 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         />
       ) : null}
 
-      {sheet === "director" ? <DirectorSheet reelId={reel.id} timeline={timeline} library={libraryList} onClose={closeSheet} onApply={(review) => {
+      {sheet === "director" ? <DirectorSheet reelId={reel.id} timeline={timeline} library={libraryList} onClose={closeSheet} onAssets={(assets) => setLibrary((current) => ({ ...current, ...Object.fromEntries(assets.map((asset) => [asset.id, asset])) }))} onApply={(review) => {
         if (!sameTimeline(timeline, review.baseline)) return false;
+        // The plan may have chosen an Instagram sound; like the ask flow, the editor imports it so the reel actually has music.
+        if (review.instagramPick) void pickInstagramSound(review.instagramPick);
         if (review.assets.length) setLibrary(current => ({ ...current, ...Object.fromEntries(review.assets.map(asset => [asset.id, asset])) }));
         apply(() => parseTimeline(review.timeline));
         if (review.plan.edit.caption) {

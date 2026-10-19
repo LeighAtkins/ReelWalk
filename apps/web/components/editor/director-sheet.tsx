@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { aiClipCredits, DIRECTOR_LOOP_MAX_ROUNDS, directorLoopBrief, directorLoopStep, sameTimeline, type DirectorPlan, type Timeline } from "@reelwalk/core";
+import { aiClipCredits, DIRECTOR_LOOP_MAX_ROUNDS, directorLoopBrief, directorLoopStep, sameTimeline, type DirectorPlan, type InstagramAudioTrack, type Timeline } from "@reelwalk/core";
 import type { LibraryAsset } from "@/lib/library";
 import { runAiJob, waitForAiJob } from "@/lib/ai-jobs-client";
 import { captureDirectorEvidence } from "./director-evidence";
@@ -11,10 +11,13 @@ const VERDICTS = { ready: "Opus thinks this reel is ready", "changes-proposed": 
 const CHECKS: Record<string, string> = { scale: "Presenter's size", cameraContinuity: "Camera flow", presenterContinuity: "Presenter stays on screen", propertyIdentity: "House matches the real one" };
 const RESULTS = { pass: "looks right", fail: "needs fixing", uncertain: "not sure" } as const;
 
-type Review = { ok: true; editId: string; model: string; plan: DirectorPlan; baseline: Timeline; timeline: Timeline; applied: string[]; skipped: string[]; assets: LibraryAsset[]; evidence: { assetId: string; timesMs: number[] }[] };
-export function DirectorSheet({ reelId, timeline, library, onApply, onClose }: {
+type Review = { ok: true; editId: string; model: string; plan: DirectorPlan; baseline: Timeline; timeline: Timeline; applied: string[]; skipped: string[]; assets: LibraryAsset[]; evidence: { assetId: string; timesMs: number[] }[]; /** An Instagram sound the plan chose; the editor imports it when the review is applied. */ instagramPick?: InstagramAudioTrack | null };
+export function DirectorSheet({ reelId, timeline, library, onApply, onAssets, onClose }: {
   reelId: string; timeline: Timeline; library: LibraryAsset[];
-  onApply(review: Review): boolean; onClose(): void;
+  onApply(review: Review): boolean;
+  /** Media the director brought in (AI takes made or considered), so the editor's library and picker know them. */
+  onAssets?(assets: LibraryAsset[]): void;
+  onClose(): void;
 }) {
   const [brief, setBrief] = useState("");
   const [extra, setExtra] = useState<LibraryAsset[]>([]);
@@ -57,6 +60,7 @@ export function DirectorSheet({ reelId, timeline, library, onApply, onClose }: {
       if (retry.current?.key !== key) {
         const takes = await unusedTakes(base);
         setExtra(prev => [...new Map([...prev, ...takes.assets].map(a => [a.id, a])).values()]);
+        if (takes.assets.length) onAssets?.(takes.assets);
         const candidates = takes.ids;
         const evidence = await captureDirectorEvidence(base, [...media, ...takes.assets], candidates, setMessage);
         retry.current = { key, body: { requestId: crypto.randomUUID(), request, timeline: base, candidates, evidence, ...(runId ? { runId } : {}) } };
@@ -109,6 +113,7 @@ export function DirectorSheet({ reelId, timeline, library, onApply, onClose }: {
         if (state.stop) { setMessage(`Stopped. "${shot.title}" will still finish and appear in your media.`); return; }
         if (!asset) { setMessage(`"${shot.title}" did not come out, so the run stopped. A failed shot's credit is returned.`); return; }
         setExtra(prev => [...prev, asset]);
+        onAssets?.([asset]);
         request = directorLoopBrief(brief, state.round, { title: shot.title, fileName: asset.fileName });
       }
     } catch (error) { setMessage(error instanceof Error ? error.message : "The run stopped. Check saved reviews before starting another."); }

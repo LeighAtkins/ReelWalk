@@ -49,9 +49,11 @@ grep -E "^Plan:|No changes" plan.log || true
 diff=$("$TF" show -json deploy.tfplan | python -c '
 import json, sys
 for r in json.load(sys.stdin)["resource_changes"]:
-    if r["address"] != "aws_ecs_task_definition.worker" or not r["change"].get("before") or not r["change"].get("after"): continue
-    before = {e["name"]: e["value"] for e in json.loads(r["change"]["before"]["container_definitions"])[0]["environment"]}
-    after = {e["name"]: e["value"] for e in json.loads(r["change"]["after"]["container_definitions"])[0]["environment"]}
+    if r["address"] != "aws_ecs_task_definition.worker": continue
+    old, new = r["change"].get("before") or {}, r["change"].get("after") or {}
+    if not old.get("container_definitions") or not new.get("container_definitions"): continue
+    before = {e["name"]: e["value"] for e in json.loads(old["container_definitions"])[0].get("environment", [])}
+    after = {e["name"]: e["value"] for e in json.loads(new["container_definitions"])[0].get("environment", [])}
     print(" ".join(sorted(k for k in set(before) | set(after) if before.get(k) != after.get(k))))
 ')
 if [ -n "$diff" ]; then

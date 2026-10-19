@@ -1313,7 +1313,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         const at = locate(timeline, selectedText.startMs);
         const clip = at ? timeline.clips[at.index] : null;
         return <PinSheet text={selectedText} clip={clip} asset={clip ? library[clip.assetId] : undefined} clipStartMs={at ? selectedText.startMs - at.offsetMs : 0}
-          onPath={(pinned) => apply((current) => updateText(current, selectedText.id, { path: pinned?.path, pin: pinned?.pin }), `pin-${selectedText.id}`)} onClose={closeSheet} />;
+          onPath={(pinned, timing) => apply((current) => updateText(current, selectedText.id, { path: pinned?.path, pin: pinned?.pin, ...(timing ?? {}) }), `pin-${selectedText.id}`)} onClose={closeSheet} />;
       })() : null}
       {sheet === "timing" && selectedText ? (
         <TimingSheet

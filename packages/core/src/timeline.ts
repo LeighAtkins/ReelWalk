@@ -160,11 +160,15 @@ export const textSchema = z
     behind: z.boolean().optional(),
     /** An extruded, 3D-looking title. */
     depth: z.enum(["flat", "extruded"]).optional(),
+    /** How the text meets the picture: `surface` lets the wall's light and texture show through, like paint on it (ADR 0039). */
+    blend: z.enum(["plain", "surface"]).optional(),
     /** Offsets from x/y across this overlay's lifetime, with optional scale and rotation (degrees): a drift, or a surface tracked through the shot (ADR 0039). */
     path: z.array(z.object({
       t: unit, x: z.number().min(-0.5).max(0.5), y: z.number().min(-0.5).max(0.5), s: z.number().min(0.2).max(5).optional(), r: z.number().min(-180).max(180).optional(),
       /** The four tracked corners of the surface (tl, tr, br, bl) as frame fractions: a plane the text sits on, in perspective. */
       q: z.array(z.number().min(-2).max(3)).length(8).optional(),
+      /** Opacity 0–1 at this keyframe (default 1): a tracked title fades when the surface is lost rather than cutting. */
+      o: unit.optional(),
     }))
       .min(2).max(64).refine(points => points[0].t === 0 && points.at(-1)!.t === 1 && points.every((p, i) => i === 0 || p.t > points[i - 1].t), "Motion path must run in order from 0 to 1").optional(),
   })

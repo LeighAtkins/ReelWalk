@@ -1,4 +1,4 @@
-import { pickMatchingFrame, smoothKeyframes, trackPatch, type Clip, type Gray, type Quad, type TextOverlay } from "@reelwalk/core";
+import { pickMatchingFrame, planePoints, smoothKeyframes, trackPlane, type Clip, type Gray, type Quad, type TextOverlay } from "@reelwalk/core";
 import type { LibraryAsset } from "@/lib/library";
 
 /** Browser side of @reelwalk/core's motion module: small grayscale frames from a video element. */
@@ -50,15 +50,17 @@ export const TRACK_HEIGHT = 640;
 
 /**
  * Pin a text to the picture (ADR 0039): follow the surface under it through
- * the clip it starts on and return a path of position, scale and rotation
- * keyframes over the text's lifetime. Two patches either side of the text's
- * centre are tracked; their midpoint moves the text, their distance scales
- * it and their angle rotates it. When a patch is lost the path holds.
+ * the clip it starts on and return a path of position, scale, rotation and
+ * corner keyframes over the text's lifetime. Many points on the surface are
+ * tracked and one rigid homography per step moves the plane, so its corners
+ * cannot drift apart. If the surface is lost (it left the frame, or something
+ * covered it) the title holds and fades over a quarter of a second instead
+ * of cutting.
  */
 export async function trackTextPath(
   asset: LibraryAsset, clip: Clip, clipStartMs: number, text: Pick<TextOverlay, "x" | "y" | "startMs" | "endMs">,
   onProgress?: (fraction: number) => void,
-): Promise<{ path: NonNullable<TextOverlay["path"]>; pin: NonNullable<TextOverlay["pin"]> } | null> {
+): Promise<{ path: NonNullable<TextOverlay["path"]>; pin: NonNullable<TextOverlay["pin"]>; lostAtMs: number | null } | null> {
   const speed = clip.speed || 1;
   const lifeMs = text.endMs - text.startMs;
   const firstSource = clip.sourceStartMs + Math.max(0, text.startMs - clipStartMs) * speed;
@@ -70,45 +72,51 @@ export async function trackTextPath(
     video = await load(asset);
     await seek(video, firstSource);
     let prev = grayFrame(video, TRACK_WIDTH, TRACK_HEIGHT);
-    const radius = Math.round(TRACK_WIDTH * 0.045), range = Math.round(TRACK_WIDTH * 0.06);
+    const radius = Math.round(TRACK_WIDTH * 0.03), range = Math.round(TRACK_WIDTH * 0.06), tolerance = TRACK_WIDTH * 0.006;
     const centre = { x: text.x * TRACK_WIDTH, y: text.y * TRACK_HEIGHT };
-    // Four corners of a plane around the text, kept inside the frame with room for a patch.
+    // The plane around the text, kept inside the frame with room for a patch.
     const hw = TRACK_WIDTH * 0.2, hh = TRACK_HEIGHT * 0.075, margin = radius + 1;
     const cx = Math.max(margin + hw, Math.min(TRACK_WIDTH - 1 - margin - hw, centre.x)), cy = Math.max(margin + hh, Math.min(TRACK_HEIGHT - 1 - margin - hh, centre.y));
-    let corners = [{ x: cx - hw, y: cy - hh }, { x: cx + hw, y: cy - hh }, { x: cx + hw, y: cy + hh }, { x: cx - hw, y: cy + hh }];
-    const quad0 = corners.flatMap(c => [c.x / TRACK_WIDTH, c.y / TRACK_HEIGHT]) as Quad;
-    const left0 = corners[0], right0 = corners[1];
-    const baseDistance = Math.hypot(right0.x - left0.x, right0.y - left0.y) || 1;
-    const baseAngle = Math.atan2(right0.y - left0.y, right0.x - left0.x);
+    let quad: Quad = [cx - hw, cy - hh, cx + hw, cy - hh, cx + hw, cy + hh, cx - hw, cy + hh];
+    // Points with detail on the surface; a bare wall gets a wider search box (its frame, skirting or picture edges carry the motion).
+    let points = planePoints(prev, quad, { grid: 7, radius, minEnergy: 10 });
+    if (points.length < 6) points = planePoints(prev, [cx - hw * 1.8, cy - hh * 2.5, cx + hw * 1.8, cy - hh * 2.5, cx + hw * 1.8, cy + hh * 2.5, cx - hw * 1.8, cy + hh * 2.5], { grid: 9, radius, minEnergy: 8 });
+    if (points.length < 4) return null;
+    const quad0 = quad.map((v, i) => (i % 2 === 0 ? v / TRACK_WIDTH : v / TRACK_HEIGHT)) as Quad;
+    const baseDistance = Math.hypot(quad[2] - quad[0], quad[3] - quad[1]) || 1;
+    const baseAngle = Math.atan2(quad[3] - quad[1], quad[2] - quad[0]);
     const path: NonNullable<TextOverlay["path"]> = [{ t: 0, x: 0, y: 0, s: 1, r: 0, q: quad0 }];
-    let held = false;
+    const fadeSpan = Math.min(1, 250 / (lastSource - firstSource));
+    let lostAtT: number | null = null, lostAtMs: number | null = null;
+    const inFrame = (p: [number, number]) => p[0] >= margin && p[1] >= margin && p[0] < TRACK_WIDTH - margin && p[1] < TRACK_HEIGHT - margin;
     for (let source = firstSource + stepMs; source <= lastSource + 1; source += stepMs) {
       const at = Math.min(source, lastSource);
       await seek(video, at);
       const next = grayFrame(video, TRACK_WIDTH, TRACK_HEIGHT);
       const t = Math.min(1, (at - firstSource) / (lastSource - firstSource));
-      if (!held) {
-        const tracked = corners.map(c => trackPatch(prev, next, c.x, c.y, { radius, range }));
-        const good = tracked.filter(c => !c.lost);
-        if (good.length < 2) held = true;
+      if (lostAtT === null) {
+        const moved = trackPlane(prev, next, points.filter(inFrame), quad, { radius, range, tolerance });
+        if (!moved) { lostAtT = t; lostAtMs = Math.round(at); }
         else {
-          // A lost corner rides along with the mean move of the good ones, so a hand or a doorway crossing it does not bend the plane.
-          const moves = tracked.flatMap((c, i) => c.lost ? [] : [{ x: c.x - corners[i].x, y: c.y - corners[i].y }]);
-          const mean = { x: moves.reduce((s, m) => s + m.x, 0) / moves.length, y: moves.reduce((s, m) => s + m.y, 0) / moves.length };
-          corners = corners.map((c, i) => tracked[i].lost ? { x: c.x + mean.x, y: c.y + mean.y } : { x: tracked[i].x, y: tracked[i].y });
+          quad = moved.quad;
+          points = moved.points.filter(inFrame);
+          // Keep the plane well covered as it slides across the frame: top up from the current picture.
+          if (points.length < 8) points = [...points, ...planePoints(next, quad, { grid: 7, radius, minEnergy: 10 }).filter(c => !points.some(p => Math.hypot(p[0] - c[0], p[1] - c[1]) < radius))];
         }
       }
-      const [tl, tr, br, bl] = corners;
-      const mid = { x: (tl.x + tr.x + br.x + bl.x) / 4, y: (tl.y + tr.y + br.y + bl.y) / 4 };
-      const distance = Math.hypot(tr.x - tl.x, tr.y - tl.y) || 1;
-      const angle = Math.atan2(tr.y - tl.y, tr.x - tl.x);
+      const [tlx, tly, trx, try_, brx, bry, blx, bly] = quad;
+      const mid = { x: (tlx + trx + brx + blx) / 4, y: (tly + try_ + bry + bly) / 4 };
+      const distance = Math.hypot(trx - tlx, try_ - tly) || 1;
+      const angle = Math.atan2(try_ - tly, trx - tlx);
+      const o = lostAtT === null ? 1 : Math.max(0, 1 - (t - lostAtT) / fadeSpan);
       path.push({
         t: Number(t.toFixed(4)),
         x: Number(Math.max(-0.5, Math.min(0.5, mid.x / TRACK_WIDTH - text.x)).toFixed(4)),
         y: Number(Math.max(-0.5, Math.min(0.5, mid.y / TRACK_HEIGHT - text.y)).toFixed(4)),
         s: Number(Math.max(0.2, Math.min(5, distance / baseDistance)).toFixed(3)),
         r: Number(Math.max(-180, Math.min(180, ((angle - baseAngle) * 180) / Math.PI)).toFixed(2)),
-        q: corners.flatMap(c => [Number(Math.max(-2, Math.min(3, c.x / TRACK_WIDTH)).toFixed(4)), Number(Math.max(-2, Math.min(3, c.y / TRACK_HEIGHT)).toFixed(4))]) as Quad,
+        q: quad.map((v, i) => Number(Math.max(-2, Math.min(3, i % 2 === 0 ? v / TRACK_WIDTH : v / TRACK_HEIGHT)).toFixed(4))) as Quad,
+        ...(o < 1 ? { o: Number(o.toFixed(3)) } : {}),
       });
       prev = next;
       onProgress?.((at - firstSource) / (lastSource - firstSource));
@@ -120,7 +128,7 @@ export async function trackTextPath(
     else last.t = 1;
     // Strictly increasing t, no duplicates.
     const clean = smoothKeyframes(path.filter((p, i) => i === 0 || p.t > path[i - 1].t));
-    return clean.length >= 2 ? { path: clean, pin: { assetId: asset.id, fromMs: Math.round(firstSource), toMs: Math.round(lastSource), quad: quad0 } } : null;
+    return clean.length >= 2 ? { path: clean, pin: { assetId: asset.id, fromMs: Math.round(firstSource), toMs: Math.round(lastSource), quad: quad0 }, lostAtMs } : null;
   } catch {
     return null;
   } finally {

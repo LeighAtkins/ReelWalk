@@ -704,7 +704,7 @@ export function PlanSheet({
 
 // ── Text ────────────────────────────────────────────────────────
 
-export type TextDraft = Pick<TextOverlay, "text" | "style" | "color" | "size" | "animation" | "font" | "tracking" | "path" | "shadow" | "behind" | "depth">;
+export type TextDraft = Pick<TextOverlay, "text" | "style" | "color" | "size" | "animation" | "font" | "tracking" | "path" | "shadow" | "behind" | "depth" | "blend">;
 
 /** The "Elegant" style chip, set in the serif it puts on the reel. */
 const ELEGANT_CHIP: CSSProperties = { fontFamily: ELEGANT_FONT_FAMILY, fontWeight: 500, fontSize: "1.12em", letterSpacing: "0.06em" };
@@ -767,6 +767,7 @@ export function TextSheet({
         setDraft({ ...draft, path: move === "still" ? undefined : move === "path" ? draft.path : [{ t: 0, x: 0, y: 0 }, { t: 1, x: move === "left" ? -0.04 : 0.04, y: 0 }] });
       }}><option value="still">Still</option>{draft.path ? <option value="path">Keep current motion path</option> : null}<option value="left">Drift left</option><option value="right">Drift right</option></select></label>
       <Segmented label="Depth" options={["flat", "extruded"] as const} value={draft.depth ?? "flat"} onChange={depth => setDraft({ ...draft, depth })} format={depth => ({ flat: "Flat", extruded: "Extruded 3D" })[depth]} />
+      <Segmented label="Meets the picture" options={["plain", "surface"] as const} value={draft.blend ?? "plain"} onChange={blend => setDraft({ ...draft, blend: blend === "plain" ? undefined : blend })} format={blend => ({ plain: "On top", surface: "Painted on the surface" })[blend]} />
       <label className="field small"><input type="checkbox" checked={Boolean(draft.behind)} onChange={event => setDraft({ ...draft, behind: event.target.checked || undefined })} /> People in the shot pass in front of this text</label>
       <Segmented<TextAnimation> label="Arrives" options={TEXT_ANIMATIONS} value={draft.animation} onChange={(animation) => setDraft({ ...draft, animation })} format={(animation) => TEXT_ANIMATION_LABELS[animation]} />
       <button type="button" className="btn btn-block" disabled={!draft.text.trim()} onClick={() => onSave({ ...draft, text: draft.text.trim() })}>
@@ -826,25 +827,29 @@ export function HookSheet({ hook, hasPerson, onChange, onWords, onClose }: {
 /** Pin a text to the surface under it so it moves with the camera (ADR 0039). */
 export function PinSheet({ text, clip, asset, clipStartMs, onPath, onClose }: {
   text: TextOverlay; clip: Clip | null; asset: LibraryAsset | undefined; clipStartMs: number;
-  onPath(pinned: { path: TextOverlay["path"]; pin: TextOverlay["pin"] } | undefined): void; onClose(): void;
+  onPath(pinned: { path: TextOverlay["path"]; pin: TextOverlay["pin"] } | undefined, timing?: { startMs: number; endMs: number }): void; onClose(): void;
 }) {
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // A title that is in the room is there for the whole shot: on the wall when the cut lands, gone with the cut or the pan.
+  const [wholeShot, setWholeShot] = useState(true);
   const canTrack = Boolean(clip && clip.kind === "VIDEO" && asset);
   async function pin() {
     if (!clip || !asset) return;
-    setBusy(true); setStatus("Following the picture under the text…");
-    const tracked = await trackTextPath(asset, clip, clipStartMs, text, fraction => setStatus(`Following the picture under the text… ${Math.round(fraction * 100)}%`));
+    const timing = wholeShot ? { startMs: clipStartMs, endMs: clipStartMs + clipDurationMs(clip) } : { startMs: text.startMs, endMs: text.endMs };
+    setBusy(true); setStatus("Following the surface under the text…");
+    const tracked = await trackTextPath(asset, clip, clipStartMs, { ...text, ...timing }, fraction => setStatus(`Following the surface under the text… ${Math.round(fraction * 100)}%`));
     setBusy(false);
     if (!tracked) { setStatus("Could not follow this shot. Try placing the text on a surface with some detail."); return; }
-    onPath(tracked);
-    const { path } = tracked;
-    const last = path[path.length - 1];
-    setStatus(`Pinned to the surface through ${path.length} keyframes${last.s && Math.abs(last.s - 1) > 0.05 ? `, scaling to ${Math.round(last.s * 100)}%` : ""}; the text sits on that plane in perspective. Play it back; unpin to go back to still text.`);
+    onPath({ path: tracked.path, pin: tracked.pin }, wholeShot ? timing : undefined);
+    const { path, lostAtMs } = tracked;
+    const lostNote = lostAtMs !== null ? ` The surface was lost ${((lostAtMs - tracked.pin.fromMs) / 1000 / (clip.speed || 1)).toFixed(1)} s in, so the title fades there.` : "";
+    setStatus(`Pinned through ${path.length} keyframes as one rigid plane${wholeShot ? ", for the whole shot" : ""}.${lostNote} Play it back; unpin to go back to still text.`);
   }
   return (
     <Sheet title="Pin to the picture" onClose={onClose}>
-      <p className="muted small">The text follows the wall, floor or object under it as the camera moves, for the shot it starts on, and stays with that shot if you trim or move it. Place it on something with detail first.</p>
+      <p className="muted small">The text follows the wall, floor or object under it as the camera moves, as one flat plane in perspective, and stays with that shot if you trim or move it. Place it on something with detail first.</p>
+      <label className="field small"><input type="checkbox" checked={wholeShot} onChange={event => setWholeShot(event.target.checked)} /> For the whole shot: already there when the shot starts, gone when it ends</label>
       <button type="button" className="btn btn-signal btn-block" disabled={!canTrack || busy} onClick={pin} data-testid="pin-text">{busy ? "Following…" : text.path && text.path.length > 2 ? "Pin again from the current position" : "Pin to the picture"}</button>
       {!canTrack ? <p className="small">Pinning needs the text to start on a video clip.</p> : null}
       {text.path ? <button type="button" className="btn btn-quiet btn-block" disabled={busy} onClick={() => { onPath(undefined); setStatus("Unpinned."); }}>Unpin (still text)</button> : null}

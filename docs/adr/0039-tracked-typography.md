@@ -42,3 +42,23 @@ the same tools:
   rotation; it does not handle perspective skew on walls at steep
   angles. That is the next step (four patches → homography).
 - Text that crosses a cut is tracked only on the clip it starts on.
+
+## Addendum (2026-10-19, after the first reel)
+
+The first typography reel (docs/postmortems/2026-10-19-typography-reel.md)
+showed three faults in this design, fixed together:
+
+- **Four corners drifted apart.** Each corner was its own patch tracker, so
+  the plane breathed and sheared. The tracker now follows many points on
+  the surface (`planePoints`), fits one rigid homography per step to the
+  points that agree (`robustHomography`, RANSAC then a least-squares
+  refit) and moves the quad by it (`trackPlane`). Lost points ride along
+  with the plane and are topped up from the current frame.
+- **Titles popped in and out mid-shot.** A pin now spans the whole clip by
+  default (the Pin sheet's "For the whole shot"), so the title is on the
+  wall when the cut lands and leaves with the cut or the pan. If the
+  surface is lost, keyframes carry an opacity `o` and the title fades over
+  a quarter of a second instead of cutting.
+- **Glyphs were pasted on.** `blend: "surface"` composites the text with
+  hard-light, a slight blur and 92% opacity, so the wall's light and grain
+  show through the letters.

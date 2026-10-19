@@ -197,3 +197,126 @@ export function pickMatchingFrame(candidates: { t: number; gray: Gray }[], targe
   }
   return best ? { ...best, close: best.change < 0.02 } : null;
 }
+
+/** Apply a row-major 3×3 homography to a point. */
+export function applyHomography(h: number[], x: number, y: number): [number, number] {
+  const w = h[6] * x + h[7] * y + h[8] || 1e-9;
+  return [(h[0] * x + h[1] * y + h[2]) / w, (h[3] * x + h[4] * y + h[5]) / w];
+}
+
+/**
+ * The least-squares homography taking each `from[i]` to `to[i]` (four or more
+ * pairs), by direct linear transform on normalised coordinates with h8 = 1.
+ * Null when fewer than four pairs or the points are degenerate.
+ */
+export function fitHomography(from: [number, number][], to: [number, number][]): number[] | null {
+  const n = Math.min(from.length, to.length);
+  if (n < 4) return null;
+  // Normalise both sets (centroid at the origin, mean distance √2) so the normal equations are well conditioned.
+  const normalise = (pts: [number, number][]) => {
+    const cx = pts.reduce((s, p) => s + p[0], 0) / n, cy = pts.reduce((s, p) => s + p[1], 0) / n;
+    const mean = pts.reduce((s, p) => s + Math.hypot(p[0] - cx, p[1] - cy), 0) / n || 1;
+    const k = Math.SQRT2 / mean;
+    return { pts: pts.map(p => [(p[0] - cx) * k, (p[1] - cy) * k] as [number, number]), T: [k, 0, -k * cx, 0, k, -k * cy, 0, 0, 1] };
+  };
+  const a = normalise(from.slice(0, n)), b = normalise(to.slice(0, n));
+  // Normal equations AᵀA h = Aᵀb for the 8 unknowns.
+  const M = Array.from({ length: 8 }, () => new Array<number>(9).fill(0));
+  const add = (row: number[], rhs: number) => { for (let i = 0; i < 8; i++) { for (let j = 0; j < 8; j++) M[i][j] += row[i] * row[j]; M[i][8] += row[i] * rhs; } };
+  for (let i = 0; i < n; i++) {
+    const [x, y] = a.pts[i], [u, v] = b.pts[i];
+    add([x, y, 1, 0, 0, 0, -u * x, -u * y], u);
+    add([0, 0, 0, x, y, 1, -v * x, -v * y], v);
+  }
+  for (let col = 0; col < 8; col++) {
+    let pivot = col;
+    for (let r = col + 1; r < 8; r++) if (Math.abs(M[r][col]) > Math.abs(M[pivot][col])) pivot = r;
+    if (Math.abs(M[pivot][col]) < 1e-12) return null;
+    [M[col], M[pivot]] = [M[pivot], M[col]];
+    for (let r = 0; r < 8; r++) {
+      if (r === col) continue;
+      const f = M[r][col] / M[col][col];
+      for (let c = col; c < 9; c++) M[r][c] -= f * M[col][c];
+    }
+  }
+  const hn = [...M.map((row, i) => row[8] / row[i]), 1];
+  // Denormalise: H = Tb⁻¹ · Hn · Ta.
+  const mul = (p: number[], q: number[]) => Array.from({ length: 9 }, (_, i) => { const r = Math.floor(i / 3), c = i % 3; return p[r * 3] * q[c] + p[r * 3 + 1] * q[3 + c] + p[r * 3 + 2] * q[6 + c]; });
+  const kb = b.T[0];
+  const Tbinv = [1 / kb, 0, -b.T[2] / kb, 0, 1 / kb, -b.T[5] / kb, 0, 0, 1];
+  const H = mul(mul(Tbinv, hn), a.T);
+  return H.map(v => v / H[8]);
+}
+
+/**
+ * The homography most of the tracked points agree on (RANSAC over 4-point
+ * samples, then a least-squares refit on the inliers), so a hand, a doorway
+ * or a reflection crossing part of the surface does not bend the plane.
+ * `inliers` says how many points fit within `tolerance` pixels.
+ */
+export function robustHomography(from: [number, number][], to: [number, number][], { tolerance = 1.5, rounds = 64, seed = 7 }: { tolerance?: number; rounds?: number; seed?: number } = {}): { h: number[]; inliers: number } | null {
+  const n = Math.min(from.length, to.length);
+  if (n < 4) return null;
+  let state = seed;
+  const random = () => { state = (state * 1103515245 + 12345) & 0x7fffffff; return state / 0x7fffffff; };
+  const errors = (h: number[]) => from.slice(0, n).map((p, i) => { const [u, v] = applyHomography(h, p[0], p[1]); return Math.hypot(u - to[i][0], v - to[i][1]); });
+  let best: { h: number[]; inliers: number[] } | null = null;
+  const attempts = n === 4 ? 1 : rounds;
+  for (let round = 0; round < attempts; round++) {
+    const picked = new Set<number>();
+    while (picked.size < 4) picked.add(Math.floor(random() * n));
+    const idx = [...picked];
+    const h = fitHomography(idx.map(i => from[i]), idx.map(i => to[i]));
+    if (!h) continue;
+    const inliers = errors(h).flatMap((e, i) => (e <= tolerance ? [i] : []));
+    if (!best || inliers.length > best.inliers.length) best = { h, inliers };
+    if (inliers.length === n) break;
+  }
+  if (!best || best.inliers.length < 4) return null;
+  const refit = fitHomography(best.inliers.map(i => from[i]), best.inliers.map(i => to[i])) ?? best.h;
+  return { h: refit, inliers: best.inliers.length };
+}
+
+/**
+ * Where a flat surface went between two frames: every point of `points` is
+ * followed with `trackPatch`, one rigid homography is fitted to the ones
+ * that agree, and the quad's corners are moved by that homography, so the
+ * corners cannot drift apart (ADR 0039, second attempt). Points that were
+ * lost or voted out are moved by the plane too, ready for the next frame.
+ * Null when fewer than four points agree, so a tracker can hold.
+ */
+export function trackPlane(prev: Gray, next: Gray, points: [number, number][], quad: Quad, options: { radius?: number; range?: number; lostAt?: number; tolerance?: number } = {}): { points: [number, number][]; quad: Quad; h: number[]; inliers: number } | null {
+  const { tolerance = 1.5, ...patch } = options;
+  const moved = points.map(([x, y]) => trackPatch(prev, next, x, y, patch));
+  const kept = moved.flatMap((m, i) => (m.lost ? [] : [i]));
+  if (kept.length < 4) return null;
+  const fit = robustHomography(kept.map(i => points[i]), kept.map(i => [moved[i].x, moved[i].y] as [number, number]), { tolerance });
+  if (!fit || fit.inliers < 4) return null;
+  const nextQuad = [0, 1, 2, 3].flatMap(i => applyHomography(fit.h, quad[i * 2], quad[i * 2 + 1])) as Quad;
+  const nextPoints = points.map(p => applyHomography(fit.h, p[0], p[1]));
+  return { points: nextPoints, quad: nextQuad, h: fit.h, inliers: fit.inliers };
+}
+
+/**
+ * Points worth tracking inside a quad: a grid over its bounding box, keeping
+ * only those where the picture has detail (gradient energy above a floor),
+ * because a patch on a blank wall matches everywhere.
+ */
+export function planePoints(gray: Gray, quad: Quad, { grid = 6, radius = 6, minEnergy = 20 }: { grid?: number; radius?: number; minEnergy?: number } = {}): [number, number][] {
+  const xs = [quad[0], quad[2], quad[4], quad[6]], ys = [quad[1], quad[3], quad[5], quad[7]];
+  const x0 = Math.max(radius + 1, Math.min(...xs)), x1 = Math.min(gray.width - radius - 2, Math.max(...xs));
+  const y0 = Math.max(radius + 1, Math.min(...ys)), y1 = Math.min(gray.height - radius - 2, Math.max(...ys));
+  const out: { p: [number, number]; e: number }[] = [];
+  for (let gy = 0; gy < grid; gy++) for (let gx = 0; gx < grid; gx++) {
+    const x = Math.round(x0 + ((x1 - x0) * (gx + 0.5)) / grid), y = Math.round(y0 + ((y1 - y0) * (gy + 0.5)) / grid);
+    if (x < radius + 1 || y < radius + 1 || x > gray.width - radius - 2 || y > gray.height - radius - 2) continue;
+    let energy = 0;
+    for (let dy = -radius; dy <= radius; dy++) for (let dx = -radius; dx <= radius; dx++) {
+      const i = (y + dy) * gray.width + (x + dx);
+      energy += Math.abs(gray.data[i + 1] - gray.data[i]) + Math.abs(gray.data[i + gray.width] - gray.data[i]);
+    }
+    energy /= (2 * radius + 1) ** 2;
+    if (energy >= minEnergy) out.push({ p: [x, y], e: energy });
+  }
+  return out.map(o => o.p);
+}

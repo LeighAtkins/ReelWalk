@@ -76,7 +76,8 @@ export const DIRECTOR_PLAN_JSON_SCHEMA = {
             last: { type: ["string", "null"], description: "Where she is in the composed ending still and her size against a named object. Under 500 characters." },
           } },
         line: { type: ["string", "null"], description: "The one line she says in this take, under 200 characters, or null for a silent take." },
-        voice: { type: ["string", "null"], enum: ["lipsync", "veo", null], description: "lipsync: her fixed voice over a settled, face-visible take. veo: Veo's own audio for a shouted action line. Null when silent." },
+        // Claude's structured outputs reject an enum on a nullable type; a nullable enum is written as anyOf.
+        voice: { anyOf: [{ type: "string", enum: ["lipsync", "veo"] }, { type: "null" }], description: "lipsync: her fixed voice over a settled, face-visible take. veo: Veo's own audio for a shouted action line. Null when silent." },
       },
     } },
     checks: { type: "object", additionalProperties: false, required: ["scale", "cameraContinuity", "presenterContinuity", "propertyIdentity"], properties: {

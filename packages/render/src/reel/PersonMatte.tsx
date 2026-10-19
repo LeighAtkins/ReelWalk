@@ -83,7 +83,8 @@ export const PersonMatteView: React.FC<{ clip: Clip; asset: ReelAsset }> = ({ cl
           playbackRate={clip.speed}
           muted
           volume={0}
-          style={{ position: "absolute", width: 1, height: 1, opacity: 0 }}
+          // Full size but invisible: the segmenter reads the element's displayed size, and a 1×1 video gives it an empty region.
+          style={{ position: "absolute", inset: 0, width: "100%", height: "100%", opacity: 0, objectFit: "cover" }}
           onVideoFrame={(frame) => {
             if (!canvas.current) return;
             scratch.current ??= document.createElement("canvas");

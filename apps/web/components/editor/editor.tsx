@@ -1236,6 +1236,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         <TrimSheet
           clip={selectedClip}
           asset={library[selectedClip.assetId]}
+          next={timeline.clips[selectedClipIndex + 1] ? { clip: timeline.clips[selectedClipIndex + 1], asset: library[timeline.clips[selectedClipIndex + 1].assetId] } : null}
           onChange={(window) => {
             apply((current) => trimClip(current, selectedClip.id, window, library[selectedClip.assetId]?.durationMs ?? undefined), `trim-${selectedClip.id}`);
           }}

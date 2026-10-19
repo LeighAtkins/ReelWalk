@@ -1,7 +1,8 @@
-import type { Timeline } from "@reelwalk/core";
+import { motionProfile, type Gray, type MotionSample, type Timeline } from "@reelwalk/core";
+import { grayFrame } from "./frame-analysis";
 import type { LibraryAsset } from "@/lib/library";
 
-export type DirectorEvidence = { assetId: string; timesMs: number[]; image: string };
+export type DirectorEvidence = { assetId: string; timesMs: number[]; image: string; /** Measured motion between the sampled frames, for AI takes and candidates. */ motion?: MotionSample[] };
 
 function event(target: HTMLVideoElement, name: "loadeddata" | "seeked", action: () => void): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -55,6 +56,7 @@ export async function captureDirectorEvidence(timeline: Timeline, assets: Librar
       const ctx = canvas.getContext("2d"); if (!ctx) throw new Error("Your browser cannot capture source frames.");
       ctx.fillStyle = "#111"; ctx.fillRect(0, 0, canvas.width, canvas.height);
       const captured: number[] = [];
+      const grays: { t: number; gray: Gray }[] = [];
       for (const [n, time] of timesMs.entries()) {
         // One stalled seek is retried once; after that the frames already captured are kept.
         if (Math.abs(video.currentTime * 1000 - time) > 5) {
@@ -62,13 +64,14 @@ export async function captureDirectorEvidence(timeline: Timeline, assets: Librar
           catch { try { await event(video, "seeked", () => { video.currentTime = Math.max(0, time - 40) / 1000; }); } catch { break; } }
         }
         captured.push(time);
+        if (dense) grays.push({ t: time, gray: grayFrame(video) });
         const x = n % columns * width, y = Math.floor(n / columns) * (height + label);
         ctx.fillStyle = "white"; ctx.font = "14px sans-serif"; ctx.fillText(`${(time / 1000).toFixed(2)}s`, x + 4, y + 16);
         const scale = Math.min(width / video.videoWidth, height / video.videoHeight);
         ctx.drawImage(video, x + (width - video.videoWidth * scale) / 2, y + label + (height - video.videoHeight * scale) / 2, video.videoWidth * scale, video.videoHeight * scale);
       }
       if (!captured.length) throw new Error("No frames could be read.");
-      result.push({ assetId: id, timesMs: captured, image: canvas.toDataURL("image/jpeg", .78) });
+      result.push({ assetId: id, timesMs: captured, image: canvas.toDataURL("image/jpeg", .78), ...(grays.length > 1 ? { motion: motionProfile(grays) } : {}) });
     } finally { video.removeAttribute("src"); video.load(); }
     } catch { skipped.push(asset?.fileName ?? id); }
   }

@@ -53,6 +53,7 @@ import { saveCaption } from "@/app/actions";
 import { CaptionEditor } from "../caption-editor";
 import { AlertIcon, CloseIcon, InstagramIcon, PlusIcon } from "../icons";
 import { InstagramSoundBrowser } from "../instagram-sound-picker";
+import { findMatchingCut } from "./frame-analysis";
 import { Sheet } from "../sheet";
 
 // ── Shell ───────────────────────────────────────────────────────
@@ -218,14 +219,26 @@ export function MediaSheet({
 export function TrimSheet({
   clip,
   asset,
+  next = null,
   onChange,
   onClose,
 }: {
   clip: Clip;
   asset: LibraryAsset | undefined;
+  /** The shot that follows, when it is a video: the cut into it can be matched by picture. */
+  next?: { clip: Clip; asset: LibraryAsset | undefined } | null;
   onChange(window: { sourceStartMs: number; sourceEndMs: number }): void;
   onClose(): void;
 }) {
+  const [matching, setMatching] = useState<string | null>(null);
+  async function matchCut() {
+    if (!asset || !next?.asset || next.clip.kind !== "VIDEO") return;
+    setMatching("Comparing the last second and a half with the next shot…");
+    const found = await findMatchingCut({ asset, sourceStartMs: clip.sourceStartMs, sourceEndMs: clip.sourceEndMs }, { asset: next.asset, sourceStartMs: next.clip.sourceStartMs });
+    if (!found) { setMatching("Could not read one of the videos."); return; }
+    onChange({ sourceStartMs: clip.sourceStartMs, sourceEndMs: found.sourceEndMs });
+    setMatching(found.close ? `Ends at ${formatDuration(found.sourceEndMs, true)}, where it matches the next shot.` : `Ends at ${formatDuration(found.sourceEndMs, true)}: the nearest frame, though not a close match.`);
+  }
   if (clip.kind === "IMAGE") {
     const duration = clip.sourceEndMs - clip.sourceStartMs;
     return (
@@ -258,6 +271,12 @@ export function TrimSheet({
           />
         </div>
       </div>
+      {next?.clip.kind === "VIDEO" && next.asset ? (
+        <div className="field">
+          <button type="button" className="btn btn-quiet btn-block" disabled={matching?.startsWith("Comparing")} onClick={matchCut} data-testid="match-cut">Match the cut into the next shot</button>
+          <span className="muted small">{matching ?? "Ends this shot on the frame that looks most like the next shot's first frame, so the cut reads as one move."}</span>
+        </div>
+      ) : null}
       <Range
         label="Start"
         value={clip.sourceStartMs}

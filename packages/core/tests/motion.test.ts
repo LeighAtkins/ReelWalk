@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bestShift, describeMotion, motionFlags, motionProfile, pickMatchingFrame, smoothKeyframes, trackPatch, type Gray } from "../src";
+import { bestShift, describeMotion, homography, matrix3d, motionFlags, motionProfile, pickMatchingFrame, smoothKeyframes, trackPatch, type Gray, type Quad } from "../src";
 
 /** A textured frame (a fixed noise pattern, like a wall or floor) shifted by (sx, sy); another `seed` is a different picture. */
 function frame(sx: number, sy: number, seed = 1, width = 24, height = 40): Gray {
@@ -48,6 +48,17 @@ describe("measured motion", () => {
     expect(jitter(smooth)).toBeLessThan(jitter(ramp) / 3);
     expect(smooth[10].x).toBeCloseTo(ramp[10].x, 2);
     expect(smooth[5].x).toBeCloseTo(0.1, 2);
+  });
+
+  it("solves the homography that takes one quad to another, including perspective", () => {
+    const apply = (h: number[], x: number, y: number) => { const w = h[6] * x + h[7] * y + h[8]; return [(h[0] * x + h[1] * y + h[2]) / w, (h[3] * x + h[4] * y + h[5]) / w]; };
+    const src: Quad = [0, 0, 100, 0, 100, 40, 0, 40];
+    const dst: Quad = [10, 20, 95, 12, 98, 60, 6, 48];
+    const h = homography(src, dst)!;
+    for (let i = 0; i < 4; i++) { const [u, v] = apply(h, src[i * 2], src[i * 2 + 1]); expect(u).toBeCloseTo(dst[i * 2], 6); expect(v).toBeCloseTo(dst[i * 2 + 1], 6); }
+    expect(homography(src, src)!.map(v => Number(v.toFixed(6)))).toEqual([1, 0, 0, 0, 1, 0, 0, 0, 1]);
+    expect(homography(src, [0, 0, 0, 0, 0, 0, 0, 0])).toBeNull();
+    expect(matrix3d([1, 0, 5, 0, 1, 7, 0, 0, 1])).toBe("matrix3d(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 5, 7, 0, 1)");
   });
 
   it("picks the frame that best matches the next shot's first frame", () => {

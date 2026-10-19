@@ -132,15 +132,56 @@ export function trackPatch(prev: Gray, next: Gray, x: number, y: number, { radiu
  * Picture motion from a handheld or gimbal pan is smooth; the residual
  * jitter is the tracker's, not the shot's.
  */
-export function smoothKeyframes<T extends { t: number; x: number; y: number; s?: number; r?: number }>(points: T[], passes = 2): T[] {
+export function smoothKeyframes<T extends { t: number; x: number; y: number; s?: number; r?: number; q?: number[] }>(points: T[], passes = 2): T[] {
   if (points.length < 3) return points;
   const keys = ["x", "y", "s", "r"] as const;
   const values = points.map(p => ({ x: p.x, y: p.y, s: p.s ?? 1, r: p.r ?? 0 }));
+  const quads = points.every(p => p.q) ? points.map(p => [...p.q!]) : null;
   for (let pass = 0; pass < passes; pass++) {
     const before = values.map(v => ({ ...v }));
     for (let i = 1; i < values.length - 1; i++) for (const k of keys) values[i][k] = (before[i - 1][k] + 2 * before[i][k] + before[i + 1][k]) / 4;
+    if (quads) {
+      const prior = quads.map(q => [...q]);
+      for (let i = 1; i < quads.length - 1; i++) for (let k = 0; k < 8; k++) quads[i][k] = (prior[i - 1][k] + 2 * prior[i][k] + prior[i + 1][k]) / 4;
+    }
   }
-  return points.map((p, i) => ({ ...p, x: Number(values[i].x.toFixed(4)), y: Number(values[i].y.toFixed(4)), ...(p.s !== undefined ? { s: Number(values[i].s.toFixed(3)) } : {}), ...(p.r !== undefined ? { r: Number(values[i].r.toFixed(2)) } : {}) }));
+  return points.map((p, i) => ({ ...p, x: Number(values[i].x.toFixed(4)), y: Number(values[i].y.toFixed(4)), ...(p.s !== undefined ? { s: Number(values[i].s.toFixed(3)) } : {}), ...(p.r !== undefined ? { r: Number(values[i].r.toFixed(2)) } : {}), ...(quads ? { q: quads[i].map(v => Number(v.toFixed(4))) } : {}) }));
+}
+
+export type Quad = [number, number, number, number, number, number, number, number];
+
+/**
+ * The 3×3 projective transform taking the four `src` corners to the four
+ * `dst` corners (top-left, top-right, bottom-right, bottom-left), by direct
+ * linear transform with h8 = 1. Null when the corners are degenerate.
+ */
+export function homography(src: Quad, dst: Quad): number[] | null {
+  const A: number[][] = [];
+  for (let i = 0; i < 4; i++) {
+    const x = src[i * 2], y = src[i * 2 + 1], u = dst[i * 2], v = dst[i * 2 + 1];
+    A.push([x, y, 1, 0, 0, 0, -u * x, -u * y, u]);
+    A.push([0, 0, 0, x, y, 1, -v * x, -v * y, v]);
+  }
+  // Gaussian elimination with partial pivoting on the 8×9 augmented system.
+  for (let col = 0; col < 8; col++) {
+    let pivot = col;
+    for (let r = col + 1; r < 8; r++) if (Math.abs(A[r][col]) > Math.abs(A[pivot][col])) pivot = r;
+    if (Math.abs(A[pivot][col]) < 1e-12) return null;
+    [A[col], A[pivot]] = [A[pivot], A[col]];
+    for (let r = 0; r < 8; r++) {
+      if (r === col) continue;
+      const f = A[r][col] / A[col][col];
+      for (let c = col; c < 9; c++) A[r][c] -= f * A[col][c];
+    }
+  }
+  const h = A.map((row, i) => row[8] / row[i]);
+  return [...h, 1];
+}
+
+/** A CSS matrix3d() applying the homography (row-major h0..h8) to a plane; use with transform-origin 0 0. */
+export function matrix3d(h: number[]): string {
+  const n = (v: number) => Number(v.toFixed(6));
+  return `matrix3d(${n(h[0])}, ${n(h[3])}, 0, ${n(h[6])}, ${n(h[1])}, ${n(h[4])}, 0, ${n(h[7])}, 0, 0, 1, 0, ${n(h[2])}, ${n(h[5])}, 0, ${n(h[8])})`;
 }
 
 /**

@@ -840,7 +840,7 @@ export function PinSheet({ text, clip, asset, clipStartMs, onPath, onClose }: {
     onPath(tracked);
     const { path } = tracked;
     const last = path[path.length - 1];
-    setStatus(`Pinned through ${path.length} keyframes${last.s && Math.abs(last.s - 1) > 0.05 ? `, scaling to ${Math.round(last.s * 100)}%` : ""}. Play it back; unpin to go back to still text.`);
+    setStatus(`Pinned to the surface through ${path.length} keyframes${last.s && Math.abs(last.s - 1) > 0.05 ? `, scaling to ${Math.round(last.s * 100)}%` : ""}; the text sits on that plane in perspective. Play it back; unpin to go back to still text.`);
   }
   return (
     <Sheet title="Pin to the picture" onClose={onClose}>

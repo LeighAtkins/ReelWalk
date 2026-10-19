@@ -15,7 +15,7 @@ import {
 // WebCodecs-based video, used when the worker renders: about twice as fast as
 // OffthreadVideo here, and it falls back to it for files it cannot decode.
 import { Video as RenderVideo } from "@remotion/media";
-import { cameraAt, cameraMoveAt, pinnedProgress, textPositionAt, duckGain, framePlan, INSTAGRAM, isInstagramMusic, speechWindows, REEL_FORMAT, timelineDurationMs, walkInto, type Clip, type Logo, type Plan, type TextOverlay, type Timeline } from "@reelwalk/core";
+import { cameraAt, cameraMoveAt, homography, matrix3d, pinnedProgress, textPositionAt, textQuadAt, duckGain, framePlan, INSTAGRAM, isInstagramMusic, speechWindows, REEL_FORMAT, timelineDurationMs, walkInto, type Clip, type Logo, type Plan, type TextOverlay, type Timeline } from "@reelwalk/core";
 import { whipGeometry } from "./whip";
 import { useFontsFor } from "./fonts";
 import { ELEGANT_FADE_S, FILTER_CSS, textTreatmentCss } from "./look";
@@ -226,9 +226,27 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
   const { fps, width, height } = useVideoConfig();
   const css = textTreatmentCss(text);
   // A pinned path runs on its clip's source time (ADR 0039); a drift runs over the text's own life.
-  const position = textPositionAt(text, text.pin ? pinnedProgress(timeline, text, ((from + frame) * 1000) / fps) : durationInFrames > 1 ? frame / (durationInFrames - 1) : 0);
+  const progress = text.pin ? pinnedProgress(timeline, text, ((from + frame) * 1000) / fps) : durationInFrames > 1 ? frame / (durationInFrames - 1) : 0;
+  const position = textPositionAt(text, progress);
+  const quad = textQuadAt(text, progress);
   useFontsFor(text.text, Number(css.fontWeight ?? 600));
   const { scale, opacity, rise, chars } = textMotion(text, frame, fps, durationInFrames);
+  const face = { ...css, ...(text.depth === "extruded" ? { textShadow: extrudedShadow(text.color, Number(css.fontSize) || 64), WebkitTextStroke: `${Math.max(0.5, (Number(css.fontSize) || 64) * 0.01)}px rgba(0,0,0,0.35)` } : {}) };
+  if (quad && text.pin?.quad) {
+    // The text sits on the plane the tracker followed: a box at the pinned corners, warped to where they are now (ADR 0039).
+    const q0 = text.pin.quad;
+    const left = q0[0] * width, top = q0[1] * height;
+    const w = Math.max(1, (q0[2] - q0[0]) * width), h = Math.max(1, (q0[7] - q0[1]) * height);
+    const now = quad.map((v, i) => (i % 2 === 0 ? v * width - left : v * height - top)) as [number, number, number, number, number, number, number, number];
+    const H = homography([0, 0, w, 0, w, h, 0, h], now);
+    return (
+      <AbsoluteFill style={{ pointerEvents: "none", perspective: "none" }}>
+        <div style={{ position: "absolute", left, top, width: w, height: h, display: "flex", alignItems: "center", justifyContent: "center", transformOrigin: "0 0", transform: H ? matrix3d(H) : undefined, opacity, whiteSpace: /\s/.test(text.text) ? "normal" : "nowrap", textAlign: "center" }}>
+          <span style={{ ...face, transform: `scale(${scale})` }}>{text.text}</span>
+        </div>
+      </AbsoluteFill>
+    );
+  }
   // The typewriter keeps the full text in place, invisible, so the box never changes size while it writes.
   const written = chars === null ? text.text : text.text.slice(0, chars);
   const cursor = chars !== null && chars < text.text.length && Math.floor(frame / (fps / 4)) % 2 === 0;
@@ -249,7 +267,7 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
         }}
       >
         {chars === null ? (
-          <span style={{ ...css, ...(text.depth === "extruded" ? { textShadow: extrudedShadow(text.color, Number(css.fontSize) || 64), WebkitTextStroke: `${Math.max(0.5, (Number(css.fontSize) || 64) * 0.01)}px rgba(0,0,0,0.35)` } : {}) }}>{text.text}</span>
+          <span style={face}>{text.text}</span>
         ) : (
           <span style={{ ...css, position: "relative" }}>
             <span style={{ visibility: "hidden" }}>{text.text}</span>

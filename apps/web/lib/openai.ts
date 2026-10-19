@@ -221,7 +221,7 @@ async function claudeAnswer(options: AnswerOptions): Promise<{ json: unknown; us
       body: JSON.stringify({
         model,
         // Opus 5.5 always thinks; leave room for reasoning as well as the edit JSON.
-        max_tokens: Math.min(16000, Math.max(4096, (options.maxOutputTokens ?? 1200) + 2048)),
+        max_tokens: Math.min(32000, Math.max(4096, (options.maxOutputTokens ?? 1200) + 2048)),
         system: wire?.instructions ?? options.instructions,
         messages: [{ role: "user", content: [{ type: "text", text: options.input }, ...images] }],
         output_config: { effort: "medium", format: { type: "json_schema", schema: wire?.schema ?? options.schema } },
@@ -240,6 +240,7 @@ async function claudeAnswer(options: AnswerOptions): Promise<{ json: unknown; us
     throw new AiError(`Claude could not answer (HTTP ${response.status}).`, response.status === 429 || response.status >= 500);
   }
   if (data.stop_reason === "refusal") throw new AiError("Claude declined this edit request.", false);
+  if (data.stop_reason === "max_tokens") throw new AiError("Claude ran out of room before finishing the plan.", false);
   if (data.stop_reason !== "end_turn") throw new AiError("Claude stopped before completing the edit plan.", false);
   const text = data.content?.filter(part => part.type === "text").map(part => part.text ?? "").join("");
   let json: unknown;

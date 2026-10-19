@@ -57,7 +57,7 @@ export const TRACK_HEIGHT = 384;
 export async function trackTextPath(
   asset: LibraryAsset, clip: Clip, clipStartMs: number, text: Pick<TextOverlay, "x" | "y" | "startMs" | "endMs">,
   onProgress?: (fraction: number) => void,
-): Promise<NonNullable<TextOverlay["path"]> | null> {
+): Promise<{ path: NonNullable<TextOverlay["path"]>; pin: NonNullable<TextOverlay["pin"]> } | null> {
   const speed = clip.speed || 1;
   const lifeMs = text.endMs - text.startMs;
   const firstSource = clip.sourceStartMs + Math.max(0, text.startMs - clipStartMs) * speed;
@@ -80,7 +80,7 @@ export async function trackTextPath(
       const at = Math.min(source, lastSource);
       await seek(video, at);
       const next = grayFrame(video, TRACK_WIDTH, TRACK_HEIGHT);
-      const t = Math.min(1, ((at - clip.sourceStartMs) / speed + clipStartMs - text.startMs) / lifeMs);
+      const t = Math.min(1, (at - firstSource) / (lastSource - firstSource));
       if (!held) {
         const l = trackPatch(prev, next, left.x, left.y), r = trackPatch(prev, next, right.x, right.y);
         if (l.lost && r.lost) held = true;
@@ -111,7 +111,7 @@ export async function trackTextPath(
     else last.t = 1;
     // Strictly increasing t, no duplicates.
     const clean = path.filter((p, i) => i === 0 || p.t > path[i - 1].t);
-    return clean.length >= 2 ? clean : null;
+    return clean.length >= 2 ? { path: clean, pin: { assetId: asset.id, fromMs: Math.round(firstSource), toMs: Math.round(lastSource) } } : null;
   } catch {
     return null;
   } finally {

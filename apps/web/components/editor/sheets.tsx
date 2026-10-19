@@ -779,7 +779,7 @@ export function TextSheet({
 /** Pin a text to the surface under it so it moves with the camera (ADR 0039). */
 export function PinSheet({ text, clip, asset, clipStartMs, onPath, onClose }: {
   text: TextOverlay; clip: Clip | null; asset: LibraryAsset | undefined; clipStartMs: number;
-  onPath(path: TextOverlay["path"] | undefined): void; onClose(): void;
+  onPath(pinned: { path: TextOverlay["path"]; pin: TextOverlay["pin"] } | undefined): void; onClose(): void;
 }) {
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -787,16 +787,17 @@ export function PinSheet({ text, clip, asset, clipStartMs, onPath, onClose }: {
   async function pin() {
     if (!clip || !asset) return;
     setBusy(true); setStatus("Following the picture under the text…");
-    const path = await trackTextPath(asset, clip, clipStartMs, text, fraction => setStatus(`Following the picture under the text… ${Math.round(fraction * 100)}%`));
+    const tracked = await trackTextPath(asset, clip, clipStartMs, text, fraction => setStatus(`Following the picture under the text… ${Math.round(fraction * 100)}%`));
     setBusy(false);
-    if (!path) { setStatus("Could not follow this shot. Try placing the text on a surface with some detail."); return; }
-    onPath(path);
+    if (!tracked) { setStatus("Could not follow this shot. Try placing the text on a surface with some detail."); return; }
+    onPath(tracked);
+    const { path } = tracked;
     const last = path[path.length - 1];
     setStatus(`Pinned through ${path.length} keyframes${last.s && Math.abs(last.s - 1) > 0.05 ? `, scaling to ${Math.round(last.s * 100)}%` : ""}. Play it back; unpin to go back to still text.`);
   }
   return (
     <Sheet title="Pin to the picture" onClose={onClose}>
-      <p className="muted small">The text follows the wall, floor or object under it as the camera moves, for the shot it starts on. Place it on something with detail first.</p>
+      <p className="muted small">The text follows the wall, floor or object under it as the camera moves, for the shot it starts on, and stays with that shot if you trim or move it. Place it on something with detail first.</p>
       <button type="button" className="btn btn-signal btn-block" disabled={!canTrack || busy} onClick={pin} data-testid="pin-text">{busy ? "Following…" : text.path && text.path.length > 2 ? "Pin again from the current position" : "Pin to the picture"}</button>
       {!canTrack ? <p className="small">Pinning needs the text to start on a video clip.</p> : null}
       {text.path ? <button type="button" className="btn btn-quiet btn-block" disabled={busy} onClick={() => { onPath(undefined); setStatus("Unpinned."); }}>Unpin (still text)</button> : null}

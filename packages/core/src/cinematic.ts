@@ -1,4 +1,4 @@
-import { clipDurationMs, type Clip, type TextOverlay, type Timeline } from "./timeline";
+import { locate, clipDurationMs, type Clip, type TextOverlay, type Timeline } from "./timeline";
 
 export function cameraMoveAt(motion: Clip["motion"], progress: number, elapsedSeconds: number) {
   const p = Math.max(0, Math.min(1, progress));
@@ -13,8 +13,27 @@ export function cameraMoveAt(motion: Clip["motion"], progress: number, elapsedSe
   }
 }
 
+/** `progress` for a pinned text while a clip other than its own is on screen: it sits still at its base position. */
+export const PINNED_ELSEWHERE = -1;
+
+/**
+ * Where along a pinned text's path the reel is at `reelMs`: the clip on
+ * screen must be the one the path was tracked on, and t runs over the
+ * source window that was tracked. Otherwise the text holds its base spot.
+ */
+export function pinnedProgress(timeline: Timeline, text: TextOverlay, reelMs: number): number {
+  if (!text.pin) return 0;
+  const at = locate(timeline, reelMs);
+  const clip = at ? timeline.clips[at.index] : null;
+  if (!clip || !at || clip.assetId !== text.pin.assetId) return PINNED_ELSEWHERE;
+  const sourceMs = clip.sourceStartMs + at.offsetMs * (clip.kind === "IMAGE" ? 1 : clip.speed || 1);
+  const span = text.pin.toMs - text.pin.fromMs;
+  return span > 0 ? (sourceMs - text.pin.fromMs) / span : 0;
+}
+
 export function textPositionAt(text: TextOverlay, progress: number): { x: number; y: number; scale: number; rotation: number } {
   if (!text.path) return { x: text.x, y: text.y, scale: 1, rotation: 0 };
+  if (text.pin && progress === PINNED_ELSEWHERE) return { x: text.x, y: text.y, scale: 1, rotation: 0 };
   const t = Math.max(0, Math.min(1, progress));
   const found = text.path.findIndex(p => p.t >= t);
   const end = found < 0 ? text.path.length - 1 : found;

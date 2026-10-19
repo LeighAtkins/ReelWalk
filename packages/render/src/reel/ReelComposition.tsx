@@ -237,7 +237,8 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number }> = ({ t
           position: "absolute",
           left: position.x * width,
           top: position.y * height,
-          width: width * 0.86,
+          // A single word never breaks mid-word (a tracked title is usually one word); sentences wrap inside the safe width.
+          ...(/\s/.test(text.text) ? { width: width * 0.86 } : { width: "max-content", maxWidth: width * 1.4, whiteSpace: "nowrap" as const }),
           display: "flex",
           justifyContent: "center",
           transform: `translate(-50%, calc(-50% + ${rise * 40}px)) scale(${scale * position.scale}) rotate(${position.rotation}deg)`,

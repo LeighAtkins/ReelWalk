@@ -190,6 +190,10 @@ docker compose -f docker-compose.yml -f docker-compose.aws.yml --env-file .env.a
 Production is https://reelwalking.com: the web image on AWS App Runner,
 render workers as Fargate tasks the web app starts on demand, Postgres on
 Neon, all from `infra/terraform` ([ADR 0015](docs/adr/0015-serverless-under-thirty-dollars.md)).
+Before a deploy that touches the director's prompt or schema, run the
+live smoke check once (`AI_PROVIDER=anthropic ANTHROPIC_API_KEY=… pnpm
+--filter @reelwalk/web exec tsx apps/web/scripts/director-smoke.mts`): one
+small Opus call through the real schema and parser.
 Deploy with `bash infra/deploy.sh [sha]` from the checkout that holds
 `infra/terraform/terraform.tfvars`: it waits for CI's images, sets
 `image_tag`, refuses a plan that would change the worker's environment,

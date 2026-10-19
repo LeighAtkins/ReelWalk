@@ -7,6 +7,19 @@ function plan() {
 }
 const assets = { house: { kind: "VIDEO", durationMs: 4000 }, room: { kind: "IMAGE", durationMs: null } };
 describe("in-app Opus direction", () => {
+  it("never puts an enum on a nullable type (Claude rejects the schema with HTTP 400)", () => {
+    const offenders: string[] = [];
+    const walk = (node: unknown, path: string) => {
+      if (!node || typeof node !== "object") return;
+      const o = node as Record<string, unknown>;
+      if (Array.isArray(o.type) && o.enum) offenders.push(path);
+      for (const [k, v] of Object.entries(o)) walk(v, `${path}.${k}`);
+    };
+    // The edit object travels through the transport wire in apps/web/lib/openai.ts, which rewrites it; the rest goes as written.
+    const { edit: _edit, ...direct } = (DIRECTOR_PLAN_JSON_SCHEMA as { properties: Record<string, unknown> }).properties;
+    void _edit; walk(direct, "plan");
+    expect(offenders).toEqual([]);
+  });
   it("keeps a spoken line with a voice, and drops a voice without a line", () => {
     const base = plan().shots[0];
     const parse = (extra: Record<string, unknown>) => directorPlanSchema.parse({ ...plan(), shots: [{ ...base, ...extra }] }).shots[0];

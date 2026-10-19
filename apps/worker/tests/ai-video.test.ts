@@ -1,14 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { aiShotFromClips, clipSchema, emptyTimeline } from "@reelwalk/core";
 import type { S3Client } from "@aws-sdk/client-s3";
-const { claim, fail, frames, thumbnail, submit, poll, tx, db } = vi.hoisted(() => {
+const { claim, fail, frames, thumbnail, submit, poll, compose, tx, db } = vi.hoisted(() => {
   const tx = { aiGeneration: { updateMany: vi.fn() }, mediaAsset: { upsert: vi.fn() }, reel: { findFirst: vi.fn(), upsert: vi.fn() } };
-  return { claim: vi.fn(), fail: vi.fn(), frames: vi.fn(), thumbnail: vi.fn(), submit: vi.fn(), poll: vi.fn(), tx,
+  return { claim: vi.fn(), fail: vi.fn(), frames: vi.fn(), thumbnail: vi.fn(), submit: vi.fn(), poll: vi.fn(), compose: vi.fn(), tx,
     db: { aiGeneration: { findFirst: vi.fn(), updateMany: vi.fn() }, $transaction: vi.fn() } };
 });
 vi.mock("@reelwalk/db", () => ({ claimAiGeneration: claim, failAiGeneration: fail, prisma: db }));
 vi.mock("../src/ai-thumbnail", () => ({ aiThumbnail: thumbnail }));
-vi.mock("../src/ai-frames", () => ({ aiFrames: frames }));
+vi.mock("../src/ai-frames", async (importOriginal) => ({ ...(await importOriginal<typeof import("../src/ai-frames")>()), aiFrames: frames }));
+vi.mock("../src/vertex-images", () => ({ VertexImages: class { compose = compose; } }));
 vi.mock("../src/vertex-video", () => ({
   VertexError: class extends Error {}, VertexVideo: class { submit = submit; poll = poll; },
 }));
@@ -39,6 +40,21 @@ describe("AI shot worker", () => {
     await processAiVideo(s3, "media");
     expect(submit).toHaveBeenCalledWith("veo", 8, "Move", { bytesBase64Encoded: "first", mimeType: "image/jpeg" }, { bytesBase64Encoded: "last", mimeType: "image/jpeg" });
     expect(db.aiGeneration.updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "one", leaseToken: "mine", status: "SUBMITTING" }, data: expect.objectContaining({ operationName: "operation-one" }) }));
+  });
+  const composed = [{ bytesBase64Encoded: "first", mimeType: "image/jpeg", role: "first", compose: "At the door, head below the lintel." }, { bytesBase64Encoded: "last", mimeType: "image/jpeg", role: "last" }, { bytesBase64Encoded: "her", mimeType: "image/jpeg", role: "presenter" }];
+  it("composes a described start still with the presenter before submitting, and keeps a copy", async () => {
+    claim.mockResolvedValue(job); frames.mockResolvedValueOnce(composed);
+    compose.mockResolvedValueOnce({ bytesBase64Encoded: "composed", mimeType: "image/jpeg" });
+    await processAiVideo(s3, "media");
+    expect(compose).toHaveBeenCalledWith("first", "At the door, head below the lintel.", { bytesBase64Encoded: "first", mimeType: "image/jpeg" }, { bytesBase64Encoded: "her", mimeType: "image/jpeg" });
+    expect(submit).toHaveBeenCalledWith("veo", 8, "Move", { bytesBase64Encoded: "composed", mimeType: "image/jpeg" }, { bytesBase64Encoded: "last", mimeType: "image/jpeg" });
+    expect((s3.send as ReturnType<typeof vi.fn>).mock.calls.map(([command]) => command.input?.Key)).toContain("workspaces/studio/ai/one-first.jpg");
+  });
+  it("refunds when a still cannot be composed, before anything is paid", async () => {
+    claim.mockResolvedValue(job); frames.mockResolvedValueOnce(composed); compose.mockRejectedValueOnce(new Error("no image"));
+    await processAiVideo(s3, "media");
+    expect(submit).not.toHaveBeenCalled();
+    expect(fail).toHaveBeenCalledWith(db, "one", expect.stringContaining("composed"), true);
   });
   it("refunds failed extraction and releases budget without calling the paid API", async () => {
     claim.mockResolvedValue(job); frames.mockRejectedValueOnce(new Error("decode"));

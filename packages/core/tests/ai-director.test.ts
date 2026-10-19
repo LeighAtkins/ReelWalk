@@ -7,6 +7,15 @@ function plan() {
 }
 const assets = { house: { kind: "VIDEO", durationMs: 4000 }, room: { kind: "IMAGE", durationMs: null } };
 describe("in-app Opus direction", () => {
+  it("keeps a composed keyframe only for an end that has a real frame and a presenter", () => {
+    const base = plan().shots[0];
+    const parse = (compose: unknown, last: unknown = base.last) => directorPlanSchema.parse({ ...plan(), shots: [{ ...base, last, compose }] }).shots[0].compose;
+    expect(parse({ presenter: { assetId: "room", atMs: 0 }, first: "At the front door, head below the lintel.", last: null })).toEqual({ presenter: { assetId: "room", atMs: 0 }, first: "At the front door, head below the lintel.", last: null });
+    expect(parse({ presenter: { assetId: "room", atMs: 0 }, first: null, last: "On the sofa, seat height." }, null)).toBeNull();
+    expect(parse({ presenter: null, first: "At the front door, head below the lintel.", last: null })).toBeNull();
+    expect(parse(null)).toBeNull();
+    expect(() => validateDirectorReferences(directorPlanSchema.parse({ ...plan(), shots: [{ ...base, compose: { presenter: { assetId: "nobody", atMs: 0 }, first: "At the front door, head below the lintel.", last: null } }] }), assets)).toThrow("unavailable");
+  });
   it("shortens a long edit note rather than discarding the review", () => {
     const raw = JSON.parse(JSON.stringify({ ...plan(), edit: { ops: [], note: "x".repeat(900), questions: [], caption: null } }));
     const parsed = directorPlanSchema.parse(raw);

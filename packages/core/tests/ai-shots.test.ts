@@ -7,6 +7,12 @@ const ai = clipSchema.parse({ id: "insert-one", assetId: "generated", kind: "VID
 const original = { ...emptyTimeline(), clips: [a, b] };
 
 describe("footage anchored AI edits", () => {
+  it("composes a start or end still only around a real frame", () => {
+    const compose = { presenter: { assetId: "real-b", atMs: 2300 }, first: "In the open doorway, shoulder height to the door handle." };
+    expect(aiShotSchema.safeParse({ mode: "custom", compose }).success).toBe(false);
+    expect(aiShotSchema.safeParse({ mode: "custom", first: aiBoundary(a, true), compose: { ...compose, first: undefined, last: "Seated on the sofa." } }).success).toBe(false);
+    expect(aiShotSchema.safeParse({ mode: "custom", first: aiBoundary(a, true), compose }).success).toBe(true);
+  });
   it("requires before and after references for construction and keeps the whole build", () => {
     const missingEnd = { mode: "construction", first: aiBoundary(a, true) };
     expect(aiShotSchema.safeParse(missingEnd).success).toBe(false);

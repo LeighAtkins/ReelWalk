@@ -25,7 +25,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const job = await createAiGeneration(user, {
       requestId: directorGenerationRequestId(body.data.editId, body.data.index),
       prompt: proposal.prompt, durationSeconds: proposal.durationSeconds,
-      shot: { mode: "custom", ...(proposal.first ? { first: proposal.first } : {}), ...(proposal.last ? { last: proposal.last } : {}) },
+      shot: {
+        mode: "custom", ...(proposal.first ? { first: proposal.first } : {}), ...(proposal.last ? { last: proposal.last } : {}),
+        ...(proposal.compose ? { compose: { presenter: proposal.compose.presenter, ...(proposal.compose.first ? { first: proposal.compose.first } : {}), ...(proposal.compose.last ? { last: proposal.compose.last } : {}) } } : {}),
+      },
     }, { exactPrompt: true });
     await ensureWorkerRunning();
     return Response.json({ id: job.id }, { status: 202 });

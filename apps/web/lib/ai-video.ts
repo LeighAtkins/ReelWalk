@@ -32,7 +32,9 @@ export async function createAiGeneration(user: { id: string; workspaceId: string
   }
   // Resolve IDs here, never accept storage keys or URLs from a browser.
   const frames = [];
-  for (const frame of [input.shot?.first, input.shot?.last].filter(f => f !== undefined)) {
+  const wanted: ["first" | "last" | "presenter", { assetId: string; atMs: number } | undefined][] = [["first", input.shot?.first], ["last", input.shot?.last], ["presenter", input.shot?.compose?.presenter]];
+  for (const [role, frame] of wanted) {
+    if (!frame) continue;
     const asset = await prisma.mediaAsset.findFirst({ where: { id: frame.assetId, ...mediaScope(user.workspaceId) } });
     if (!asset || !["IMAGE", "VIDEO"].includes(asset.kind) || isEquirect(asset.width, asset.height)) {
       throw new Error("Choose a flat photo or video from your media library.");
@@ -43,10 +45,11 @@ export async function createAiGeneration(user: { id: string; workspaceId: string
     if (asset.kind === "VIDEO" && (!asset.durationMs || frame.atMs >= asset.durationMs)) {
       throw new Error("Choose a frame within the source video's duration.");
     }
-    if ((input.shot?.mode === "gimbal" || input.shot?.mode === "drone") && asset.kind !== "IMAGE") {
+    if (role !== "presenter" && (input.shot?.mode === "gimbal" || input.shot?.mode === "drone") && asset.kind !== "IMAGE") {
       throw new Error("Choose a photo for this camera move.");
     }
-    frames.push({ key: asset.objectKey, kind: asset.kind, atMs: asset.kind === "IMAGE" ? 0 : frame.atMs });
+    const compose = role === "first" ? input.shot?.compose?.first : role === "last" ? input.shot?.compose?.last : undefined;
+    frames.push({ key: asset.objectKey, kind: asset.kind, atMs: asset.kind === "IMAGE" ? 0 : frame.atMs, role, ...(compose ? { compose } : {}) });
   }
   const durationSeconds = input.durationSeconds ?? aiDefaultClipSeconds(input.shot?.mode);
   const budgetCents = Number(process.env.AI_VIDEO_BUDGET_CENTS ?? 24000);

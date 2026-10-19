@@ -41,6 +41,7 @@ import {
   type Plan,
   type Timeline,
   parseTimeline,
+  sameTimeline,
   retime,
   retimeToLength,
   setClipRoom,
@@ -1427,7 +1428,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
       ) : null}
 
       {sheet === "director" ? <DirectorSheet reelId={reel.id} timeline={timeline} library={libraryList} onClose={closeSheet} onApply={(review) => {
-        if (JSON.stringify(timeline) !== JSON.stringify(review.baseline)) return false;
+        if (!sameTimeline(timeline, review.baseline)) return false;
         if (review.assets.length) setLibrary(current => ({ ...current, ...Object.fromEntries(review.assets.map(asset => [asset.id, asset])) }));
         apply(() => parseTimeline(review.timeline));
         if (review.plan.edit.caption) {

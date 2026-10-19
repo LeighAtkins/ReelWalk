@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { aiClipCredits, type DirectorPlan, type Timeline } from "@reelwalk/core";
+import { aiClipCredits, sameTimeline, type DirectorPlan, type Timeline } from "@reelwalk/core";
 import type { LibraryAsset } from "@/lib/library";
 import { runAiJob, waitForAiJob } from "@/lib/ai-jobs-client";
 import { captureDirectorEvidence } from "./director-evidence";
@@ -75,7 +75,7 @@ export function DirectorSheet({ reelId, timeline, library, onApply, onClose }: {
     } catch (error) { setMessage(error instanceof Error ? error.message : "Could not start this shot. Repeating the same approval reuses its request."); }
     finally { setApproving(null); }
   }
-  const current = review && JSON.stringify(review.baseline) === JSON.stringify(timeline);
+  const current = review && sameTimeline(review.baseline, timeline);
   return <Sheet title="Ask Opus" onClose={onClose}>
     <p className="muted">Tell Opus what you think, the way you would tell an editor. It looks through every clip, including AI takes you have not used, and suggests fixes. Nothing changes until you tap Apply, and new AI shots always ask first.</p>
     {pending.map(j => <button key={j.id} type="button" className="btn btn-quiet btn-block" disabled={busy} onClick={() => resume(j.id)}>Opus is still working on your last request · show it</button>)}

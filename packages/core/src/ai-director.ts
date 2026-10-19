@@ -1,5 +1,14 @@
 import { z } from "zod";
 import { AI_EDIT_PLAN_JSON_SCHEMA, aiEditPlanSchema } from "./ai-edit";
+import { parseTimeline } from "./timeline";
+
+const canonical = (value: unknown): unknown => Array.isArray(value) ? value.map(canonical)
+  : value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical((value as Record<string, unknown>)[key])])) : value;
+
+/** Whether two timelines are the same edit. The server's copy is parsed (field order, defaults), so raw JSON never matches. */
+export function sameTimeline(a: unknown, b: unknown): boolean {
+  try { return JSON.stringify(canonical(parseTimeline(a))) === JSON.stringify(canonical(parseTimeline(b))); } catch { return false; }
+}
 
 /** Words Opus writes for the studio to read are shortened, never a reason to discard a paid review. */
 const prose = (max: number) => z.string().trim().min(1).transform(text => text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text);

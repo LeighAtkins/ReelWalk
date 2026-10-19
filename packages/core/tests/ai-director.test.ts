@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { directorPlanSchema, validateDirectorReferences, DIRECTOR_INSTRUCTIONS } from "../src/ai-director";
+import { directorPlanSchema, sameTimeline, validateDirectorReferences, DIRECTOR_INSTRUCTIONS } from "../src/ai-director";
+import { clipSchema, emptyTimeline, parseTimeline } from "../src";
 
 function plan() {
   return directorPlanSchema.parse({ note: "Keep the host visible", verdict: "needs-generation", issues: ["Presenter is too large relative to the doorway"], limitations: "Sampled frames only; no audio or continuous playback", checks: Object.fromEntries(["scale", "cameraContinuity", "presenterContinuity", "propertyIdentity"].map(k => [k, { result: "uncertain", evidence: "No complete source evidence" }])),  edit: { ops: [], note: "Wait for a better take", questions: [], caption: null }, shots: [{ title: "Continuous descent", reason: "Fix direction and scale", prompt: "One continuous overhead descent with human-scale presenter", durationSeconds: 8, first: { assetId: "house", atMs: 500 }, last: { assetId: "room", atMs: 0 } }] });
@@ -52,5 +53,13 @@ describe("in-app Opus direction", () => {
     expect(plan.checks.scale.evidence.endsWith("…")).toBe(true);
     expect(plan.note.length).toBeLessThanOrEqual(1200);
     expect(plan.issues).toHaveLength(12);
+  });
+  it("treats the server's parsed copy of an unchanged timeline as the same edit", () => {
+    const clip = clipSchema.parse({ id: "a", assetId: "v", kind: "VIDEO", sourceStartMs: 0, sourceEndMs: 3000 });
+    const browser = { ...emptyTimeline(), clips: [Object.fromEntries(Object.entries(clip).reverse())] };
+    const server = parseTimeline(browser);
+    expect(JSON.stringify(server)).not.toBe(JSON.stringify(browser));
+    expect(sameTimeline(server, browser)).toBe(true);
+    expect(sameTimeline(server, { ...browser, clips: [{ ...clip, sourceEndMs: 2000 }] })).toBe(false);
   });
 });

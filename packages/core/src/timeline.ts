@@ -151,9 +151,13 @@ export const textSchema = z
     font: z.enum(["auto", "serif", "sans", "editorial"]).optional(),
     shadow: z.enum(["auto", "soft", "strong", "none"]).optional(),
     tracking: z.number().min(-0.04).max(0.24).optional(),
-    /** Offsets from x/y across this overlay's lifetime; supports tracked feature paths. */
-    path: z.array(z.object({ t: unit, x: z.number().min(-0.5).max(0.5), y: z.number().min(-0.5).max(0.5) }))
-      .min(2).max(32).refine(points => points[0].t === 0 && points.at(-1)!.t === 1 && points.every((p, i) => i === 0 || p.t > points[i - 1].t), "Motion path must run in order from 0 to 1").optional(),
+    /** People in the clips this text overlaps pass in front of it (ADR 0039). */
+    behind: z.boolean().optional(),
+    /** An extruded, 3D-looking title. */
+    depth: z.enum(["flat", "extruded"]).optional(),
+    /** Offsets from x/y across this overlay's lifetime, with optional scale and rotation (degrees): a drift, or a surface tracked through the shot (ADR 0039). */
+    path: z.array(z.object({ t: unit, x: z.number().min(-0.5).max(0.5), y: z.number().min(-0.5).max(0.5), s: z.number().min(0.2).max(5).optional(), r: z.number().min(-180).max(180).optional() }))
+      .min(2).max(64).refine(points => points[0].t === 0 && points.at(-1)!.t === 1 && points.every((p, i) => i === 0 || p.t > points[i - 1].t), "Motion path must run in order from 0 to 1").optional(),
   })
   .refine((text) => text.endMs > text.startMs, { message: "Text must be on screen for a positive time" })
   .refine((text) => text.size >= minTextSize(text.style), { message: "Text is too small for this style", path: ["size"] });

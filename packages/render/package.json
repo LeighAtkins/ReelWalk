@@ -14,6 +14,7 @@
     "@fontsource-variable/bodoni-moda": "5.3.0",
     "@fontsource-variable/cormorant-garamond": "^5.3.0",
     "@fontsource-variable/noto-sans-jp": "^5.3.0",
+    "@mediapipe/tasks-vision": "1.1.1",
     "@reelwalk/core": "workspace:*",
     "@remotion/bundler": "4.0.534",
     "@remotion/media": "4.0.534",

@@ -12,7 +12,7 @@ describe("cinematic edit finish", () => {
   it("interpolates tracked text offsets and retains movement when the text is dragged", () => {
     const text = textSchema.parse({ id: "title", text: "The terrace", startMs: 0, endMs: 2000, x: 0.5, y: 0.4,
       path: [{ t: 0, x: 0, y: 0 }, { t: 0.5, x: 0.1, y: -0.05 }, { t: 1, x: 0.2, y: -0.1 }] });
-    expect(textPositionAt(text, 0.25)).toEqual({ x: 0.55, y: 0.375 });
+    expect(textPositionAt(text, 0.25)).toMatchObject({ x: 0.55, y: 0.375 });
     expect(textPositionAt({ ...text, x: 0.3 }, 1).x).toBeCloseTo(0.5);
     expect(textPositionAt({ ...text, x: 0.3 }, 1).y).toBeCloseTo(0.3);
     expect(textPositionAt(text, 10).x).toBe(0.7);
@@ -32,5 +32,14 @@ describe("cinematic edit finish", () => {
     expect(next.music).toBe(timeline.music);
     expect(timeline.clips[0].motion).toBe("none");
     expect(parseTimeline(next)).toEqual(next);
+  });
+});
+
+describe("text keyframes", () => {
+  it("interpolates scale and rotation along the path and holds after the last point", async () => {
+    const { textPositionAt, textSchema } = await import("../src");
+    const text = textSchema.parse({ id: "t", text: "Hi", startMs: 0, endMs: 1000, x: 0.5, y: 0.5, path: [{ t: 0, x: 0, y: 0, s: 1, r: 0 }, { t: 1, x: 0.1, y: 0, s: 2, r: 10 }] });
+    expect(textPositionAt(text, 0.5)).toEqual({ x: 0.55, y: 0.5, scale: 1.5, rotation: 5 });
+    expect(textPositionAt(text, 1)).toEqual({ x: 0.6, y: 0.5, scale: 2, rotation: 10 });
   });
 });

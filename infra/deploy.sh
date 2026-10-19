@@ -68,5 +68,5 @@ for i in $(seq 1 40); do
   sleep 20
 done
 echo "[$(date +%T)] App Runner ${state%%	*}, image ${state##*:}"
-curl -s -o /dev/null -w "ready %{http_code}\n" https://reelwalking.com/api/ready
+curl -s -o /dev/null -w "ready %{http_code}\n" https://reelwalking.com/api/ready || echo "ready check failed (curl $?)"
 echo "tfvars now says image_tag = $SHA; commit it in the ops checkout if that is where it lives."

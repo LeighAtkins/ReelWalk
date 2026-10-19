@@ -1,6 +1,6 @@
 import { AwsClient, GoogleAuth } from "google-auth-library";
 
-type AwsCredentials = () => Promise<{ accessKeyId: string; secretAccessKey: string; sessionToken?: string }>;
+export type AwsCredentials = () => Promise<{ accessKeyId: string; secretAccessKey: string; sessionToken?: string }>;
 
 // The Google library's built-in AWS metadata flow supports EC2, not ECS.
 // Reuse the AWS SDK's refreshing task-role provider instead of storing a key.
@@ -30,19 +30,23 @@ export function vertexVideoParameters(durationSeconds: number) {
   return { aspectRatio: "9:16", durationSeconds, sampleCount: 1, resolution: "1080p", generateAudio: false, personGeneration: "allow_adult" };
 }
 
+/** A bearer-token source for Vertex: workload identity through the task role when configured, otherwise application default credentials. */
+export function vertexAuth(credentials?: AwsCredentials): () => Promise<string | null | undefined> {
+  const audience = process.env.GOOGLE_WORKLOAD_IDENTITY_AUDIENCE;
+  const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
+  if (audience || email) {
+    if (!audience || !email || !credentials) throw new Error("Incomplete Google workload identity configuration.");
+    const auth = federatedVideoAuth(credentials, audience, email);
+    return async () => (await auth.getAccessToken()).token;
+  }
+  const auth = new GoogleAuth({ scopes: ["https://www.googleapis.com/auth/cloud-platform"] });
+  return () => auth.getAccessToken();
+}
+
 export class VertexVideo {
   private readonly getToken: () => Promise<string | null | undefined>;
   constructor(private readonly project = process.env.GOOGLE_CLOUD_PROJECT!, private readonly location = process.env.GOOGLE_CLOUD_LOCATION || "us-central1", credentials?: AwsCredentials) {
-    const audience = process.env.GOOGLE_WORKLOAD_IDENTITY_AUDIENCE;
-    const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
-    if (audience || email) {
-      if (!audience || !email || !credentials) throw new Error("Incomplete Google workload identity configuration.");
-      const auth = federatedVideoAuth(credentials, audience, email);
-      this.getToken = async () => (await auth.getAccessToken()).token;
-    } else {
-      const auth = new GoogleAuth({ scopes: ["https://www.googleapis.com/auth/cloud-platform"] });
-      this.getToken = () => auth.getAccessToken();
-    }
+    this.getToken = vertexAuth(credentials);
   }
 
   private async request(model: string, method: string, body: unknown) {

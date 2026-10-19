@@ -28,11 +28,18 @@ export const aiReplacesStill = (mode: AiShotMode) => ["gimbal", "drone", "orbit"
 const frame = z.object({
   assetId: z.string().min(1).max(64), atMs: z.number().int().min(0).max(86_400_000).default(0),
 });
+/** Compose the start/end stills with the presenter before Veo sees them (ADR 0036): where she is in a supplied frame, and what each composed frame shows. */
+export const aiComposeSchema = z.object({
+  presenter: frame,
+  first: z.string().trim().min(10).max(600).optional(),
+  last: z.string().trim().min(10).max(600).optional(),
+}).refine(c => c.first || c.last, "Describe at least one composed frame.");
 export const aiShotSchema = z.object({
   mode: z.enum(AI_SHOT_MODES), first: frame.optional(), last: frame.optional(),
   style: z.enum(AI_SHOT_STYLES).optional(), atmosphere: z.enum(AI_SHOT_ATMOSPHERES).optional(),
   energy: z.enum(["subtle", "bold"]).optional(), harmonize: z.boolean().optional(),
   polish: z.boolean().optional(),
+  compose: aiComposeSchema.optional(),
   // Snapshots prevent inserting against a boundary the user has since changed.
   anchor: clipSchema.optional(), next: clipSchema.optional(),
   draftReelId: z.string().min(1).max(64).optional(),
@@ -40,6 +47,8 @@ export const aiShotSchema = z.object({
   if (shot.mode !== "custom" && !shot.first) ctx.addIssue({ code: "custom", message: "Choose a source image or video." });
   if (aiConnectsClips(shot.mode) && !shot.last) ctx.addIssue({ code: "custom", message: "Choose an ending frame (the completed building for a construction timelapse)." });
   if (shot.last && !shot.first) ctx.addIssue({ code: "custom", message: "An ending frame needs a starting frame." });
+  if (shot.compose?.first && !shot.first) ctx.addIssue({ code: "custom", message: "A composed starting frame needs a starting frame." });
+  if (shot.compose?.last && !shot.last) ctx.addIssue({ code: "custom", message: "A composed ending frame needs an ending frame." });
   if (aiConnectsClips(shot.mode) && Boolean(shot.anchor) !== Boolean(shot.next)) {
     ctx.addIssue({ code: "custom", message: "Choose both adjacent reel clips, or use library references without timeline placement." });
   }

@@ -2,10 +2,13 @@ import { GetObjectCommand, PutObjectCommand, type S3Client } from "@aws-sdk/clie
 import { claimAiGeneration, failAiGeneration, prisma } from "@reelwalk/db";
 import { VertexError, VertexVideo } from "./vertex-video";
 import { aiThumbnail } from "./ai-thumbnail";
-import { aiFrames } from "./ai-frames";
+import { aiFrames, keyframes, type DecodedFrame } from "./ai-frames";
+import { VertexImages, type InlineImage } from "./vertex-images";
 import { aiShotSchema, clipSchema, insertAiShot, timelineSchema } from "@reelwalk/core";
 
 let provider: VertexVideo | undefined;
+let images: VertexImages | undefined;
+const inline = (frame?: DecodedFrame): InlineImage | undefined => frame && { bytesBase64Encoded: frame.bytesBase64Encoded, mimeType: frame.mimeType };
 
 export async function processAiVideo(s3: S3Client, bucket: string): Promise<boolean> {
   // Recover an interrupted submission conservatively: don't submit it again.
@@ -19,13 +22,31 @@ export async function processAiVideo(s3: S3Client, bucket: string): Promise<bool
   try {
     provider ??= new VertexVideo(undefined, undefined, s3.config.credentials);
     if (job.status === "SUBMITTING") {
-      let image, lastFrame;
+      let image: InlineImage | undefined, lastFrame: InlineImage | undefined;
       if (job.frameSources) {
+        let frames: ReturnType<typeof keyframes>;
         try {
-          [image, lastFrame] = await aiFrames(s3, bucket, job.frameSources);
+          frames = keyframes(await aiFrames(s3, bucket, job.frameSources));
         } catch {
           await failAiGeneration(prisma, job.id, "The source frames could not be read. Your credit was returned.", true);
           return true;
+        }
+        image = inline(frames.image); lastFrame = inline(frames.lastFrame);
+        // Composed keyframes (ADR 0036): the presenter placed into the real frame before Veo sees it.
+        if (frames.presenter && (frames.image?.compose || frames.lastFrame?.compose)) {
+          try {
+            images ??= new VertexImages(undefined, undefined, s3.config.credentials);
+            for (const [end, frame] of [["first", frames.image], ["last", frames.lastFrame]] as const) {
+              if (!frame?.compose) continue;
+              const composed = await images.compose(end, frame.compose, inline(frame)!, inline(frames.presenter)!);
+              // Kept beside the take so the studio can see what Veo was given.
+              await s3.send(new PutObjectCommand({ Bucket: bucket, Key: `workspaces/${job.workspaceId}/ai/${job.id}-${end}.jpg`, Body: Buffer.from(composed.bytesBase64Encoded, "base64"), ContentType: "image/jpeg" }));
+              if (end === "first") image = composed; else lastFrame = composed;
+            }
+          } catch {
+            await failAiGeneration(prisma, job.id, "The start and end stills could not be composed. Your credit was returned.", true);
+            return true;
+          }
         }
       } else if (job.referenceKey) {
         const result = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: job.referenceKey }));

@@ -1,5 +1,6 @@
 // Caches the speech-recognition model into the worker image at build time
 // (see apps/worker/Dockerfile), so a render task never downloads it.
+// Run with tsx, like ensure-browser.ts.
 import { env, pipeline } from "@huggingface/transformers";
 
 const dir = process.argv[2];

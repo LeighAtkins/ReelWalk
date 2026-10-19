@@ -46,7 +46,7 @@ RUN node_modules/.bin/tsx src/ensure-browser.ts
 
 # The speech-recognition model (about 240 MB) for word-timed transcripts
 # (src/transcribe.ts), cached here so a render task never downloads it.
-RUN node scripts/fetch-whisper.mjs /workspace/models
+RUN node_modules/.bin/tsx scripts/fetch-whisper.ts /workspace/models
 
 ## ── Stage 3: runner ───────────────────────────────────────────
 FROM runtime AS runner

@@ -27,7 +27,7 @@ presenter voice rule needs.
 - **Model:** Whisper small (English) exported with attention outputs, the
   `_timestamped` variant from `onnx-community`, quantised (q8), through
   `@huggingface/transformers` on the CPU. About 240 MB, cached into the
-  worker image at build time (`scripts/fetch-whisper.mjs`), never downloaded
+  worker image at build time (`scripts/fetch-whisper.ts`), never downloaded
   by a render task. An 8-second clip takes about 2 seconds after the first
   load; the first load in a task takes about 2 seconds more.
 - **Audio:** `ffmpeg` extracts the first audio stream as 16 kHz mono PCM.

@@ -11,12 +11,13 @@ export function sameTimeline(a: unknown, b: unknown): boolean {
 }
 
 /** Words Opus writes for the studio to read are shortened, never a reason to discard a paid review. */
-const prose = (max: number) => z.string().trim().min(1).transform(text => text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text);
+// Empty is allowed: a paid review with a blank note is still a review (one came back with note "" and was thrown away).
+const prose = (max: number) => z.string().trim().transform(text => text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text);
 const list = <T extends z.ZodType>(item: T, max: number) => z.array(item).transform(items => items.slice(0, max));
 
 const frameSchema = z.object({ assetId: z.string().min(1).max(64), atMs: z.number().int().nonnegative() });
 export const directorShotSchema = z.object({
-  title: prose(100),
+  title: prose(100).transform(text => text || "New shot"),
   reason: prose(600),
   prompt: z.string().trim().min(10).max(2000),
   durationSeconds: z.union([z.literal(4), z.literal(8)]),

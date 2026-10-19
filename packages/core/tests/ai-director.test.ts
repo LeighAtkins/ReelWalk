@@ -7,6 +7,10 @@ function plan() {
 }
 const assets = { house: { kind: "VIDEO", durationMs: 4000 }, room: { kind: "IMAGE", durationMs: null } };
 describe("in-app Opus direction", () => {
+  it("keeps a review whose note or limitations came back empty", () => {
+    const parsed = directorPlanSchema.parse({ ...plan(), note: "", limitations: "", shots: [{ ...plan().shots[0], title: "" }] });
+    expect(parsed.note).toBe(""); expect(parsed.shots[0].title).toBe("New shot");
+  });
   it("never puts an enum on a nullable type (Claude rejects the schema with HTTP 400)", () => {
     const offenders: string[] = [];
     const walk = (node: unknown, path: string) => {

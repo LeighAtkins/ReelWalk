@@ -1,10 +1,14 @@
 import { z } from "zod";
 import { AI_EDIT_PLAN_JSON_SCHEMA, aiEditPlanSchema } from "./ai-edit";
 
+/** Words Opus writes for the studio to read are shortened, never a reason to discard a paid review. */
+const prose = (max: number) => z.string().trim().min(1).transform(text => text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text);
+const list = <T extends z.ZodType>(item: T, max: number) => z.array(item).transform(items => items.slice(0, max));
+
 const frameSchema = z.object({ assetId: z.string().min(1).max(64), atMs: z.number().int().nonnegative() });
 export const directorShotSchema = z.object({
-  title: z.string().trim().min(1).max(100),
-  reason: z.string().trim().min(1).max(600),
+  title: prose(100),
+  reason: prose(600),
   prompt: z.string().trim().min(10).max(2000),
   durationSeconds: z.union([z.literal(4), z.literal(8)]),
   first: frameSchema.nullable(),
@@ -12,10 +16,10 @@ export const directorShotSchema = z.object({
 }).refine(s => !s.last || s.first, "An ending frame needs a starting frame.");
 
 export const directorPlanSchema = z.object({
-  note: z.string().max(1200),
+  note: prose(1200),
   verdict: z.enum(["ready", "changes-proposed", "needs-generation"]),
-  issues: z.array(z.string().max(600)).max(12),
-  limitations: z.string().max(1200),
+  issues: list(prose(600), 12),
+  limitations: prose(1200),
   checks: z.object({
     scale: checkSchema(), cameraContinuity: checkSchema(), presenterContinuity: checkSchema(), propertyIdentity: checkSchema(),
   }),
@@ -29,10 +33,10 @@ export const DIRECTOR_PLAN_JSON_SCHEMA = {
   type: "object", additionalProperties: false,
   required: ["note", "verdict", "issues", "limitations", "checks", "edit", "shots"],
   properties: {
-    note: { type: "string" },
+    note: { type: "string", description: "Plain-language summary for the studio, under 1000 characters." },
     verdict: { type: "string", enum: ["ready", "changes-proposed", "needs-generation"] },
-    issues: { type: "array", items: { type: "string" } },
-    limitations: { type: "string" },
+    issues: { type: "array", items: { type: "string", description: "One problem, under 400 characters." }, description: "At most 12." },
+    limitations: { type: "string", description: "Under 800 characters." },
     checks: { type: "object", additionalProperties: false, required: ["scale", "cameraContinuity", "presenterContinuity", "propertyIdentity"], properties: {
       scale: checkJson(), cameraContinuity: checkJson(), presenterContinuity: checkJson(), propertyIdentity: checkJson(),
     } },
@@ -53,8 +57,8 @@ function frameJson() {
   return { type: ["object", "null"], additionalProperties: false, required: ["assetId", "atMs"],
     properties: { assetId: { type: "string" }, atMs: { type: "integer" } } };
 }
-function checkSchema() { return z.object({ result: z.enum(["pass", "fail", "uncertain"]), evidence: z.string().min(1).max(600) }); }
-function checkJson() { return { type: "object", additionalProperties: false, required: ["result", "evidence"], properties: { result: { type: "string", enum: ["pass", "fail", "uncertain"] }, evidence: { type: "string" } } }; }
+function checkSchema() { return z.object({ result: z.enum(["pass", "fail", "uncertain"]), evidence: prose(600) }); }
+function checkJson() { return { type: "object", additionalProperties: false, required: ["result", "evidence"], properties: { result: { type: "string", enum: ["pass", "fail", "uncertain"] }, evidence: { type: "string", description: "What the frames show, under 400 characters." } } }; }
 
 /** Mechanical validation, never an assistant-authored rewrite of Opus's direction. */
 export function validateDirectorReferences(plan: DirectorPlan, assets: Record<string, { kind: string; durationMs: number | null; isPano?: boolean }>): void {

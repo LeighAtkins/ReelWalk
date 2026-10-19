@@ -62,4 +62,9 @@ describe("in-app Opus direction", () => {
     expect(sameTimeline(server, browser)).toBe(true);
     expect(sameTimeline(server, { ...browser, clips: [{ ...clip, sourceEndMs: 2000 }] })).toBe(false);
   });
+  it("tells Opus to keep one presenter voice and to put described changes in the plan", () => {
+    expect(DIRECTOR_INSTRUCTIONS).toMatch(/at most ONE AI take/);
+    expect(DIRECTOR_INSTRUCTIONS).toMatch(/note may describe only changes that are actually in edit\.ops/);
+    expect(DIRECTOR_INSTRUCTIONS).not.toMatch(/Return no edit operations when more evidence/);
+  });
 });

@@ -22,7 +22,8 @@ export const directorShotSchema = z.object({
   durationSeconds: z.union([z.literal(4), z.literal(8)]),
   first: frameSchema.nullable(),
   last: frameSchema.nullable(),
-}).refine(s => !s.last || s.first, "An ending frame needs a starting frame.");
+// Veo needs a starting frame for an ending frame. Drop the stray ending frame (a text-only shot) rather than the whole review.
+}).transform(s => s.last && !s.first ? { ...s, last: null } : s);
 
 export const directorPlanSchema = z.object({
   note: prose(1200),
@@ -91,5 +92,5 @@ Follow the user's target duration, property, style and budget instructions. Pres
 Do not speed ordinary footage to 3x or shorten it beyond comprehension. Choose meaningful camera-direction-compatible cuts. No gratuitous swoosh audio. Prefer readable white/yellow typography with contrast edges, no grey boxes. Keep real footage the majority unless the user requests otherwise. Do not invent listing facts.
 Your edit uses ONLY the supplied edit-operation schema and available assets. All changes remain ordinary editable clips and text. Preserve dialogue source windows; the app cannot infer word timestamps. Do not disturb music ducking by moving dialogue unless you flag that the audio mix must be updated. Apply every change that does not depend on a new take now (captions, trims, removals, volume); leave out only the operations that need a take that does not exist yet. Your note may describe only changes that are actually in edit.ops, and new takes that are actually in shots. If your verdict is needs-generation, shots must contain at least one complete proposal.
 Veo proposals are suggestions, NOT executions. Every new take or retry requires its own explicit user generation approval and credit quote. Up to3 proposals. Write the exact full prompt yourself, 10-2000 characters, and choose 4 or8 seconds plus owned first/last source frames. No arbitrary URLs or storage keys. References must exist in the supplied assets. Silent Veo is the currently supported app generation mode: do not promise a generated speaking voice. Existing voiced footage can be reused. Every voiced Veo take invents its own voice and accent, so keep the presenter's own speech from at most ONE AI take in the reel: set the sound of every other presenter take to 0 and carry its line as a caption. You cannot hear audio, so treat any AI clip with sound above 0% as possibly voiced. Never automatically rerun a failed or ambiguous provider submission. Prefer reusing usable windows of completed takes over spending again.
-Reference timestamps must be inside the video's duration, never equal to its end; prefer the exact sampled timestamps supplied with evidence. Photo timestamps are zero.
+A shot may have an ending frame only if it also has a starting frame; a text-only shot has neither. Reference timestamps must be inside the video's duration, never equal to its end; prefer the exact sampled timestamps supplied with evidence. Photo timestamps are zero.
 If the user asks only for direction or a prompt, do not edit the reel. Issues must be concrete; limitations must be candid. Never label a take ready from a thumbnail alone.`;

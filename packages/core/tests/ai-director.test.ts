@@ -22,11 +22,12 @@ describe("in-app Opus direction", () => {
     p.shots[0].first!.atMs = 3999; p.shots[0].last!.atMs = 1;
     expect(() => validateDirectorReferences(p, assets)).toThrow("zero");
   });
-  it("refuses unsupported lengths, oversize prompts and last-frame-only shots", () => {
+  it("refuses unsupported lengths and oversize prompts, and turns last-frame-only shots into text-only shots", () => {
     const p = plan();
     expect(directorPlanSchema.safeParse({ ...p, shots: [{ ...p.shots[0], durationSeconds: 2 }] }).success).toBe(false);
     expect(directorPlanSchema.safeParse({ ...p, shots: [{ ...p.shots[0], prompt: "x".repeat(2001) }] }).success).toBe(false);
-    expect(directorPlanSchema.safeParse({ ...p, shots: [{ ...p.shots[0], first: null }] }).success).toBe(false);
+    const lastOnly = directorPlanSchema.safeParse({ ...p, shots: [{ ...p.shots[0], first: null }] });
+    expect(lastOnly.success && lastOnly.data.shots[0].last).toBeNull();
   });
   it("makes human scale and presenter continuity explicit without claiming stills prove playback", () => {
     expect(DIRECTOR_INSTRUCTIONS).toContain("giant presenter");
@@ -80,5 +81,15 @@ describe("in-app Opus direction", () => {
     // Front first, then remove clip 1 of the description (roof), not whatever sits first after the reorder.
     const result = applyAiEditPlan(timeline, { note: "", ops: [{ ...blank, op: "order", order: [3, 2] }, { ...blank, op: "remove", clip: 1 }] } as never, { assets, songs: [], newId: () => "n" });
     expect(result.timeline.clips.map(c => c.id)).toEqual(["front", "walk"]);
+  });
+  it("keeps a review whose shot has an ending frame but no starting frame, as a text-only shot", () => {
+    const check = { result: "uncertain", evidence: "Not generated yet." };
+    const plan = directorPlanSchema.parse({
+      note: "One retry.", verdict: "needs-generation", issues: [], limitations: "Stills only.",
+      checks: { scale: check, cameraContinuity: check, presenterContinuity: check, propertyIdentity: check },
+      edit: { ops: [], note: "No edits.", questions: [], caption: null },
+      shots: [{ title: "Retry", reason: "Fell level.", prompt: "Straight down onto the villa roof, small figure.", durationSeconds: 4, first: null, last: { assetId: "a", atMs: 0 } }],
+    });
+    expect(plan.shots[0].last).toBeNull();
   });
 });

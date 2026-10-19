@@ -13,6 +13,7 @@
     "@aws-sdk/client-s3": "^3.1148.0",
     "@aws-sdk/client-sqs": "^3.1148.0",
     "@aws-sdk/s3-request-presigner": "^3.1148.0",
+    "@huggingface/transformers": "^4.3.1",
     "@reelwalk/core": "workspace:*",
     "@reelwalk/db": "workspace:*",
     "@reelwalk/render": "workspace:*",

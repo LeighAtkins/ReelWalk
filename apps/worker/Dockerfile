@@ -44,6 +44,10 @@ WORKDIR /workspace/apps/worker
 # fetch ~90 MB before its first render.
 RUN node_modules/.bin/tsx src/ensure-browser.ts
 
+# The speech-recognition model (about 240 MB) for word-timed transcripts
+# (src/transcribe.ts), cached here so a render task never downloads it.
+RUN node_modules/.bin/tsx scripts/fetch-whisper.ts /workspace/models
+
 ## ── Stage 3: runner ───────────────────────────────────────────
 FROM runtime AS runner
 
@@ -53,6 +57,8 @@ RUN rm -rf /usr/local/lib/node_modules /usr/local/bin/npm /usr/local/bin/npx /us
 
 COPY --from=build /workspace /workspace
 WORKDIR /workspace/apps/worker
+
+ENV TRANSCRIBE_MODEL_DIR=/workspace/models
 
 USER node
 EXPOSE 8081

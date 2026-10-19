@@ -29,3 +29,4 @@ export * from "./venue";
 export * from "./vibes";
 export * from "./walk";
 export * from "./ai-director";
+export * from "./transcript";

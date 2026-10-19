@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bestShift, describeMotion, homography, matrix3d, motionFlags, motionProfile, pickMatchingFrame, smoothKeyframes, trackPatch, type Gray, type Quad } from "../src";
+import { applyHomography, bestShift, describeMotion, fitHomography, homography, matrix3d, motionFlags, motionProfile, pickMatchingFrame, planePoints, robustHomography, smoothKeyframes, trackPatch, trackPlane, type Gray, type Quad } from "../src";
 
 /** A textured frame (a fixed noise pattern, like a wall or floor) shifted by (sx, sy); another `seed` is a different picture. */
 function frame(sx: number, sy: number, seed = 1, width = 24, height = 40): Gray {
@@ -66,5 +66,42 @@ describe("measured motion", () => {
     const match = pickMatchingFrame(candidates, frame(0, 9));
     expect(match).toMatchObject({ t: 3084, close: true });
     expect(pickMatchingFrame(candidates, frame(0, 9, 2))?.close).toBe(false);
+  });
+});
+
+describe("rigid plane tracking", () => {
+  const H: number[] = [1.02, 0.03, 4, -0.01, 0.99, -3, 0.0002, 0.0001, 1];
+  const pts: [number, number][] = Array.from({ length: 20 }, (_, i) => [10 + (i % 5) * 20, 10 + Math.floor(i / 5) * 25]);
+  const warped = pts.map(p => applyHomography(H, p[0], p[1]));
+
+  it("fits one homography to many point pairs", () => {
+    const h = fitHomography(pts, warped)!;
+    for (let i = 0; i < 9; i++) expect(h[i]).toBeCloseTo(H[i], 5);
+    expect(fitHomography(pts.slice(0, 3), warped.slice(0, 3))).toBeNull();
+  });
+
+  it("ignores points that left the plane", () => {
+    const noisy = warped.map((p, i) => (i % 7 === 3 ? [p[0] + 30, p[1] - 25] as [number, number] : p));
+    const fit = robustHomography(pts, noisy)!;
+    expect(fit.inliers).toBe(pts.length - noisy.filter((_, i) => i % 7 === 3).length);
+    for (let i = 0; i < 9; i++) expect(fit.h[i]).toBeCloseTo(H[i], 4);
+  });
+
+  it("moves a quad's corners together, by the motion the points agree on", () => {
+    const quad: Quad = [8, 8, 90, 8, 90, 110, 8, 110];
+    // Frame 2 is frame 1 shifted right 3 and down 2: textured, so patches are distinctive.
+    const textured = (dx: number, dy: number): Gray => { const width = 120, height = 140; const data = new Float32Array(width * height); for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) data[y * width + x] = 128 + 60 * Math.sin((x - dx) * 0.7) * Math.cos((y - dy) * 0.9) + 40 * Math.sin((x - dx) * 0.23 + (y - dy) * 0.31); return { data, width, height }; };
+    const a = textured(0, 0), b = textured(3, 2);
+    const points = planePoints(a, quad, { grid: 5, radius: 4 });
+    expect(points.length).toBeGreaterThanOrEqual(12);
+    const moved = trackPlane(a, b, points, quad, { radius: 5, range: 6 })!;
+    expect(moved).not.toBeNull();
+    for (let i = 0; i < 4; i++) { expect(moved.quad[i * 2] - quad[i * 2]).toBeCloseTo(3, 0); expect(moved.quad[i * 2 + 1] - quad[i * 2 + 1]).toBeCloseTo(2, 0); }
+    // The corners keep their shape: a rigid move leaves the diagonals' lengths alone.
+    const diag = (q: Quad) => Math.hypot(q[4] - q[0], q[5] - q[1]);
+    expect(diag(moved.quad)).toBeCloseTo(diag(quad), 0);
+    // A blank frame has nothing to follow.
+    const flat: Gray = { data: new Float32Array(120 * 140).fill(100), width: 120, height: 140 };
+    expect(planePoints(flat, quad)).toEqual([]);
   });
 });

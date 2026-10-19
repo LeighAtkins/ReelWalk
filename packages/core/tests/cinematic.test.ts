@@ -39,8 +39,8 @@ describe("text keyframes", () => {
   it("interpolates scale and rotation along the path and holds after the last point", async () => {
     const { textPositionAt, textSchema } = await import("../src");
     const text = textSchema.parse({ id: "t", text: "Hi", startMs: 0, endMs: 1000, x: 0.5, y: 0.5, path: [{ t: 0, x: 0, y: 0, s: 1, r: 0 }, { t: 1, x: 0.1, y: 0, s: 2, r: 10 }] });
-    expect(textPositionAt(text, 0.5)).toEqual({ x: 0.55, y: 0.5, scale: 1.5, rotation: 5 });
-    expect(textPositionAt(text, 1)).toEqual({ x: 0.6, y: 0.5, scale: 2, rotation: 10 });
+    expect(textPositionAt(text, 0.5)).toEqual({ x: 0.55, y: 0.5, scale: 1.5, rotation: 5, opacity: 1 });
+    expect(textPositionAt(text, 1)).toEqual({ x: 0.6, y: 0.5, scale: 2, rotation: 10, opacity: 1 });
   });
 });
 

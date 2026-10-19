@@ -234,6 +234,10 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
   useFontsFor(text.text, Number(css.fontWeight ?? 600));
   const { scale, opacity, rise, chars } = textMotion(text, frame, fps, durationInFrames);
   const face = { ...css, ...(text.depth === "extruded" ? { textShadow: extrudedShadow(text.color, Number(css.fontSize) || 64), WebkitTextStroke: `${Math.max(0.5, (Number(css.fontSize) || 64) * 0.01)}px rgba(0,0,0,0.35)` } : {}) };
+  // Paint on the surface: hard-light keeps the wall's own light and grain through the letters (white lightens, dark darkens), with the footage's softness.
+  const meet = text.blend === "surface" ? { mixBlendMode: "hard-light" as const, filter: "blur(0.6px)", opacity: 0.92 } : {};
+  // A tracked title fades where the tracker lost the surface, instead of cutting.
+  const visible = opacity * position.opacity;
   if (quad && text.pin?.quad) {
     // The text sits on the plane the tracker followed: a box at the pinned corners, warped to where they are now (ADR 0039).
     const q0 = text.pin.quad;
@@ -243,7 +247,7 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
     const H = homography([0, 0, w, 0, w, h, 0, h], now);
     return (
       <AbsoluteFill style={{ pointerEvents: "none", perspective: "none" }}>
-        <div style={{ position: "absolute", left, top, width: w, height: h, display: "flex", alignItems: "center", justifyContent: "center", transformOrigin: "0 0", transform: H ? matrix3d(H) : undefined, opacity, whiteSpace: /\s/.test(text.text) ? "normal" : "nowrap", textAlign: "center" }}>
+        <div style={{ position: "absolute", left, top, width: w, height: h, display: "flex", alignItems: "center", justifyContent: "center", transformOrigin: "0 0", transform: H ? matrix3d(H) : undefined, opacity: visible, whiteSpace: /\s/.test(text.text) ? "normal" : "nowrap", textAlign: "center", ...meet }}>
           {/* The tracked box is only as wide as the surface the pin followed; a single word must never break inside it. */}
           <span style={{ ...face, ...(/\s/.test(text.text) ? {} : { whiteSpace: "nowrap", overflowWrap: "normal" }), transform: `scale(${scale})` }}>{text.text}</span>
         </div>
@@ -266,7 +270,8 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
           display: "flex",
           justifyContent: "center",
           transform: `translate(-50%, calc(-50% + ${rise * 40}px)) scale(${scale * position.scale}) rotate(${position.rotation}deg)`,
-          opacity,
+          opacity: visible,
+          ...meet,
         }}
       >
         {chars === null ? (

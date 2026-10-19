@@ -25,6 +25,7 @@ import { PlanOverlayView } from "./PlanOverlayView";
 import type { ReelAsset, ReelProps } from "./types";
 import { Watermark } from "./Watermark";
 import { PersonMatteView } from "./PersonMatte";
+import { HookView } from "./HookView";
 
 /** Frames of the dip-to-black on each side of a "fade" transition. */
 const FADE_FRAMES = 8;
@@ -353,6 +354,7 @@ export const ReelComposition: React.FC<ReelProps> = ({ timeline, assets, waterma
         if (!asset || asset.kind !== "VIDEO" || !timeline.texts.some(text => text.behind && text.startMs < endMs && text.endMs > startMs)) return null;
         return <Sequence key={`matte-${clip.id}`} from={from} durationInFrames={durationInFrames} name={`matte ${clip.id}`}><PersonMatteView clip={clip} asset={asset} /></Sequence>;
       })}
+      {timeline.hook && plan.clips[0] ? <HookView timeline={timeline} hook={timeline.hook} firstClip={plan.clips[0].clip} asset={assets[plan.clips[0].clip.assetId]} /> : null}
       <DetailsCardView timeline={timeline} />
       {timeline.logo ? <LogoView logo={timeline.logo} asset={assets[timeline.logo.assetId]} /> : null}
       {watermark ? <Watermark /> : null}

@@ -261,6 +261,23 @@ export function captionFromDetails(details: ListingDetails): string {
     .join("\n\n");
 }
 
+/** Visual hooks (ADR 0041): one drawn opener over the first `durationMs`. */
+export const HOOK_KINDS = ["alert", "spotlight", "device"] as const;
+export type HookKind = (typeof HOOK_KINDS)[number];
+export const HOOK_FONTS = ["sans", "serif"] as const;
+export const hookSchema = z.object({
+  kind: z.enum(HOOK_KINDS),
+  /** How long the hook holds before the reel plays plainly. */
+  durationMs: z.number().int().min(800).max(4000).default(2200),
+  title: z.string().trim().max(80).default(""),
+  body: z.string().trim().max(140).default(""),
+  /** The alert's action button. */
+  action: z.string().trim().max(24).default(""),
+  color: z.string().regex(/^#[0-9a-f]{6}$/i).default("#ff5a5f"),
+  font: z.enum(HOOK_FONTS).default("sans"),
+});
+export type Hook = z.infer<typeof hookSchema>;
+
 export const timelineSchema = z.object({
   version: z.literal(1),
   clips: z.array(clipSchema).max(100),
@@ -274,6 +291,8 @@ export const timelineSchema = z.object({
   logo: logoSchema.nullable().default(null),
   /** The cover frame. Null means the usual one, 0.7 s into the reel. */
   cover: coverSchema.nullable().default(null),
+  /** A visual hook over the opening (ADR 0041). Null for none. */
+  hook: hookSchema.nullable().default(null),
 });
 
 export type Clip = z.infer<typeof clipSchema>;
@@ -282,7 +301,7 @@ export type Music = z.infer<typeof musicSchema>;
 export type Timeline = z.infer<typeof timelineSchema>;
 
 export function emptyTimeline(): Timeline {
-  return { version: 1, clips: [], texts: [], music: null, plan: null, details: null, logo: null, cover: null };
+  return { version: 1, clips: [], texts: [], music: null, plan: null, details: null, logo: null, cover: null, hook: null };
 }
 
 /** Validates untrusted JSON (a save from the browser, a row from the database). */

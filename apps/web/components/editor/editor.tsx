@@ -815,7 +815,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
   }, [activeSelection, clock, deleteSelection, seek, sheet, split, togglePlay, totalMs]);
 
   const assets = useMemo<Record<string, ReelAsset>>(
-    () => Object.fromEntries(Object.values(library).map((asset) => [asset.id, { src: asset.url, kind: asset.kind }])),
+    () => Object.fromEntries(Object.values(library).map((asset) => [asset.id, { src: asset.url, kind: asset.kind, transcript: asset.transcript }])),
     [library],
   );
   // Media the preview keeps in memory: the clips' preview renditions and the

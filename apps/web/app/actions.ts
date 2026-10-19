@@ -178,7 +178,7 @@ export async function exportReel(input: { id: string }): Promise<ExportResult> {
   const library = await prisma.mediaAsset.findMany({
     where: { id: { in: referencedAssetIds(timeline) }, ...mediaScope(user.workspaceId) },
     // instagramAudioId marks an Instagram sound's copy, which the render leaves out (ADR 0019).
-    select: { id: true, objectKey: true, kind: true, instagramAudioId: true },
+    select: { id: true, objectKey: true, kind: true, instagramAudioId: true, transcript: true },
   });
   const { plan } = await workspacePlan(user.workspaceId);
   let payload;

@@ -18,8 +18,10 @@ export async function captureDirectorEvidence(timeline: Timeline, assets: Librar
   const byId = new Map(assets.map(a => [a.id, a]));
   const ids = [...new Set([...timeline.clips.filter(c => byId.get(c.assetId)?.isAiGenerated).map(c => c.assetId), ...candidates, ...timeline.clips.map(c => c.assetId)])].slice(0, 10);
   const result: DirectorEvidence[] = [];
+  const skipped: string[] = [];
   for (const [i, id] of ids.entries()) {
     const asset = byId.get(id);
+    try {
     if (!asset || !["IMAGE", "VIDEO"].includes(asset.kind) || asset.isPano) continue;
     progress(`Opus is looking through your clips (${i + 1} of ${ids.length})…`);
     if (asset.kind === "IMAGE") {
@@ -52,15 +54,25 @@ export async function captureDirectorEvidence(timeline: Timeline, assets: Librar
       const canvas = document.createElement("canvas"); canvas.width = columns * width; canvas.height = Math.ceil(timesMs.length / columns) * (height + label);
       const ctx = canvas.getContext("2d"); if (!ctx) throw new Error("Your browser cannot capture source frames.");
       ctx.fillStyle = "#111"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+      const captured: number[] = [];
       for (const [n, time] of timesMs.entries()) {
-        if (Math.abs(video.currentTime * 1000 - time) > 5) await event(video, "seeked", () => { video.currentTime = time / 1000; });
+        // One stalled seek is retried once; after that the frames already captured are kept.
+        if (Math.abs(video.currentTime * 1000 - time) > 5) {
+          try { await event(video, "seeked", () => { video.currentTime = time / 1000; }); }
+          catch { try { await event(video, "seeked", () => { video.currentTime = Math.max(0, time - 40) / 1000; }); } catch { break; } }
+        }
+        captured.push(time);
         const x = n % columns * width, y = Math.floor(n / columns) * (height + label);
         ctx.fillStyle = "white"; ctx.font = "14px sans-serif"; ctx.fillText(`${(time / 1000).toFixed(2)}s`, x + 4, y + 16);
         const scale = Math.min(width / video.videoWidth, height / video.videoHeight);
         ctx.drawImage(video, x + (width - video.videoWidth * scale) / 2, y + label + (height - video.videoHeight * scale) / 2, video.videoWidth * scale, video.videoHeight * scale);
       }
-      result.push({ assetId: id, timesMs, image: canvas.toDataURL("image/jpeg", .78) });
+      if (!captured.length) throw new Error("No frames could be read.");
+      result.push({ assetId: id, timesMs: captured, image: canvas.toDataURL("image/jpeg", .78) });
     } finally { video.removeAttribute("src"); video.load(); }
+    } catch { skipped.push(asset?.fileName ?? id); }
   }
+  if (!result.length) throw new Error("None of the clips could be read. Check your connection and try again.");
+  if (skipped.length) progress(`Opus could not read ${skipped.length} ${skipped.length === 1 ? "clip" : "clips"} and will review the rest.`);
   return result;
 }

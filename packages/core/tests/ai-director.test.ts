@@ -40,4 +40,17 @@ describe("in-app Opus direction", () => {
     p.checks.scale.result = "fail";
     expect(directorPlanSchema.safeParse({ ...p, verdict: "ready" }).success).toBe(false);
   });
+  it("shortens long prose instead of discarding a paid review", () => {
+    const long = "The presenter stands as tall as the doorway. ".repeat(40);
+    const check = { result: "fail", evidence: long };
+    const plan = directorPlanSchema.parse({
+      note: long, verdict: "changes-proposed", issues: Array.from({ length: 15 }, () => long), limitations: long,
+      checks: { scale: check, cameraContinuity: check, presenterContinuity: check, propertyIdentity: check },
+      edit: { ops: [], note: "No edits.", questions: [], caption: null }, shots: [],
+    });
+    expect(plan.checks.scale.evidence.length).toBeLessThanOrEqual(600);
+    expect(plan.checks.scale.evidence.endsWith("…")).toBe(true);
+    expect(plan.note.length).toBeLessThanOrEqual(1200);
+    expect(plan.issues).toHaveLength(12);
+  });
 });

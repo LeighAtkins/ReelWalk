@@ -33,3 +33,4 @@ export * from "./transcript";
 export * from "./guards";
 export * from "./motion";
 export * from "./ducking";
+export * from "./director-loop";

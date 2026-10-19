@@ -3,9 +3,9 @@ import { z } from "zod";
 import { directorPlanSchema } from "../src/ai-director";
 import { directorGenerationRequestId } from "../../../apps/web/lib/director-request";
 
-const mocks = vi.hoisted(() => ({ user: { id: "u", workspaceId: "w", email: "owner@test.invalid" } as { id: string; workspaceId: string; email: string } | null, find: vi.fn(), generate: vi.fn(), wake: vi.fn(), direct: vi.fn(), findJob: vi.fn(), createJob: vi.fn(), updateJob: vi.fn(), findReel: vi.fn(), provider: "anthropic", model: "claude-opus-5-5" }));
+const mocks = vi.hoisted(() => ({ user: { id: "u", workspaceId: "w", email: "owner@test.invalid" } as { id: string; workspaceId: string; email: string } | null, find: vi.fn(), generate: vi.fn(), wake: vi.fn(), direct: vi.fn(), findEdits: vi.fn(), findGenerations: vi.fn(), findJob: vi.fn(), createJob: vi.fn(), updateJob: vi.fn(), findReel: vi.fn(), provider: "anthropic", model: "claude-opus-5-5" }));
 vi.mock("@/lib/auth", () => ({ getSessionUser: async () => mocks.user }));
-vi.mock("@reelwalk/db", () => ({ prisma: { aiEdit: { findFirst: mocks.find }, aiJob: { findUnique: mocks.findJob, create: mocks.createJob, update: mocks.updateJob }, reel: { findFirst: mocks.findReel } } }));
+vi.mock("@reelwalk/db", () => ({ prisma: { aiEdit: { findFirst: mocks.find, findMany: mocks.findEdits }, aiGeneration: { findMany: mocks.findGenerations }, aiJob: { findUnique: mocks.findJob, create: mocks.createJob, update: mocks.updateJob }, reel: { findFirst: mocks.findReel } } }));
 vi.mock("@/lib/ai-video", () => ({ createAiGeneration: mocks.generate }));
 vi.mock("@/lib/render-capacity", () => ({ ensureWorkerRunning: mocks.wake }));
 vi.mock("@/lib/openai", () => ({ aiProvider: () => mocks.provider, aiModel: () => mocks.model }));
@@ -31,6 +31,19 @@ beforeEach(() => {
 });
 
 describe("Opus generation approval", () => {
+  it("lets a run make a shot only while its budget has room, and only for its own reviews", async () => {
+    mocks.findEdits.mockResolvedValue([{ id: "edit" }, { id: "round-two" }]);
+    mocks.findGenerations.mockResolvedValue([{ credits: 2 }]);
+    const auto = { runId: "edit", budgetCredits: 3 };
+    const over = await approve(request({ ...body, auto }), params);
+    expect(over.status).toBe(409); expect(await over.json()).toEqual({ error: "This run has used 2 of its 3 credits; the next shot needs 2." });
+    expect(mocks.generate).not.toHaveBeenCalled();
+    expect(mocks.findGenerations.mock.calls[0][0].where.requestId.in).toContain(directorGenerationRequestId("round-two", 1));
+    expect((await approve(request({ ...body, auto: { ...auto, budgetCredits: 4 } }), params)).status).toBe(202);
+    expect(mocks.generate).toHaveBeenCalledTimes(1);
+    mocks.find.mockResolvedValueOnce({ model: "claude-opus-5-5", plan: { kind: "director", plan, runId: "another" } });
+    expect((await approve(request({ ...body, editId: "stray", auto: { ...auto, budgetCredits: 40 } }), params)).status).toBe(409);
+  });
   it("requires login, same origin and specific consent before any generation", async () => {
     mocks.user = null; expect((await approve(request(body), params)).status).toBe(401);
     mocks.user = { id: "u", workspaceId: "w", email: "owner@test.invalid" };

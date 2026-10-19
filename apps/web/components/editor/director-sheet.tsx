@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { aiClipCredits, sameTimeline, type DirectorPlan, type Timeline } from "@reelwalk/core";
+import { aiClipCredits, DIRECTOR_LOOP_MAX_ROUNDS, directorLoopBrief, directorLoopStep, sameTimeline, type DirectorPlan, type Timeline } from "@reelwalk/core";
 import type { LibraryAsset } from "@/lib/library";
 import { runAiJob, waitForAiJob } from "@/lib/ai-jobs-client";
 import { captureDirectorEvidence } from "./director-evidence";
@@ -25,6 +25,11 @@ export function DirectorSheet({ reelId, timeline, library, onApply, onClose }: {
   const [approving, setApproving] = useState<number | null>(null);
   const [generated, setGenerated] = useState<Record<string, string>>({});
   const retry = useRef<{ key: string; body: unknown } | null>(null);
+  // "Make it for me" (ADR 0037): Opus reviews, the app applies and makes shots within the budget, Opus checks each one.
+  const [mode, setMode] = useState<"ask" | "auto">("ask");
+  const [budget, setBudget] = useState(2);
+  const [running, setRunning] = useState(false);
+  const loop = useRef<{ runId: string | null; spent: number; round: number; stop: boolean } | null>(null);
   const media = [...new Map([...library, ...extra].map(a => [a.id, a])).values()];
   async function reloadHistory() {
     const response = await fetch(`/api/reels/${reelId}/director`, { cache: "no-store" });
@@ -37,29 +42,75 @@ export function DirectorSheet({ reelId, timeline, library, onApply, onClose }: {
     setReview(result); setMessage("Here is what Opus suggests. Nothing has changed yet."); await reloadHistory();
   }
   /** Completed AI takes this reel does not use yet, newest first: Opus considers them without the studio picking files. */
-  async function unusedTakes(): Promise<{ ids: string[]; assets: LibraryAsset[] }> {
+  async function unusedTakes(base: Timeline): Promise<{ ids: string[]; assets: LibraryAsset[] }> {
     const response = await fetch("/api/ai/generations", { cache: "no-store" });
     if (!response.ok) return { ids: [], assets: [] };
     const data = await response.json();
     const assets: LibraryAsset[] = data.jobs.flatMap((j: { asset: LibraryAsset | null }) => j.asset ? [j.asset] : []);
-    const used = new Set(timeline.clips.map(c => c.assetId));
+    const used = new Set(base.clips.map(c => c.assetId));
     return { ids: assets.filter(a => !used.has(a.id) && a.kind === "VIDEO").map(a => a.id).slice(0, 4), assets };
   }
-  async function direct() {
+  async function direct(request = brief, base = timeline, runId: string | null = null): Promise<Review | null> {
     setBusy(true); setMessage("Opus is getting your clips ready…");
     try {
-      const key = JSON.stringify({ brief, timeline });
+      const key = JSON.stringify({ request, base, runId });
       if (retry.current?.key !== key) {
-        const takes = await unusedTakes();
-        setExtra(takes.assets);
+        const takes = await unusedTakes(base);
+        setExtra(prev => [...new Map([...prev, ...takes.assets].map(a => [a.id, a])).values()]);
         const candidates = takes.ids;
-        const evidence = await captureDirectorEvidence(timeline, [...media, ...takes.assets], candidates, setMessage);
-        retry.current = { key, body: { requestId: crypto.randomUUID(), request: brief, timeline, candidates, evidence } };
+        const evidence = await captureDirectorEvidence(base, [...media, ...takes.assets], candidates, setMessage);
+        retry.current = { key, body: { requestId: crypto.randomUUID(), request, timeline: base, candidates, evidence, ...(runId ? { runId } : {}) } };
       }
       setMessage("Opus is watching the frames and working out what to change. This takes a minute or two…");
-      await acceptResult(await runAiJob<Review>(`/api/reels/${reelId}/director`, retry.current.body));
-    } catch (error) { setMessage(error instanceof Error ? error.message : "Review could not finish. Check saved requests before retrying."); }
+      const result = await runAiJob<Review>(`/api/reels/${reelId}/director`, retry.current.body);
+      await acceptResult(result);
+      return result.ok ? result : null;
+    } catch (error) { setMessage(error instanceof Error ? error.message : "Review could not finish. Check saved requests before retrying."); return null; }
     finally { setBusy(false); }
+  }
+  /** The finished take for a generation, or null when it failed, the run was stopped, or twenty minutes passed. */
+  async function waitForTake(id: string, state: { stop: boolean }): Promise<LibraryAsset | null> {
+    const deadline = Date.now() + 20 * 60_000;
+    while (Date.now() < deadline && !state.stop) {
+      await new Promise(resolve => setTimeout(resolve, 10_000));
+      const response = await fetch("/api/ai/generations", { cache: "no-store" }).catch(() => null);
+      if (!response?.ok) continue;
+      const data = await response.json() as { jobs: { id: string; status: string; asset: LibraryAsset | null }[] };
+      const job = data.jobs.find(j => j.id === id);
+      if (job?.status === "SUCCEEDED" && job.asset) return job.asset;
+      if (job && ["FAILED", "CANCELLED"].includes(job.status)) return null;
+    }
+    return null;
+  }
+  /** "Make it for me": review, apply, make the first shot that fits the budget, let Opus check it, repeat. */
+  async function run() {
+    const state = { runId: null as string | null, spent: 0, round: 0, stop: false };
+    loop.current = state; setRunning(true);
+    let request = brief, base = timeline;
+    try {
+      for (;;) {
+        const result = await direct(request, base, state.runId);
+        if (!result || state.stop) return;
+        state.runId ??= result.editId;
+        if ((result.applied.length || result.plan.edit.caption) && !onApply(result)) { setMessage("The timeline changed while Opus was working, so the run stopped before making anything."); return; }
+        base = result.timeline;
+        const step = directorLoopStep(result.plan, { round: state.round, maxRounds: DIRECTOR_LOOP_MAX_ROUNDS, budgetCredits: budget, spentCredits: state.spent });
+        if (step.kind === "done") { setMessage(step.reason); return; }
+        const shot = result.plan.shots[step.index];
+        setBusy(true);
+        const response = await fetch(`/api/reels/${reelId}/director/generate`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ editId: result.editId, index: step.index, quotedCredits: step.credits, approved: true, auto: { runId: state.runId, budgetCredits: budget } }) });
+        const data = await response.json(); if (!response.ok) throw new Error(data.error ?? "Generation did not start.");
+        state.spent += step.credits; state.round += 1;
+        setGenerated(g => ({ ...g, [`${result.editId}:${step.index}`]: data.id }));
+        setMessage(`Making "${shot.title}" · ${state.spent} of ${budget} credits used. Opus will check it when it is ready, in a few minutes…`);
+        const asset = await waitForTake(data.id, state);
+        if (state.stop) { setMessage(`Stopped. "${shot.title}" will still finish and appear in your media.`); return; }
+        if (!asset) { setMessage(`"${shot.title}" did not come out, so the run stopped. A failed shot's credit is returned.`); return; }
+        setExtra(prev => [...prev, asset]);
+        request = directorLoopBrief(brief, state.round, { title: shot.title, fileName: asset.fileName });
+      }
+    } catch (error) { setMessage(error instanceof Error ? error.message : "The run stopped. Check saved reviews before starting another."); }
+    finally { loop.current = null; setRunning(false); setBusy(false); }
   }
   async function resume(id: string) {
     setBusy(true); setMessage("Opus is still working on your last request…");
@@ -80,7 +131,15 @@ export function DirectorSheet({ reelId, timeline, library, onApply, onClose }: {
     <p className="muted">Tell Opus what you think, the way you would tell an editor. It looks through every clip, including AI takes you have not used, and suggests fixes. Nothing changes until you tap Apply, and new AI shots always ask first.</p>
     {pending.map(j => <button key={j.id} type="button" className="btn btn-quiet btn-block" disabled={busy} onClick={() => resume(j.id)}>Opus is still working on your last request · show it</button>)}
     <label className="field">What do you think?<textarea className="text-area" rows={5} maxLength={4000} value={brief} onChange={e => setBrief(e.target.value)} disabled={busy} placeholder="For example: the skydive looks fake, she vanishes between shots, and she looks huge next to the house." /></label>
-    <button type="button" className="btn btn-signal btn-block" disabled={busy || brief.trim().length < 3} onClick={direct}>{busy ? "Opus is working…" : "Ask Opus"}</button>
+    <fieldset className="field" disabled={busy}>
+      <legend className="small">AI shots</legend>
+      <label className="small"><input type="radio" name="director-mode" checked={mode === "ask"} onChange={() => setMode("ask")} /> Ask me before using credits</label>
+      <label className="small"><input type="radio" name="director-mode" checked={mode === "auto"} onChange={() => setMode("auto")} /> Make it for me, up to <input type="number" inputMode="numeric" min={1} max={40} value={budget} onChange={e => setBudget(Math.max(1, Math.min(40, Math.round(Number(e.target.value) || 1))))} style={{ width: "4em" }} aria-label="Credit budget" /> {budget === 1 ? "credit" : "credits"}</label>
+      {mode === "auto" ? <span className="muted small">Opus applies its changes, makes one shot at a time, checks each result, and stops when it is happy, when the budget cannot cover the next shot, or after {DIRECTOR_LOOP_MAX_ROUNDS} rounds. You can stop it at any point; shots already made stay in your media.</span> : null}
+    </fieldset>
+    {running
+      ? <button type="button" className="btn btn-quiet btn-block" onClick={() => { if (loop.current) loop.current.stop = true; setMessage("Stopping after the current step…"); }}>Stop the run</button>
+      : <button type="button" className="btn btn-signal btn-block" disabled={busy || brief.trim().length < 3} onClick={() => { void (mode === "auto" ? run() : direct()); }}>{busy ? "Opus is working…" : mode === "auto" ? `Make it for me · up to ${budget} ${budget === 1 ? "credit" : "credits"}` : "Ask Opus"}</button>}
     {message ? <p role="status" className="small">{message}</p> : null}
     {history.length > 0 ? <details><summary>Earlier suggestions ({history.length})</summary>{history.map(h => <button key={h.editId} type="button" className="btn btn-quiet btn-block" disabled={busy} onClick={() => setReview(h)}>{h.plan.note.slice(0, 110)}</button>)}</details> : null}
     {review ? <section aria-label="Opus direction">

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyHomography, bestShift, describeMotion, fitAffine, fitHomography, fitSimilarity, homography, matrix3d, motionFlags, motionProfile, pickMatchingFrame, planePoints, robustHomography, robustFit, smoothKeyframes, stepChange, trackPatch, trackPlane, type Gray, type Quad } from "../src";
+import { applyHomography, bestShift, describeMotion, fitAffine, fitHomography, fitSimilarity, leanQuad, homography, matrix3d, motionFlags, motionProfile, pickMatchingFrame, planePoints, robustHomography, robustFit, smoothKeyframes, stepChange, trackPatch, trackPlane, type Gray, type Quad } from "../src";
 
 /** A textured frame (a fixed noise pattern, like a wall or floor) shifted by (sx, sy); another `seed` is a different picture. */
 function frame(sx: number, sy: number, seed = 1, width = 24, height = 40): Gray {
@@ -139,5 +139,23 @@ describe("constrained plane fits and gates", () => {
     expect(robustFit("similarity", points, doubled)!.h[0]).toBeCloseTo(2, 6);
     const centre: [number, number] = [49, 59];
     expect(stepChange(robustFit("similarity", points, doubled)!.h, centre).scale).toBeCloseTo(2, 6);
+  });
+});
+
+describe("leaning a plane into perspective", () => {
+  const flat: Quad = [0.3, 0.4, 0.7, 0.4, 0.7, 0.5, 0.3, 0.5];
+  it("leaves a flat plane alone and keeps the centre", () => {
+    expect(leanQuad(flat, 0, 0)).toEqual(flat);
+    const q = leanQuad(flat, 30, 0);
+    expect((q[0] + q[2] + q[4] + q[6]) / 4).toBeCloseTo(0.5, 3);
+  });
+  it("turning right makes the right edge shorter and nearer the centre", () => {
+    const q = leanQuad(flat, 30, 0);
+    const leftHeight = q[7] - q[1], rightHeight = q[5] - q[3];
+    expect(rightHeight).toBeLessThan(leftHeight);
+    expect(q[2]).toBeLessThan(0.7);
+    // Tilting the top away shortens the top edge.
+    const t = leanQuad(flat, 0, 30);
+    expect(t[2] - t[0]).toBeLessThan(t[4] - t[6]);
   });
 });

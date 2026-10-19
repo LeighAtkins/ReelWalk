@@ -833,12 +833,15 @@ export function PinSheet({ text, clip, asset, clipStartMs, onPath, onClose }: {
   const [busy, setBusy] = useState(false);
   // A title that is in the room is there for the whole shot: on the wall when the cut lands, gone with the cut or the pan.
   const [wholeShot, setWholeShot] = useState(true);
+  // The wall's perspective: a title on a wall seen from the side recedes with it.
+  const [yaw, setYaw] = useState(text.pin?.lean?.yaw ?? 0);
+  const [pitch, setPitch] = useState(text.pin?.lean?.pitch ?? 0);
   const canTrack = Boolean(clip && clip.kind === "VIDEO" && asset);
   async function pin() {
     if (!clip || !asset) return;
     const timing = wholeShot ? { startMs: clipStartMs, endMs: clipStartMs + clipDurationMs(clip) } : { startMs: text.startMs, endMs: text.endMs };
     setBusy(true); setStatus("Following the surface under the text…");
-    const tracked = await trackTextPath(asset, clip, clipStartMs, { ...text, ...timing }, fraction => setStatus(`Following the surface under the text… ${Math.round(fraction * 100)}%`));
+    const tracked = await trackTextPath(asset, clip, clipStartMs, { ...text, ...timing }, fraction => setStatus(`Following the surface under the text… ${Math.round(fraction * 100)}%`), { yaw, pitch });
     setBusy(false);
     if (!tracked) { setStatus("Could not follow this shot. Try placing the text on a surface with some detail."); return; }
     onPath({ path: tracked.path, pin: tracked.pin }, wholeShot ? timing : undefined);
@@ -851,6 +854,9 @@ export function PinSheet({ text, clip, asset, clipStartMs, onPath, onClose }: {
     <Sheet title="Pin to the picture" onClose={onClose}>
       <p className="muted small">The text follows the wall, floor or object under it as the camera moves, as one flat plane in perspective, and stays with that shot if you trim or move it. Place it on something with detail first.</p>
       <label className="field small"><input type="checkbox" checked={wholeShot} onChange={event => setWholeShot(event.target.checked)} /> For the whole shot: already there when the shot starts, gone when it ends</label>
+      <Range label="Turn" value={yaw} min={-60} max={60} step={1} display={yaw === 0 ? "Facing camera" : yaw > 0 ? `Right edge recedes ${yaw}°` : `Left edge recedes ${-yaw}°`} onChange={setYaw} />
+      <Range label="Tilt" value={pitch} min={-60} max={60} step={1} display={pitch === 0 ? "Level" : pitch > 0 ? `Top recedes ${pitch}°` : `Bottom recedes ${-pitch}°`} onChange={setPitch} />
+      <p className="muted small">Match the wall: a wall running away to the right wants Turn to the right; a floor or ceiling wants Tilt. Pin again after changing them.</p>
       <button type="button" className="btn btn-signal btn-block" disabled={!canTrack || busy} onClick={pin} data-testid="pin-text">{busy ? "Following…" : text.path && text.path.length > 2 ? "Pin again from the current position" : "Pin to the picture"}</button>
       {!canTrack ? <p className="small">Pinning needs the text to start on a video clip.</p> : null}
       {text.path ? <button type="button" className="btn btn-quiet btn-block" disabled={busy} onClick={() => { onPath(undefined); setStatus("Unpinned."); }}>Unpin (still text)</button> : null}

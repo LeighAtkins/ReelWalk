@@ -1,4 +1,4 @@
-import { pickMatchingFrame, planePoints, smoothKeyframes, trackPlane, type Clip, type Gray, type Quad, type TextOverlay } from "@reelwalk/core";
+import { leanQuad, pickMatchingFrame, planePoints, smoothKeyframes, trackPlane, type Clip, type Gray, type Quad, type TextOverlay } from "@reelwalk/core";
 import type { LibraryAsset } from "@/lib/library";
 
 /** Browser side of @reelwalk/core's motion module: small grayscale frames from a video element. */
@@ -74,6 +74,8 @@ export type TrackQuality = {
 export async function trackTextPath(
   asset: LibraryAsset, clip: Clip, clipStartMs: number, text: Pick<TextOverlay, "x" | "y" | "startMs" | "endMs">,
   onProgress?: (fraction: number) => void,
+  /** Turn and tilt of the plane into the wall's perspective, degrees. */
+  lean: { yaw: number; pitch: number } = { yaw: 0, pitch: 0 },
 ): Promise<{ path: NonNullable<TextOverlay["path"]>; pin: NonNullable<TextOverlay["pin"]>; lostAtMs: number | null; quality: TrackQuality } | null> {
   const speed = clip.speed || 1;
   const lifeMs = text.endMs - text.startMs;
@@ -91,9 +93,12 @@ export async function trackTextPath(
     // The plane around the text, kept inside the frame with room for a patch.
     const hw = TRACK_WIDTH * 0.2, hh = TRACK_HEIGHT * 0.075, margin = radius + 1;
     const cx = Math.max(margin + hw, Math.min(TRACK_WIDTH - 1 - margin - hw, centre.x)), cy = Math.max(margin + hh, Math.min(TRACK_HEIGHT - 1 - margin - hh, centre.y));
-    let quad: Quad = [cx - hw, cy - hh, cx + hw, cy - hh, cx + hw, cy + hh, cx - hw, cy + hh];
+    // The plane starts turned and tilted like the wall; the tracker then moves that leaned plane.
+    const flat: Quad = [cx - hw, cy - hh, cx + hw, cy - hh, cx + hw, cy + hh, cx - hw, cy + hh];
+    const leaned = leanQuad(flat.map((v, i) => (i % 2 === 0 ? v / TRACK_WIDTH : v / TRACK_HEIGHT)) as Quad, lean.yaw, lean.pitch);
+    let quad: Quad = leaned.map((v, i) => (i % 2 === 0 ? v * TRACK_WIDTH : v * TRACK_HEIGHT)) as Quad;
     // Points with detail on the surface; a bare wall gets a wider search box (its frame, skirting or picture edges carry the motion).
-    let points = planePoints(prev, quad, { grid: 7, radius, minEnergy: 10 });
+    let points = planePoints(prev, flat, { grid: 7, radius, minEnergy: 10 });
     if (points.length < 6) points = planePoints(prev, [cx - hw * 1.8, cy - hh * 2.5, cx + hw * 1.8, cy - hh * 2.5, cx + hw * 1.8, cy + hh * 2.5, cx - hw * 1.8, cy + hh * 2.5], { grid: 9, radius, minEnergy: 8 });
     if (points.length < 4) return null;
     const quad0 = quad.map((v, i) => (i % 2 === 0 ? v / TRACK_WIDTH : v / TRACK_HEIGHT)) as Quad;
@@ -151,7 +156,7 @@ export async function trackTextPath(
     const clean = smoothKeyframes(path.filter((p, i) => i === 0 || p.t > path[i - 1].t));
     quality.inliers = quality.steps ? Math.round(inlierSum / Math.max(1, quality.steps - quality.held)) : 0;
     quality.grade = lostAtMs !== null ? "lost" : quality.held > quality.steps * 0.15 || quality.inliers < 8 ? "weak" : "good";
-    return clean.length >= 2 ? { path: clean, pin: { assetId: asset.id, fromMs: Math.round(firstSource), toMs: Math.round(lastSource), quad: quad0 }, lostAtMs, quality } : null;
+    return clean.length >= 2 ? { path: clean, pin: { assetId: asset.id, fromMs: Math.round(firstSource), toMs: Math.round(lastSource), quad: quad0, ...(lean.yaw || lean.pitch ? { lean } : {}) }, lostAtMs, quality } : null;
   } catch {
     return null;
   } finally {

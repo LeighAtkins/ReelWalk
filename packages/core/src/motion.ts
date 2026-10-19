@@ -415,3 +415,32 @@ export function planePoints(gray: Gray, quad: Quad, { grid = 6, radius = 6, minE
   }
   return out.map(o => o.p);
 }
+
+/**
+ * A rectangle turned and tilted in 3D and projected back onto the frame: the
+ * perspective a title needs to lie on a wall seen at an angle, rather than
+ * floating frontal (ADR 0039, third attempt). `yaw` turns it about its
+ * vertical axis (positive: the right edge recedes), `pitch` about its
+ * horizontal axis (positive: the top recedes), both in degrees; `focal` is the
+ * lens in frame widths (1.0 is a normal phone lens). Coordinates are frame
+ * fractions; the quad is (tl, tr, br, bl).
+ */
+export function leanQuad(quad: Quad, yaw: number, pitch: number, focal = 1.0, aspect = 1920 / 1080): Quad {
+  if (!yaw && !pitch) return quad;
+  const cx = (quad[0] + quad[2] + quad[4] + quad[6]) / 4, cy = (quad[1] + quad[3] + quad[5] + quad[7]) / 4;
+  const ry = (yaw * Math.PI) / 180, rx = (pitch * Math.PI) / 180;
+  const out: number[] = [];
+  for (let i = 0; i < 4; i++) {
+    // Centre the corner, in square units (frame widths), rotate in 3D, project.
+    const x = quad[i * 2] - cx, y = (quad[i * 2 + 1] - cy) * aspect;
+    const x1 = x * Math.cos(ry), z1 = x * Math.sin(ry);
+    // Frame y runs down, so the top (negative y) recedes for a positive pitch.
+    const y2 = y * Math.cos(rx), z2 = z1 - y * Math.sin(rx);
+    const depth = focal + z2;
+    const k = focal / Math.max(0.2 * focal, depth);
+    out.push(cx + x1 * k, cy + (y2 * k) / aspect);
+  }
+  // Keep the title where the author put it: the projection pulls the quad toward its near side.
+  const mx = (out[0] + out[2] + out[4] + out[6]) / 4 - cx, my = (out[1] + out[3] + out[5] + out[7]) / 4 - cy;
+  return out.map((v, i) => v - (i % 2 === 0 ? mx : my)) as Quad;
+}

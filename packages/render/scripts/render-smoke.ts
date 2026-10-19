@@ -1,0 +1,118 @@
+/**
+ * Render smoke test (ADR 0042): build a reel that uses every feature the
+ * composition has, then draw the first and last frame of every shot with the
+ * real renderer. Anything that errors or hangs fails here, in CI or on a
+ * laptop, instead of in a production export six minutes in.
+ *
+ *   pnpm --filter @reelwalk/render smoke            # stills in a temp dir
+ *   pnpm --filter @reelwalk/render smoke ./out      # keep the stills here
+ *
+ * Needs ffmpeg (to make the fixture media) and a Chrome the renderer can use
+ * (the worker image has both). Media is served from a local HTTP server, the
+ * way the worker hands the renderer signed URLs.
+ */
+import { execFile } from "node:child_process";
+import { createReadStream } from "node:fs";
+import { mkdir, mkdtemp, rm, stat } from "node:fs/promises";
+import http from "node:http";
+import os from "node:os";
+import path from "node:path";
+import { promisify } from "node:util";
+import { parseTimeline, type Timeline } from "@reelwalk/core";
+import { preflightReel, reelCheckpoints } from "../src/render-reel";
+import type { ReelAsset } from "../src/reel/types";
+
+const run = promisify(execFile);
+
+async function makeMedia(dir: string): Promise<void> {
+  // Two short portrait clips with motion and detail (a tracker and a matte need something to look at), one still, one song.
+  await run("ffmpeg", ["-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=1080x1920:rate=30:duration=4", "-vf", "hue=s=0.6", "-pix_fmt", "yuv420p", "-c:v", "libx264", "-preset", "veryfast", path.join(dir, "walk.mp4")]);
+  await run("ffmpeg", ["-v", "error", "-y", "-f", "lavfi", "-i", "mandelbrot=size=1080x1920:rate=30", "-t", "3", "-pix_fmt", "yuv420p", "-c:v", "libx264", "-preset", "veryfast", path.join(dir, "room.mp4")]);
+  await run("ffmpeg", ["-v", "error", "-y", "-f", "lavfi", "-i", "smptebars=size=1080x1920:rate=1", "-frames:v", "1", path.join(dir, "photo.jpg")]);
+  await run("ffmpeg", ["-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=220:duration=12", "-c:a", "aac", "-b:a", "96k", path.join(dir, "song.m4a")]);
+}
+
+function serve(dir: string): Promise<{ url: string; close(): void }> {
+  const types: Record<string, string> = { ".mp4": "video/mp4", ".jpg": "image/jpeg", ".m4a": "audio/mp4" };
+  const server = http.createServer(async (request, response) => {
+    const file = path.join(dir, path.basename(request.url ?? "/"));
+    try {
+      const info = await stat(file);
+      const range = /bytes=(\d*)-(\d*)/.exec(request.headers.range ?? "");
+      const start = range?.[1] ? Number(range[1]) : 0;
+      const end = range?.[2] ? Number(range[2]) : info.size - 1;
+      response.writeHead(range ? 206 : 200, {
+        "content-type": types[path.extname(file)] ?? "application/octet-stream",
+        "accept-ranges": "bytes", "access-control-allow-origin": "*",
+        "content-length": end - start + 1, ...(range ? { "content-range": `bytes ${start}-${end}/${info.size}` } : {}),
+      });
+      createReadStream(file, { start, end }).pipe(response);
+    } catch {
+      response.writeHead(404).end();
+    }
+  });
+  return new Promise((resolve) => server.listen(0, "127.0.0.1", () => {
+    const address = server.address();
+    const port = typeof address === "object" && address ? address.port : 0;
+    resolve({ url: `http://127.0.0.1:${port}`, close: () => server.close() });
+  }));
+}
+
+/** Every feature at once: the cases that have broken production renders, and the ones that could. */
+export function smokeTimeline(): Timeline {
+  const quad = [0.3, 0.3, 0.7, 0.3, 0.7, 0.45, 0.3, 0.45];
+  const moved = [0.32, 0.31, 0.72, 0.3, 0.72, 0.46, 0.32, 0.46];
+  return parseTimeline({
+    version: 1,
+    clips: [
+      { id: "c1", assetId: "walk", kind: "VIDEO", sourceStartMs: 0, sourceEndMs: 2500, transitionIn: "cut" },
+      { id: "c2", assetId: "room", kind: "VIDEO", sourceStartMs: 200, sourceEndMs: 2600, transitionIn: "whip", whipDirection: "left", filter: "golden" },
+      { id: "c3", assetId: "photo", kind: "IMAGE", sourceStartMs: 0, sourceEndMs: 2000, motion: "zoom-in", transitionIn: "cut" },
+      { id: "c4", assetId: "walk", kind: "VIDEO", sourceStartMs: 1000, sourceEndMs: 3000, speed: 1.5, zoom: 1.2, transitionIn: "cut" },
+    ],
+    texts: [
+      // Words behind a person (matte), extruded: the first clip, where the matte mounts at frame 0.
+      { id: "w1", text: "WELCOME", startMs: 0, endMs: 2500, x: 0.5, y: 0.4, style: "headline", size: 1.4, animation: "pop", behind: true, depth: "extruded" },
+      // A whole-shot planar pin that overlaps the next cut by a few frames (the React 300 case), painted on the surface, fading at the end.
+      { id: "p1", text: "OCEAN VIEWS", startMs: 2500, endMs: 5000, x: 0.5, y: 0.38, style: "headline", size: 1.1, animation: "none", blend: "surface",
+        pin: { assetId: "room", fromMs: 200, toMs: 2600, quad }, path: [{ t: 0, x: 0, y: 0, s: 1, r: 0, q: quad }, { t: 0.6, x: 0.02, y: 0.01, s: 1.02, r: 0.5, q: moved }, { t: 1, x: 0.02, y: 0.01, s: 1.02, r: 0.5, q: moved, o: 0 }] },
+      // A still on a photo with the typewriter, and a drifting tag.
+      { id: "t1", text: "3 bed · 2 bath", startMs: 4900, endMs: 6900, x: 0.5, y: 0.8, style: "tag", animation: "type" },
+      { id: "t2", text: "Just listed", startMs: 6900, endMs: 8200, x: 0.5, y: 0.2, style: "elegant", animation: "fade", path: [{ t: 0, x: 0, y: 0 }, { t: 1, x: 0.04, y: 0 }] },
+    ],
+    music: { assetId: "song", sourceStartMs: 0, volume: 0.8, bpm: 108, beatOffsetMs: 0 },
+    hook: { kind: "alert", durationMs: 1500, title: "New listing", body: "Beachfront, 3 bed", action: "See it" },
+    logo: { assetId: "photo", corner: "top-right", size: 0.12 },
+    details: { price: "$1.2m", address: "Bahia", beds: "3", baths: "2", area: "240 m²" },
+  });
+}
+
+async function main() {
+  const keepIn = process.argv[2] ? path.resolve(process.argv[2]) : undefined;
+  if (keepIn) await mkdir(keepIn, { recursive: true });
+  const media = await mkdtemp(path.join(os.tmpdir(), "reelwalk-smoke-"));
+  const server = await serve(media);
+  const started = Date.now();
+  try {
+    await makeMedia(media);
+    const assets: Record<string, ReelAsset> = {
+      walk: { src: `${server.url}/walk.mp4`, kind: "VIDEO" },
+      room: { src: `${server.url}/room.mp4`, kind: "VIDEO" },
+      photo: { src: `${server.url}/photo.jpg`, kind: "IMAGE" },
+      song: { src: `${server.url}/song.m4a`, kind: "AUDIO" },
+    };
+    const timeline = smokeTimeline();
+    const points = reelCheckpoints(timeline);
+    console.log(`smoke: ${timeline.clips.length} shots, ${points.length} checkpoints`);
+    const stills = await preflightReel({ timeline, assets, keepIn, timeoutMs: 40_000 }, (done, total) => console.log(`  ${done}/${total}`));
+    console.log(`smoke: ok, ${stills.length} frames drew in ${Math.round((Date.now() - started) / 1000)} s${keepIn ? ` → ${keepIn}` : ""}`);
+  } finally {
+    server.close();
+    await rm(media, { recursive: true, force: true });
+  }
+}
+
+main().catch((error) => {
+  console.error(`smoke: FAILED after ${0}s:`, error instanceof Error ? error.message : error);
+  process.exit(1);
+});

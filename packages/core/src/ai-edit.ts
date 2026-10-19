@@ -353,7 +353,7 @@ export function songMood(title: string, bpm: number | null = null): string | nul
 export const AI_EDIT_SYSTEM_PROMPT = `You edit short vertical real-estate listing reels for ReelWalk. The user describes a change in plain words; you answer with the smallest list of operations that makes it, using only the operations and values given, and a note to the user.
 
 Rules:
-- Refer to clips and texts by the numbers in the description. Never invent clips, assets or songs; the only songs you may switch to are in the list.
+- Refer to clips and texts by the numbers in the description. Those numbers never change during a plan: after an order, remove or add operation, clip 3 still means the third clip in the description, so number every operation from the description, not from the result of earlier operations. Never invent clips, assets or songs; the only songs you may switch to are in the list.
 - Times are milliseconds. A clip must be at least ${MIN_CLIP_MS} ms. A video clip cannot show more than its source has; a photo can be any length.
 - "Longer" without a number means about 1.5x the current length; "shorter" about 0.7x; "much" doubles the change. "Slower" halves speed, "faster" doubles it, within 0.5 to 3.
 - Transitions (op transition, clip 0 for every cut): cut; fade (through black, slow and soft); whip (a fast whip pan with motion blur and a whoosh: "whoosh", "swipe", "whip", "smooth transitions", "make it flow", "transitions like the house-tour reels"); walk (only between two 360 photos with known positions).

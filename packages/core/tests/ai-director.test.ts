@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { directorPlanSchema, sameTimeline, validateDirectorReferences, DIRECTOR_INSTRUCTIONS, DIRECTOR_PLAN_JSON_SCHEMA } from "../src/ai-director";
-import { clipSchema, emptyTimeline, parseTimeline } from "../src";
+import { AI_EDIT_SYSTEM_PROMPT, applyAiEditPlan, clipSchema, emptyTimeline, parseTimeline } from "../src";
 
 function plan() {
   return directorPlanSchema.parse({ note: "Keep the host visible", verdict: "needs-generation", issues: ["Presenter is too large relative to the doorway"], limitations: "Sampled frames only; no audio or continuous playback", checks: Object.fromEntries(["scale", "cameraContinuity", "presenterContinuity", "propertyIdentity"].map(k => [k, { result: "uncertain", evidence: "No complete source evidence" }])),  edit: { ops: [], note: "Wait for a better take", questions: [], caption: null }, shots: [{ title: "Continuous descent", reason: "Fix direction and scale", prompt: "One continuous overhead descent with human-scale presenter", durationSeconds: 8, first: { assetId: "house", atMs: 500 }, last: { assetId: "room", atMs: 0 } }] });
@@ -70,5 +70,15 @@ describe("in-app Opus direction", () => {
   it("asks for the edit and shots before the summary", () => {
     expect(Object.keys(DIRECTOR_PLAN_JSON_SCHEMA.properties)).toEqual(["edit", "shots", "checks", "issues", "verdict", "limitations", "note"]);
     expect(DIRECTOR_PLAN_JSON_SCHEMA.required).toEqual(["edit", "shots", "checks", "issues", "verdict", "limitations", "note"]);
+  });
+  it("numbers every operation from the description, even after a reorder", () => {
+    expect(AI_EDIT_SYSTEM_PROMPT).toMatch(/numbers never change during a plan/);
+    const clip = (id: string) => clipSchema.parse({ id, assetId: id, kind: "VIDEO", sourceStartMs: 0, sourceEndMs: 3000 });
+    const timeline = { ...emptyTimeline(), clips: [clip("roof"), clip("walk"), clip("front")] };
+    const assets = Object.fromEntries(["roof", "walk", "front"].map(id => [id, { id, kind: "VIDEO" as const, title: id, durationMs: 8000, isPano: false, bpm: null, beatOffsetMs: null }]));
+    const blank = { clip: null, text: null, startMs: null, endMs: null, lengthMs: null, speed: null, filter: null, motion: null, transition: null, fit: null, volume: null };
+    // Front first, then remove clip 1 of the description (roof), not whatever sits first after the reorder.
+    const result = applyAiEditPlan(timeline, { note: "", ops: [{ ...blank, op: "order", order: [3, 2] }, { ...blank, op: "remove", clip: 1 }] } as never, { assets, songs: [], newId: () => "n" });
+    expect(result.timeline.clips.map(c => c.id)).toEqual(["front", "walk"]);
   });
 });

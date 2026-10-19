@@ -40,15 +40,10 @@ export type DirectorShot = z.infer<typeof directorShotSchema>;
 
 export const DIRECTOR_PLAN_JSON_SCHEMA = {
   type: "object", additionalProperties: false,
-  required: ["note", "verdict", "issues", "limitations", "checks", "edit", "shots"],
+  // Concrete changes first, summary last: with the note first, Opus summarised its changes and then returned
+  // empty edit and shots on the full app prompt.
+  required: ["edit", "shots", "checks", "issues", "verdict", "limitations", "note"],
   properties: {
-    note: { type: "string", description: "Plain-language summary for the studio, under 1000 characters." },
-    verdict: { type: "string", enum: ["ready", "changes-proposed", "needs-generation"] },
-    issues: { type: "array", items: { type: "string", description: "One problem, under 400 characters." }, description: "At most 12." },
-    limitations: { type: "string", description: "Under 800 characters." },
-    checks: { type: "object", additionalProperties: false, required: ["scale", "cameraContinuity", "presenterContinuity", "propertyIdentity"], properties: {
-      scale: checkJson(), cameraContinuity: checkJson(), presenterContinuity: checkJson(), propertyIdentity: checkJson(),
-    } },
     edit: AI_EDIT_PLAN_JSON_SCHEMA,
     shots: { type: "array", items: {
       type: "object", additionalProperties: false,
@@ -59,6 +54,13 @@ export const DIRECTOR_PLAN_JSON_SCHEMA = {
         first: frameJson(), last: frameJson(),
       },
     } },
+    checks: { type: "object", additionalProperties: false, required: ["scale", "cameraContinuity", "presenterContinuity", "propertyIdentity"], properties: {
+      scale: checkJson(), cameraContinuity: checkJson(), presenterContinuity: checkJson(), propertyIdentity: checkJson(),
+    } },
+    issues: { type: "array", items: { type: "string", description: "One problem, under 400 characters." }, description: "At most 12." },
+    verdict: { type: "string", enum: ["ready", "changes-proposed", "needs-generation"] },
+    limitations: { type: "string", description: "Under 800 characters." },
+    note: { type: "string", description: "Plain-language summary for the studio, under 1000 characters." },
   },
 } as const;
 

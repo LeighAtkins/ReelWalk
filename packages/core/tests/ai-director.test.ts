@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { directorPlanSchema, sameTimeline, validateDirectorReferences, DIRECTOR_INSTRUCTIONS } from "../src/ai-director";
+import { directorPlanSchema, sameTimeline, validateDirectorReferences, DIRECTOR_INSTRUCTIONS, DIRECTOR_PLAN_JSON_SCHEMA } from "../src/ai-director";
 import { clipSchema, emptyTimeline, parseTimeline } from "../src";
 
 function plan() {
@@ -66,5 +66,9 @@ describe("in-app Opus direction", () => {
     expect(DIRECTOR_INSTRUCTIONS).toMatch(/at most ONE AI take/);
     expect(DIRECTOR_INSTRUCTIONS).toMatch(/note may describe only changes that are actually in edit\.ops/);
     expect(DIRECTOR_INSTRUCTIONS).not.toMatch(/Return no edit operations when more evidence/);
+  });
+  it("asks for the edit and shots before the summary", () => {
+    expect(Object.keys(DIRECTOR_PLAN_JSON_SCHEMA.properties)).toEqual(["edit", "shots", "checks", "issues", "verdict", "limitations", "note"]);
+    expect(DIRECTOR_PLAN_JSON_SCHEMA.required).toEqual(["edit", "shots", "checks", "issues", "verdict", "limitations", "note"]);
   });
 });

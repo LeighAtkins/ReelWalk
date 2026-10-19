@@ -1,0 +1,118 @@
+# Typography reel, second attempt: "Bahia beach house"
+
+Second pass at the owner's brief (see `2026-10-19-typography-reel.md`):
+a 30-second listing reel with typography as the main feature, built in
+the app, on a property that will stop a thumb. Built on the four fixes
+from the first post-mortem (#148 post-mortem, #149 rigid plane pins and
+whole-shot titles and surface blend, #150 presenter on clear floor).
+
+## Rules carried over
+
+1. Every title is in the room for the whole shot: on the wall when the
+   cut lands, gone with the cut or the pan. No title pops in mid-shot
+   without a reason.
+2. One rigid plane per title; the text is painted on the surface
+   (`blend: surface`), not laid on top.
+3. The presenter stands on clear floor, occluded by what is nearer.
+4. The property: Alef Morais's beachfront house in Bahia, Brazil (Pexels
+   user alef-morais-336305364, IG @alef.visuals): white house on the
+   sand, ocean from every window, glass stair, palms. Clips 39590048
+   (aerial), 39576501, 39576503, 39576508, 39576509, 39576510, 39576511,
+   39576512.
+
+## Build log
+
+1. Footage via Pexels' site API from the agent browser (the public
+   search key the site itself uses), downloaded with the download
+   endpoint, 4K → 1080p re-encodes. Eight clips to a new reel (upload by
+   `DOM.setFileInputFiles`). **Slip 1 (as before):** still no Pexels in
+   the app; still by hand.
+2. Cut and titles written straight to the timeline (`/api/reels/:id/save`),
+   then checked in the editor. Script: BEACHFRONT on the aerial ground,
+   OCEAN VIEWS on the facade, presenter at the entrance with words
+   behind, STEP OUT on the dark wall as the window is revealed, LIGHT on
+   the stair wall, EVERY ROOM beside the window, WAKE UP HERE above the
+   bed, DM FOR THE TOUR as the closer.
+   **Slip 27:** a lone word wider than the frame (BEACHFRONT at 160%)
+   wraps into two lines instead of shrinking to fit; the editor should
+   cap a single word at the frame width.
+3. Music "Golden Hours · Sliders Club" (Instagram, 108 bpm) chosen in the
+   Music sheet; the cuts moved to the beat (total 28.9 s).
+   **Slip 28:** retiming the cuts to a beat leaves the texts where they
+   were, so every title slipped off its clip. Titles belong to clips;
+   whole-shot pins fix it for pinned titles, but any text should move
+   with the clip it was placed on.
+
+4. #149 live. Six titles pinned from the Pin sheet, "For the whole
+   shot" on, 35–41 keyframes each as one rigid plane; BEACHFRONT rides
+   the ground plane of the aerial, LIGHT the stair wall, WAKE UP HERE the
+   wall above the bed. STEP OUT on the dark wall was lost 0.1 s in (a
+   bare wall has nothing to follow); moved onto the window edge and it
+   held. Painted on the surface (`blend: surface`) for all but the closer.
+   **Slip 29:** multi-word titles on a plane broke per word and mid-word
+   (OCEA / N / VIEW / S): the tracked box is ~40% of the frame wide and
+   the text treatment allows breaks anywhere. Fixed in #151 (one line,
+   overflowing the box).
+   **Slip 30:** writing the timeline from outside (`/save`) while the
+   editor is open desynchronises its revision; the editor's next autosave
+   is refused as a conflict and the music pick was lost without a visible
+   warning. The editor should surface the conflict and offer to reload.
+
+5. Presenter take with the new compose prompt (#150), 4 credits: Wide
+   camera-move from the entrance clip's first frame, Maya composed onto
+   the paving. First attempt usable: she stands on clear paving with a
+   contact shadow at true scale, a small open-hand gesture, the camera
+   eases in. No table under her feet this time. Placed as shot 3.
+6. WELCOME / HOME behind her (`behind`, extruded, one beat apart at
+   108 bpm). The preview's matte confirms she occludes the letters
+   (4% person pixels at 9.6 s; the O of WELCOME and HOME vanish behind
+   her head and arm). **Slip 31:** the Hook tool's "words behind the
+   person" only writes to the first shot, so the words had to be added
+   by hand on shot 3; it should take the selected shot.
+
+7. First export failed: "Minified React error #300". **Slip 32:** a
+   pinned title shown while another clip is on screen returned null
+   before a hook ran (`useFontsFor`); whole-shot pins made a few frames
+   of overlap routine after the beat retime, so every such title killed
+   the render. Fixed in #152 (hooks first). The editor preview did not
+   show it, so the first sign was a failed export six minutes later.
+
+8. Second export failed: `delayRender() "Person matte frame 0" … not
+   cleared after 28000ms`. **Slip 33:** at a take's first frame the
+   matte's own video is already at time 0 but not loaded; setting
+   currentTime to the same value fires no `seeked`, so the frame never
+   drew. The first reel got away with it because its take was the first
+   clip and had loaded by then. Fixed in #153 (wait for `loadeddata` when
+   already at the target time). Two failed exports in a row, each found
+   only after the render: the editor needs a quick "render the first
+   frame of every shot" check before a full export.
+
+9. Third export (render `cmvfgy53a000001addeitdu7r`, 28.9 s) checked
+   frame by frame. Every title is on one line, painted on its surface
+   and in perspective: BEACHFRONT lies on the aerial's ground, OCEAN
+   VIEWS on the facade, STEP OUT on the window, LIGHT on the stair wall,
+   EVERY ROOM beside the window, WAKE UP HERE above the bed. Maya stands
+   on the paving with her shadow and hides the O of HOME. Titles leave
+   with their pans and cuts; nothing pops.
+   **Slip 34:** two titles start partly out of frame (OCEAN VIEWS loses
+   its O at the cut; WAKE UP HERE loses its E on the right). The Pin
+   sheet should refuse, or nudge, a plane whose text box crosses the
+   frame edge at the shot's first frame.
+   **Slip 35:** the machine's disk filled during the session (Docker's
+   WSL disk at 138 GB: a kind node holding 94 GB of old release images,
+   plus 12 GB of stale Remotion bundles in Temp), which took Docker down
+   mid-task. Local render tooling needs a prune step.
+
+## Verdict
+
+Usable as a draft of the style: the typography lives in the rooms and
+the presenter stands in front of it. Before posting: nudge the two
+cropped titles inward, and consider a warmer grade across the interiors.
+The fixes built from this attempt are #151 (one-line planar titles),
+#152 (hooks before the early return), #153 (matte first frame) and #154
+(render preflight, smoke test, pre-push check; ADR 0042). Slips 23–35 in
+all; the backlog from them: titles move with their clip when music
+retimes the cut (28), the editor warns on a save conflict (30), words
+behind the person on any shot (31), the Pin sheet keeps a title in
+frame (34).
+

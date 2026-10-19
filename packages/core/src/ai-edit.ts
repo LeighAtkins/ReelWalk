@@ -11,6 +11,7 @@ import { z } from "zod";
 import type { InstagramAudioTrack } from "./instagram-audio";
 import { beatPeriodMs, nearestBeatMs, snapCutsToBeats, type BeatGrid } from "./beats";
 import { captionsFromSpeech, describeSpeech, hasSpeech, type Transcript } from "./transcript";
+import { singleAiVoice, tidyCaptions } from "./guards";
 import {
   CORNERS,
   DEFAULT_IMAGE_MS,
@@ -284,6 +285,8 @@ export type AiAsset = {
   room?: string | null;
   /** What a video says, with word timings, when the worker transcribed it. */
   transcript?: Transcript | null;
+  /** Made by a generator (Veo), not shot: its voice is invented per take. */
+  aiGenerated?: boolean;
 };
 
 /** A fresh clip for an asset, as the editor would make it when the asset is tapped. */
@@ -369,7 +372,7 @@ Rules:
 - A logo: op logo with assetId of an unused image whose name suggests a logo, a brand, a mark or a headshot puts it in a corner (corner, default top-right; size as a fraction of the frame's width, 0.2 is usual, 0.12 small, 0.3 large) for the whole reel; assetId null removes it. When no such image exists, do nothing and say the logo must be uploaded first.
 - Music requests like "calmer" or "more energy" pick the song whose mood fits best; say which in the note. Songs marked "from Instagram" come from Instagram's library for business accounts and are the ones to use; their mood says which search found them, and "popular with business accounts right now" is the safest pick when nothing more specific fits. Bright listings suit house and nu disco, slow luxury suits piano, luxury and soft house, walkthroughs suit real estate, soft house and lo-fi. Songs marked "the studio's own" were chosen by the studio: prefer one of them when its mood fits, ahead of stock songs. Never pick the song already playing. Leave the music alone unless the user asks about it (the song, the mood, "calmer", "more energy") or the reel has none: a request about clips, text, the look or the order keeps the song it has, and so does cutting a whole reel that already has music. "No music" is op music with songId null.
 - Text: keep it short; style "elegant" is a thin serif, "headline" is bold, "box" is text on a pill, "plain" is white text with a shadow. y is 0 at the top and 1 at the bottom. Where text goes: the opening hook at y 0.42 (the middle, where the eye is), size 1.1 to 1.3; a second line or caption-style text at y 0.6; never above 0.3 or below 0.72, because Instagram's name, caption and buttons cover the top fifth and the bottom quarter. Room labels and the details card place themselves. A hook shows over the whole first clip. To put text over a particular shot give atClip (the clip's number): the text then starts and ends with that shot, which is how "at the start" (atClip 1), "at the end" (the last clip's number) and "over the kitchen" are done; prefer atClip to startMs and endMs.
-- Speech: a clip line that includes "says:" gives the words spoken and when, measured from the audio (times from that clip's own start as played). To caption dialogue use op captionSpeech with clip: it lays one caption per phrase, timed to the words (style and y optional; default a thin serif at y 0.6). Never hand-time captions over speech with addText, and never claim a muted clip is heard.
+- Speech: a clip line that includes "says:" gives the words spoken and when, measured from the audio (times from that clip's own start as played). To caption dialogue use op captionSpeech with clip: it lays one caption per phrase, timed to the words (style and y optional; default a thin serif at y 0.6). Never hand-time captions over speech with addText, and never claim a muted clip is heard. The editor enforces: captions stay between y 0.3 and 0.72, two captions never share a line at the same time, and only the first voiced AI take plays with sound (later voiced AI takes are muted; caption their lines).
 - A status sticker (JUST LISTED, PRICE DROP, NEW PRICE, SOLD, UNDER CONTRACT, OPEN HOUSE, COMING SOON) is addText with style "tag": two or three words in capitals, size 0.8 to 1; it places itself at the top of the safe area, over the first clip unless atClip says otherwise. One sticker at a time: change an existing tag with editText rather than adding a second.
 - How text arrives (animation on addText or editText): pop (a quick pop, the bold styles' own), fade (a slow fade, the elegant style's own), rise (drifts up as it fades in), type (letter by letter, like typing), none (simply there); auto is the style's own.
 - Room labels are the texts whose number is marked (room label); to turn them all off use roomLabels on=false rather than removing each.
@@ -1173,6 +1176,11 @@ export function applyAiEditPlan(timeline: Timeline, plan: Pick<AiEditPlan, "ops"
   current = keepTextsClearOfCard(current);
   const caption = plan.caption?.trim() || undefined;
   if (caption) applied.push("caption written");
+  // House rules, whatever the plan asked for (guards.ts).
+  const captions = tidyCaptions(current);
+  const voice = singleAiVoice(captions.timeline, assets);
+  current = voice.timeline;
+  applied.push(...captions.notes, ...voice.notes);
   return { timeline: current, applied, skipped, instagramPick, caption };
 }
 

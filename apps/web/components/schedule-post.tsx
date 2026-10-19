@@ -13,7 +13,7 @@ const longTime = new Intl.DateTimeFormat(undefined, { weekday: "short", month: "
  * viewer's own time zone; the server converts and stores UTC. The caption is
  * the one in the box below, as saved when Schedule is tapped.
  */
-export function SchedulePost({ jobId, username, audio = null }: { jobId: string; username: string; audio?: InstagramAudioChoice | null }) {
+export function SchedulePost({ jobId, username, audio = null, aiGenerated = false }: { jobId: string; username: string; audio?: InstagramAudioChoice | null; aiGenerated?: boolean }) {
   const [open, setOpen] = useState(false);
   const [zone, setZone] = useState("UTC");
   const [local, setLocal] = useState("");
@@ -38,7 +38,7 @@ export function SchedulePost({ jobId, username, audio = null }: { jobId: string;
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     setState({ step: "saving" });
-    const result = await schedulePost({ jobId, local, timeZone: zone, audio }).catch(() => ({ ok: false as const, error: "Could not reach ReelWalk. Try again." }));
+    const result = await schedulePost({ jobId, local, timeZone: zone, audio, aiGenerated }).catch(() => ({ ok: false as const, error: "Could not reach ReelWalk. Try again." }));
     setState(result.ok ? { step: "done", id: result.id, publishAt: new Date(result.publishAt), sound: audio ? instagramAudioLabel(audio) : null } : { step: "error", error: result.error });
   }
 
@@ -81,7 +81,7 @@ export function SchedulePost({ jobId, username, audio = null }: { jobId: string;
         />
       </label>
       <p className="muted small" style={{ margin: 0 }}>
-        Posts with the caption below{audio ? <> and the sound “{instagramAudioLabel(audio)}”</> : null}. ReelWalk publishes it at that time, even with this screen
+        Posts with the caption below{audio ? <> and the sound “{instagramAudioLabel(audio)}”</> : null}{aiGenerated ? <> and Instagram&apos;s AI info label</> : null}. ReelWalk publishes it at that time, even with this screen
         closed.
       </p>
       <div className="field-row">

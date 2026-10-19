@@ -103,7 +103,7 @@ describe.skipIf(!process.env.DATABASE_URL)("scheduled posts (Postgres)", () => {
     const deps: ScheduledPostDeps = {
       prepare: async () => ({ igUserId: "17841400000000000", token: "token", videoUrl: "https://media.example/reel.mp4" }),
       createContainer: vi.fn(async (input) => {
-        calls.push(`create ${input.coverMs}${input.audio ? ` audio ${input.audio.audioId} ${input.audio.audioVolume}/${input.audio.videoVolume}` : ""}`);
+        calls.push(`create ${input.coverMs}${input.audio ? ` audio ${input.audio.audioId} ${input.audio.audioVolume}/${input.audio.videoVolume}` : ""}${input.aiGenerated ? " ai" : ""}`);
         return `1790000000000000${calls.length}`;
       }),
       containerStatus: vi.fn(async () => {
@@ -286,5 +286,12 @@ describe.skipIf(!process.env.DATABASE_URL)("scheduled posts (Postgres)", () => {
     expect(await advanceScheduledPost(prisma, claim!, deps, late)).toBe("failed");
     expect((await reload(post.id)).error).toMatch(/more than a day/);
     expect(deps.createContainer).not.toHaveBeenCalled();
+  });
+  it("asks Instagram for the AI info label when the post is marked AI-generated", async () => {
+    const post = await prisma.scheduledPost.create({ data: { workspaceId, renderJobId, caption: "AI host", publishAt: time(0), aiGenerated: true } });
+    const { deps, calls } = fakeInstagram();
+    const [claim] = mine(await claimDueScheduledPosts(prisma, { now: time(1), limit: 50 }), [post.id]);
+    expect(await advanceScheduledPost(prisma, claim!, deps, time(1))).toBe("waiting");
+    expect(calls).toEqual(["create 700 ai"]);
   });
 });

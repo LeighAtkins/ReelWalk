@@ -10,7 +10,7 @@ import { InstagramIcon } from "./icons";
  * connected Instagram professional account. Instagram processes the video
  * for a few seconds to a few minutes; this polls until it is published.
  */
-export function PostToInstagram({ jobId, username, audio = null }: { jobId: string; username: string; audio?: InstagramAudioChoice | null }) {
+export function PostToInstagram({ jobId, username, audio = null, aiGenerated = false }: { jobId: string; username: string; audio?: InstagramAudioChoice | null; aiGenerated?: boolean }) {
   const [step, setStep] = useState<PostStep | { state: "idle" } | { state: "starting" }>({ state: "idle" });
 
   useEffect(() => {
@@ -22,7 +22,7 @@ export function PostToInstagram({ jobId, username, audio = null }: { jobId: stri
 
   async function post() {
     setStep({ state: "starting" });
-    setStep(await startInstagramPost({ jobId, audio }));
+    setStep(await startInstagramPost({ jobId, audio, aiGenerated }));
   }
 
   if (step.state === "published") {

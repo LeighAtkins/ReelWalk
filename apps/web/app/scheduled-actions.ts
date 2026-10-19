@@ -18,7 +18,7 @@ export type ScheduleResult = { ok: true; id: string; publishAt: string } | { ok:
  * Queues a finished export to be posted as a Reel at a wall-clock time in
  * the viewer's time zone. The caption is the reel's, as saved right now.
  */
-export async function schedulePost(input: { jobId: string; local: string; timeZone: string; audio?: unknown }): Promise<ScheduleResult> {
+export async function schedulePost(input: { jobId: string; local: string; timeZone: string; audio?: unknown; aiGenerated?: boolean }): Promise<ScheduleResult> {
   const user = await getCurrentUser();
   const problem = await postingProblem(user.workspaceId);
   if (problem) return { ok: false, error: problem };
@@ -55,6 +55,7 @@ export async function schedulePost(input: { jobId: string; local: string; timeZo
       caption,
       coverMs: reelCoverMs(job.reel?.timeline) ?? COVER_FRAME_MS,
       publishAt,
+      aiGenerated: input.aiGenerated === true,
       ...(audio
         ? { audioId: audio.audioId, audioTitle: audio.title, audioArtist: audio.artist, audioVolume: audio.audioVolume, videoVolume: audio.videoVolume }
         : {}),

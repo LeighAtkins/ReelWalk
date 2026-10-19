@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { exportProgressText, isActive } from "@reelwalk/core";
+import { exportProgressText, isActive, referencedAssetIds } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
 import { retryRenderJob } from "@/app/actions";
 import { AskForChange } from "@/components/ask-for-change";
@@ -40,6 +40,10 @@ export default async function ExportPage({
   if (!reel) notFound();
   const job = reel.renderJobs[0];
   if (!job) redirect(`/reels/${reel.id}`);
+  // AI clips carry an "ai-" id and a completed generation record; either marks the reel as AI content.
+  const assetIds = referencedAssetIds(readTimeline(reel.timeline));
+  const aiContent = assetIds.some((assetId) => assetId.startsWith("ai-"))
+    || (await prisma.aiGeneration.count({ where: { workspaceId: user.workspaceId, status: "SUCCEEDED", assetId: { in: assetIds } } })) > 0;
 
   const [urls, [cover], base, instagram, { plan, id: planId }, aiUsage] = await Promise.all([
     outputUrls(job),
@@ -124,7 +128,7 @@ export default async function ExportPage({
               </div>
               <div className="export-actions">
                 {instagram && plan.instagram ? (
-                  <InstagramPublishing jobId={job.id} username={instagram.username} live={isInstagramConfigured() || isFakeInstagram()} reelSound={reelSound} scheduledSound={scheduledSound} />
+                  <InstagramPublishing jobId={job.id} username={instagram.username} live={isInstagramConfigured() || isFakeInstagram()} reelSound={reelSound} scheduledSound={scheduledSound} aiContent={aiContent} />
                 ) : null}
                 {planId === "FREE" && isInstagramConfigured() ? (
                   <Link className="btn btn-quiet" href="/account#plan" prefetch={false}>

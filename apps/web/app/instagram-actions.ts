@@ -31,7 +31,7 @@ async function connectedAccount(workspaceId: string) {
  * from a public URL (CloudFront, or a presigned link on real S3), so this only
  * works where the bucket is reachable from the internet.
  */
-export async function startInstagramPost(input: { jobId: string; audio?: unknown }): Promise<PostStep> {
+export async function startInstagramPost(input: { jobId: string; audio?: unknown; aiGenerated?: boolean }): Promise<PostStep> {
   const user = await getCurrentUser();
   if (!isInstagramConfigured()) return { state: "failed", error: "Instagram posting is not set up on this deployment." };
   if (!(await workspacePlan(user.workspaceId)).plan.instagram) return { state: "failed", error: "Posting straight to Instagram comes with the Agent plan." };
@@ -58,6 +58,7 @@ export async function startInstagramPost(input: { jobId: string; audio?: unknown
       caption: job.reel?.caption ?? "",
       coverMs: reelCoverMs(job.reel?.timeline),
       audio,
+      aiGenerated: input.aiGenerated === true,
     });
     // A reel offered for featuring without a handle is credited to the account it was posted from.
     if (job.reel?.featureConsent && !job.reel.featureHandle) {

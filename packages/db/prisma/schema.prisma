@@ -247,6 +247,8 @@ model ScheduledPost {
   // 0-100 each: the sound, and the reel's own soundtrack under it.
   audioVolume Int?
   videoVolume Int?
+  // Sent as is_ai_generated: Instagram shows its "AI info" label on the post.
+  aiGenerated Boolean @default(false)
   // UTC. The form converts from the viewer's time zone.
   publishAt   DateTime
   status      ScheduledPostStatus @default(SCHEDULED)

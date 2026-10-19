@@ -108,9 +108,11 @@ jobs:
       - name: Render smoke test
         if: matrix.app == 'worker'
         timeout-minutes: 12
+        # From the worker's directory: that is where the image's Chrome lives
+        # (ensure-browser ran there) and the only node_modules the `node` user may write.
         run: >
-          docker run --rm -w /workspace/packages/render "$IMAGE"
-          node_modules/.bin/tsx scripts/render-smoke.ts
+          docker run --rm -w /workspace/apps/worker "$IMAGE"
+          node_modules/.bin/tsx ../../packages/render/scripts/render-smoke.ts
 
       # Accepted findings (with reasons) are listed in .trivyignore.yaml.
       - name: Scan image with Trivy

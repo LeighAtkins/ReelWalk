@@ -111,3 +111,18 @@ describe("pinnedProgress at a frame boundary", () => {
     expect(pinnedProgress(timeline, text, 500)).toBe(PINNED_ELSEWHERE);
   });
 });
+
+describe("reshapePin", () => {
+  it("carries a new plane through every keyframe's motion", async () => {
+    const { reshapePin, textSchema } = await import("../src");
+    const quad = [0.2, 0.2, 0.6, 0.2, 0.6, 0.4, 0.2, 0.4];
+    // The second keyframe is the plane shifted right by 0.1.
+    const moved = quad.map((v, i) => (i % 2 === 0 ? v + 0.1 : v));
+    const text = textSchema.parse({ id: "t", text: "Hi", startMs: 0, endMs: 1000, x: 0.5, y: 0.5, surface: quad, pin: { assetId: "a", fromMs: 0, toMs: 1000, quad }, path: [{ t: 0, x: 0, y: 0, q: quad }, { t: 1, x: 0.1, y: 0, q: moved }] });
+    const wider = [0.2, 0.2, 0.8, 0.2, 0.8, 0.4, 0.2, 0.4];
+    const out = reshapePin(text, wider)!;
+    expect(out.pin.quad).toEqual(wider);
+    expect(out.path![0].q).toEqual(wider);
+    expect(out.path![1].q!.map((v) => Number(v.toFixed(3)))).toEqual(wider.map((v, i) => Number(((i % 2 === 0 ? v + 0.1 : v)).toFixed(3))));
+  });
+});

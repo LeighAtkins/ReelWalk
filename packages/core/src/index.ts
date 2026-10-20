@@ -34,6 +34,7 @@ export * from "./guards";
 export * from "./motion";
 export * from "./track";
 export * from "./surface";
+export * from "./view";
 export * from "./ducking";
 export * from "./director-loop";
 export * from "./hooks";

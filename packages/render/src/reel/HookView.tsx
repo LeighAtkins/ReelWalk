@@ -1,6 +1,6 @@
 import React from "react";
 import { AbsoluteFill, interpolate, useCurrentFrame, useVideoConfig } from "remotion";
-import { HOOK_FONT_FAMILIES, type Clip, type Hook, type Timeline } from "@reelwalk/core";
+import { clipDurationMs, HOOK_FONT_FAMILIES, type Clip, type Hook, type Timeline } from "@reelwalk/core";
 import { PersonMatteView } from "./PersonMatte";
 import type { ReelAsset } from "./types";
 
@@ -59,7 +59,7 @@ export const HookView: React.FC<{ timeline: Timeline; hook: Hook; firstClip: Cli
         <div style={{ position: "absolute", inset: 0, clipPath: `circle(${radius * 100}% at 50% 50%)` }}>
           <div style={{ position: "absolute", inset: 0, background: hook.color }} />
           <div style={{ position: "absolute", inset: 0, background: `radial-gradient(ellipse at 50% 45%, rgba(255,255,255,0.18), rgba(0,0,0,0.25) 70%)` }} />
-          {firstClip && asset && asset.kind === "VIDEO" ? <PersonMatteView clip={firstClip} asset={asset} /> : null}
+          {firstClip && asset && asset.kind === "VIDEO" ? <PersonMatteView clip={firstClip} asset={asset} durationInFrames={Math.max(1, Math.round((clipDurationMs(firstClip) * fps) / 1000))} /> : null}
           {hook.title ? (
             <div style={{ position: "absolute", left: 0, right: 0, top: height * 0.12, textAlign: "center", fontFamily: font, fontWeight: 800, fontSize: width * 0.13, lineHeight: 0.95, color: "#fff", letterSpacing: "-0.02em", textShadow: "0 8px 40px rgba(0,0,0,0.35)", opacity: entering, transform: `translateY(${(1 - entering) * 30}px)`, padding: `0 ${width * 0.06}px`, whiteSpace: "pre-line" }}>{hook.title}</div>
           ) : null}

@@ -1,4 +1,4 @@
-import { locate, clipDurationMs, type Clip, type TextOverlay, type Timeline } from "./timeline";
+import { locate, clipDurationMs, type Clip, type TextOverlay, type Timeline, framePlan, REEL_FORMAT } from "./timeline";
 import { applyHomography, homography, type Quad } from "./motion";
 
 export function cameraMoveAt(motion: Clip["motion"], progress: number, elapsedSeconds: number) {
@@ -17,14 +17,27 @@ export function cameraMoveAt(motion: Clip["motion"], progress: number, elapsedSe
 /** `progress` for a pinned text while a clip other than its own is on screen: it sits still at its base position. */
 export const PINNED_ELSEWHERE = -1;
 
+/** `locate`, but on the frame-rounded plan the composition renders: which clip owns the frame at `reelMs`, and how far into it (ms). */
+export function locateFrame(timeline: Timeline, reelMs: number, fps: number = REEL_FORMAT.fps): { index: number; offsetMs: number } | null {
+  const frame = Math.round((reelMs * fps) / 1000);
+  const plan = framePlan(timeline, fps);
+  for (const [index, entry] of plan.clips.entries()) {
+    if (frame >= entry.from && frame < entry.from + entry.durationInFrames) return { index, offsetMs: Math.max(0, ((frame - entry.from) * 1000) / fps) };
+  }
+  return null;
+}
+
 /**
  * Where along a pinned text's path the reel is at `reelMs`: the clip on
  * screen must be the one the path was tracked on, and t runs over the
  * source window that was tracked. Otherwise the text holds its base spot.
  */
-export function pinnedProgress(timeline: Timeline, text: TextOverlay, reelMs: number): number {
+export function pinnedProgress(timeline: Timeline, text: TextOverlay, reelMs: number, fps: number = REEL_FORMAT.fps): number {
   if (!text.pin) return 0;
-  const at = locate(timeline, reelMs);
+  // The composition cuts between clips on whole frames (framePlan rounds each start), so the clip on
+  // screen is read off the same rounded plan: at a boundary that rounds down, the millisecond
+  // clock still says the previous clip while the picture is already the next one.
+  const at = locateFrame(timeline, reelMs, fps);
   const clip = at ? timeline.clips[at.index] : null;
   if (!clip || !at || clip.assetId !== text.pin.assetId) return PINNED_ELSEWHERE;
   const sourceMs = clip.sourceStartMs + at.offsetMs * (clip.kind === "IMAGE" ? 1 : clip.speed || 1);

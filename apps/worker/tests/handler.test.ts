@@ -1,39 +1,50 @@
 import { describe, expect, it, vi } from "vitest";
-import type { JobSnapshot, RenderJobMessage } from "@reelwalk/core";
-import { handleDeadLetter, handleDelivery, type Delivery, type HandlerDeps, type JobStore } from "../src/handler";
+import type { JobSnapshot } from "@reelwalk/core";
+import { handleDeadLetter, handleDelivery, type Delivery, type HandlerDeps, type JobStore, type Lease } from "../src/handler";
 
 const config = { maxAttempts: 3, visibilitySeconds: 120, heartbeatSeconds: 20, staleSeconds: 60, retryBackoffSeconds: 15 };
 const output = { objectKey: "renders/job-1.mp4", contentType: "video/mp4", sizeBytes: 1234 };
 
 /** In-memory JobStore holding a single job, mirroring the conditional writes of the Prisma one. */
 function fakeStore(initial: JobSnapshot | null) {
-  const state = { job: initial ? { ...initial } : null, error: null as string | null, outputs: 0 };
-  const mine = (message: RenderJobMessage) => state.job !== null && state.job.generation === message.generation;
+  const state = { job: initial ? { ...initial } : null, error: null as string | null, outputs: 0, attempt: 0, published: null as string | null };
+  // The Prisma store's predicate: same generation, and the attempt this run's claim wrote.
+  const mine = (lease: Lease) => state.job !== null && state.job.generation === lease.generation && state.attempt === lease.attempt;
   const store: JobStore = {
     snapshot: async () => (state.job ? { ...state.job } : null),
-    claim: async (message, _attempt, staleBefore) => {
+    claim: async (message, attempt, staleBefore) => {
       const job = state.job;
-      if (!job || !mine(message)) return null;
+      if (!job || job.generation !== message.generation) return null;
       const stale = job.status === "RUNNING" && (!job.heartbeatAt || job.heartbeatAt < staleBefore);
       if (job.status !== "QUEUED" && !stale) return null;
       job.status = "RUNNING";
       job.heartbeatAt = new Date();
-      return { id: message.jobId, generation: message.generation, kind: "TEMPLATE", caption: null, payload: null, inputKey: "uploads/p/a.jpg", brand: null };
+      state.attempt = attempt;
+      return { id: message.jobId, generation: message.generation, attempt, kind: "TEMPLATE", caption: null, payload: null, inputKey: "uploads/p/a.jpg", brand: null };
     },
     heartbeat: async () => {},
-    succeed: async (message) => {
+    succeed: async (lease, result) => {
+      if (!mine(lease) || state.job!.status !== "RUNNING") return false;
+      state.job!.status = "SUCCEEDED";
       state.outputs = 1;
-      if (mine(message) && state.job!.status === "RUNNING") state.job!.status = "SUCCEEDED";
+      state.published = result.objectKey;
+      return true;
     },
-    requeue: async (message, error) => {
-      if (mine(message) && state.job!.status === "RUNNING") {
+    requeue: async (lease, error) => {
+      if (mine(lease) && state.job!.status === "RUNNING") {
         state.job!.status = "QUEUED";
         state.error = error;
       }
     },
-    fail: async (message, error) => {
-      if (mine(message) && (state.job!.status === "RUNNING" || state.job!.status === "QUEUED")) {
+    fail: async (lease, error) => {
+      if (mine(lease) && (state.job!.status === "RUNNING" || state.job!.status === "QUEUED")) {
         state.job!.status = "FAILED";
+        state.error = error;
+      }
+    },
+    failAbandoned: async (message, error) => {
+      if (state.job && state.job.generation === message.generation && (state.job.status === "RUNNING" || state.job.status === "QUEUED")) {
+        state.job.status = "FAILED";
         state.error = error;
       }
     },
@@ -52,6 +63,48 @@ function deps(store: JobStore, render: HandlerDeps["render"]): HandlerDeps {
 const queued: JobSnapshot = { status: "QUEUED", generation: 1, heartbeatAt: null };
 
 describe("handleDelivery", () => {
+  it("does not publish the output of a worker whose job was taken over while it rendered", async () => {
+    // Worker A claims (attempt 1), stops heartbeating, worker B takes over (attempt 2) and finishes; then A's render returns.
+    const { store, state } = fakeStore(queued);
+    let finishA!: (value: typeof output) => void;
+    const renderA = () => new Promise<typeof output>((resolve) => { finishA = resolve; });
+    const deliveryA = fakeDelivery(1);
+    const outcomeA = handleDelivery(deps(store, renderA), deliveryA);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    state.job!.heartbeatAt = new Date(Date.now() - 5 * 60_000);
+    const deliveryB = fakeDelivery(2);
+    const outputB = { ...output, objectKey: "renders/job-1-2.mp4" };
+    expect(await handleDelivery(deps(store, async () => outputB), deliveryB)).toBe("succeeded");
+    expect(state.published).toBe("renders/job-1-2.mp4");
+
+    finishA(output);
+    expect(await outcomeA).toBe("discarded");
+    expect(state.published).toBe("renders/job-1-2.mp4");
+    expect(state.job!.status).toBe("SUCCEEDED");
+    expect(deliveryA.delete).not.toHaveBeenCalled();
+  });
+
+  it("lets a superseded worker's failure neither re-queue nor fail the job", async () => {
+    const { store, state } = fakeStore(queued);
+    let failA!: (error: Error) => void;
+    const renderA = () => new Promise<typeof output>((_, reject) => { failA = reject; });
+    const outcomeA = handleDelivery(deps(store, renderA), fakeDelivery(1));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    state.job!.heartbeatAt = new Date(Date.now() - 5 * 60_000);
+    let finishB!: (value: typeof output) => void;
+    const outcomeB = handleDelivery(deps(store, () => new Promise<typeof output>((resolve) => { finishB = resolve; })), fakeDelivery(2));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    failA(new Error("boom"));
+    expect(await outcomeA).toBe("retrying");
+    expect(state.job!.status).toBe("RUNNING");
+    expect(state.error).toBeNull();
+
+    finishB(output);
+    expect(await outcomeB).toBe("succeeded");
+    expect(state.job!.status).toBe("SUCCEEDED");
+  });
+
   it("renders a queued job, records the output and deletes the message", async () => {
     const { store, state } = fakeStore(queued);
     const delivery = fakeDelivery();

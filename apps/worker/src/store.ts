@@ -1,7 +1,6 @@
 import { previewKeyFor } from "@reelwalk/core";
-import type { RenderJobMessage } from "@reelwalk/core";
 import type { PrismaClient } from "@reelwalk/db";
-import type { ClaimedJob, JobStore, RenderResult } from "./handler";
+import type { ClaimedJob, JobStore, Lease, RenderResult } from "./handler";
 
 /**
  * Prisma-backed JobStore. Each status change is one conditional UPDATE
@@ -10,7 +9,9 @@ import type { ClaimedJob, JobStore, RenderResult } from "./handler";
  * rather than by a read followed by a write.
  */
 export function createJobStore(prisma: PrismaClient): JobStore {
-  const running = (job: RenderJobMessage) => ({ id: job.jobId, generation: job.generation, status: "RUNNING" as const });
+  // The row is this run's only while it is RUNNING under the attempt this run claimed: a worker that was
+  // declared stale and comes back finds the attempt moved on and none of its writes land.
+  const running = (lease: Lease) => ({ id: lease.jobId, generation: lease.generation, attempt: lease.attempt, status: "RUNNING" as const });
 
   return {
     async snapshot(jobId) {
@@ -39,6 +40,7 @@ export function createJobStore(prisma: PrismaClient): JobStore {
       return {
         id: job.id,
         generation: job.generation,
+        attempt,
         kind: job.kind,
         caption: job.caption,
         payload: job.payload,
@@ -49,32 +51,42 @@ export function createJobStore(prisma: PrismaClient): JobStore {
       } satisfies ClaimedJob;
     },
 
-    async heartbeat(job, progress) {
+    async heartbeat(lease, progress) {
       await prisma.renderJob.updateMany({
-        where: running(job),
+        where: running(lease),
         data: { heartbeatAt: new Date(), ...(progress === undefined ? {} : { progress }) },
       });
     },
 
-    async succeed(job, output: RenderResult) {
-      // The upsert keeps one output row per job no matter how many times the
-      // job was rendered; the status write is a no-op if it already succeeded.
-      await prisma.$transaction([
-        prisma.renderOutput.upsert({ where: { jobId: job.jobId }, update: output, create: { jobId: job.jobId, ...output } }),
-        prisma.renderJob.updateMany({
-          where: running(job),
+    async succeed(lease, output: RenderResult) {
+      // The status flip is the guard: only the run that still holds the job may publish, and the output
+      // row (one per job, however many times it was rendered) is written in the same transaction, so a
+      // stale worker's file never replaces the one the job's current run made.
+      return prisma.$transaction(async (tx) => {
+        const done = await tx.renderJob.updateMany({
+          where: running(lease),
           data: { status: "SUCCEEDED", progress: 100, error: null, finishedAt: new Date() },
-        }),
-      ]);
+        });
+        if (done.count === 0) return false;
+        await tx.renderOutput.upsert({ where: { jobId: lease.jobId }, update: output, create: { jobId: lease.jobId, ...output } });
+        return true;
+      });
     },
 
-    async requeue(job, error) {
-      await prisma.renderJob.updateMany({ where: running(job), data: { status: "QUEUED", error, heartbeatAt: null } });
+    async requeue(lease, error) {
+      await prisma.renderJob.updateMany({ where: running(lease), data: { status: "QUEUED", error, heartbeatAt: null } });
     },
 
-    async fail(job, error) {
+    async failAbandoned(message, error) {
       await prisma.renderJob.updateMany({
-        where: { id: job.jobId, generation: job.generation, status: { in: ["QUEUED", "RUNNING"] } },
+        where: { id: message.jobId, generation: message.generation, status: { in: ["QUEUED", "RUNNING"] } },
+        data: { status: "FAILED", error, finishedAt: new Date() },
+      });
+    },
+
+    async fail(lease, error) {
+      await prisma.renderJob.updateMany({
+        where: { id: lease.jobId, generation: lease.generation, attempt: lease.attempt, status: { in: ["QUEUED", "RUNNING"] } },
         data: { status: "FAILED", error, finishedAt: new Date() },
       });
     },

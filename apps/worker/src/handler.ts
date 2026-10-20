@@ -10,6 +10,8 @@ import {
 export type ClaimedJob = {
   id: string;
   generation: number;
+  /** The attempt this claim wrote (SQS receive count), part of the lease and of the output's key. */
+  attempt: number;
   kind: "TEMPLATE" | "EDITOR" | "REEL" | "PREVIEW";
   caption: string | null;
   payload: unknown;
@@ -22,15 +24,26 @@ export type ClaimedJob = {
 
 export type RenderResult = { objectKey: string; contentType: string; sizeBytes: number };
 
-/** Database side of a job. Every write is conditional on the job still being this run's. */
+/**
+ * This run's hold on a job: the message's job and generation plus the attempt
+ * the claim wrote. A worker that was declared stale and resumes later still
+ * holds the same job and generation, so the attempt is what tells its writes
+ * from the replacement's.
+ */
+export type Lease = RenderJobMessage & { attempt: number };
+
+/** Database side of a job. Every write is conditional on the job still being this run's (its lease). */
 export interface JobStore {
   snapshot(jobId: string): Promise<JobSnapshot | null>;
   /** QUEUED (or stale RUNNING) -> RUNNING. Returns null if another worker got there first. */
   claim(message: RenderJobMessage, attempt: number, staleBefore: Date): Promise<ClaimedJob | null>;
-  heartbeat(job: RenderJobMessage, progress?: number): Promise<void>;
-  succeed(job: RenderJobMessage, output: RenderResult): Promise<void>;
-  requeue(job: RenderJobMessage, error: string): Promise<void>;
-  fail(job: RenderJobMessage, error: string): Promise<void>;
+  heartbeat(lease: Lease, progress?: number): Promise<void>;
+  /** Publishes the output and marks the job done; false when the lease was lost, in which case nothing was written. */
+  succeed(lease: Lease, output: RenderResult): Promise<boolean>;
+  requeue(lease: Lease, error: string): Promise<void>;
+  fail(lease: Lease, error: string): Promise<void>;
+  /** Marks a job FAILED without holding a lease: the dead-letter path, for a job whose every worker died before writing an error. */
+  failAbandoned(message: RenderJobMessage, error: string): Promise<void>;
 }
 
 /** One received queue message. */
@@ -101,23 +114,29 @@ export async function handleDelivery(deps: HandlerDeps, delivery: Delivery): Pro
   const job = await store.claim(message, delivery.receiveCount, new Date(now().getTime() - staleAfterMs));
   if (!job) return "deferred";
   log(`[${job.id}] claimed, attempt ${delivery.receiveCount}/${config.maxAttempts}`);
+  const lease: Lease = { ...message, attempt: delivery.receiveCount };
 
   // While rendering, keep the message hidden and the row fresh so that no
   // other worker picks the job up. If this process dies, both lapse.
   let progress = 0;
   const heartbeat = setInterval(() => {
     delivery.extend(config.visibilitySeconds).catch((error) => log(`[${job.id}] could not extend visibility`, error));
-    store.heartbeat(message, progress).catch((error) => log(`[${job.id}] could not write heartbeat`, error));
+    store.heartbeat(lease, progress).catch((error) => log(`[${job.id}] could not write heartbeat`, error));
   }, config.heartbeatSeconds * 1000);
 
   try {
     const output = await deps.render(job, (percent) => {
       if (percent >= progress + 5 || percent === 100) {
         progress = percent;
-        store.heartbeat(message, progress).catch((error) => log(`[${job.id}] could not write progress`, error));
+        store.heartbeat(lease, progress).catch((error) => log(`[${job.id}] could not write progress`, error));
       }
     });
-    await store.succeed(message, output);
+    if (!(await store.succeed(lease, output))) {
+      // Another worker took the job over while this one rendered (it was declared stale, or the job was
+      // re-queued). Its output stays unpublished and the message is theirs now.
+      log(`[${job.id}] rendered, but the job is no longer this worker's; output ${output.objectKey} not published`);
+      return "discarded";
+    }
     await delivery.delete();
     log(`[${job.id}] succeeded`);
     return "succeeded";
@@ -129,12 +148,12 @@ export async function handleDelivery(deps: HandlerDeps, delivery: Delivery): Pro
     });
     if (failure.status === "QUEUED") {
       log(`[${job.id}] attempt ${delivery.receiveCount} failed, retrying in ${failure.retryDelaySeconds}s`, error);
-      await store.requeue(message, errorMessage(error));
+      await store.requeue(lease, errorMessage(error));
       await delivery.extend(failure.retryDelaySeconds);
       return "retrying";
     }
     log(`[${job.id}] failed after ${delivery.receiveCount} attempts`, error);
-    await store.fail(message, errorMessage(error));
+    await store.fail(lease, errorMessage(error));
     // Not deleted: the next receive exceeds maxReceiveCount and SQS moves it to the DLQ.
     await delivery.extend(0);
     return "failed";
@@ -172,7 +191,7 @@ export async function handleDeadLetter(
   });
   if (shouldFail) {
     log(`[${message.jobId}] dead-lettered while still active, marking failed`);
-    await deps.store.fail(message, "Render attempts were exhausted (the worker stopped before reporting an error).");
+    await deps.store.failAbandoned(message, "Render attempts were exhausted (the worker stopped before reporting an error).");
   } else {
     log(`[${message.jobId}] dead letter received, job already settled`);
   }

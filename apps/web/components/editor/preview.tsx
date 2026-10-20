@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { Player, type PlayerRef } from "@remotion/player";
 import { prefetch } from "remotion";
-import { INSTAGRAM, minTextSize, oneLineWidth, PLANAR_MAX_WIDTH, planarFitAndShift, REEL_FORMAT, TEXT_SIZE_MAX, textsAt, textPositionAt, type TextOverlay, type Timeline } from "@reelwalk/core";
+import { INSTAGRAM, minTextSize, oneLineWidth, pinnedProgress, PLANAR_MAX_WIDTH, planarFitAndShift, REEL_FORMAT, TEXT_SIZE_MAX, textsAt, textPositionAt, textQuadAt, type TextOverlay, type Timeline } from "@reelwalk/core";
 import { ReelComposition, reelDurationInFrames, textTreatmentCss, type ReelAsset } from "@reelwalk/render/reel";
 import { PlayIcon } from "../icons";
 import { useClock, type Clock } from "./clock";
@@ -29,12 +29,16 @@ type PreviewProps = {
   onResizeText(id: string, size: number, gesture: string): void;
   /** The selected title's surface corners were dragged (frame fractions, tl tr br bl). */
   onSurfaceText?(id: string, quad: number[], gesture: string): void;
+  /** The posts in front of the selected title's surface were dragged, added or removed (ADR 0044). */
+  onBarsText?(id: string, bars: number[][], gesture: string): void;
   onSelectText(id: string): void;
   onEditText(id: string): void;
   empty: React.ReactNode;
   /** Full-screen viewing: the frame fills the screen, editing handles hide. */
   theater?: boolean;
   onExitTheater?(): void;
+  /** Check mode (ADR 0044): full screen with a strip of moments to jump to, every title's surface outlined. */
+  check?: { marks: { label: string; ms: number }[]; onSeek(ms: number): void } | null;
 };
 
 /** Snaps to the centre line when the text is dragged close to it. */
@@ -44,39 +48,112 @@ function snap(value: number): number {
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
-/** The surface a title is painted on: a dashed outline with a draggable corner at each of its four points (ADR 0043). */
-function SurfaceHandles({ quad, frame, onChange }: { quad: number[]; frame: RefObject<HTMLDivElement | null>; onChange(quad: number[], gesture: string): void }) {
-  const points = `${quad[0] * 100}%,${quad[1] * 100}% ${quad[2] * 100}%,${quad[3] * 100}% ${quad[4] * 100}%,${quad[5] * 100}% ${quad[6] * 100}%,${quad[7] * 100}%`;
+/** Drags a point in frame fractions, calling `onMove` with the pointer's position inside the frame while the pointer is down. */
+function dragPoint(event: React.PointerEvent<HTMLButtonElement>, frame: RefObject<HTMLDivElement | null>, onMove: (x: number, y: number) => void, onEnd?: () => void) {
+  if (event.button !== 0 || !frame.current) return;
+  event.stopPropagation();
+  event.currentTarget.setPointerCapture(event.pointerId);
+  const move = (e: PointerEvent) => {
+    const rect = frame.current!.getBoundingClientRect();
+    onMove(Math.max(-0.5, Math.min(1.5, (e.clientX - rect.left) / rect.width)), Math.max(-0.5, Math.min(1.5, (e.clientY - rect.top) / rect.height)));
+  };
+  const up = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); onEnd?.(); };
+  window.addEventListener("pointermove", move); window.addEventListener("pointerup", up);
+}
+
+const quadPoints = (quad: readonly number[]) => `${quad[0] * 100},${quad[1] * 100} ${quad[2] * 100},${quad[3] * 100} ${quad[4] * 100},${quad[5] * 100} ${quad[6] * 100},${quad[7] * 100}`;
+
+/**
+ * The surface a title is painted on: a dashed outline with a numbered,
+ * draggable corner at each of its four points, set by hand on the first
+ * frame of the shot (ADR 0043, ADR 0044). While a corner is dragged, a
+ * cross-hair through it helps land it on the wall's edge. Posts in front of
+ * the surface (a mullion, a pole) are strips whose two edges drag sideways.
+ */
+function SurfaceHandles({ quad, bars = [], frame, onChange, onBars }: { quad: number[]; bars?: number[][]; frame: RefObject<HTMLDivElement | null>; onChange(quad: number[], gesture: string): void; onBars?(bars: number[][], gesture: string): void }) {
+  const [active, setActive] = useState<{ x: number; y: number } | null>(null);
   return (
     <>
       <svg className="surface-outline" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" }}>
-        <polygon points={points.replace(/%/g, "")} fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.85)" strokeWidth={0.4} strokeDasharray="1.2 0.8" vectorEffect="non-scaling-stroke" />
+        <polygon points={quadPoints(quad)} fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.85)" strokeWidth={0.4} strokeDasharray="1.2 0.8" vectorEffect="non-scaling-stroke" />
+        {bars.map((bar, i) => <polygon key={i} points={quadPoints(bar)} fill="rgba(20,20,20,0.45)" stroke="rgba(255,210,80,0.9)" strokeWidth={0.4} vectorEffect="non-scaling-stroke" />)}
+        {active ? (<>
+          <line x1={0} x2={100} y1={active.y * 100} y2={active.y * 100} stroke="rgba(255,90,95,0.9)" strokeWidth={0.3} vectorEffect="non-scaling-stroke" />
+          <line y1={0} y2={100} x1={active.x * 100} x2={active.x * 100} stroke="rgba(255,90,95,0.9)" strokeWidth={0.3} vectorEffect="non-scaling-stroke" />
+        </>) : null}
       </svg>
       {[0, 1, 2, 3].map((i) => (
         <button
           key={i}
           type="button"
           className="surface-corner"
-          aria-label={`Surface corner ${["top left", "top right", "bottom right", "bottom left"][i]}. Drag to the edge of the wall.`}
-          style={{ position: "absolute", left: `${quad[i * 2] * 100}%`, top: `${quad[i * 2 + 1] * 100}%`, width: 18, height: 18, marginLeft: -9, marginTop: -9, borderRadius: 9, border: "2px solid #fff", background: "rgba(255,90,95,0.9)", padding: 0, cursor: "grab", touchAction: "none" }}
+          data-testid="surface-corner"
+          aria-label={`Surface corner ${i + 1}, ${["top left", "top right", "bottom right", "bottom left"][i]}. Drag to the edge of the wall.`}
+          style={{ left: `${quad[i * 2] * 100}%`, top: `${quad[i * 2 + 1] * 100}%` }}
           onPointerDown={(event) => {
-            if (event.button !== 0 || !frame.current) return;
-            event.stopPropagation();
-            event.currentTarget.setPointerCapture(event.pointerId);
             const gesture = `drag:surface-${i}:${Date.now()}`;
-            const move = (e: PointerEvent) => {
-              const rect = frame.current!.getBoundingClientRect();
-              const next = [...quad];
-              next[i * 2] = Math.max(-0.5, Math.min(1.5, (e.clientX - rect.left) / rect.width));
-              next[i * 2 + 1] = Math.max(-0.5, Math.min(1.5, (e.clientY - rect.top) / rect.height));
+            dragPoint(event, frame, (x, y) => {
+              const next = [...quad]; next[i * 2] = x; next[i * 2 + 1] = y;
+              setActive({ x, y });
               onChange(next.map((v) => Number(v.toFixed(4))), gesture);
-            };
-            const up = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); };
-            window.addEventListener("pointermove", move); window.addEventListener("pointerup", up);
+            }, () => setActive(null));
           }}
-        />
+        >{i + 1}</button>
       ))}
+      {onBars ? bars.map((bar, b) => (
+        <span key={b}>
+          {[0, 1].map((side) => {
+            // The left edge is corners 0 (top) and 3 (bottom); the right edge corners 1 and 2.
+            const top = side === 0 ? 0 : 2, bottom = side === 0 ? 6 : 4;
+            return (
+              <button key={side} type="button" className="surface-bar-edge" data-testid="surface-bar-edge" aria-label={`Post ${b + 1}, ${side === 0 ? "left" : "right"} edge. Drag sideways onto the edge of the post.`}
+                style={{ left: `${((bar[top] + bar[bottom]) / 2) * 100}%`, top: `${((bar[top + 1] + bar[bottom + 1]) / 2) * 100}%` }}
+                onPointerDown={(event) => {
+                  const gesture = `drag:bar-${b}-${side}:${Date.now()}`;
+                  dragPoint(event, frame, (x) => {
+                    const next = bars.map((q) => [...q]);
+                    next[b][top] = x; next[b][bottom] = x;
+                    onBars(next.map((q) => q.map((v) => Number(v.toFixed(4)))), gesture);
+                  });
+                }} />
+            );
+          })}
+          <button type="button" className="surface-bar-remove" aria-label={`Remove post ${b + 1}`} style={{ left: `${((bar[0] + bar[2]) / 2) * 100}%`, top: `${Math.min(bar[1], bar[3]) * 100}%` }}
+            onPointerDown={(event) => event.stopPropagation()} onClick={() => onBars(bars.filter((_, i) => i !== b), `bar-remove-${Date.now()}`)}>×</button>
+        </span>
+      )) : null}
     </>
+  );
+}
+
+/** Check mode: every title on screen now, its surface (tracked where it is pinned) outlined, so a drift or a miss shows at full size before an export (ADR 0044). */
+function SurfaceOutlines({ clock, timeline }: { clock: Clock; timeline: Timeline }) {
+  const now = useClock(clock);
+  const shapes = textsAt(timeline, now).flatMap((text) => {
+    const quad = text.pin ? textQuadAt(text, pinnedProgress(timeline, text, now)) : null;
+    const outline = quad ?? text.surface;
+    return outline ? [{ id: text.id, outline, tracked: Boolean(quad) }] : [];
+  });
+  if (!shapes.length) return null;
+  return (
+    <svg className="surface-outline" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true" data-testid="check-outlines" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" }}>
+      {shapes.map((shape) => <polygon key={shape.id} points={quadPoints(shape.outline)} fill="none" stroke={shape.tracked ? "rgba(120,255,160,0.9)" : "rgba(255,255,255,0.8)"} strokeWidth={0.4} strokeDasharray="1.2 0.8" vectorEffect="non-scaling-stroke" />)}
+    </svg>
+  );
+}
+
+/** The moments to look at in check mode: a button per mark, the one nearest the playhead lit. */
+function CheckStrip({ clock, marks, onSeek }: { clock: Clock; marks: { label: string; ms: number }[]; onSeek(ms: number): void }) {
+  const now = useClock(clock);
+  const nearest = marks.reduce((best, mark, i) => (Math.abs(mark.ms - now) < Math.abs(marks[best].ms - now) ? i : best), 0);
+  return (
+    <div className="check-strip" data-testid="check-strip">
+      {marks.map((mark, i) => (
+        <button key={i} type="button" className={i === nearest ? "check-mark is-current" : "check-mark"} aria-label={`Show ${mark.label}`} aria-pressed={i === nearest} onClick={() => onSeek(mark.ms)}>
+          {mark.label}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -243,11 +320,13 @@ export function Preview({
   onMoveText,
   onResizeText,
   onSurfaceText,
+  onBarsText,
   onSelectText,
   onEditText,
   empty,
   theater = false,
   onExitTheater,
+  check = null,
 }: PreviewProps) {
   const frame = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(0.3);
@@ -331,6 +410,7 @@ export function Preview({
           ×
         </button>
       ) : null}
+      {theater && check ? <CheckStrip clock={clock} marks={check.marks} onSeek={check.onSeek} /> : null}
       <div className="stage-frame" ref={frame} data-testid="preview">
         {hasClips ? (
           <>
@@ -397,9 +477,10 @@ export function Preview({
             onEdit={() => onEditText(selectedText.id)}
           />
           {selectedText.surface && onSurfaceText ? (
-            <SurfaceHandles quad={selectedText.surface} frame={frame} onChange={(quad, gesture) => onSurfaceText(selectedText.id, quad, gesture)} />
+            <SurfaceHandles quad={selectedText.surface} bars={selectedText.bars} frame={frame} onChange={(quad, gesture) => onSurfaceText(selectedText.id, quad, gesture)} onBars={onBarsText ? (bars, gesture) => onBarsText(selectedText.id, bars, gesture) : undefined} />
           ) : null}
         </>) : null}
+        {theater && check ? <SurfaceOutlines clock={clock} timeline={timeline} /> : null}
       </div>
     </div>
   );

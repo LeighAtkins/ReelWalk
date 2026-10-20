@@ -3089,3 +3089,72 @@ video:-webkit-full-screen {
 .sound-comparison video { display: block; width: 100%; max-height: 420px; object-fit: contain; background: #090909; border-radius: 12px; }
 
 .scheduled-row:has(.scheduled-music-panel) { grid-template-columns: minmax(0, 1fr); }
+
+/* Surface corners and posts (ADR 0043, ADR 0044): big enough for a thumb, numbered so the sheet can name them. */
+.surface-corner {
+  position: absolute;
+  width: 30px;
+  height: 30px;
+  margin: -15px 0 0 -15px;
+  padding: 0;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: rgb(255 90 95 / 0.9);
+  color: #fff;
+  font: 700 12px/1 var(--font-sans, system-ui);
+  cursor: grab;
+  touch-action: none;
+  box-shadow: 0 1px 6px rgb(0 0 0 / 0.5);
+}
+.surface-bar-edge {
+  position: absolute;
+  width: 18px;
+  height: 44px;
+  margin: -22px 0 0 -9px;
+  padding: 0;
+  border: 2px solid #fff;
+  border-radius: 6px;
+  background: rgb(255 210 80 / 0.9);
+  cursor: ew-resize;
+  touch-action: none;
+}
+.surface-bar-remove {
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  margin: -30px 0 0 -12px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgb(0 0 0 / 0.7);
+  color: #fff;
+  font-size: 16px;
+  line-height: 1;
+}
+/* Check mode: the moments to look at, above the full-screen frame. */
+.check-strip {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(env(safe-area-inset-bottom) + 8px);
+  z-index: 3;
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 6px 12px;
+  scrollbar-width: none;
+}
+.check-mark {
+  flex: 0 0 auto;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid rgb(255 255 255 / 0.35);
+  border-radius: 18px;
+  background: rgb(0 0 0 / 0.55);
+  color: #fff;
+  font-size: 13px;
+}
+.check-mark.is-current {
+  background: #fff;
+  color: #000;
+}

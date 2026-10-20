@@ -81,3 +81,18 @@ describe("planar titles fit the frame", () => {
     expect(planarFitAndShift(leaned, 0.9).fit).toBeLessThan(planarFitAndShift(flat, 0.9).fit + 1e-9);
   });
 });
+
+describe("endsBeforeShot", () => {
+  it("is true only for a pinned title taken off before its clip ends", async () => {
+    const { endsBeforeShot, clipSchema, emptyTimeline, textSchema } = await import("../src");
+    const clip = clipSchema.parse({ id: "c1", assetId: "a1", kind: "VIDEO", sourceStartMs: 0, sourceEndMs: 4000 });
+    const timeline = { ...emptyTimeline(), clips: [clip] };
+    const pin = { assetId: "a1", fromMs: 0, toMs: 4000 };
+    const whole = textSchema.parse({ id: "t1", text: "LIGHT", x: 0.5, y: 0.5, startMs: 0, endMs: 4000, pin });
+    const early = textSchema.parse({ id: "t2", text: "LIGHT", x: 0.5, y: 0.5, startMs: 0, endMs: 2500, pin });
+    const still = textSchema.parse({ id: "t3", text: "LIGHT", x: 0.5, y: 0.5, startMs: 0, endMs: 2500 });
+    expect(endsBeforeShot(timeline, whole)).toBe(false);
+    expect(endsBeforeShot(timeline, early)).toBe(true);
+    expect(endsBeforeShot(timeline, still)).toBe(false);
+  });
+});

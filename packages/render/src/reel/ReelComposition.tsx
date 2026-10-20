@@ -204,7 +204,10 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
   // A pinned path runs on its clip's source time (ADR 0039); a drift runs over the text's own life.
   const progress = text.pin ? pinnedProgress(timeline, text, ((from + frame) * 1000) / fps) : durationInFrames > 1 ? frame / (durationInFrames - 1) : 0;
   const position = textPositionAt(text, progress);
-  const quad = textQuadAt(text, progress);
+  // A title with a surface but no pin yet is drawn inside its surface as it stands (ADR 0044): the corners
+  // being dragged reshape the words at once, and pinning then makes that plane follow the camera.
+  const quad = textQuadAt(text, progress) ?? (text.surface && !text.pin ? text.surface : null);
+  const plane = text.pin?.quad ?? (text.surface && !text.pin ? text.surface : undefined);
   // A pinned title belongs to its shot: while another clip is on screen it is not drawn at all.
   // Hooks first: a pinned title on another clip returns nothing, but only after every hook has run (React 300 otherwise).
   useFontsFor(text.text, Number(css.fontWeight ?? 600));
@@ -221,27 +224,27 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
   const cursor = chars !== null && chars < text.text.length && Math.floor(frame / (fps / 4)) % 2 === 0;
   // The blend's own 0.92 multiplies the fade; spread after `opacity`, a flat 0.92 used to cancel it.
   const meet = text.blend === "surface" ? { mixBlendMode: "hard-light" as const, filter: "blur(0.6px)", opacity: visible * 0.92 } : {};
-  if (quad && text.pin?.quad) {
+  if (quad && plane) {
     // A planar title never wraps, so a long one is shrunk to fit the frame rather than running off it.
     // The widest of the typed lines sets the width.
     const line = Math.max(...text.text.split("\n").map((part) => oneLineWidth(part || " ", { fontFamily: String(css.fontFamily ?? ""), fontWeight: css.fontWeight, fontSize: Number(css.fontSize) || 64, letterSpacing: text.tracking, fontStretch: css.fontStretch ? String(css.fontStretch) : undefined }, width)));
     // Inside the frame, and when painted on a chosen surface, inside that surface with a margin: its width and its height.
-    const rectWidth = Math.max(0.05, text.pin.quad[2] - text.pin.quad[0]);
-    const rectHeight = Math.max(0.02, text.pin.quad[7] - text.pin.quad[1]);
+    const rectWidth = Math.max(0.05, plane[2] - plane[0]);
+    const rectHeight = Math.max(0.02, plane[7] - plane[1]);
     // The block the author typed: one line, or the lines they broke it into (each as tall as a line).
     const lines = text.text.split("\n").length;
     const lineHeight = (((Number(css.fontSize) || 64) * 1.12) / height) * lines;
     // A title on a chosen surface fills it: scaled up or down to span 94% of its width, as long as it fits its height.
-    const fit = text.surface ? Math.min((rectWidth * 0.94) / line, (rectHeight * 0.92) / lineHeight) : planarFitAndShift(text.pin.quad, line).fit;
+    const fit = text.surface ? Math.min((rectWidth * 0.94) / line, (rectHeight * 0.92) / lineHeight) : planarFitAndShift(plane, line).fit;
     // The text sits on the plane the tracker followed: a box at the pinned corners, warped to where they are now (ADR 0039).
-    const q0 = text.pin.quad;
+    const q0 = plane;
     const left = q0[0] * width, top = q0[1] * height;
     const w = Math.max(1, (q0[2] - q0[0]) * width), h = Math.max(1, (q0[7] - q0[1]) * height);
     const now = quad.map((v, i) => (i % 2 === 0 ? v * width - left : v * height - top)) as [number, number, number, number, number, number, number, number];
     const H = homography([0, 0, w, 0, w, h, 0, h], now);
     // Bars (a mullion, a post) in front of the surface: holes cut in the plane's own coordinates, so they warp with it.
     let mask: React.CSSProperties = {};
-    if (text.surface && text.bars?.length) {
+    if (text.surface && (text.bars?.length || text.cutouts?.length)) {
       const H0 = homography([0, 0, w, 0, w, h, 0, h], q0.map((v, i) => (i % 2 === 0 ? v * width - left : v * height - top)) as [number, number, number, number, number, number, number, number]);
       const inv = H0 ? invertHomography(H0) : null;
       if (inv) {
@@ -249,7 +252,8 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
         // (white plane, black posts) subtracts their union: an even-odd path put two overlapping posts
         // back to visible where they crossed, and two identical posts cancelled each other.
         const toRect = (x: number, y: number) => { const px = x * width - left, py = y * height - top; const d = inv[6] * px + inv[7] * py + inv[8] || 1e-9; return `${((inv[0] * px + inv[1] * py + inv[2]) / d).toFixed(1)},${((inv[3] * px + inv[4] * py + inv[5]) / d).toFixed(1)}`; };
-        const posts = text.bars.map((bar) => `<polygon points="${[0, 1, 2, 3].map((i) => toRect(bar[i * 2], bar[i * 2 + 1])).join(" ")}" fill="black"/>`).join("");
+        const shapes = [...(text.bars ?? []), ...(text.cutouts ?? [])];
+        const posts = shapes.map((shape) => `<polygon points="${Array.from({ length: shape.length / 2 }, (_, i) => toRect(shape[i * 2], shape[i * 2 + 1])).join(" ")}" fill="black"/>`).join("");
         const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><rect width="${w}" height="${h}" fill="white"/>${posts}</svg>`;
         const url = `url("data:image/svg+xml;utf8,${encodeURIComponent(svg)}")`;
         mask = { maskImage: url, WebkitMaskImage: url, maskSize: "100% 100%", WebkitMaskSize: "100% 100%", maskRepeat: "no-repeat", WebkitMaskRepeat: "no-repeat" };

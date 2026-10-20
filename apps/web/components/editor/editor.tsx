@@ -282,9 +282,9 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
   // Check mode (ADR 0044): full screen with five moments per shot to jump between, every surface outlined.
   const [checking, setChecking] = useState(false);
   // Corner placing (ADR 0044): the frame full screen with only the selected title's corners, a loupe under the finger.
-  const [placing, setPlacing] = useState(false);
+  const [placing, setPlacing] = useState<false | "corners" | "cutouts">(false);
   const exitTheater = useCallback(() => { setTheater(false); setChecking(false); setPlacing(false); }, []);
-  const openCorners = useCallback(() => { playerRef.current?.pause(); setChecking(false); setPlacing(true); setTheater(true); }, []);
+  const openCorners = useCallback((tool: "corners" | "cutouts" = "corners") => { playerRef.current?.pause(); setChecking(false); setPlacing(tool); setTheater(true); }, []);
   const playerRef = useRef<PlayerRef>(null);
   // The Player loads after this component and remounts when the reel goes
   // from empty to non-empty; state makes the event subscription follow it.
@@ -1132,6 +1132,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         onMoveText={(id, x, y, gesture) => apply((current) => updateText(current, id, { x, y }), gesture)}
         onSurfaceText={(id, quad, gesture) => apply((current) => updateText(current, id, { surface: quad }), gesture)}
         onBarsText={(id, bars, gesture) => apply((current) => updateText(current, id, { bars: bars.length ? bars : undefined }), gesture)}
+        onCutoutsText={(id, cutouts, gesture) => apply((current) => updateText(current, id, { cutouts: cutouts.length ? cutouts : undefined }), gesture)}
         check={checking ? { marks: checkMarks, onSeek: seek } : null}
         corners={placing}
         onDoneCorners={exitTheater}
@@ -1361,9 +1362,9 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         const clip = at ? timeline.clips[at.index] : null;
         return <PinSheet text={selectedText} clip={clip} asset={clip ? library[clip.assetId] : undefined} clipStartMs={at ? selectedText.startMs - at.offsetMs : 0}
           onPath={(pinned, patch) => apply((current) => updateText(current, selectedText.id, { path: pinned?.path, pin: pinned?.pin, ...(patch ?? {}) }), `pin-${selectedText.id}`)}
-          onSurface={(surface) => apply((current) => updateText(current, selectedText.id, { surface, path: undefined, pin: undefined, ...(surface ? {} : { bars: undefined }) }), `surface-${selectedText.id}`)}
+          onSurface={(surface) => apply((current) => updateText(current, selectedText.id, { surface, path: undefined, pin: undefined, ...(surface ? {} : { bars: undefined, cutouts: undefined }) }), `surface-${selectedText.id}`)}
           onBars={(bars) => apply((current) => updateText(current, selectedText.id, { bars: bars.length ? bars : undefined }), `bars-${selectedText.id}`)}
-          onCheck={openCheck} onPlaceCorners={openCorners} onClose={closeSheet} />;
+          onCheck={openCheck} onPlaceCorners={() => openCorners("corners")} onDrawCutout={() => openCorners("cutouts")} onClose={closeSheet} />;
       })() : null}
       {sheet === "timing" && selectedText ? (
         <TimingSheet

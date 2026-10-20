@@ -166,6 +166,8 @@ export const textSchema = z
     surface: z.array(z.number().min(-0.5).max(1.5)).length(8).optional(),
     /** Things in front of the surface that hide the title where they cross it (a window mullion, a post): quads in frame fractions at pin time, on or near the surface's plane so they move with it (ADR 0043). */
     bars: z.array(z.array(z.number().min(-0.5).max(1.5)).length(8)).max(8).optional(),
+    /** Things in front of the surface (a plant, a chair back, a railing): polygons of 3–16 points (x, y pairs, frame fractions at the first frame) cut out of the title, moving with the plane (ADR 0044). */
+    cutouts: z.array(z.array(z.number().min(-0.5).max(1.5)).min(6).max(32).refine((points) => points.length % 2 === 0, "x, y pairs")).max(12).optional(),
     /** Offsets from x/y across this overlay's lifetime, with optional scale and rotation (degrees): a drift, or a surface tracked through the shot (ADR 0039). */
     path: z.array(z.object({
       t: unit, x: z.number().min(-0.5).max(0.5), y: z.number().min(-0.5).max(0.5), s: z.number().min(0.2).max(5).optional(), r: z.number().min(-180).max(180).optional(),

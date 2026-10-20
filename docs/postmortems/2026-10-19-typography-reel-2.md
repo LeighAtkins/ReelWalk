@@ -116,3 +116,35 @@ retimes the cut (28), the editor warns on a save conflict (30), words
 behind the person on any shot (31), the Pin sheet keeps a title in
 frame (34).
 
+## Owner's review of the export (2026-10-20, 01:40 MYT)
+
+"All of the text positioning was bad, it's moving around on its own, not
+sitting naturally in the frame." Measured on the exported paths:
+
+| Title | Jump per step | Worst jump | Plane width over the shot | Shear |
+|---|---|---|---|---|
+| BEACHFRONT | 1 px | 0.3 px | 432–582 px | 99 px |
+| OCEAN VIEWS | 4 px | 5 px | 411–454 px | 203 px |
+| STEP OUT | 16 px | 131 px | collapses to 0 | 145 px |
+| LIGHT | 21 px | 105 px | collapses to 0 | 17 px |
+| EVERY ROOM | 7 px | 8 px | 317–432 px | 32 px |
+| WAKE UP HERE | 16 px | 48 px | collapses to 0 | 24 px |
+
+**Slip 36:** the "rigid plane" was a free 8-parameter homography fitted
+from a handful of mixed-depth points at a third of the resolution, with
+no gate on the result. Three planes collapsed to zero width mid-shot and
+re-expanded; OCEAN VIEWS sheared by 200 px. Only the aerial ground
+plane, flat and richly textured, held.
+**Slip 37:** the starting plane is an axis-aligned box, so even a perfect
+track reads as a frontal sticker; nothing set the wall's perspective.
+**Slip 38:** the Pin sheet returned 40 confident keyframes for surfaces
+it could not follow; no quality was reported.
+**Slip 39 (process):** the export was verified from still frames, which
+cannot show motion. A motion strip (nine consecutive frames per shot)
+shows the collapse in one glance.
+
+Fixes: #156 similarity/affine fit with per-step scale and rotation gates,
+hold-then-fade on refused steps, a track grade in the Pin sheet; the lean
+PR adds Turn and Tilt so the plane starts in the wall's perspective and
+nudges a title in from the frame edge (slip 34); `.tools/motion-strip.sh`
+for every future check.

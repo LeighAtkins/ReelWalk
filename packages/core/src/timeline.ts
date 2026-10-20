@@ -155,7 +155,7 @@ export const textSchema = z
      * Set when `path` was tracked on a clip (ADR 0039): the keyframes' t runs over
      * this source window of that asset, so the pin survives trims and reorders.
      */
-    pin: z.object({ assetId: z.string().min(1), fromMs: ms, toMs: ms, /** The corners the text was laid on at pin time, matching each keyframe's `q`. */ quad: z.array(z.number().min(-2).max(3)).length(8).optional() }).optional(),
+    pin: z.object({ assetId: z.string().min(1), fromMs: ms, toMs: ms, /** The corners the text was laid on at pin time, matching each keyframe's `q`. */ quad: z.array(z.number().min(-2).max(3)).length(8).optional(), /** How the plane was turned and tilted into the wall's perspective, degrees. */ lean: z.object({ yaw: z.number().min(-60).max(60), pitch: z.number().min(-60).max(60) }).optional() }).optional(),
     /** People in the clips this text overlaps pass in front of it (ADR 0039). */
     behind: z.boolean().optional(),
     /** An extruded, 3D-looking title. */

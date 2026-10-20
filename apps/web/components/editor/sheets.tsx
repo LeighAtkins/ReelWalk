@@ -824,33 +824,53 @@ export function HookSheet({ hook, hasPerson, onChange, onWords, onClose }: {
   );
 }
 
+/** The selected text's centre x, moved in so its box (as drawn in the preview) sits at least 3% inside both frame edges. */
+function inFrameX(x: number): number {
+  const handle = document.querySelector<HTMLElement>(".text-handle");
+  const frame = handle?.closest<HTMLElement>(".stage-frame");
+  if (!handle || !frame) return x;
+  const half = handle.getBoundingClientRect().width / 2 / Math.max(1, frame.getBoundingClientRect().width);
+  if (half >= 0.47) return x;
+  return Math.max(0.03 + half, Math.min(0.97 - half, x));
+}
+
 /** Pin a text to the surface under it so it moves with the camera (ADR 0039). */
 export function PinSheet({ text, clip, asset, clipStartMs, onPath, onClose }: {
   text: TextOverlay; clip: Clip | null; asset: LibraryAsset | undefined; clipStartMs: number;
-  onPath(pinned: { path: TextOverlay["path"]; pin: TextOverlay["pin"] } | undefined, timing?: { startMs: number; endMs: number }): void; onClose(): void;
+  onPath(pinned: { path: TextOverlay["path"]; pin: TextOverlay["pin"] } | undefined, patch?: { startMs?: number; endMs?: number; x?: number }): void; onClose(): void;
 }) {
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   // A title that is in the room is there for the whole shot: on the wall when the cut lands, gone with the cut or the pan.
   const [wholeShot, setWholeShot] = useState(true);
+  // The wall's perspective: a title on a wall seen from the side recedes with it.
+  const [yaw, setYaw] = useState(text.pin?.lean?.yaw ?? 0);
+  const [pitch, setPitch] = useState(text.pin?.lean?.pitch ?? 0);
   const canTrack = Boolean(clip && clip.kind === "VIDEO" && asset);
   async function pin() {
     if (!clip || !asset) return;
     const timing = wholeShot ? { startMs: clipStartMs, endMs: clipStartMs + clipDurationMs(clip) } : { startMs: text.startMs, endMs: text.endMs };
+    // A title that starts cut off at the frame edge never reads as being on the wall: measure the
+    // selected text's box in the preview and move its centre in so it begins fully in frame.
+    const nudged = inFrameX(text.x);
     setBusy(true); setStatus("Following the surface under the text…");
-    const tracked = await trackTextPath(asset, clip, clipStartMs, { ...text, ...timing }, fraction => setStatus(`Following the surface under the text… ${Math.round(fraction * 100)}%`));
+    const tracked = await trackTextPath(asset, clip, clipStartMs, { ...text, x: nudged, ...timing }, fraction => setStatus(`Following the surface under the text… ${Math.round(fraction * 100)}%`), { yaw, pitch });
     setBusy(false);
     if (!tracked) { setStatus("Could not follow this shot. Try placing the text on a surface with some detail."); return; }
-    onPath({ path: tracked.path, pin: tracked.pin }, wholeShot ? timing : undefined);
+    onPath({ path: tracked.path, pin: tracked.pin }, { ...(wholeShot ? timing : {}), ...(nudged !== text.x ? { x: nudged } : {}) });
     const { path, lostAtMs, quality } = tracked;
     const lostNote = lostAtMs !== null ? ` The surface was lost ${((lostAtMs - tracked.pin.fromMs) / 1000 / (clip.speed || 1)).toFixed(1)} s in, so the title fades there.` : "";
+    const nudgeNote = nudged !== text.x ? ` Moved the title ${nudged < text.x ? "left" : "right"} so it starts fully in frame.` : "";
     const gradeNote = quality.grade === "good" ? `Good track: ${quality.inliers} points agreed on every step.` : quality.grade === "weak" ? `Weak track: only ${quality.inliers} points agreed and ${quality.held} of ${quality.steps} steps were held. Try a surface with more detail, or a bigger area of it.` : "The surface could not be followed to the end.";
-    setStatus(`${gradeNote} ${path.length} keyframes${wholeShot ? ", for the whole shot" : ""}.${lostNote} Play it back; unpin to go back to still text.`);
+    setStatus(`${gradeNote} ${path.length} keyframes${wholeShot ? ", for the whole shot" : ""}.${lostNote}${nudgeNote} Play it back; unpin to go back to still text.`);
   }
   return (
     <Sheet title="Pin to the picture" onClose={onClose}>
       <p className="muted small">The text follows the wall, floor or object under it as the camera moves, as one flat plane in perspective, and stays with that shot if you trim or move it. Place it on something with detail first.</p>
       <label className="field small"><input type="checkbox" checked={wholeShot} onChange={event => setWholeShot(event.target.checked)} /> For the whole shot: already there when the shot starts, gone when it ends</label>
+      <Range label="Turn" value={yaw} min={-60} max={60} step={1} display={yaw === 0 ? "Facing camera" : yaw > 0 ? `Right edge recedes ${yaw}°` : `Left edge recedes ${-yaw}°`} onChange={setYaw} />
+      <Range label="Tilt" value={pitch} min={-60} max={60} step={1} display={pitch === 0 ? "Level" : pitch > 0 ? `Top recedes ${pitch}°` : `Bottom recedes ${-pitch}°`} onChange={setPitch} />
+      <p className="muted small">Match the wall: a wall running away to the right wants Turn to the right; a floor or ceiling wants Tilt. Pin again after changing them.</p>
       <button type="button" className="btn btn-signal btn-block" disabled={!canTrack || busy} onClick={pin} data-testid="pin-text">{busy ? "Following…" : text.path && text.path.length > 2 ? "Pin again from the current position" : "Pin to the picture"}</button>
       {!canTrack ? <p className="small">Pinning needs the text to start on a video clip.</p> : null}
       {text.path ? <button type="button" className="btn btn-quiet btn-block" disabled={busy} onClick={() => { onPath(undefined); setStatus("Unpinned."); }}>Unpin (still text)</button> : null}

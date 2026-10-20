@@ -32,6 +32,19 @@ export function pinnedProgress(timeline: Timeline, text: TextOverlay, reelMs: nu
   return span > 0 ? (sourceMs - text.pin.fromMs) / span : 0;
 }
 
+/**
+ * True when a pinned title is taken off before its shot ends: it was shortened
+ * on purpose (a wall that leaves the frame, a push-in), so the render fades it
+ * out instead of cutting it. A title that runs to the cut just goes with the cut.
+ */
+export function endsBeforeShot(timeline: Timeline, text: TextOverlay): boolean {
+  if (!text.pin) return false;
+  const at = locate(timeline, Math.max(text.startMs, text.endMs - 1));
+  if (!at) return false;
+  const clipEndMs = text.endMs - 1 - at.offsetMs + clipDurationMs(timeline.clips[at.index]);
+  return clipEndMs - text.endMs > 80;
+}
+
 /** The tracked plane's corners at `progress`, interpolated between keyframes; null when the text has no planar track. */
 export function textQuadAt(text: TextOverlay, progress: number): number[] | null {
   if (!text.path || !text.pin?.quad || progress === PINNED_ELSEWHERE) return null;

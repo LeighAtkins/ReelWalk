@@ -831,11 +831,15 @@ function planarShift(text: Pick<TextOverlay, "text" | "style" | "color" | "size"
 }
 
 /** Pin a text to the surface under it so it moves with the camera (ADR 0039). */
-export function PinSheet({ text, clip, asset, clipStartMs, onPath, onSurface, onClose }: {
+export function PinSheet({ text, clip, asset, clipStartMs, onPath, onSurface, onBars, onCheck, onClose }: {
   text: TextOverlay; clip: Clip | null; asset: LibraryAsset | undefined; clipStartMs: number;
   onPath(pinned: { path: TextOverlay["path"]; pin: TextOverlay["pin"] } | undefined, patch?: { startMs?: number; endMs?: number; x?: number }): void;
-  /** The surface the title is painted on was found or cleared (also drops any pin, which must be redone on the new plane). */
+  /** The surface the title is painted on was set, found or cleared (also drops any pin, which must be redone on the new plane). */
   onSurface?(surface: number[] | undefined): void;
+  /** The posts in front of the surface changed (ADR 0044). */
+  onBars?(bars: number[][]): void;
+  /** Open check mode: the frame full screen with five moments per shot to look at. */
+  onCheck?(): void;
   onClose(): void;
 }) {
   const [status, setStatus] = useState<string | null>(null);
@@ -873,26 +877,56 @@ export function PinSheet({ text, clip, asset, clipStartMs, onPath, onSurface, on
   }
   return (
     <Sheet title="Pin to the picture" onClose={onClose}>
-      <p className="muted small">The text follows the wall, floor or object under it as the camera moves, as one flat plane in perspective, and stays with that shot if you trim or move it. Place it on something with detail first.</p>
-      <label className="field small"><input type="checkbox" checked={wholeShot} onChange={event => setWholeShot(event.target.checked)} /> For the whole shot: already there when the shot starts, gone when it ends</label>
+      <p className="muted small">The title is painted on a flat surface and follows it as the camera moves. The playhead is on the first frame of the shot: set the surface here, then pin.</p>
+      <h3 className="small" style={{ margin: "8px 0 4px" }}>1. The surface</h3>
       <div className="row" style={{ display: "flex", gap: 8 }}>
-        <button type="button" className="btn btn-block" disabled={!canTrack || busy} data-testid="find-surface" onClick={async () => {
+        {text.surface ? null : (
+          <button type="button" className="btn btn-signal btn-block" disabled={busy} data-testid="surface-corners" onClick={() => {
+            // A box around the title to start from: the corners are then dragged onto the wall, road or window.
+            const w = Math.min(0.9, 0.3 + text.size * 0.5), h = w * 0.22;
+            const x0 = Math.max(0.02, Math.min(0.98 - w, text.x - w / 2)), y0 = Math.max(0.02, Math.min(0.98 - h, text.y - h / 2));
+            onSurface?.([x0, y0, x0 + w, y0, x0 + w, y0 + h, x0, y0 + h].map(v => Number(v.toFixed(4))));
+            setStatus("Drag the four red corners onto the surface's own corners: 1 top left, 2 top right, 3 bottom right, 4 bottom left. The title fills whatever shape you make.");
+          }}>Set the four corners</button>
+        )}
+        <button type="button" className={text.surface ? "btn btn-quiet" : "btn btn-block"} disabled={!canTrack || busy} data-testid="find-surface" onClick={async () => {
           if (!clip || !asset) return;
           setBusy(true); setStatus("Looking for the wall's edges around the text…");
           const found = await detectSurface(asset, clip, clipStartMs, text);
           setBusy(false);
-          if (!found) { setStatus("No clear edges around the text. Drag it onto a wall, door or panel with visible edges, or set the corners by hand after choosing a box."); return; }
+          if (!found) { setStatus("No clear edges around the text. Set the four corners by hand instead."); return; }
           onSurface?.(found.quad);
-          setStatus(`Found a flat surface${found.weakest < 40 ? " (one edge is faint: check the corners)" : ""}. Drag its corners to the wall's edges if they are off, then pin.`);
-        }}>{text.surface ? "Find the surface again" : "Find a flat surface"}</button>
+          setStatus(`Suggested a surface${found.weakest < 40 ? " (one edge is faint: check the corners)" : ""}. Drag the corners if they are off, then pin.`);
+        }}>{text.surface ? "Suggest corners" : "Suggest corners"}</button>
         {text.surface ? <button type="button" className="btn btn-quiet" disabled={busy} onClick={() => { onSurface?.(undefined); setStatus("Back to a box around the text."); }}>Use a box</button> : null}
       </div>
-      <p className="muted small">{text.surface ? "The title is painted inside this surface, with its perspective. Drag the red corners to its edges." : "Find the wall, door or panel under the text so the title takes its real perspective; or turn and tilt a box by hand below."}</p>
+      <p className="muted small">{text.surface ? "The title is painted inside this surface, with its perspective, and clipped to it. Drag the red corners to the surface's edges; the title scales to fill it." : "Or turn and tilt a box by hand below."}</p>
+      {text.surface && onBars ? (<>
+        <h3 className="small" style={{ margin: "8px 0 4px" }}>2. Posts in front</h3>
+        <div className="row" style={{ display: "flex", gap: 8 }}>
+          <button type="button" className="btn btn-block" disabled={busy || (text.bars?.length ?? 0) >= 8} data-testid="add-post" onClick={() => {
+            // A post stands across the surface: a strip the surface's full height, starting mid-way, its two edges dragged onto the real post.
+            const q = text.surface!;
+            const at = (text.bars?.length ?? 0) ? 0.35 + 0.1 * text.bars!.length : 0.5;
+            const lerp = (a: number, b: number, k: number) => a + (b - a) * k;
+            const topX = lerp(q[0], q[2], at), topY = lerp(q[1], q[3], at), bottomX = lerp(q[6], q[4], at), bottomY = lerp(q[7], q[5], at);
+            const half = 0.015;
+            onBars([...(text.bars ?? []), [topX - half, topY, topX + half, topY, bottomX + half, bottomY, bottomX - half, bottomY].map(v => Number(v.toFixed(4)))]);
+            setStatus("Drag the yellow edges onto the post's edges. The title is cut out where the post stands, so the post stays in front of it.");
+          }}>{text.bars?.length ? `Add another post (${text.bars.length})` : "Add a post"}</button>
+          {text.bars?.length ? <button type="button" className="btn btn-quiet" disabled={busy} onClick={() => onBars([])}>Remove posts</button> : null}
+        </div>
+        <p className="muted small">A window mullion, a pole or a tree trunk between the camera and the surface: the title is cut out where it stands.</p>
+      </>) : null}
+      <h3 className="small" style={{ margin: "8px 0 4px" }}>{text.surface ? "3. Pin" : "2. Pin"}</h3>
+      <label className="field small"><input type="checkbox" checked={wholeShot} onChange={event => setWholeShot(event.target.checked)} /> For the whole shot: already there when the shot starts, gone when it ends</label>
       {text.surface ? null : <Range label="Turn" value={yaw} min={-60} max={60} step={1} display={yaw === 0 ? "Facing camera" : yaw > 0 ? `Right edge recedes ${yaw}°` : `Left edge recedes ${-yaw}°`} onChange={setYaw} />}
       {text.surface ? null : <Range label="Tilt" value={pitch} min={-60} max={60} step={1} display={pitch === 0 ? "Level" : pitch > 0 ? `Top recedes ${pitch}°` : `Bottom recedes ${-pitch}°`} onChange={setPitch} />}
       {text.surface ? null : <p className="muted small">Match the wall: a wall running away to the right wants Turn to the right; a floor or ceiling wants Tilt. Pin again after changing them.</p>}
-      <button type="button" className="btn btn-signal btn-block" disabled={!canTrack || busy} onClick={pin} data-testid="pin-text">{busy ? "Following…" : text.path && text.path.length > 2 ? "Pin again from the current position" : "Pin to the picture"}</button>
+      <button type="button" className="btn btn-signal btn-block" disabled={!canTrack || busy} onClick={pin} data-testid="pin-text">{busy ? "Following…" : text.path && text.path.length > 2 ? "Pin again from these corners" : "Pin to the picture"}</button>
       {!canTrack ? <p className="small">Pinning needs the text to start on a video clip.</p> : null}
+      {text.path && text.path.length > 2 && onCheck ? <button type="button" className="btn btn-block" disabled={busy} data-testid="check-pin" onClick={onCheck}>Check it: five frames of every shot, full screen</button> : null}
+      {text.path && text.path.length > 2 ? <p className="muted small">If the surface slides off the frame before the cut, shorten the title under Timing: a pinned title that ends early fades out.</p> : null}
       {text.path ? <button type="button" className="btn btn-quiet btn-block" disabled={busy} onClick={() => { onPath(undefined); setStatus("Unpinned."); }}>Unpin (still text)</button> : null}
       {status ? <p role="status" className="small">{status}</p> : null}
     </Sheet>

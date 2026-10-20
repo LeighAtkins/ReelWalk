@@ -279,7 +279,9 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
   const [exportState, setExportState] = useState<{ busy: boolean; error: string | null; issues: Issue[] | null; upgrade?: boolean }>({ busy: false, error: null, issues: null });
   const clock = useMemo(() => createClock(), []);
   const [theater, setTheater] = useState(false);
-  const exitTheater = useCallback(() => setTheater(false), []);
+  // Check mode (ADR 0044): full screen with five moments per shot to jump between, every surface outlined.
+  const [checking, setChecking] = useState(false);
+  const exitTheater = useCallback(() => { setTheater(false); setChecking(false); }, []);
   const playerRef = useRef<PlayerRef>(null);
   // The Player loads after this component and remounts when the reel goes
   // from empty to non-empty; state makes the event subscription follow it.
@@ -656,6 +658,18 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
     [clock, seek, timeline.texts],
   );
 
+  // Corners are set on the first frame of the shot (ADR 0044): opening Pin goes there.
+  const selectedTextId = selectedText?.id;
+  useEffect(() => {
+    if (sheet !== "pin" || !selectedTextId) return;
+    const text = timeline.texts.find((item) => item.id === selectedTextId);
+    const at = text ? locate(timeline, text.startMs) : null;
+    if (!text || !at) return;
+    playerRef.current?.pause();
+    seek(text.startMs - at.offsetMs + 1000 / REEL_FORMAT.fps);
+    // Only when the sheet opens, not on every edit made in it.
+  }, [sheet, selectedTextId]);
+
   // A clip tool shows the clip it changes: opening one moves the playhead onto
   // the clip when it was elsewhere. (Not on a plain tap: that would scroll the
   // strip out from under the finger.)
@@ -669,6 +683,26 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
     seek(start);
     // Only when the sheet opens, not on every edit made in it.
   }, [sheet, selectedClipId]);
+
+  // ── Check before export (ADR 0044) ─────────────────────────
+  const checkMarks = useMemo(() => {
+    const starts = clipStartsMs(timeline);
+    const frameMs = 1000 / REEL_FORMAT.fps;
+    return timeline.clips.flatMap((clip, index) => {
+      const length = clipDurationMs(clip);
+      return [0, 0.25, 0.5, 0.75, 1].map((share, k) => ({
+        label: `${index + 1}${["a", "b", "c", "d", "e"][k]}`,
+        ms: Math.round(starts[index] + Math.min(Math.max(share * length, frameMs), Math.max(frameMs, length - frameMs))),
+      }));
+    });
+  }, [timeline]);
+  const openCheck = useCallback(() => {
+    playerRef.current?.pause();
+    setSheet(null);
+    setChecking(true);
+    setTheater(true);
+    if (checkMarks.length) seek(checkMarks[0].ms);
+  }, [checkMarks, seek]);
 
   // ── Export ──────────────────────────────────────────────────
   const openExport = useCallback(async () => {
@@ -1063,6 +1097,9 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
             {saveLabel}
           </span>
         </div>
+        <button type="button" className="btn btn-quiet" onClick={openCheck} disabled={!hasClips} data-testid="check-button">
+          Check
+        </button>
         <button type="button" className="btn btn-signal" onClick={openExport} disabled={!hasClips} data-testid="export-button">
           Export
         </button>
@@ -1089,6 +1126,8 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         clock={clock}
         onMoveText={(id, x, y, gesture) => apply((current) => updateText(current, id, { x, y }), gesture)}
         onSurfaceText={(id, quad, gesture) => apply((current) => updateText(current, id, { surface: quad }), gesture)}
+        onBarsText={(id, bars, gesture) => apply((current) => updateText(current, id, { bars: bars.length ? bars : undefined }), gesture)}
+        check={checking ? { marks: checkMarks, onSeek: seek } : null}
         onResizeText={(id, size, gesture) => apply((current) => updateText(current, id, { size }), gesture)}
         onSelectText={(id) => setSelection({ kind: "text", id })}
         onEditText={(id) => {
@@ -1315,7 +1354,9 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         const clip = at ? timeline.clips[at.index] : null;
         return <PinSheet text={selectedText} clip={clip} asset={clip ? library[clip.assetId] : undefined} clipStartMs={at ? selectedText.startMs - at.offsetMs : 0}
           onPath={(pinned, patch) => apply((current) => updateText(current, selectedText.id, { path: pinned?.path, pin: pinned?.pin, ...(patch ?? {}) }), `pin-${selectedText.id}`)}
-          onSurface={(surface) => apply((current) => updateText(current, selectedText.id, { surface, path: undefined, pin: undefined }), `surface-${selectedText.id}`)} onClose={closeSheet} />;
+          onSurface={(surface) => apply((current) => updateText(current, selectedText.id, { surface, path: undefined, pin: undefined, ...(surface ? {} : { bars: undefined }) }), `surface-${selectedText.id}`)}
+          onBars={(bars) => apply((current) => updateText(current, selectedText.id, { bars: bars.length ? bars : undefined }), `bars-${selectedText.id}`)}
+          onCheck={openCheck} onClose={closeSheet} />;
       })() : null}
       {sheet === "timing" && selectedText ? (
         <TimingSheet

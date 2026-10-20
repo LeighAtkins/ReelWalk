@@ -15,7 +15,7 @@ import {
 // WebCodecs-based video, used when the worker renders: about twice as fast as
 // OffthreadVideo here, and it falls back to it for files it cannot decode.
 import { Video as RenderVideo } from "@remotion/media";
-import { cameraAt, cameraMoveAt, homography, invertHomography, matrix3d, oneLineWidth, PINNED_ELSEWHERE, pinnedProgress, planarFitAndShift, textPositionAt, textQuadAt, duckGain, framePlan, INSTAGRAM, isInstagramMusic, speechWindows, REEL_FORMAT, timelineDurationMs, walkInto, type Clip, type Logo, type Plan, type TextOverlay, type Timeline } from "@reelwalk/core";
+import { cameraAt, cameraMoveAt, homography, invertHomography, matrix3d, oneLineWidth, PINNED_ELSEWHERE, pinnedProgress, planarFitAndShift, textPositionAt, textQuadAt, duckGain, framePlan, INSTAGRAM, isInstagramMusic, speechWindows, REEL_FORMAT, timelineDurationMs, walkInto, type Clip, type Logo, type Plan, type TextOverlay, type Timeline, endsBeforeShot } from "@reelwalk/core";
 import { whipGeometry } from "./whip";
 import { useFontsFor } from "./fonts";
 import { ELEGANT_FADE_S, FILTER_CSS, textTreatmentCss } from "./look";
@@ -236,8 +236,10 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
   if (text.pin && progress === PINNED_ELSEWHERE) return null;
   const face = { ...css, ...(text.depth === "extruded" ? { textShadow: extrudedShadow(text.color, Number(css.fontSize) || 64), WebkitTextStroke: `${Math.max(0.5, (Number(css.fontSize) || 64) * 0.01)}px rgba(0,0,0,0.35)` } : {}) };
   // Paint on the surface: hard-light keeps the wall's own light and grain through the letters (white lightens, dark darkens), with the footage's softness.
-  // A tracked title fades where the tracker lost the surface (or where its path says so), instead of cutting.
-  const visible = opacity * position.opacity;
+  // A tracked title fades where the tracker lost the surface (or where its path says so), instead of cutting;
+  // one taken off before its shot ends (ADR 0044) fades over its last 0.4 s rather than vanishing mid-shot.
+  const tail = text.pin && endsBeforeShot(timeline, text) ? interpolate(frame, [Math.max(0, durationInFrames - Math.round(0.4 * fps)), durationInFrames], [1, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" }) : 1;
+  const visible = opacity * position.opacity * tail;
   // The blend's own 0.92 multiplies the fade; spread after `opacity`, a flat 0.92 used to cancel it.
   const meet = text.blend === "surface" ? { mixBlendMode: "hard-light" as const, filter: "blur(0.6px)", opacity: visible * 0.92 } : {};
   if (quad && text.pin?.quad) {

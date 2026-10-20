@@ -259,10 +259,12 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
       const H0 = homography([0, 0, w, 0, w, h, 0, h], q0.map((v, i) => (i % 2 === 0 ? v * width - left : v * height - top)) as [number, number, number, number, number, number, number, number]);
       const inv = H0 ? invertHomography(H0) : null;
       if (inv) {
-        const toRect = (x: number, y: number) => { const px = x * width - left, py = y * height - top; const d = inv[6] * px + inv[7] * py + inv[8] || 1e-9; return `${((inv[0] * px + inv[1] * py + inv[2]) / d).toFixed(1)}px ${((inv[3] * px + inv[4] * py + inv[5]) / d).toFixed(1)}px`; };
-        const outer = `0px 0px, ${w}px 0px, ${w}px ${h}px, 0px ${h}px`;
-        const holes = text.bars.map((bar) => [0, 1, 2, 3].map((i) => toRect(bar[i * 2], bar[i * 2 + 1])).join(", ")).join(", ");
-        clipPath = `polygon(evenodd, ${outer}, ${holes})`;
+        // A CSS polygon() is one path, so a "hole" listed after the outer ring joins it with an edge and
+        // swallows half the plane; path() takes real sub-paths and an even-odd rule.
+        const toRect = (x: number, y: number) => { const px = x * width - left, py = y * height - top; const d = inv[6] * px + inv[7] * py + inv[8] || 1e-9; return `${((inv[0] * px + inv[1] * py + inv[2]) / d).toFixed(1)} ${((inv[3] * px + inv[4] * py + inv[5]) / d).toFixed(1)}`; };
+        const outer = `M0 0 L${w} 0 L${w} ${h} L0 ${h} Z`;
+        const holes = text.bars.map((bar) => "M" + [0, 1, 2, 3].map((i) => toRect(bar[i * 2], bar[i * 2 + 1])).join(" L") + " Z").join(" ");
+        clipPath = `path(evenodd, "${outer} ${holes}")`;
       }
     }
     return (

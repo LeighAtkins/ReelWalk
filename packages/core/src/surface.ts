@@ -70,23 +70,27 @@ export function houghLines(points: { x: number; y: number; dir: number }[], widt
   return kept;
 }
 
-/** Where a line crosses the horizontal through y (vertical-ish lines) or the vertical through x (horizontal-ish). */
-const xAt = (l: SurfaceLine, y: number) => (l.rho - y * Math.sin(l.theta)) / Math.cos(l.theta);
-const yAt = (l: SurfaceLine, x: number) => (l.rho - x * Math.cos(l.theta)) / Math.sin(l.theta);
-
 function intersect(a: SurfaceLine, b: SurfaceLine): [number, number] | null {
   const det = Math.cos(a.theta) * Math.sin(b.theta) - Math.sin(a.theta) * Math.cos(b.theta);
   if (Math.abs(det) < 1e-9) return null;
   return [(a.rho * Math.sin(b.theta) - b.rho * Math.sin(a.theta)) / det, (b.rho * Math.cos(a.theta) - a.rho * Math.cos(b.theta)) / det];
 }
 
+/** Angular distance between two line directions, in [0, π/2]. */
+const angleGap = (a: number, b: number) => { const d = Math.abs(((a - b) % Math.PI + Math.PI) % Math.PI); return Math.min(d, Math.PI - d); };
+/** Signed distance of a point from a line along the line's normal. */
+const offset = (l: SurfaceLine, x: number, y: number) => x * Math.cos(l.theta) + y * Math.sin(l.theta) - l.rho;
+
 export type Surface = { quad: Quad; sides: { left: number; right: number; top: number; bottom: number } };
 
 /**
- * The flat surface around (cx, cy): a quad in the frame's pixel units whose
- * sides are the strongest edges found left, right, above and below the point
- * within the search window (fractions of the frame). Null when a side has no
- * edge worth trusting. `sides` are each side's votes, for the UI to grade.
+ * The flat surface around (cx, cy): the picture's two dominant families of
+ * straight lines near the point (whatever their angle: a wall seen in
+ * perspective has slanted edges), and in each family the strongest line on
+ * either side of the point, intersected into a quad in the frame's pixel
+ * units. A side with no edge (the wall runs off the frame) falls back to the
+ * search window's boundary. `sides` carry each side's votes (0 for a
+ * fallback), so the UI can say which corners to check.
  */
 export function findSurfaceQuad(gray: Gray, cx: number, cy: number, { searchX = 0.42, searchY = 0.3, threshold = 24, minGap = 0.03 }: { searchX?: number; searchY?: number; threshold?: number; minGap?: number } = {}): Surface | null {
   const { width, height } = gray;
@@ -95,19 +99,49 @@ export function findSurfaceQuad(gray: Gray, cx: number, cy: number, { searchX = 
   const points = edges(gray, x0, y0, x1, y1, threshold);
   if (points.length < 40) return null;
   const lines = houghLines(points, width, height, { minVotes: Math.round(Math.min(width, height) * 0.08) });
-  const verticalish = lines.filter((l) => l.theta < Math.PI / 6 || l.theta > Math.PI - Math.PI / 6);
-  const horizontalish = lines.filter((l) => Math.abs(l.theta - Math.PI / 2) < Math.PI / 5);
-  const gapX = minGap * width, gapY = minGap * height;
-  const left = verticalish.filter((l) => xAt(l, cy) < cx - gapX).sort((a, b) => b.votes - a.votes)[0];
-  const right = verticalish.filter((l) => xAt(l, cy) > cx + gapX).sort((a, b) => b.votes - a.votes)[0];
-  const top = horizontalish.filter((l) => yAt(l, cx) < cy - gapY).sort((a, b) => b.votes - a.votes)[0];
-  const bottom = horizontalish.filter((l) => yAt(l, cx) > cy + gapY).sort((a, b) => b.votes - a.votes)[0];
-  if (!left || !right || !top || !bottom) return null;
-  const tl = intersect(left, top), tr = intersect(right, top), br = intersect(right, bottom), bl = intersect(left, bottom);
-  if (!tl || !tr || !br || !bl) return null;
-  const quad = [...tl, ...tr, ...br, ...bl] as Quad;
+  if (!lines.length) return null;
+  // Two families by the picture's axes, generously: walls in perspective lean up to 40° from upright.
+  const upright = (l: SurfaceLine) => angleGap(l.theta, 0) <= (Math.PI * 40) / 180;
+  const familyA = lines.filter(upright), familyB = lines.filter((l) => !upright(l));
+  const thetaA = familyA[0]?.theta ?? 0, thetaB = familyB[0]?.theta ?? Math.PI / 2;
+  const gap = minGap * Math.min(width, height);
+  // On each side of the point: the nearest strong line within reach; nearer beats stronger once both are real.
+  const pick = (family: SurfaceLine[], theta: number, sign: 1 | -1): SurfaceLine => {
+    const reach = Math.abs(Math.cos(theta)) * searchX * width + Math.abs(Math.sin(theta)) * searchY * height;
+    const candidates = family.filter((l) => sign * offset(l, cx, cy) > gap && sign * offset(l, cx, cy) <= reach);
+    const score = (l: SurfaceLine) => l.votes * (1 - 0.6 * (Math.abs(offset(l, cx, cy)) / reach));
+    const best = candidates.sort((p, q) => score(q) - score(p))[0];
+    // No edge that way: the surface reaches the edge of the search window.
+    return best ?? { theta, rho: cx * Math.cos(theta) + cy * Math.sin(theta) - sign * reach, votes: 0 };
+  };
+  const aNeg = pick(familyA, thetaA, -1), aPos = pick(familyA, thetaA, 1);
+  const bNeg = pick(familyB, thetaB, -1), bPos = pick(familyB, thetaB, 1);
+  // At most one side may be a fallback: with two or more the "surface" is just the search window.
+  if ([aNeg, aPos, bNeg, bPos].filter((l) => l.votes === 0).length > 1) return null;
+  const corners = [intersect(aNeg, bNeg), intersect(aPos, bNeg), intersect(aPos, bPos), intersect(aNeg, bPos)];
+  if (corners.some((c) => !c)) return null;
+  // Order the corners tl, tr, br, bl by their angle about the point.
+  const ordered = (corners as [number, number][]).map((c) => ({ c, angle: Math.atan2(c[1] - cy, c[0] - cx) })).sort((p, q) => p.angle - q.angle).map((o) => o.c);
+  // atan2 order from -π: the first is the most "left-up" corner; rotate so the smallest x+y is first (top-left).
+  let startIndex = 0;
+  for (let i = 1; i < 4; i++) if (ordered[i][0] + ordered[i][1] < ordered[startIndex][0] + ordered[startIndex][1]) startIndex = i;
+  const rotated = [0, 1, 2, 3].map((i) => ordered[(startIndex + i) % 4]);
+  const quad = rotated.flat() as Quad;
   // Sanity: a convex quad of a usable size, not the whole frame.
-  const w = Math.min(tr[0] - tl[0], br[0] - bl[0]), h = Math.min(bl[1] - tl[1], br[1] - tr[1]);
-  if (w < width * 0.12 || h < height * 0.04 || w > width * 1.2 || h > height * 0.9) return null;
-  return { quad, sides: { left: left.votes, right: right.votes, top: top.votes, bottom: bottom.votes } };
+  const xs = [quad[0], quad[2], quad[4], quad[6]], ys = [quad[1], quad[3], quad[5], quad[7]];
+  const w = Math.max(...xs) - Math.min(...xs), h = Math.max(...ys) - Math.min(...ys);
+  if (w < width * 0.12 || h < height * 0.04 || w > width * 1.1 || h > height * 0.7) return null;
+  // Convex, with no corner wildly outside the frame.
+  if (xs.some((x) => x < -width * 0.2 || x > width * 1.2) || ys.some((y) => y < -height * 0.2 || y > height * 1.2)) return null;
+  const cross = (i: number) => { const ax = quad[(i * 2 + 2) % 8] - quad[i * 2], ay = quad[(i * 2 + 3) % 8] - quad[i * 2 + 1], bx = quad[(i * 2 + 4) % 8] - quad[(i * 2 + 2) % 8], by = quad[(i * 2 + 5) % 8] - quad[(i * 2 + 3) % 8]; return ax * by - ay * bx; };
+  const signs = [0, 1, 2, 3].map((i) => Math.sign(cross(i)));
+  if (new Set(signs.filter((v) => v !== 0)).size > 1) return null;
+  // Which pick landed on which side: upright lines are left or right of the point, the others above or below.
+  const sides = { left: 0, right: 0, top: 0, bottom: 0 };
+  for (const l of [aNeg, aPos, bNeg, bPos]) {
+    const o = offset(l, cx, cy);
+    if (upright(l)) { if (o * Math.cos(l.theta) > 0) sides.left = l.votes; else sides.right = l.votes; }
+    else { if (o * Math.sin(l.theta) > 0) sides.top = l.votes; else sides.bottom = l.votes; }
+  }
+  return { quad, sides };
 }

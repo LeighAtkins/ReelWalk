@@ -105,6 +105,10 @@ export async function trackTextPath(
     const grow = (k: number): Quad => { const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys); const gx = (x1 - x0) * k, gy = (y1 - y0) * k; return [x0 - gx, y0 - gy, x1 + gx, y0 - gy, x1 + gx, y1 + gy, x0 - gx, y1 + gy]; };
     let points = planePoints(prev, surface ? grow(0.08) : flat, { grid: surface ? 9 : 7, radius, minEnergy: surface ? 8 : 10 });
     if (points.length < 6) points = planePoints(prev, surface ? grow(0.3) : [cx - hw * 1.8, cy - hh * 2.5, cx + hw * 1.8, cy - hh * 2.5, cx + hw * 1.8, cy + hh * 2.5, cx - hw * 1.8, cy + hh * 2.5], { grid: 9, radius, minEnergy: 8 });
+    // A clean flat wall has nothing to follow on it: borrow the motion of everything around it (a door frame,
+    // a window, the floor), which moves with the wall for the small step between two samples.
+    if (surface && points.length < 8) points = [...points, ...planePoints(prev, grow(1.0), { grid: 11, radius, minEnergy: 8 }).filter(c => !points.some(p => Math.hypot(p[0] - c[0], p[1] - c[1]) < radius))];
+    if (surface && points.length < 8) points = [...points, ...planePoints(prev, [margin, margin, TRACK_WIDTH - margin, margin, TRACK_WIDTH - margin, TRACK_HEIGHT - margin, margin, TRACK_HEIGHT - margin], { grid: 12, radius, minEnergy: 8 }).filter(c => !points.some(p => Math.hypot(p[0] - c[0], p[1] - c[1]) < radius))];
     if (points.length < 4) return null;
     const quad0 = quad.map((v, i) => (i % 2 === 0 ? v / TRACK_WIDTH : v / TRACK_HEIGHT)) as Quad;
     const baseDistance = Math.hypot(quad[2] - quad[0], quad[3] - quad[1]) || 1;
@@ -132,7 +136,7 @@ export async function trackTextPath(
           quad = moved.quad;
           points = moved.points.filter(inFrame);
           // Keep the plane well covered as it slides across the frame: top up from the current picture.
-          if (points.length < 8) points = [...points, ...planePoints(next, quad, { grid: 7, radius, minEnergy: 10 }).filter(c => !points.some(p => Math.hypot(p[0] - c[0], p[1] - c[1]) < radius))];
+          if (points.length < 8) points = [...points, ...planePoints(next, surface ? grow(1.0) : quad, { grid: surface ? 11 : 7, radius, minEnergy: surface ? 8 : 10 }).filter(c => !points.some(p => Math.hypot(p[0] - c[0], p[1] - c[1]) < radius))];
         }
       }
       const [tlx, tly, trx, try_, brx, bry, blx, bly] = quad;

@@ -27,6 +27,15 @@ describe("finding the flat surface under a title", () => {
     for (let i = 0; i < 8; i++) expect(Math.abs(found.quad[i] - quad[i])).toBeLessThan(8);
     expect(Math.min(found.sides.left, found.sides.right, found.sides.top, found.sides.bottom)).toBeGreaterThan(20);
   });
+  it("uses the frame edge for a side with no edge, and follows slanted families", () => {
+    // A panel whose left side runs off the frame: the left corners sit at the search window's edge.
+    const quad = [-40, 150, 300, 110, 300, 420, -40, 380];
+    const found = findSurfaceQuad(panel(360, 640, quad), 150, 265)!;
+    expect(found).not.toBeNull();
+    expect(found.sides.left).toBe(0);
+    expect(Math.abs(found.quad[2] - 300)).toBeLessThan(8); expect(Math.abs(found.quad[4] - 300)).toBeLessThan(8);
+  });
+
   it("gives up on a blank wall and finds straight lines in general", () => {
     const blank: Gray = { data: new Float32Array(360 * 640).fill(120), width: 360, height: 640 };
     expect(findSurfaceQuad(blank, 180, 320)).toBeNull();

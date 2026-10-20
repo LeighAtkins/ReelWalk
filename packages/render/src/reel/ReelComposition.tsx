@@ -15,7 +15,7 @@ import {
 // WebCodecs-based video, used when the worker renders: about twice as fast as
 // OffthreadVideo here, and it falls back to it for files it cannot decode.
 import { Video as RenderVideo } from "@remotion/media";
-import { cameraAt, cameraMoveAt, homography, matrix3d, oneLineWidth, PINNED_ELSEWHERE, pinnedProgress, planarFitAndShift, textPositionAt, textQuadAt, duckGain, framePlan, INSTAGRAM, isInstagramMusic, speechWindows, REEL_FORMAT, timelineDurationMs, walkInto, type Clip, type Logo, type Plan, type TextOverlay, type Timeline } from "@reelwalk/core";
+import { cameraAt, cameraMoveAt, homography, invertHomography, matrix3d, oneLineWidth, PINNED_ELSEWHERE, pinnedProgress, planarFitAndShift, textPositionAt, textQuadAt, duckGain, framePlan, INSTAGRAM, isInstagramMusic, speechWindows, REEL_FORMAT, timelineDurationMs, walkInto, type Clip, type Logo, type Plan, type TextOverlay, type Timeline } from "@reelwalk/core";
 import { whipGeometry } from "./whip";
 import { useFontsFor } from "./fonts";
 import { ELEGANT_FADE_S, FILTER_CSS, textTreatmentCss } from "./look";
@@ -253,10 +253,22 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
     const w = Math.max(1, (q0[2] - q0[0]) * width), h = Math.max(1, (q0[7] - q0[1]) * height);
     const now = quad.map((v, i) => (i % 2 === 0 ? v * width - left : v * height - top)) as [number, number, number, number, number, number, number, number];
     const H = homography([0, 0, w, 0, w, h, 0, h], now);
+    // Bars (a mullion, a post) in front of the surface: holes cut in the plane's own coordinates, so they warp with it.
+    let clipPath: string | undefined;
+    if (text.surface && text.bars?.length) {
+      const H0 = homography([0, 0, w, 0, w, h, 0, h], q0.map((v, i) => (i % 2 === 0 ? v * width - left : v * height - top)) as [number, number, number, number, number, number, number, number]);
+      const inv = H0 ? invertHomography(H0) : null;
+      if (inv) {
+        const toRect = (x: number, y: number) => { const px = x * width - left, py = y * height - top; const d = inv[6] * px + inv[7] * py + inv[8] || 1e-9; return `${((inv[0] * px + inv[1] * py + inv[2]) / d).toFixed(1)}px ${((inv[3] * px + inv[4] * py + inv[5]) / d).toFixed(1)}px`; };
+        const outer = `0px 0px, ${w}px 0px, ${w}px ${h}px, 0px ${h}px`;
+        const holes = text.bars.map((bar) => [0, 1, 2, 3].map((i) => toRect(bar[i * 2], bar[i * 2 + 1])).join(", ")).join(", ");
+        clipPath = `polygon(evenodd, ${outer}, ${holes})`;
+      }
+    }
     return (
       <AbsoluteFill style={{ pointerEvents: "none", perspective: "none" }}>
         {/* Painted on a chosen surface, the text exists only on that surface: anything in front of the surface's edge (a wall, a railing) hides it. */}
-        <div style={{ position: "absolute", left, top, width: w, height: h, display: "flex", alignItems: "center", justifyContent: "center", transformOrigin: "0 0", transform: H ? matrix3d(H) : undefined, opacity: visible, whiteSpace: "nowrap", textAlign: "center", overflow: text.surface ? "hidden" : "visible", ...meet }}>
+        <div style={{ position: "absolute", left, top, width: w, height: h, display: "flex", alignItems: "center", justifyContent: "center", transformOrigin: "0 0", transform: H ? matrix3d(H) : undefined, opacity: visible, whiteSpace: "nowrap", textAlign: "center", overflow: text.surface ? "hidden" : "visible", ...(clipPath ? { clipPath } : {}), ...meet }}>
           {/* The tracked box is only the plane's frame, narrower than most titles: the words sit on one line (or the lines the author typed) and overflow it, warped with it. */}
           <span style={{ ...face, whiteSpace: text.text.includes("\n") ? "pre" : "nowrap", overflowWrap: "normal", wordBreak: "keep-all", transform: `scale(${scale * fit})` }}>{text.text}</span>
         </div>

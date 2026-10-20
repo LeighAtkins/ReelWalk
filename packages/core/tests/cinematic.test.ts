@@ -59,3 +59,14 @@ describe("pinned text", () => {
     expect(pinnedProgress(trimmed, text, 3000)).toBeCloseTo(0.5);
   });
 });
+
+describe("planar titles fit the frame", () => {
+  it("estimates a one-line width without a canvas and scales a wide title down", async () => {
+    const { oneLineWidth, planarFitScale, PLANAR_MAX_WIDTH } = await import("../src");
+    const narrow = oneLineWidth("LIGHT", { fontSize: 96 });
+    const wide = oneLineWidth("OCEAN VIEWS AND MORE", { fontSize: 96, letterSpacing: 0.04 });
+    expect(narrow).toBeLessThan(wide);
+    expect(planarFitScale(narrow)).toBe(1);
+    expect(planarFitScale(wide) * wide).toBeCloseTo(PLANAR_MAX_WIDTH, 6);
+  });
+});

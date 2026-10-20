@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { Player, type PlayerRef } from "@remotion/player";
 import { prefetch } from "remotion";
-import { INSTAGRAM, minTextSize, REEL_FORMAT, TEXT_SIZE_MAX, textsAt, textPositionAt, type TextOverlay, type Timeline } from "@reelwalk/core";
+import { INSTAGRAM, minTextSize, oneLineWidth, PLANAR_MAX_WIDTH, planarFitScale, REEL_FORMAT, TEXT_SIZE_MAX, textsAt, textPositionAt, type TextOverlay, type Timeline } from "@reelwalk/core";
 import { ReelComposition, reelDurationInFrames, textTreatmentCss, type ReelAsset } from "@reelwalk/render/reel";
 import { PlayIcon } from "../icons";
 import { useClock, type Clock } from "./clock";
@@ -47,8 +47,9 @@ function Ghost({ text, scale }: { text: TextOverlay; scale: number }) {
   const css = textTreatmentCss(text);
   return (
     // As wide as the words, up to the width the reel wraps text at, so the box hugs the text.
-    <span style={{ display: "block", zoom: scale, width: "max-content", maxWidth: REEL_FORMAT.width * 0.86, pointerEvents: "none" }}>
-      <span style={{ ...css, display: "inline-block", color: "transparent", background: "transparent", textShadow: "none", WebkitTextStroke: "0" }}>
+    // A pinned title never wraps and is shrunk to the frame instead, so its box is its one line at that scale.
+    <span style={{ display: "block", zoom: scale, width: "max-content", maxWidth: text.pin ? REEL_FORMAT.width * PLANAR_MAX_WIDTH : REEL_FORMAT.width * 0.86, pointerEvents: "none" }}>
+      <span style={{ ...css, display: "inline-block", color: "transparent", background: "transparent", textShadow: "none", WebkitTextStroke: "0", ...(text.pin ? { whiteSpace: "nowrap", transform: `scale(${planarFitScale(oneLineWidth(text.text, { fontFamily: String(css.fontFamily ?? ""), fontWeight: css.fontWeight, fontSize: Number(css.fontSize) || 64, letterSpacing: text.tracking }))})`, transformOrigin: "0 0" } : {}) }}>
         {text.text}
       </span>
     </span>

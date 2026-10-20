@@ -42,8 +42,7 @@ import { HOOK_DESCRIPTIONS, HOOK_FONTS, HOOK_LABELS, type Hook, type HookKind,
   type PlanOverlay,
   type TextAnimation,
   type TextOverlay,
-  type TextStyle,
-} from "@reelwalk/core";
+  type TextStyle, oneLineWidth, PLANAR_MAX_WIDTH } from "@reelwalk/core";
 import { ClipSourceInfo } from "./clip-source-info";
 import { ELEGANT_FONT_FAMILY, FILTER_CSS, FILTER_LABELS, TEXT_ANIMATION_LABELS, TEXT_STYLE_LABELS, textTreatmentCss } from "@reelwalk/render/reel";
 import { formatDuration } from "@/lib/format";
@@ -824,14 +823,12 @@ export function HookSheet({ hook, hasPerson, onChange, onWords, onClose }: {
   );
 }
 
-/** The selected text's centre x, moved in so its box (as drawn in the preview) sits at least 3% inside both frame edges. */
-function inFrameX(x: number): number {
-  const handle = document.querySelector<HTMLElement>(".text-handle");
-  const frame = handle?.closest<HTMLElement>(".stage-frame");
-  if (!handle || !frame) return x;
-  const half = handle.getBoundingClientRect().width / 2 / Math.max(1, frame.getBoundingClientRect().width);
-  if (half >= 0.47) return x;
-  return Math.max(0.03 + half, Math.min(0.97 - half, x));
+/** The title's centre x, moved in so its one line (shrunk to the frame if needed) starts at least 3% inside both edges. */
+function inFrameX(text: Pick<TextOverlay, "text" | "x" | "style" | "color" | "size" | "font" | "tracking" | "shadow">): number {
+  const css = textTreatmentCss(text);
+  const width = oneLineWidth(text.text, { fontFamily: String(css.fontFamily ?? ""), fontWeight: css.fontWeight, fontSize: Number(css.fontSize) || 64, letterSpacing: text.tracking });
+  const half = Math.min(width, PLANAR_MAX_WIDTH) / 2;
+  return Math.max(0.03 + half, Math.min(0.97 - half, text.x));
 }
 
 /** Pin a text to the surface under it so it moves with the camera (ADR 0039). */
@@ -852,7 +849,7 @@ export function PinSheet({ text, clip, asset, clipStartMs, onPath, onClose }: {
     const timing = wholeShot ? { startMs: clipStartMs, endMs: clipStartMs + clipDurationMs(clip) } : { startMs: text.startMs, endMs: text.endMs };
     // A title that starts cut off at the frame edge never reads as being on the wall: measure the
     // selected text's box in the preview and move its centre in so it begins fully in frame.
-    const nudged = inFrameX(text.x);
+    const nudged = inFrameX(text);
     setBusy(true); setStatus("Following the surface under the text…");
     const tracked = await trackTextPath(asset, clip, clipStartMs, { ...text, x: nudged, ...timing }, fraction => setStatus(`Following the surface under the text… ${Math.round(fraction * 100)}%`), { yaw, pitch });
     setBusy(false);

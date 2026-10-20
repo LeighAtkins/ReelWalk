@@ -148,3 +148,11 @@ hold-then-fade on refused steps, a track grade in the Pin sheet; the lean
 PR adds Turn and Tilt so the plane starts in the wall's perspective and
 nudges a title in from the frame edge (slip 34); `.tools/motion-strip.sh`
 for every future check.
+
+**Slip 40:** a planar title never wraps, and OCEAN VIEWS at 110% was 108%
+of the frame wide in the render while the editor's handle, capped at 86%
+and wrapped to two lines, reported it as fitting; so the in-frame nudge
+did nothing and the O ran off the left edge in every export. Fixed by
+measuring the one-line width (canvas text metrics) in both places,
+shrinking a planar title to at most 92% of the frame, and nudging from
+that width.

@@ -216,6 +216,9 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
   // one taken off before its shot ends (ADR 0044) fades over its last 0.4 s rather than vanishing mid-shot.
   const tail = text.pin && endsBeforeShot(timeline, text) ? interpolate(frame, [Math.max(0, durationInFrames - Math.round(0.4 * fps)), durationInFrames], [1, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" }) : 1;
   const visible = opacity * position.opacity * tail;
+  // The typewriter keeps the full text in place, invisible, so the box never changes size while it writes.
+  const written = chars === null ? text.text : text.text.slice(0, chars);
+  const cursor = chars !== null && chars < text.text.length && Math.floor(frame / (fps / 4)) % 2 === 0;
   // The blend's own 0.92 multiplies the fade; spread after `opacity`, a flat 0.92 used to cancel it.
   const meet = text.blend === "surface" ? { mixBlendMode: "hard-light" as const, filter: "blur(0.6px)", opacity: visible * 0.92 } : {};
   if (quad && text.pin?.quad) {
@@ -257,14 +260,17 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
         {/* Painted on a chosen surface, the text exists only on that surface: anything in front of the surface's edge (a wall, a railing) hides it. */}
         <div style={{ position: "absolute", left, top, width: w, height: h, display: "flex", alignItems: "center", justifyContent: "center", transformOrigin: "0 0", transform: H ? matrix3d(H) : undefined, opacity: visible, whiteSpace: "nowrap", textAlign: "center", overflow: text.surface ? "hidden" : "visible", ...mask, ...meet }}>
           {/* The tracked box is only the plane's frame, narrower than most titles: the words sit on one line (or the lines the author typed) and overflow it, warped with it. */}
-          <span style={{ ...face, whiteSpace: text.text.includes("\n") ? "pre" : "nowrap", overflowWrap: "normal", wordBreak: "keep-all", transform: `scale(${scale * fit})` }}>{text.text}</span>
+          <span style={{ ...face, position: "relative", whiteSpace: text.text.includes("\n") ? "pre" : "nowrap", overflowWrap: "normal", wordBreak: "keep-all", transform: `scale(${scale * fit})` }}>
+            {chars === null ? text.text : (<>
+              {/* The typewriter on a plane: the full text holds the size, the written part sits over it. */}
+              <span style={{ visibility: "hidden" }}>{text.text}</span>
+              <span style={{ position: "absolute", inset: 0, textAlign: "inherit" }}>{written}{cursor ? "|" : ""}</span>
+            </>)}
+          </span>
         </div>
       </AbsoluteFill>
     );
   }
-  // The typewriter keeps the full text in place, invisible, so the box never changes size while it writes.
-  const written = chars === null ? text.text : text.text.slice(0, chars);
-  const cursor = chars !== null && chars < text.text.length && Math.floor(frame / (fps / 4)) % 2 === 0;
 
   return (
     <AbsoluteFill style={{ pointerEvents: "none" }}>

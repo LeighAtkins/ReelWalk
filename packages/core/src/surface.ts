@@ -63,7 +63,9 @@ export function houghLines(points: { x: number; y: number; dir: number }[], widt
   const cx = width / 2, cy = height / 2;
   const offset = (l: SurfaceLine) => l.rho - (cx * Math.cos(l.theta) + cy * Math.sin(l.theta));
   for (const peak of peaks.sort((a, b) => b.votes - a.votes)) {
-    const dup = kept.some((k) => { const dt = Math.abs(((k.theta - peak.theta) % Math.PI + Math.PI) % Math.PI); const near = Math.min(dt, Math.PI - dt) <= Math.PI / 30; return near && Math.abs(Math.abs(offset(k)) - Math.abs(offset(peak))) <= Math.min(width, height) * 0.03; });
+    // Near-parallel and at the same signed distance from the centre: two edges at equal distance on
+    // opposite sides (a window's two jambs) are both kept. A direction that wraps past π flips the sign.
+    const dup = kept.some((k) => { const dt = Math.abs(((k.theta - peak.theta) % Math.PI + Math.PI) % Math.PI); const near = Math.min(dt, Math.PI - dt) <= Math.PI / 30; const flipped = dt > Math.PI / 2; return near && Math.abs(offset(k) - (flipped ? -offset(peak) : offset(peak))) <= Math.min(width, height) * 0.03; });
     if (!dup) kept.push(peak);
     if (kept.length >= max) break;
   }

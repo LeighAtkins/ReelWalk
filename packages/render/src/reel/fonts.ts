@@ -12,8 +12,9 @@ import "@fontsource-variable/bodoni-moda/opsz.css";
  * a fallback font, so rendering is held until the glyphs of this text are loaded.
  * In the Player this simply resolves quickly and has no visible effect.
  */
-export function useFontsFor(text: string, weight: number): void {
+export function useFontsFor(text: string, weight: number): boolean {
   const [handle] = useState(() => delayRender(`Loading fonts for "${text.slice(0, 20)}"`));
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -26,11 +27,20 @@ export function useFontsFor(text: string, weight: number): void {
     ])
       .catch(() => undefined)
       .finally(() => {
-        if (!cancelled) continueRender(handle);
+        // Flip the state first: the component renders once more with the fonts in place (a planar title
+        // measures its line width during render, and a measurement taken in a fallback font would be
+        // frozen into the captured frame); the frame is released after that render has committed.
+        if (!cancelled) setReady(true);
       });
     return () => {
       cancelled = true;
       continueRender(handle);
     };
   }, [handle, text, weight]);
+
+  useEffect(() => {
+    if (ready) continueRender(handle);
+  }, [ready, handle]);
+
+  return ready;
 }

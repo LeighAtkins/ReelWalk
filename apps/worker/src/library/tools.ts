@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, type ExecFileOptions, type ExecFileOptionsWithBufferEncoding } from "node:child_process";
 import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import { promisify } from "node:util";
@@ -8,7 +8,17 @@ import { getConfig } from "../config";
 
 // Shared by the library importers.
 
-export const run = promisify(execFile);
+const execFileAsync = promisify(execFile);
+/** How long any one ffmpeg/ffprobe call may take before it is killed: a stuck decode must not hold the render slot forever (review of 2026-10-20). */
+export const TOOL_TIMEOUT_MS = Number(process.env.TOOL_TIMEOUT_SECONDS ?? 15 * 60) * 1000;
+
+/** `execFile` as a promise, with a hard timeout and a SIGKILL so a hung process cannot outlive its deadline. */
+export function run(file: string, args: readonly string[]): Promise<{ stdout: string; stderr: string }>;
+export function run(file: string, args: readonly string[], options: ExecFileOptionsWithBufferEncoding): Promise<{ stdout: Buffer; stderr: Buffer }>;
+export function run(file: string, args: readonly string[], options: ExecFileOptions & { encoding?: BufferEncoding }): Promise<{ stdout: string; stderr: string }>;
+export function run(file: string, args: readonly string[], options: object = {}): Promise<unknown> {
+  return execFileAsync(file, args as string[], { timeout: TOOL_TIMEOUT_MS, killSignal: "SIGKILL", ...options } as ExecFileOptions);
+}
 
 const config = getConfig();
 const s3 = new S3Client({

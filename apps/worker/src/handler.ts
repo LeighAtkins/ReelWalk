@@ -65,6 +65,8 @@ export type HandlerDeps = {
     heartbeatSeconds: number;
     staleSeconds: number;
     retryBackoffSeconds: number;
+    /** The most one attempt may take; past it the attempt fails and is retried or dead-lettered, instead of heartbeating forever. */
+    jobTimeoutSeconds?: number;
   };
   now?: () => Date;
   log?: (message: string, error?: unknown) => void;
@@ -124,13 +126,18 @@ export async function handleDelivery(deps: HandlerDeps, delivery: Delivery): Pro
     store.heartbeat(lease, progress).catch((error) => log(`[${job.id}] could not write heartbeat`, error));
   }, config.heartbeatSeconds * 1000);
 
+  // The heartbeat keeps the job this worker's for as long as the process lives, so a render that never
+  // settles (a stuck decode, a Chrome that stopped answering) would otherwise never be retried.
+  let deadline: ReturnType<typeof setTimeout> | undefined;
+  const timeoutMs = (config.jobTimeoutSeconds ?? 45 * 60) * 1000;
+  const expired = new Promise<never>((_, reject) => { deadline = setTimeout(() => reject(new Error(`Render attempt exceeded ${Math.round(timeoutMs / 60_000)} minutes`)), timeoutMs); });
   try {
-    const output = await deps.render(job, (percent) => {
+    const output = await Promise.race([deps.render(job, (percent) => {
       if (percent >= progress + 5 || percent === 100) {
         progress = percent;
         store.heartbeat(lease, progress).catch((error) => log(`[${job.id}] could not write progress`, error));
       }
-    });
+    }), expired]);
     if (!(await store.succeed(lease, output))) {
       // Another worker took the job over while this one rendered (it was declared stale, or the job was
       // re-queued). Its output stays unpublished and the message is theirs now.
@@ -159,6 +166,7 @@ export async function handleDelivery(deps: HandlerDeps, delivery: Delivery): Pro
     return "failed";
   } finally {
     clearInterval(heartbeat);
+    clearTimeout(deadline);
   }
 }
 

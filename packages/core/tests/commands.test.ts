@@ -1,0 +1,232 @@
+import { describe, expect, it } from "vitest";
+import { applyAiEditPlan, type AiAsset, type AiEditOp } from "../src/ai-edit";
+import { pinnedProgress, PINNED_ELSEWHERE } from "../src/cinematic";
+import { applyCommand, type Command, type CommandContext } from "../src/commands";
+import { retime } from "../src/review";
+import { textAttachment } from "../src/text-timing";
+import { clipStartsMs, parseTimeline, timelineDurationMs, type Timeline } from "../src/timeline";
+
+// One cut change, whichever button makes it, moves the titles the same way (ADR 0048, slip 28).
+
+const durations = { v1: 20000, v2: 20000, song: 60000 };
+const ctx: CommandContext = { generation: 0, sourceDurationsMs: durations };
+
+function reel(): Timeline {
+  return parseTimeline({
+    version: 1,
+    clips: [
+      { id: "a", assetId: "v1", kind: "VIDEO", sourceStartMs: 2000, sourceEndMs: 8000 },
+      { id: "b", assetId: "v2", kind: "VIDEO", sourceStartMs: 0, sourceEndMs: 4000 },
+      { id: "c", assetId: "p", kind: "IMAGE", sourceStartMs: 0, sourceEndMs: 3000 },
+    ],
+    texts: [
+      // Inside clip a (0–6 s): attached to a.
+      { id: "title", text: "Ocean views", startMs: 3500, endMs: 5000, style: "elegant" },
+      // Inside clip b (6–10 s): attached to b.
+      { id: "kitchen", text: "Kitchen", startMs: 7000, endMs: 9000, style: "elegant", y: 0.6 },
+      // Across the a|b and b|c cuts: reel-relative.
+      { id: "caption", text: "Just listed", startMs: 4000, endMs: 11000, style: "tag", y: 0.3, size: 0.6 },
+    ],
+    music: null,
+  });
+}
+
+const assets: Record<string, AiAsset> = {
+  v1: { id: "v1", kind: "VIDEO", title: "walk", durationMs: 20000, isPano: false, bpm: null, beatOffsetMs: null },
+  v2: { id: "v2", kind: "VIDEO", title: "kitchen", durationMs: 20000, isPano: false, bpm: null, beatOffsetMs: null },
+  p: { id: "p", kind: "IMAGE", title: "pool", durationMs: null, isPano: false, bpm: null, beatOffsetMs: null },
+};
+const blank: Omit<AiEditOp, "op"> = {
+  clip: null, text: null, startMs: null, endMs: null, lengthMs: null, speed: null, filter: null, motion: null, transition: null, fit: null,
+  volume: null, toPosition: null, content: null, style: null, color: null, size: null, y: null, songId: null, on: null, details: null,
+  assetId: null, order: null, pieces: null, atClip: null, animation: null, zoom: null, corner: null, yaw: null, sweep: null,
+};
+const op = (fields: Partial<AiEditOp> & { op: AiEditOp["op"] }): AiEditOp => ({ ...blank, ...fields });
+const times = (timeline: Timeline) => Object.fromEntries(timeline.texts.map((text) => [text.id, [text.startMs, text.endMs]]));
+const apply = (timeline: Timeline, command: Command) => applyCommand(timeline, command, ctx);
+
+describe("which texts follow a clip", () => {
+  it("a text inside one clip is attached to it; one across a cut is reel-relative", () => {
+    const timeline = reel();
+    const of = (id: string) => textAttachment(timeline, timeline.texts.find((text) => text.id === id)!);
+    expect(of("title")).toEqual({ kind: "clip", clipId: "a" });
+    expect(of("kitchen")).toEqual({ kind: "clip", clipId: "b" });
+    expect(of("caption")).toEqual({ kind: "reel" });
+  });
+
+  it("a pinned text is attached to the clip it was tracked on even when it runs past the cut", () => {
+    const timeline = parseTimeline({ ...reel(), texts: [{ id: "pinned", text: "Pool", startMs: 5000, endMs: 8000, pin: { assetId: "v1", fromMs: 7000, toMs: 10000 } }] });
+    expect(textAttachment(timeline, timeline.texts[0])).toEqual({ kind: "clip", clipId: "a" });
+  });
+
+  it("room labels are managed, not attached", () => {
+    const timeline = parseTimeline({ ...reel(), texts: [{ id: "room-a", text: "Kitchen", startMs: 200, endMs: 6000 }] });
+    expect(textAttachment(timeline, timeline.texts[0])).toEqual({ kind: "managed" });
+  });
+});
+
+describe("the same cut change through trim, an AI proposal and the review", () => {
+  it("moves the titles identically", () => {
+    // retime(…, 3000) keeps the middle 3 s of clip a (source 2–8 s): 3.5–6.5 s. Clip b is 4 s → its middle 3 s, 0.5–3.5 s. Photo c → 3 s.
+    const review = retime(reel(), 3000, durations);
+    expect(review.clips.map((clip) => [clip.sourceStartMs, clip.sourceEndMs])).toEqual([
+      [3500, 6500],
+      [500, 3500],
+      [0, 3000],
+    ]);
+
+    // The same windows by hand, one trim each.
+    let manual = reel();
+    manual = apply(manual, { type: "trimClip", clipId: "a", window: { sourceStartMs: 3500, sourceEndMs: 6500 } }).timeline;
+    manual = apply(manual, { type: "trimClip", clipId: "b", window: { sourceStartMs: 500, sourceEndMs: 3500 } }).timeline;
+
+    // The same windows asked of the AI, then applied as a proposal.
+    const plan = applyAiEditPlan(reel(), {
+      ops: [op({ op: "trim", clip: 1, startMs: 3500, endMs: 6500 }), op({ op: "trim", clip: 2, startMs: 500, endMs: 3500 })],
+      note: "",
+    }, { assets, songs: [], newId: () => "n" });
+    const proposal = apply(reel(), { type: "applyProposal", baseGeneration: 0, proposal: plan.timeline });
+
+    expect(times(manual)).toEqual(times(review));
+    expect(times(proposal.timeline)).toEqual(times(review));
+    // The title kept its frame (source 5.5 s → 2 s into the trimmed clip a); the caption kept its seconds.
+    expect(times(review).title).toEqual([2000, 3500]);
+    expect(times(review).caption).toEqual([4000, 9000]);
+  });
+});
+
+describe("moving clips", () => {
+  it("an attached text follows its clip; a reel-relative caption stays", () => {
+    const { timeline, changes } = apply(reel(), { type: "moveClip", clipId: "b", toIndex: 0 });
+    expect(timeline.clips.map((clip) => clip.id)).toEqual(["b", "a", "c"]);
+    // Kitchen sat 1 s into b; b now starts at 0.
+    expect(times(timeline).kitchen).toEqual([1000, 3000]);
+    // The title sat 3.5 s into a; a now starts at 4 s.
+    expect(times(timeline).title).toEqual([7500, 9000]);
+    expect(times(timeline).caption).toEqual([4000, 11000]);
+    expect(changes).toEqual(expect.arrayContaining([{ kind: "clip", id: "b" }, { kind: "text", id: "kitchen" }]));
+    expect(changes).not.toContainEqual({ kind: "text", id: "caption" });
+  });
+
+  it("two uses of one video keep their own titles", () => {
+    const twice = parseTimeline({
+      ...reel(),
+      clips: [
+        { id: "first", assetId: "v1", kind: "VIDEO", sourceStartMs: 0, sourceEndMs: 4000 },
+        { id: "second", assetId: "v1", kind: "VIDEO", sourceStartMs: 0, sourceEndMs: 4000 },
+      ],
+      texts: [{ id: "t", text: "Second use", startMs: 5000, endMs: 6000 }],
+    });
+    const { timeline } = apply(twice, { type: "moveClip", clipId: "second", toIndex: 0 });
+    // Attached to the clip instance "second", not to the asset: it goes to 1 s into the reel.
+    expect(times(timeline).t).toEqual([1000, 2000]);
+  });
+});
+
+describe("music and the beat", () => {
+  it("picking a song with a tempo and snapping the cuts is one command", () => {
+    const { timeline, changes } = apply(reel(), { type: "setMusic", music: { assetId: "song", sourceStartMs: 0, bpm: 120, beatOffsetMs: 0 }, snap: true });
+    expect(timeline.music).toMatchObject({ assetId: "song", volume: 0.8 });
+    // At 120 bpm every cut is on a 500 ms grid.
+    for (const start of clipStartsMs(timeline)) expect(start % 500).toBe(0);
+    expect(changes).toContainEqual({ kind: "music" });
+  });
+
+  it("is one state change (one undo entry in the editor) that equals the two old steps together", () => {
+    const music = { assetId: "song", sourceStartMs: 0, bpm: 97, beatOffsetMs: 120 };
+    const one = apply(reel(), { type: "setMusic", music, snap: true }).timeline;
+    // The old way: pick the song (one undo step), then snap (a second one).
+    const picked = apply(reel(), { type: "setMusic", music }).timeline;
+    const snapped = apply(picked, { type: "snapToBeat" }).timeline;
+    expect(one).toEqual(snapped);
+    expect(timelineDurationMs(one)).not.toBe(timelineDurationMs(reel()));
+  });
+
+  it("keeps the current song's volume when none is given", () => {
+    const loud = apply(reel(), { type: "setMusic", music: { assetId: "song", sourceStartMs: 0, bpm: null, beatOffsetMs: null, volume: 0.3 } }).timeline;
+    const swapped = apply(loud, { type: "setMusic", music: { assetId: "song2", sourceStartMs: 0, bpm: null, beatOffsetMs: null } }).timeline;
+    expect(swapped.music?.volume).toBe(0.3);
+  });
+});
+
+describe("proposals", () => {
+  it("a proposal computed against an older generation is refused and changes nothing", () => {
+    const current = reel();
+    const proposal = { ...current, clips: current.clips.slice(1) };
+    const result = applyCommand(current, { type: "applyProposal", baseGeneration: 3, proposal }, { ...ctx, generation: 4 });
+    expect(result.stale).toBe(true);
+    expect(result.timeline).toBe(current);
+    expect(result.changes).toEqual([]);
+  });
+
+  it("a proposal against the current generation replaces the reel, with its song snapped in the same step", () => {
+    const current = reel();
+    const result = applyCommand(current, { type: "applyProposal", baseGeneration: 4, proposal: current, music: { assetId: "song", sourceStartMs: 0, bpm: 120, beatOffsetMs: 0, snap: true } }, { ...ctx, generation: 4 });
+    expect(result.stale).toBeUndefined();
+    expect(result.timeline.music?.assetId).toBe("song");
+    for (const start of clipStartsMs(result.timeline)) expect(start % 500).toBe(0);
+  });
+
+  it("an invalid proposal throws, so the history leaves the reel as it was", () => {
+    expect(() => applyCommand(reel(), { type: "applyProposal", baseGeneration: 0, proposal: { version: 2 } }, ctx)).toThrow();
+  });
+});
+
+describe("split, duplicate and delete keep pins valid", () => {
+  function pinned(): Timeline {
+    // A title tracked on source 3–5 s of v1, shown over reel 1–3 s of clip a (source 2–8 s).
+    return parseTimeline({
+      ...reel(),
+      texts: [{ id: "pin", text: "Pool", startMs: 1000, endMs: 3000, pin: { assetId: "v1", fromMs: 3000, toMs: 5000 }, path: [{ t: 0, x: 0, y: 0 }, { t: 1, x: 0.1, y: 0 }] }],
+    });
+  }
+
+  it("split before the title: it moves to the second piece and still sees its tracked frames", () => {
+    const { timeline } = apply(pinned(), { type: "splitClip", atMs: 600, newId: "a2" });
+    expect(timeline.clips.map((clip) => clip.id)).toEqual(["a", "a2", "b", "c"]);
+    const text = timeline.texts[0];
+    expect([text.startMs, text.endMs]).toEqual([1000, 3000]);
+    expect(textAttachment(timeline, text)).toEqual({ kind: "clip", clipId: "a2" });
+    expect(pinnedProgress(timeline, text, 1000)).toBeCloseTo(0, 1);
+    expect(pinnedProgress(timeline, text, 2990)).toBeCloseTo(1, 1);
+  });
+
+  it("split through the title: it keeps its times and runs on over the second piece of the same source", () => {
+    const { timeline } = apply(pinned(), { type: "splitClip", atMs: 2000, newId: "a2" });
+    const text = timeline.texts[0];
+    expect([text.startMs, text.endMs]).toEqual([1000, 3000]);
+    expect(pinnedProgress(timeline, text, 2500)).toBeCloseTo(0.75, 1);
+    expect(text.pin).toEqual(pinned().texts[0].pin);
+  });
+
+  it("a text in the second half of a split photo follows the new piece", () => {
+    const photo = parseTimeline({ ...reel(), texts: [{ id: "late", text: "Pool", startMs: 12000, endMs: 12500 }] });
+    // c is the photo at 10–13 s; split at 11 s.
+    const split = apply(photo, { type: "splitClip", atMs: 11000, newId: "c2" }).timeline;
+    expect(times(split).late).toEqual([12000, 12500]);
+    const moved = apply(split, { type: "moveClip", clipId: "c2", toIndex: 0 }).timeline;
+    expect(times(moved).late).toEqual([1000, 1500]);
+  });
+
+  it("duplicating leaves the title with the original clip instance", () => {
+    const { timeline } = apply(pinned(), { type: "duplicateClip", clipId: "a", newId: "a-copy" });
+    expect(timeline.clips.map((clip) => clip.id)).toEqual(["a", "a-copy", "b", "c"]);
+    expect(times(timeline).pin).toEqual([1000, 3000]);
+    expect(textAttachment(timeline, timeline.texts[0])).toEqual({ kind: "clip", clipId: "a" });
+  });
+
+  it("slowing the clip keeps the title on the same tracked frames", () => {
+    const { timeline } = apply(pinned(), { type: "setSpeed", clipId: "a", speed: 0.5 });
+    const text = timeline.texts[0];
+    expect([text.startMs, text.endMs]).toEqual([2000, 6000]);
+    expect(pinnedProgress(timeline, text, 2000)).toBeCloseTo(0, 1);
+    expect(pinnedProgress(timeline, text, 6100)).not.toBe(PINNED_ELSEWHERE);
+  });
+
+  it("deleting the clip before it keeps an attached title over its picture", () => {
+    const { timeline } = apply(reel(), { type: "deleteClip", clipId: "a" });
+    expect(times(timeline).kitchen).toEqual([1000, 3000]);
+    // The caption keeps its seconds, cut short at the new end (7 s).
+    expect(times(timeline).caption).toEqual([4000, 7000]);
+  });
+});

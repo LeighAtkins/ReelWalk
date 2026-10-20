@@ -3,7 +3,8 @@
  * timeline. Each is a pure function on the timeline, so it lands as one
  * undoable step in the editor like everything else.
  */
-import { anchorTexts, cutsOnBeat, reflowTexts } from "./ai-edit";
+import { cutsOnBeat } from "./ai-edit";
+import { retimeTexts } from "./text-timing";
 import { snapCutsToBeats } from "./beats";
 import { MIN_CLIP_MS, addRoomLabels, clipDurationMs, hasRoomLabels, timelineDurationMs, trimClip, updateClip, type Filter, type Timeline } from "./timeline";
 
@@ -49,7 +50,6 @@ export const REEL_LENGTHS_S = [15, 20, 30] as const;
  * beat go back on it, room labels are redrawn.
  */
 export function retime(timeline: Timeline, shotMs: number, sourceDurationsMs: Record<string, number | null | undefined> = {}): Timeline {
-  const anchors = anchorTexts(timeline);
   const onBeat = cutsOnBeat(timeline) || Boolean(timeline.music?.bpm);
   let current = timeline;
   for (const clip of timeline.clips) {
@@ -66,12 +66,9 @@ export function retime(timeline: Timeline, shotMs: number, sourceDurationsMs: Re
     const start = Math.max(0, Math.min(source - length, Math.round(middle - length / 2)));
     current = trimClip(current, clip.id, { sourceStartMs: start, sourceEndMs: start + length }, source);
   }
-  current = reflowTexts(current, anchors, timeline.texts);
-  if (onBeat && current.music?.bpm) {
-    current = snapCutsToBeats(current, sourceDurationsMs);
-    current = reflowTexts(current, anchors, timeline.texts);
-  }
-  return hasRoomLabels(current) ? addRoomLabels(current) : current;
+  // Texts follow the same way as after any other cut change (ADR 0048).
+  if (onBeat && current.music?.bpm) current = snapCutsToBeats(current, sourceDurationsMs);
+  return retimeTexts(timeline, current);
 }
 
 /** The reel brought to about `totalMs` by giving every shot the same share, between 1.2 and 5 s. */

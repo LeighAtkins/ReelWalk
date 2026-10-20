@@ -3158,3 +3158,52 @@ video:-webkit-full-screen {
   background: #fff;
   color: #000;
 }
+
+/* Header: Check and Export share the third grid column. */
+.editor-top-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+/* Corner placing full screen (ADR 0044): sits above every sheet. */
+.stage-theater {
+  z-index: 3000;
+}
+.surface-corner.is-large {
+  width: 44px;
+  height: 44px;
+  margin: -22px 0 0 -22px;
+  font-size: 15px;
+  background: rgb(255 90 95 / 0.55);
+  box-shadow: 0 0 0 2px rgb(0 0 0 / 0.35), 0 1px 8px rgb(0 0 0 / 0.5);
+}
+.loupe {
+  position: absolute;
+  z-index: 5;
+  width: 150px;
+  height: 150px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 4px 18px rgb(0 0 0 / 0.6);
+  pointer-events: none;
+}
+.corners-bar {
+  position: absolute;
+  top: calc(env(safe-area-inset-top) + 8px);
+  left: 12px;
+  right: 12px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: rgb(0 0 0 / 0.6);
+  color: #fff;
+}
+.corners-bar .small {
+  flex: 1;
+  font-size: 12px;
+  line-height: 1.3;
+}

@@ -39,6 +39,9 @@ type PreviewProps = {
   onExitTheater?(): void;
   /** Check mode (ADR 0044): full screen with a strip of moments to jump to, every title's surface outlined. */
   check?: { marks: { label: string; ms: number }[]; onSeek(ms: number): void } | null;
+  /** Corner placing (ADR 0044): full screen, only the selected title's corners and posts, a loupe under the finger. */
+  corners?: boolean;
+  onDoneCorners?(): void;
 };
 
 /** Snaps to the centre line when the text is dragged close to it. */
@@ -63,6 +66,51 @@ function dragPoint(event: React.PointerEvent<HTMLButtonElement>, frame: RefObjec
 
 const quadPoints = (quad: readonly number[]) => `${quad[0] * 100},${quad[1] * 100} ${quad[2] * 100},${quad[3] * 100} ${quad[4] * 100},${quad[5] * 100} ${quad[6] * 100},${quad[7] * 100}`;
 
+/** The <video> the stage is showing now: the one with a picture and a size on screen. */
+function visibleVideo(frame: HTMLElement): HTMLVideoElement | null {
+  for (const video of Array.from(frame.querySelectorAll("video"))) {
+    if (video.videoWidth > 0 && video.readyState >= 2 && video.getBoundingClientRect().width > 0) return video;
+  }
+  return null;
+}
+
+const LOUPE_SIZE = 150, LOUPE_ZOOM = 2.5;
+
+/**
+ * A magnifier above the finger while a corner is dragged (ADR 0044): the
+ * footage around the point at two and a half times, with a cross-hair, so a
+ * corner can be put on a wall's edge on a phone. Draws straight from the
+ * stage's <video> through the same cover geometry the picture is shown with.
+ */
+function Loupe({ frame, x, y }: { frame: RefObject<HTMLDivElement | null>; x: number; y: number }) {
+  const canvas = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const stage = frame.current, out = canvas.current;
+    if (!stage || !out) return;
+    const ctx = out.getContext("2d");
+    if (!ctx) return;
+    ctx.fillStyle = "#000"; ctx.fillRect(0, 0, LOUPE_SIZE, LOUPE_SIZE);
+    const video = visibleVideo(stage);
+    const rect = stage.getBoundingClientRect();
+    if (video && rect.width > 0) {
+      // object-fit: cover; the picture is scaled to fill the frame and centred.
+      const scale = Math.max(rect.width / video.videoWidth, rect.height / video.videoHeight);
+      const ox = (rect.width - video.videoWidth * scale) / 2, oy = (rect.height - video.videoHeight * scale) / 2;
+      const px = (x * rect.width - ox) / scale, py = (y * rect.height - oy) / scale;
+      const span = LOUPE_SIZE / LOUPE_ZOOM / scale;
+      try { ctx.drawImage(video, px - span / 2, py - span / 2, span, span, 0, 0, LOUPE_SIZE, LOUPE_SIZE); } catch { /* a frame mid-decode: the black stays */ }
+    }
+    ctx.strokeStyle = "rgba(255,90,95,0.95)"; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(LOUPE_SIZE / 2, 0); ctx.lineTo(LOUPE_SIZE / 2, LOUPE_SIZE); ctx.moveTo(0, LOUPE_SIZE / 2); ctx.lineTo(LOUPE_SIZE, LOUPE_SIZE / 2); ctx.stroke();
+  }, [frame, x, y]);
+  // Above the finger, kept inside the frame; below it near the top edge.
+  const above = y > 0.22;
+  return (
+    <canvas ref={canvas} className="loupe" width={LOUPE_SIZE} height={LOUPE_SIZE} aria-hidden="true"
+      style={{ left: `calc(${Math.min(0.999, Math.max(0.001, x)) * 100}% - ${LOUPE_SIZE / 2}px)`, top: above ? `calc(${y * 100}% - ${LOUPE_SIZE + 48}px)` : `calc(${y * 100}% + 48px)` }} />
+  );
+}
+
 /**
  * The surface a title is painted on: a dashed outline with a numbered,
  * draggable corner at each of its four points, set by hand on the first
@@ -70,10 +118,11 @@ const quadPoints = (quad: readonly number[]) => `${quad[0] * 100},${quad[1] * 10
  * cross-hair through it helps land it on the wall's edge. Posts in front of
  * the surface (a mullion, a pole) are strips whose two edges drag sideways.
  */
-function SurfaceHandles({ quad, bars = [], frame, onChange, onBars }: { quad: number[]; bars?: number[][]; frame: RefObject<HTMLDivElement | null>; onChange(quad: number[], gesture: string): void; onBars?(bars: number[][], gesture: string): void }) {
+function SurfaceHandles({ quad, bars = [], frame, onChange, onBars, large = false }: { quad: number[]; bars?: number[][]; frame: RefObject<HTMLDivElement | null>; onChange(quad: number[], gesture: string): void; onBars?(bars: number[][], gesture: string): void; large?: boolean }) {
   const [active, setActive] = useState<{ x: number; y: number } | null>(null);
   return (
     <>
+      {large && active ? <Loupe frame={frame} x={active.x} y={active.y} /> : null}
       <svg className="surface-outline" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" }}>
         <polygon points={quadPoints(quad)} fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.85)" strokeWidth={0.4} strokeDasharray="1.2 0.8" vectorEffect="non-scaling-stroke" />
         {bars.map((bar, i) => <polygon key={i} points={quadPoints(bar)} fill="rgba(20,20,20,0.45)" stroke="rgba(255,210,80,0.9)" strokeWidth={0.4} vectorEffect="non-scaling-stroke" />)}
@@ -86,7 +135,7 @@ function SurfaceHandles({ quad, bars = [], frame, onChange, onBars }: { quad: nu
         <button
           key={i}
           type="button"
-          className="surface-corner"
+          className={large ? "surface-corner is-large" : "surface-corner"}
           data-testid="surface-corner"
           aria-label={`Surface corner ${i + 1}, ${["top left", "top right", "bottom right", "bottom left"][i]}. Drag to the edge of the wall.`}
           style={{ left: `${quad[i * 2] * 100}%`, top: `${quad[i * 2 + 1] * 100}%` }}
@@ -110,11 +159,12 @@ function SurfaceHandles({ quad, bars = [], frame, onChange, onBars }: { quad: nu
                 style={{ left: `${((bar[top] + bar[bottom]) / 2) * 100}%`, top: `${((bar[top + 1] + bar[bottom + 1]) / 2) * 100}%` }}
                 onPointerDown={(event) => {
                   const gesture = `drag:bar-${b}-${side}:${Date.now()}`;
-                  dragPoint(event, frame, (x) => {
+                  dragPoint(event, frame, (x, y) => {
                     const next = bars.map((q) => [...q]);
                     next[b][top] = x; next[b][bottom] = x;
+                    setActive({ x, y });
                     onBars(next.map((q) => q.map((v) => Number(v.toFixed(4)))), gesture);
-                  });
+                  }, () => setActive(null));
                 }} />
             );
           })}
@@ -327,6 +377,8 @@ export function Preview({
   theater = false,
   onExitTheater,
   check = null,
+  corners = false,
+  onDoneCorners,
 }: PreviewProps) {
   const frame = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(0.3);
@@ -405,7 +457,12 @@ export function Preview({
 
   return (
     <div className={theater ? "stage stage-theater" : "stage"} ref={stage}>
-      {theater ? (
+      {theater && corners ? (
+        <div className="corners-bar" data-testid="corners-bar">
+          <span className="small">Drag each numbered corner onto the surface's corner. The loupe shows the picture under your finger.</span>
+          <button type="button" className="btn btn-signal" onClick={() => onDoneCorners?.()} data-testid="corners-done">Done</button>
+        </div>
+      ) : theater ? (
         <button type="button" className="theater-close" aria-label="Exit full screen" onClick={() => onExitTheater?.()} data-testid="preview-fullscreen-close">
           ×
         </button>
@@ -431,13 +488,15 @@ export function Preview({
               moveToBeginningWhenEnded
               acknowledgeRemotionLicense
             />
-            <button
-              type="button"
-              className="stage-tap"
-              aria-label={playing ? "Pause" : "Play"}
-              onClick={onTogglePlay}
-            />
-            {!playing ? (
+            {theater && corners ? null : (
+              <button
+                type="button"
+                className="stage-tap"
+                aria-label={playing ? "Pause" : "Play"}
+                onClick={onTogglePlay}
+              />
+            )}
+            {!playing && !(theater && corners) ? (
               <span className="play-badge">
                 <PlayIcon size={30} />
               </span>
@@ -465,6 +524,9 @@ export function Preview({
 
         {hasClips && !playing && !theater ? (
           <TextTargets clock={clock} timeline={timeline} selectedId={selectedText?.id ?? null} scale={scale} onSelect={onSelectText} onEdit={onEditText} />
+        ) : null}
+        {theater && corners && selectedText?.surface && onSurfaceText ? (
+          <SurfaceHandles large quad={selectedText.surface} bars={selectedText.bars} frame={frame} onChange={(quad, gesture) => onSurfaceText(selectedText.id, quad, gesture)} onBars={onBarsText ? (bars, gesture) => onBarsText(selectedText.id, bars, gesture) : undefined} />
         ) : null}
         {selectedText && !playing && !theater ? (<>
           <TextHandle

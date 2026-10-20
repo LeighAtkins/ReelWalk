@@ -3267,3 +3267,19 @@ video:-webkit-full-screen {
   display: flex;
   gap: 4px;
 }
+
+/* Placing full screen: room around the frame so a corner on the picture's edge is still under a thumb. */
+.stage-theater.is-placing {
+  padding-left: calc(env(safe-area-inset-left) + 30px);
+  padding-right: calc(env(safe-area-inset-right) + 30px);
+  padding-top: calc(env(safe-area-inset-top) + 76px);
+  padding-bottom: calc(env(safe-area-inset-bottom) + 30px);
+}
+.stage-theater.is-placing .stage-frame {
+  overflow: visible;
+}
+.corners-bar .small {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

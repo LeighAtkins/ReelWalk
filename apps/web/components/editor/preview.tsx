@@ -530,14 +530,14 @@ export function Preview({
   const zone = INSTAGRAM.safeZonePx;
 
   return (
-    <div className={theater ? "stage stage-theater" : "stage"} ref={stage}>
+    <div className={theater ? (corners ? "stage stage-theater is-placing" : "stage stage-theater") : "stage"} ref={stage}>
       {theater && corners ? (
         <div className="corners-bar" data-testid="corners-bar">
           <div className="corners-tabs" role="tablist">
             <button type="button" role="tab" aria-selected={tool === "corners"} className={tool === "corners" ? "check-mark is-current" : "check-mark"} onClick={() => setTool("corners")}>Corners</button>
             <button type="button" role="tab" aria-selected={tool === "cutouts"} className={tool === "cutouts" ? "check-mark is-current" : "check-mark"} onClick={() => setTool("cutouts")} data-testid="tool-cutouts">In front</button>
           </div>
-          <span className="small">{tool === "corners" ? "Drag each numbered corner onto the surface's corner; the loupe shows the picture under your finger." : "Tap around anything in front of the surface; the title is cut out behind it."}</span>
+          <span className="small">{tool === "corners" ? "Drag the corners onto the surface." : "Tap around what is in front."}</span>
           <button type="button" className="btn btn-signal" onClick={() => onDoneCorners?.()} data-testid="corners-done">Done</button>
         </div>
       ) : theater ? (

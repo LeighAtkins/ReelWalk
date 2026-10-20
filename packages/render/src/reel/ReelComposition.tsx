@@ -256,7 +256,9 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
         const posts = shapes.map((shape) => `<polygon points="${Array.from({ length: shape.length / 2 }, (_, i) => toRect(shape[i * 2], shape[i * 2 + 1])).join(" ")}" fill="black"/>`).join("");
         const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><rect width="${w}" height="${h}" fill="white"/>${posts}</svg>`;
         const url = `url("data:image/svg+xml;utf8,${encodeURIComponent(svg)}")`;
-        mask = { maskImage: url, WebkitMaskImage: url, maskSize: "100% 100%", WebkitMaskSize: "100% 100%", maskRepeat: "no-repeat", WebkitMaskRepeat: "no-repeat" };
+        // Luminance, not the default alpha: an image mask reads alpha unless told otherwise, and a black
+        // polygon is as opaque as the white plane, so nothing would be cut (found on the phone, 2026-10-20).
+        mask = { maskImage: url, WebkitMaskImage: url, maskSize: "100% 100%", WebkitMaskSize: "100% 100%", maskRepeat: "no-repeat", WebkitMaskRepeat: "no-repeat", maskMode: "luminance" };
       }
     }
     return (

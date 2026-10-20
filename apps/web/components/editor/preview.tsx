@@ -31,6 +31,8 @@ type PreviewProps = {
   onSurfaceText?(id: string, quad: number[], gesture: string): void;
   /** The posts in front of the selected title's surface were dragged, added or removed (ADR 0044). */
   onBarsText?(id: string, bars: number[][], gesture: string): void;
+  /** The cut-outs in front of the selected title's surface changed (ADR 0044). */
+  onCutoutsText?(id: string, cutouts: number[][], gesture: string): void;
   onSelectText(id: string): void;
   onEditText(id: string): void;
   empty: React.ReactNode;
@@ -39,8 +41,8 @@ type PreviewProps = {
   onExitTheater?(): void;
   /** Check mode (ADR 0044): full screen with a strip of moments to jump to, every title's surface outlined. */
   check?: { marks: { label: string; ms: number }[]; onSeek(ms: number): void } | null;
-  /** Corner placing (ADR 0044): full screen, only the selected title's corners and posts, a loupe under the finger. */
-  corners?: boolean;
+  /** Corner placing (ADR 0044): full screen, only the selected title's corners and posts, a loupe under the finger; "cutouts" opens on the cut-out tool. */
+  corners?: false | "corners" | "cutouts";
   onDoneCorners?(): void;
 };
 
@@ -172,6 +174,74 @@ function SurfaceHandles({ quad, bars = [], frame, onChange, onBars, large = fals
             onPointerDown={(event) => event.stopPropagation()} onClick={() => onBars(bars.filter((_, i) => i !== b), `bar-remove-${Date.now()}`)}>×</button>
         </span>
       )) : null}
+    </>
+  );
+}
+
+const polygonPoints = (points: readonly number[]) => Array.from({ length: points.length / 2 }, (_, i) => `${points[i * 2] * 100},${points[i * 2 + 1] * 100}`).join(" ");
+
+/**
+ * Cut-outs (ADR 0044): polygons drawn over things in front of the surface. A
+ * new one is built by tapping its points in order; existing points drag, with
+ * the loupe. Finish needs three points; the title is cut out inside each.
+ */
+function CutoutEditor({ cutouts, frame, onChange }: { cutouts: number[][]; frame: RefObject<HTMLDivElement | null>; onChange(cutouts: number[][], gesture: string): void }) {
+  const [draft, setDraft] = useState<number[] | null>(null);
+  const [active, setActive] = useState<{ x: number; y: number } | null>(null);
+  const drafting = draft !== null;
+  const place = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!drafting || !frame.current || event.button !== 0) return;
+    const rect = frame.current.getBoundingClientRect();
+    const x = Number(((event.clientX - rect.left) / rect.width).toFixed(4)), y = Number(((event.clientY - rect.top) / rect.height).toFixed(4));
+    setDraft([...(draft ?? []), x, y]);
+  };
+  const finish = () => {
+    if (!draft || draft.length < 6) return;
+    onChange([...cutouts, draft], `cutout-add-${Date.now()}`);
+    setDraft(null);
+  };
+  return (
+    <>
+      {active ? <Loupe frame={frame} x={active.x} y={active.y} /> : null}
+      {drafting ? <div className="cutout-canvas" data-testid="cutout-canvas" onPointerDown={place} /> : null}
+      <svg className="surface-outline" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" }}>
+        {cutouts.map((shape, i) => <polygon key={i} points={polygonPoints(shape)} fill="rgba(20,20,20,0.45)" stroke="rgba(120,200,255,0.95)" strokeWidth={0.4} vectorEffect="non-scaling-stroke" />)}
+        {draft && draft.length >= 4 ? <polyline points={polygonPoints(draft)} fill={draft.length >= 6 ? "rgba(120,200,255,0.15)" : "none"} stroke="rgba(120,200,255,0.95)" strokeWidth={0.4} strokeDasharray="1.2 0.8" vectorEffect="non-scaling-stroke" /> : null}
+      </svg>
+      {cutouts.map((shape, c) => (
+        <span key={c}>
+          {Array.from({ length: shape.length / 2 }, (_, i) => (
+            <button key={i} type="button" className="cutout-point" data-testid="cutout-point" aria-label={`Cut-out ${c + 1}, point ${i + 1}. Drag onto the object's edge.`}
+              style={{ left: `${shape[i * 2] * 100}%`, top: `${shape[i * 2 + 1] * 100}%` }}
+              onPointerDown={(event) => {
+                const gesture = `drag:cutout-${c}-${i}:${Date.now()}`;
+                dragPoint(event, frame, (x, y) => {
+                  const next = cutouts.map((q) => [...q]);
+                  next[c][i * 2] = x; next[c][i * 2 + 1] = y;
+                  setActive({ x, y });
+                  onChange(next.map((q) => q.map((v) => Number(v.toFixed(4)))), gesture);
+                }, () => setActive(null));
+              }} />
+          ))}
+          <button type="button" className="surface-bar-remove" aria-label={`Remove cut-out ${c + 1}`}
+            style={{ left: `${(shape.filter((_, i) => i % 2 === 0).reduce((a, b) => a + b, 0) / (shape.length / 2)) * 100}%`, top: `${Math.min(...shape.filter((_, i) => i % 2 === 1)) * 100}%` }}
+            onPointerDown={(event) => event.stopPropagation()} onClick={() => onChange(cutouts.filter((_, i) => i !== c), `cutout-remove-${Date.now()}`)}>×</button>
+        </span>
+      ))}
+      {draft ? Array.from({ length: draft.length / 2 }, (_, i) => (
+        <span key={i} className="cutout-point is-draft" style={{ left: `${draft[i * 2] * 100}%`, top: `${draft[i * 2 + 1] * 100}%` }} aria-hidden="true" />
+      )) : null}
+      <div className="cutout-tools" data-testid="cutout-tools">
+        {drafting ? (<>
+          <span className="small">{draft!.length < 6 ? `Tap the object's corners (${draft!.length / 2} of at least 3)` : `${draft!.length / 2} points. Tap more, or finish.`}</span>
+          <button type="button" className="btn btn-quiet" disabled={!draft!.length} onClick={() => setDraft(draft!.slice(0, -2))}>Undo point</button>
+          <button type="button" className="btn btn-quiet" onClick={() => setDraft(null)}>Cancel</button>
+          <button type="button" className="btn btn-signal" disabled={draft!.length < 6} data-testid="cutout-finish" onClick={finish}>Finish</button>
+        </>) : (<>
+          <span className="small">{cutouts.length ? `${cutouts.length} cut-out${cutouts.length === 1 ? "" : "s"}. Drag points; × removes one.` : "Nothing cut out yet."}</span>
+          <button type="button" className="btn btn-signal" disabled={cutouts.length >= 12} data-testid="cutout-add" onClick={() => setDraft([])}>Add a cut-out</button>
+        </>)}
+      </div>
     </>
   );
 }
@@ -371,6 +441,7 @@ export function Preview({
   onResizeText,
   onSurfaceText,
   onBarsText,
+  onCutoutsText,
   onSelectText,
   onEditText,
   empty,
@@ -382,6 +453,9 @@ export function Preview({
 }: PreviewProps) {
   const frame = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(0.3);
+  // Which full-screen tool is up: the corners (and posts), or the cut-outs. Starts on what opened it.
+  const [tool, setTool] = useState<"corners" | "cutouts">("corners");
+  useEffect(() => { if (corners) setTool(corners); }, [corners]);
 
   useEffect(() => {
     const element = frame.current;
@@ -459,7 +533,11 @@ export function Preview({
     <div className={theater ? "stage stage-theater" : "stage"} ref={stage}>
       {theater && corners ? (
         <div className="corners-bar" data-testid="corners-bar">
-          <span className="small">Drag each numbered corner onto the surface's corner. The loupe shows the picture under your finger.</span>
+          <div className="corners-tabs" role="tablist">
+            <button type="button" role="tab" aria-selected={tool === "corners"} className={tool === "corners" ? "check-mark is-current" : "check-mark"} onClick={() => setTool("corners")}>Corners</button>
+            <button type="button" role="tab" aria-selected={tool === "cutouts"} className={tool === "cutouts" ? "check-mark is-current" : "check-mark"} onClick={() => setTool("cutouts")} data-testid="tool-cutouts">In front</button>
+          </div>
+          <span className="small">{tool === "corners" ? "Drag each numbered corner onto the surface's corner; the loupe shows the picture under your finger." : "Tap around anything in front of the surface; the title is cut out behind it."}</span>
           <button type="button" className="btn btn-signal" onClick={() => onDoneCorners?.()} data-testid="corners-done">Done</button>
         </div>
       ) : theater ? (
@@ -525,8 +603,11 @@ export function Preview({
         {hasClips && !playing && !theater ? (
           <TextTargets clock={clock} timeline={timeline} selectedId={selectedText?.id ?? null} scale={scale} onSelect={onSelectText} onEdit={onEditText} />
         ) : null}
-        {theater && corners && selectedText?.surface && onSurfaceText ? (
+        {theater && corners && selectedText?.surface && onSurfaceText && tool === "corners" ? (
           <SurfaceHandles large quad={selectedText.surface} bars={selectedText.bars} frame={frame} onChange={(quad, gesture) => onSurfaceText(selectedText.id, quad, gesture)} onBars={onBarsText ? (bars, gesture) => onBarsText(selectedText.id, bars, gesture) : undefined} />
+        ) : null}
+        {theater && corners && selectedText?.surface && onCutoutsText && tool === "cutouts" ? (
+          <CutoutEditor cutouts={selectedText.cutouts ?? []} frame={frame} onChange={(cutouts, gesture) => onCutoutsText(selectedText.id, cutouts, gesture)} />
         ) : null}
         {selectedText && !playing && !theater ? (<>
           <TextHandle

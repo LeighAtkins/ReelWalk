@@ -831,7 +831,7 @@ function planarShift(text: Pick<TextOverlay, "text" | "style" | "color" | "size"
 }
 
 /** Pin a text to the surface under it so it moves with the camera (ADR 0039). */
-export function PinSheet({ text, clip, asset, clipStartMs, onPath, onSurface, onBars, onCheck, onPlaceCorners, onClose }: {
+export function PinSheet({ text, clip, asset, clipStartMs, onPath, onSurface, onBars, onCheck, onPlaceCorners, onDrawCutout, onClose }: {
   text: TextOverlay; clip: Clip | null; asset: LibraryAsset | undefined; clipStartMs: number;
   onPath(pinned: { path: TextOverlay["path"]; pin: TextOverlay["pin"] } | undefined, patch?: { startMs?: number; endMs?: number; x?: number }): void;
   /** The surface the title is painted on was set, found or cleared (also drops any pin, which must be redone on the new plane). */
@@ -842,6 +842,8 @@ export function PinSheet({ text, clip, asset, clipStartMs, onPath, onSurface, on
   onCheck?(): void;
   /** Open corner placing: the frame full screen with the corners and a loupe. */
   onPlaceCorners?(): void;
+  /** Open the cut-out tool full screen: tap around something in front of the surface. */
+  onDrawCutout?(): void;
   onClose(): void;
 }) {
   const [status, setStatus] = useState<string | null>(null);
@@ -922,8 +924,9 @@ export function PinSheet({ text, clip, asset, clipStartMs, onPath, onSurface, on
             onPlaceCorners?.();
           }}>{text.bars?.length ? `Add another post (${text.bars.length})` : "Add a post"}</button>
           {text.bars?.length ? <button type="button" className="btn btn-quiet" disabled={busy} onClick={() => onBars([])}>Remove posts</button> : null}
+          {onDrawCutout ? <button type="button" className="btn btn-block" disabled={busy} data-testid="draw-cutout" onClick={onDrawCutout}>{text.cutouts?.length ? `Cut-outs (${text.cutouts.length})` : "Draw a cut-out"}</button> : null}
         </div>
-        <p className="muted small">A window mullion, a pole or a tree trunk between the camera and the surface: the title is cut out where it stands.</p>
+        <p className="muted small">A post is a straight strip for a mullion or a pole. A cut-out is any shape: tap around a plant, a chair back or a railing in front of the surface, and the title is cut out behind it.</p>
       </>) : null}
       <h3 className="small" style={{ margin: "8px 0 4px" }}>{text.surface ? "3. Pin" : "2. Pin"}</h3>
       <label className="field small"><input type="checkbox" checked={wholeShot} onChange={event => setWholeShot(event.target.checked)} /> For the whole shot: already there when the shot starts, gone when it ends</label>

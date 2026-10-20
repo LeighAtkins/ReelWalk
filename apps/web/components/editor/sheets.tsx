@@ -42,7 +42,7 @@ import { HOOK_DESCRIPTIONS, HOOK_FONTS, HOOK_LABELS, type Hook, type HookKind,
   type PlanOverlay,
   type TextAnimation,
   type TextOverlay,
-  type TextStyle, oneLineWidth, planarFitAndShift } from "@reelwalk/core";
+  type TextStyle, oneLineWidth, planarFitAndShift, orientQuad } from "@reelwalk/core";
 import { ClipSourceInfo } from "./clip-source-info";
 import { ELEGANT_FONT_FAMILY, FILTER_CSS, FILTER_LABELS, TEXT_ANIMATION_LABELS, TEXT_STYLE_LABELS, textTreatmentCss } from "@reelwalk/render/reel";
 import { formatDuration } from "@/lib/format";
@@ -840,7 +840,9 @@ export async function pinTitle({ text, clip, asset, clipStartMs, wholeShot, lean
   text: TextOverlay; clip: Clip; asset: LibraryAsset; clipStartMs: number; wholeShot: boolean; lean: { yaw: number; pitch: number }; onProgress?(fraction: number): void;
 }): Promise<{ pinned: { path: TextOverlay["path"]; pin: TextOverlay["pin"] }; patch: { startMs?: number; endMs?: number; x?: number }; status: string } | { error: string }> {
   const timing = wholeShot ? { startMs: clipStartMs, endMs: clipStartMs + clipDurationMs(clip) } : { startMs: text.startMs, endMs: text.endMs };
-  const tracked = await trackTextPath(asset, clip, clipStartMs, { ...text, ...timing }, onProgress, lean);
+  // Corners may have been placed in any order: the plane is tracked, and stored, upright.
+  const upright = text.surface ? { ...text, surface: orientQuad(text.surface).map(v => Number(v.toFixed(4))) } : text;
+  const tracked = await trackTextPath(asset, clip, clipStartMs, { ...upright, ...timing }, onProgress, lean);
   if (!tracked) return { error: "Could not follow this shot. Try placing the text on a surface with some detail." };
   // A title that starts cut off at the frame edge never reads as being on the wall: with the plane
   // known (and leaned), move the centre so the warped line begins fully in frame. The path is relative, so the pin follows.

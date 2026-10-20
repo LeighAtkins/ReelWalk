@@ -156,3 +156,15 @@ did nothing and the O ran off the left edge in every export. Fixed by
 measuring the one-line width (canvas text metrics) in both places,
 shrinking a planar title to at most 92% of the frame, and nudging from
 that width.
+**Slip 41:** the first fit (#158) measured the line with canvas metrics,
+which ignore a variable font's width axis; the headline style is Archivo
+at 125%, so it measured 30% short and changed nothing. Measured in the
+deployed editor against the laid-out span, fixed in #159 with a hidden
+span measurement and a fit computed on the line as projected through the
+leaned plane. Lesson: verify a fix by measuring the thing it changes in
+the real page, not the proxy it was computed from.
+**Slip 42:** the in-frame nudge moved the title's centre x, but a planar
+title is drawn from its pinned corners, so the plane never moved; the
+nudge in #157 and #159 had no visible effect. Measured in the editor
+(line centre 0.41 while x said 0.57). Fixed by translating the pinned
+quad and every keyframe's corners by the shift.

@@ -854,7 +854,13 @@ export function PinSheet({ text, clip, asset, clipStartMs, onPath, onClose }: {
     // known (and leaned), move the centre so the warped line begins fully in frame. The path is relative, so the pin follows.
     const shift = tracked.pin.quad ? planarShift(text, tracked.pin.quad) : 0;
     const nudged = Math.abs(shift) > 0.002 ? Number((text.x + shift).toFixed(4)) : text.x;
-    onPath({ path: tracked.path, pin: tracked.pin }, { ...(wholeShot ? timing : {}), ...(nudged !== text.x ? { x: nudged } : {}) });
+    // A planar title is drawn from its corners, not its centre: move the pinned plane and every keyframe's corners too.
+    const moveQuad = (q: readonly number[] | undefined) => q ? q.map((v, i) => Number((i % 2 === 0 ? v + shift : v).toFixed(4))) : q;
+    const pinned = nudged === text.x ? { path: tracked.path, pin: tracked.pin } : {
+      path: tracked.path.map(point => ({ ...point, ...(point.q ? { q: moveQuad(point.q) as number[] } : {}) })),
+      pin: { ...tracked.pin, quad: moveQuad(tracked.pin.quad) as number[] | undefined },
+    };
+    onPath(pinned, { ...(wholeShot ? timing : {}), ...(nudged !== text.x ? { x: nudged } : {}) });
     const { path, lostAtMs, quality } = tracked;
     const lostNote = lostAtMs !== null ? ` The surface was lost ${((lostAtMs - tracked.pin.fromMs) / 1000 / (clip.speed || 1)).toFixed(1)} s in, so the title fades there.` : "";
     const nudgeNote = nudged !== text.x ? ` Moved the title ${nudged < text.x ? "left" : "right"} so it starts fully in frame.` : "";

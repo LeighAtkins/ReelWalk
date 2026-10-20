@@ -179,3 +179,31 @@ pan; WAKE UP HERE starts in frame and grows with the push-in; LIGHT and
 EVERY ROOM hold steady; WELCOME / HOME sit behind the presenter. The Pin
 sheet now says how good each track is (WAKE UP HERE's bare wall: "weak,
 7 points"), so a bad surface is known before export. Fixes #156–#160.
+
+## Third pass: painted on a surface (2026-10-20, 12:30 MYT)
+
+Owner: "find a flat clean surface to pin everything to; it should look
+painted on the surface", and "the masking was not clean enough, there was
+still clipping". Built: #162 surface pins (ADR 0043: a title carries the
+four corners of the wall it is painted on, found from the picture's edges
+or dragged by hand; the render lays the text inside that plane), #163 a
+cleaner matte (crop re-segmentation, guided-filter edge, 1 px grow,
+temporal blend), #164 tracking a bare wall by the motion around it.
+
+**Slip 43:** automatic surface detection from Hough lines found nothing
+usable on four of five real frames (perspective edges are diagonal; a
+wall's far side often has no edge; the strongest lines are rarely the
+wall's). The corners were set by hand against a 10% grid. The detector
+now proposes only when four sides are real and convex; the dragged
+corners are the real tool.
+**Slip 44:** a surface pin on a bare dark wall could not track at all
+(no detail by definition) until the tracker borrowed points from the
+surroundings (#164).
+**Slip 45:** a title fitted to a long thin band comes out small; the fit
+should use the band's height as well as its width.
+
+Measured on export `cmvg5j1mk000001ad5k02kscx`: OCEAN VIEWS on the
+facade band, 22 points, worst jump 2 px, reads as paint; LIGHT on the
+stair wall, 7 points, holds; WAKE UP HERE on the bed wall, worst jump
+39 px before #164. Matte: hair and hand edges cleaner; a faint halo
+remains on backlit hair.

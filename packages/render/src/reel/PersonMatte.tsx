@@ -82,7 +82,9 @@ export function drawWork(frame: CanvasImageSource, scratch: MatteScratch, fit: F
  * The person in `frame` as a soft mask at working size, before any settling:
  * the segmenter on the whole picture, again on a crop around the person for
  * four times the detail, snapped to the picture's edges (guided filter) and
- * grown two pixels so thin parts (a raised hand, hair ends) are covered.
+ * grown one pixel so thin parts (a raised hand, hair ends) are covered. Two
+ * pixels, with a low alpha floor, drew a halo of the wall behind her over the
+ * words around the hair (snow reel, 2026-10-21).
  * Pure in the frame: the same picture always gives the same mask.
  */
 export function personMask(segmenter: Segmenter, frame: CanvasImageSource, scratch: MatteScratch, fit: Fit, width: number, height: number): Mask | null {
@@ -105,7 +107,7 @@ export function personMask(segmenter: Segmenter, frame: CanvasImageSource, scrat
   const pixels = wctx.getImageData(0, 0, WORK_WIDTH, WORK_HEIGHT).data;
   const guide = new Float32Array(WORK_WIDTH * WORK_HEIGHT);
   for (let i = 0; i < guide.length; i++) guide[i] = (0.299 * pixels[i * 4] + 0.587 * pixels[i * 4 + 1] + 0.114 * pixels[i * 4 + 2]) / 255;
-  return grow(guidedFilter(mask, guide, 5, 2e-3), 2);
+  return grow(guidedFilter(mask, guide, 5, 2e-3), 1);
 }
 
 /** Draws `frame` into `out` through the clip's fit, keeping only the pixels `mask` (at working size) calls a person. */
@@ -113,7 +115,8 @@ export function compositePerson(frame: CanvasImageSource, out: HTMLCanvasElement
   const ctx = out.getContext("2d")!;
   ctx.clearRect(0, 0, out.width, out.height);
   const wctx = scratch.work.getContext("2d", { willReadFrequently: true })!;
-  const alpha = toAlpha(mask, 0.18, 0.5);
+  // The edge ramps over the middle of the segmenter's confidence: a floor near zero kept the background around the hair.
+  const alpha = toAlpha(mask, 0.35, 0.65);
   const image = wctx.createImageData(WORK_WIDTH, WORK_HEIGHT);
   for (let i = 0; i < alpha.length; i++) image.data[i * 4 + 3] = alpha[i];
   wctx.putImageData(image, 0, 0);

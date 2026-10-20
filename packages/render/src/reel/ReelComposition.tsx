@@ -15,7 +15,7 @@ import {
 // WebCodecs-based video, used when the worker renders: about twice as fast as
 // OffthreadVideo here, and it falls back to it for files it cannot decode.
 import { Video as RenderVideo } from "@remotion/media";
-import { cameraAt, cameraMoveAt, homography, matrix3d, oneLineWidth, PINNED_ELSEWHERE, pinnedProgress, planarFitScale, textPositionAt, textQuadAt, duckGain, framePlan, INSTAGRAM, isInstagramMusic, speechWindows, REEL_FORMAT, timelineDurationMs, walkInto, type Clip, type Logo, type Plan, type TextOverlay, type Timeline } from "@reelwalk/core";
+import { cameraAt, cameraMoveAt, homography, matrix3d, oneLineWidth, PINNED_ELSEWHERE, pinnedProgress, planarFitAndShift, textPositionAt, textQuadAt, duckGain, framePlan, INSTAGRAM, isInstagramMusic, speechWindows, REEL_FORMAT, timelineDurationMs, walkInto, type Clip, type Logo, type Plan, type TextOverlay, type Timeline } from "@reelwalk/core";
 import { whipGeometry } from "./whip";
 import { useFontsFor } from "./fonts";
 import { ELEGANT_FADE_S, FILTER_CSS, textTreatmentCss } from "./look";
@@ -241,7 +241,7 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
   const visible = opacity * position.opacity;
   if (quad && text.pin?.quad) {
     // A planar title never wraps, so a long one is shrunk to fit the frame rather than running off it.
-    const fit = planarFitScale(oneLineWidth(text.text, { fontFamily: String(css.fontFamily ?? ""), fontWeight: css.fontWeight, fontSize: Number(css.fontSize) || 64, letterSpacing: text.tracking }, width));
+    const fit = planarFitAndShift(text.pin.quad, oneLineWidth(text.text, { fontFamily: String(css.fontFamily ?? ""), fontWeight: css.fontWeight, fontSize: Number(css.fontSize) || 64, letterSpacing: text.tracking, fontStretch: css.fontStretch ? String(css.fontStretch) : undefined }, width)).fit;
     // The text sits on the plane the tracker followed: a box at the pinned corners, warped to where they are now (ADR 0039).
     const q0 = text.pin.quad;
     const left = q0[0] * width, top = q0[1] * height;

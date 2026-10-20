@@ -242,9 +242,11 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
   if (quad && text.pin?.quad) {
     // A planar title never wraps, so a long one is shrunk to fit the frame rather than running off it.
     const line = oneLineWidth(text.text, { fontFamily: String(css.fontFamily ?? ""), fontWeight: css.fontWeight, fontSize: Number(css.fontSize) || 64, letterSpacing: text.tracking, fontStretch: css.fontStretch ? String(css.fontStretch) : undefined }, width);
-    // Inside the frame, and when painted on a chosen surface, inside that surface with a margin.
+    // Inside the frame, and when painted on a chosen surface, inside that surface with a margin: its width and its height.
     const rectWidth = Math.max(0.05, text.pin.quad[2] - text.pin.quad[0]);
-    const fit = Math.min(planarFitAndShift(text.pin.quad, line).fit, text.surface ? Math.min(1, (rectWidth * 0.86) / line) : 1);
+    const rectHeight = Math.max(0.02, text.pin.quad[7] - text.pin.quad[1]);
+    const lineHeight = ((Number(css.fontSize) || 64) * 1.12) / height;
+    const fit = Math.min(planarFitAndShift(text.pin.quad, line).fit, text.surface ? Math.min(1, (rectWidth * 0.86) / line, (rectHeight * 0.8) / lineHeight) : 1);
     // The text sits on the plane the tracker followed: a box at the pinned corners, warped to where they are now (ADR 0039).
     const q0 = text.pin.quad;
     const left = q0[0] * width, top = q0[1] * height;
@@ -253,7 +255,8 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
     const H = homography([0, 0, w, 0, w, h, 0, h], now);
     return (
       <AbsoluteFill style={{ pointerEvents: "none", perspective: "none" }}>
-        <div style={{ position: "absolute", left, top, width: w, height: h, display: "flex", alignItems: "center", justifyContent: "center", transformOrigin: "0 0", transform: H ? matrix3d(H) : undefined, opacity: visible, whiteSpace: "nowrap", textAlign: "center", ...meet }}>
+        {/* Painted on a chosen surface, the text exists only on that surface: anything in front of the surface's edge (a wall, a railing) hides it. */}
+        <div style={{ position: "absolute", left, top, width: w, height: h, display: "flex", alignItems: "center", justifyContent: "center", transformOrigin: "0 0", transform: H ? matrix3d(H) : undefined, opacity: visible, whiteSpace: "nowrap", textAlign: "center", overflow: text.surface ? "hidden" : "visible", ...meet }}>
           {/* The tracked box is only the plane's frame, narrower than most titles: the words sit on one line (or the lines the author typed) and overflow it, warped with it. */}
           <span style={{ ...face, whiteSpace: text.text.includes("\n") ? "pre" : "nowrap", overflowWrap: "normal", wordBreak: "keep-all", transform: `scale(${scale * fit})` }}>{text.text}</span>
         </div>

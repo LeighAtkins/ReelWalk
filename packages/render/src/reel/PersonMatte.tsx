@@ -84,10 +84,12 @@ export function drawPersonOnly(segmenter: Segmenter, frame: CanvasImageSource, o
   const pixels = wctx.getImageData(0, 0, WORK_WIDTH, WORK_HEIGHT).data;
   const guide = new Float32Array(WORK_WIDTH * WORK_HEIGHT);
   for (let i = 0; i < guide.length; i++) guide[i] = (0.299 * pixels[i * 4] + 0.587 * pixels[i * 4 + 1] + 0.114 * pixels[i * 4 + 2]) / 255;
-  let refined = grow(guidedFilter(mask, guide, 5, 2e-3), 1);
+  // Thin parts (a raised hand, fingers, hair ends) come back from the model at low confidence: grow twice and
+  // accept a lower band below, so they are covered rather than letting letters show through them.
+  let refined = grow(guidedFilter(mask, guide, 5, 2e-3), 2);
   if (scratch.previous && scratch.previousKey === previousKey) refined = blend(refined, scratch.previous, 0.35);
   scratch.previous = refined; scratch.previousKey = key;
-  const alpha = toAlpha(refined, 0.3, 0.6);
+  const alpha = toAlpha(refined, 0.18, 0.5);
   const image = wctx.createImageData(WORK_WIDTH, WORK_HEIGHT);
   for (let i = 0; i < alpha.length; i++) image.data[i * 4 + 3] = alpha[i];
   wctx.putImageData(image, 0, 0);

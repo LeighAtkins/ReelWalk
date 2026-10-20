@@ -21,8 +21,20 @@ resource "aws_sesv2_email_identity" "domain" {
   }
 }
 
-# Bounces and complaints come back to the sender address; the domain's own
-# MX is not involved (no custom MAIL FROM), so nothing else needs DNS.
+# Production access was granted on 2026-10-20 (50,000 a day, 14 a second).
+#
+# A custom MAIL FROM domain makes the envelope sender ours, so SPF aligns
+# with the From domain for DMARC and bounces come back through SES. It needs
+# two records in Cloudflare (DNS only):
+#   MX  mail.reelwalking.com  10 feedback-smtp.us-east-2.amazonses.com
+#   TXT mail.reelwalking.com  "v=spf1 include:amazonses.com ~all"
+# Both were added on 2026-10-20; until SES sees the MX it falls back to its
+# own domain (USE_DEFAULT_VALUE) rather than refusing to send.
+resource "aws_sesv2_email_identity_mail_from_attributes" "domain" {
+  email_identity         = aws_sesv2_email_identity.domain.email_identity
+  mail_from_domain       = "mail.${var.app_domain}"
+  behavior_on_mx_failure = "USE_DEFAULT_VALUE"
+}
 
 data "aws_iam_policy_document" "send_email" {
   statement {

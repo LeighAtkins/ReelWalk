@@ -205,7 +205,9 @@ export async function renderJob(
       );
     }
 
-    const objectKey = outputKeyFor(job.id);
+    // Each attempt uploads to its own key: a worker that was declared stale and finishes late cannot
+    // overwrite the file the job's current attempt published (the output row names the key that won).
+    const objectKey = outputKeyFor(job.id, job.attempt);
     const { size } = await stat(outputPath);
     console.log(`[${job.id}] upload ${size} bytes to s3://${bucket}/${objectKey}`);
     await s3.send(

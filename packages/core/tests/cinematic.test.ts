@@ -96,3 +96,18 @@ describe("endsBeforeShot", () => {
     expect(endsBeforeShot(timeline, still)).toBe(false);
   });
 });
+
+describe("pinnedProgress at a frame boundary", () => {
+  it("puts the first frame of a shot on that shot even when the start rounds down", async () => {
+    const { pinnedProgress, PINNED_ELSEWHERE, clipSchema, emptyTimeline, textSchema } = await import("../src");
+    // Clip A is 1010 ms: frame 30 (1000 ms) belongs to B on the rounded plan the composition renders.
+    const a = clipSchema.parse({ id: "a", assetId: "x", kind: "VIDEO", sourceStartMs: 0, sourceEndMs: 1010 });
+    const b = clipSchema.parse({ id: "b", assetId: "y", kind: "VIDEO", sourceStartMs: 0, sourceEndMs: 1000 });
+    const timeline = { ...emptyTimeline(), clips: [a, b] };
+    const text = textSchema.parse({ id: "t", text: "Hi", startMs: 1010, endMs: 2010, pin: { assetId: "y", fromMs: 0, toMs: 1000 }, path: [{ t: 0, x: 0, y: 0 }, { t: 1, x: 0.2, y: 0 }] });
+    expect(pinnedProgress(timeline, text, 1000)).not.toBe(PINNED_ELSEWHERE);
+    expect(pinnedProgress(timeline, text, 1000)).toBeCloseTo(0);
+    expect(pinnedProgress(timeline, text, 1500)).toBeCloseTo(0.5, 1);
+    expect(pinnedProgress(timeline, text, 500)).toBe(PINNED_ELSEWHERE);
+  });
+});

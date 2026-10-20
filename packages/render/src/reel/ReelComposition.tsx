@@ -15,8 +15,9 @@ import {
 // WebCodecs-based video, used when the worker renders: about twice as fast as
 // OffthreadVideo here, and it falls back to it for files it cannot decode.
 import { Video as RenderVideo } from "@remotion/media";
-import { cameraAt, cameraMoveAt, homography, invertHomography, matrix3d, oneLineWidth, PINNED_ELSEWHERE, pinnedProgress, planarFitAndShift, textPositionAt, textQuadAt, duckGain, framePlan, INSTAGRAM, isInstagramMusic, speechWindows, REEL_FORMAT, timelineDurationMs, walkInto, type Clip, type Logo, type Plan, type TextOverlay, type Timeline, endsBeforeShot } from "@reelwalk/core";
+import { cameraAt, homography, invertHomography, matrix3d, oneLineWidth, PINNED_ELSEWHERE, pinnedProgress, planarFitAndShift, textPositionAt, textQuadAt, duckGain, framePlan, INSTAGRAM, isInstagramMusic, speechWindows, REEL_FORMAT, timelineDurationMs, walkInto, type Clip, type Logo, type Plan, type TextOverlay, type Timeline, endsBeforeShot } from "@reelwalk/core";
 import { whipGeometry } from "./whip";
+import { clipPresentation } from "./presentation";
 import { useFontsFor } from "./fonts";
 import { ELEGANT_FADE_S, FILTER_CSS, textTreatmentCss } from "./look";
 import { DetailsCardView } from "./DetailsCardView";
@@ -27,15 +28,6 @@ import { Watermark } from "./Watermark";
 import { PersonMatteView } from "./PersonMatte";
 import { HookView } from "./HookView";
 
-/** Frames of the dip-to-black on each side of a "fade" transition. */
-const FADE_FRAMES = 8;
-/** Four silent frames on either side of a deliberate camera-matched whip. */
-const WHIP_FRAMES = 4;
-function whipStyle(amount: number, filterId: string, direction: Clip["whipDirection"]): React.CSSProperties | undefined {
-  if (amount === 0) return undefined;
-  const g = whipGeometry(amount, direction);
-  return { transform: `translate(${g.x}%, ${g.y}%) scale(${g.scaleX}, ${g.scaleY})`, filter: `url(#${filterId})` };
-}
 const WhipBlur: React.FC<{ id: string; amount: number; direction: Clip["whipDirection"] }> = ({ id, amount, direction }) => {
   const g = whipGeometry(amount, direction);
   return <svg width="0" height="0" style={{ position: "absolute" }} aria-hidden="true">
@@ -50,11 +42,6 @@ function resolveSrc(src: string): string {
   return /^(https?:|blob:|data:)/.test(src) ? src : staticFile(src);
 }
 
-/** The Ken Burns move and the clip's own zoom, as one CSS transform about the centre. */
-function motionTransform(motion: Clip["motion"], progress: number, zoom: number, seconds: number): string | undefined {
-  const move = cameraMoveAt(motion, progress, seconds);
-  return zoom === 1 && move.scale === 1 && move.x === 0 ? undefined : `scale(${zoom * move.scale}) translateX(${move.x}%)`;
-}
 
 const Media: React.FC<{
   clip: Clip;
@@ -116,18 +103,7 @@ const ClipView: React.FC<{
 
   // Clamped: a clip is mounted a second early (premount) with negative frames.
   const progress = durationInFrames > 1 ? Math.min(1, Math.max(0, frame / (durationInFrames - 1))) : 0;
-  const transform = motionTransform(clip.motion, progress, clip.zoom, Math.max(0, frame / fps));
-  const fadeIn = clip.transitionIn === "fade" ? interpolate(frame, [0, FADE_FRAMES], [0, 1], { extrapolateRight: "clamp" }) : 1;
-  const fadeOutValue = fadeOut
-    ? interpolate(frame, [durationInFrames - FADE_FRAMES, durationInFrames - 1], [1, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" })
-    : 1;
-  const clamp = { extrapolateLeft: "clamp", extrapolateRight: "clamp" } as const;
-  const whipIn = clip.transitionIn === "whip" ? interpolate(frame, [0, WHIP_FRAMES], [1, 0], clamp) : 0;
-  const whipAway = whipOut ? interpolate(frame, [durationInFrames - WHIP_FRAMES, durationInFrames - 1], [0, -1], clamp) : 0;
-  const whipAmount = whipIn || whipAway;
-  const whipId = `whip-${clip.id}`;
-  const whipDirection = whipIn ? clip.whipDirection : whipOut ?? undefined;
-  const whip = whipStyle(whipAmount, whipId, whipDirection);
+  const { transform, opacity: shown, whip, whipAmount, whipId, whipDirection } = clipPresentation(clip, frame, fps, durationInFrames, fadeOut, whipOut);
 
   if (clip.pano && asset.kind === "IMAGE") {
     const clipMs = (durationInFrames * 1000) / fps;
@@ -137,7 +113,7 @@ const ClipView: React.FC<{
       ? cameraAt(plan, from.clip, clip, (Math.max(0, frame) * 1000) / fps, clipMs)
       : cameraAt(plan, undefined, clip, progress, 1);
     return (
-      <AbsoluteFill style={{ opacity: Math.min(fadeIn, fadeOutValue), backgroundColor: "#000", ...whip }}>
+      <AbsoluteFill style={{ opacity: shown, backgroundColor: "#000", ...whip }}>
         {whip ? <WhipBlur id={whipId} amount={whipAmount} direction={whipDirection} /> : null}
         <PanoView
           src={resolveSrc(asset.src)}
@@ -152,7 +128,7 @@ const ClipView: React.FC<{
   }
 
   return (
-    <AbsoluteFill style={{ opacity: Math.min(fadeIn, fadeOutValue), overflow: "hidden" }}>
+    <AbsoluteFill style={{ opacity: shown, overflow: "hidden" }}>
       {whip ? <WhipBlur id={whipId} amount={whipAmount} direction={whipDirection} /> : null}
       <AbsoluteFill style={whip}>
       {clip.fit === "contain" ? (
@@ -244,11 +220,14 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
   const meet = text.blend === "surface" ? { mixBlendMode: "hard-light" as const, filter: "blur(0.6px)", opacity: visible * 0.92 } : {};
   if (quad && text.pin?.quad) {
     // A planar title never wraps, so a long one is shrunk to fit the frame rather than running off it.
-    const line = oneLineWidth(text.text, { fontFamily: String(css.fontFamily ?? ""), fontWeight: css.fontWeight, fontSize: Number(css.fontSize) || 64, letterSpacing: text.tracking, fontStretch: css.fontStretch ? String(css.fontStretch) : undefined }, width);
+    // The widest of the typed lines sets the width.
+    const line = Math.max(...text.text.split("\n").map((part) => oneLineWidth(part || " ", { fontFamily: String(css.fontFamily ?? ""), fontWeight: css.fontWeight, fontSize: Number(css.fontSize) || 64, letterSpacing: text.tracking, fontStretch: css.fontStretch ? String(css.fontStretch) : undefined }, width)));
     // Inside the frame, and when painted on a chosen surface, inside that surface with a margin: its width and its height.
     const rectWidth = Math.max(0.05, text.pin.quad[2] - text.pin.quad[0]);
     const rectHeight = Math.max(0.02, text.pin.quad[7] - text.pin.quad[1]);
-    const lineHeight = ((Number(css.fontSize) || 64) * 1.12) / height;
+    // The block the author typed: one line, or the lines they broke it into (each as tall as a line).
+    const lines = text.text.split("\n").length;
+    const lineHeight = (((Number(css.fontSize) || 64) * 1.12) / height) * lines;
     // A title on a chosen surface fills it: scaled up or down to span 94% of its width, as long as it fits its height.
     const fit = text.surface ? Math.min((rectWidth * 0.94) / line, (rectHeight * 0.92) / lineHeight) : planarFitAndShift(text.pin.quad, line).fit;
     // The text sits on the plane the tracker followed: a box at the pinned corners, warped to where they are now (ADR 0039).
@@ -258,23 +237,25 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
     const now = quad.map((v, i) => (i % 2 === 0 ? v * width - left : v * height - top)) as [number, number, number, number, number, number, number, number];
     const H = homography([0, 0, w, 0, w, h, 0, h], now);
     // Bars (a mullion, a post) in front of the surface: holes cut in the plane's own coordinates, so they warp with it.
-    let clipPath: string | undefined;
+    let mask: React.CSSProperties = {};
     if (text.surface && text.bars?.length) {
       const H0 = homography([0, 0, w, 0, w, h, 0, h], q0.map((v, i) => (i % 2 === 0 ? v * width - left : v * height - top)) as [number, number, number, number, number, number, number, number]);
       const inv = H0 ? invertHomography(H0) : null;
       if (inv) {
-        // A CSS polygon() is one path, so a "hole" listed after the outer ring joins it with an edge and
-        // swallows half the plane; path() takes real sub-paths and an even-odd rule.
-        const toRect = (x: number, y: number) => { const px = x * width - left, py = y * height - top; const d = inv[6] * px + inv[7] * py + inv[8] || 1e-9; return `${((inv[0] * px + inv[1] * py + inv[2]) / d).toFixed(1)} ${((inv[3] * px + inv[4] * py + inv[5]) / d).toFixed(1)}`; };
-        const outer = `M0 0 L${w} 0 L${w} ${h} L0 ${h} Z`;
-        const holes = text.bars.map((bar) => "M" + [0, 1, 2, 3].map((i) => toRect(bar[i * 2], bar[i * 2 + 1])).join(" L") + " Z").join(" ");
-        clipPath = `path(evenodd, "${outer} ${holes}")`;
+        // The posts are cut out of the plane in the plane's own coordinates, so they warp with it. A mask
+        // (white plane, black posts) subtracts their union: an even-odd path put two overlapping posts
+        // back to visible where they crossed, and two identical posts cancelled each other.
+        const toRect = (x: number, y: number) => { const px = x * width - left, py = y * height - top; const d = inv[6] * px + inv[7] * py + inv[8] || 1e-9; return `${((inv[0] * px + inv[1] * py + inv[2]) / d).toFixed(1)},${((inv[3] * px + inv[4] * py + inv[5]) / d).toFixed(1)}`; };
+        const posts = text.bars.map((bar) => `<polygon points="${[0, 1, 2, 3].map((i) => toRect(bar[i * 2], bar[i * 2 + 1])).join(" ")}" fill="black"/>`).join("");
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><rect width="${w}" height="${h}" fill="white"/>${posts}</svg>`;
+        const url = `url("data:image/svg+xml;utf8,${encodeURIComponent(svg)}")`;
+        mask = { maskImage: url, WebkitMaskImage: url, maskSize: "100% 100%", WebkitMaskSize: "100% 100%", maskRepeat: "no-repeat", WebkitMaskRepeat: "no-repeat" };
       }
     }
     return (
       <AbsoluteFill style={{ pointerEvents: "none", perspective: "none" }}>
         {/* Painted on a chosen surface, the text exists only on that surface: anything in front of the surface's edge (a wall, a railing) hides it. */}
-        <div style={{ position: "absolute", left, top, width: w, height: h, display: "flex", alignItems: "center", justifyContent: "center", transformOrigin: "0 0", transform: H ? matrix3d(H) : undefined, opacity: visible, whiteSpace: "nowrap", textAlign: "center", overflow: text.surface ? "hidden" : "visible", ...(clipPath ? { clipPath } : {}), ...meet }}>
+        <div style={{ position: "absolute", left, top, width: w, height: h, display: "flex", alignItems: "center", justifyContent: "center", transformOrigin: "0 0", transform: H ? matrix3d(H) : undefined, opacity: visible, whiteSpace: "nowrap", textAlign: "center", overflow: text.surface ? "hidden" : "visible", ...mask, ...meet }}>
           {/* The tracked box is only the plane's frame, narrower than most titles: the words sit on one line (or the lines the author typed) and overflow it, warped with it. */}
           <span style={{ ...face, whiteSpace: text.text.includes("\n") ? "pre" : "nowrap", overflowWrap: "normal", wordBreak: "keep-all", transform: `scale(${scale * fit})` }}>{text.text}</span>
         </div>
@@ -405,7 +386,14 @@ export const ReelComposition: React.FC<ReelProps> = ({ timeline, assets, waterma
         const asset = assets[clip.assetId];
         const startMs = (from * 1000) / fps, endMs = ((from + durationInFrames) * 1000) / fps;
         if (!asset || asset.kind !== "VIDEO" || !timeline.texts.some(text => text.behind && text.startMs < endMs && text.endMs > startMs)) return null;
-        return <Sequence key={`matte-${clip.id}`} from={from} durationInFrames={durationInFrames} name={`matte ${clip.id}`}><PersonMatteView clip={clip} asset={asset} /></Sequence>;
+        const index = timeline.clips.indexOf(clip);
+        return (
+          <Sequence key={`matte-${clip.id}`} from={from} durationInFrames={durationInFrames} name={`matte ${clip.id}`}>
+            <PersonMatteView clip={clip} asset={asset} durationInFrames={durationInFrames}
+              fadeOut={timeline.clips[index + 1]?.transitionIn === "fade"}
+              whipOut={timeline.clips[index + 1]?.transitionIn === "whip" ? timeline.clips[index + 1].whipDirection ?? "right" : null} />
+          </Sequence>
+        );
       })}
       {timeline.hook && plan.clips[0] ? <HookView timeline={timeline} hook={timeline.hook} firstClip={plan.clips[0].clip} asset={assets[plan.clips[0].clip.assetId]} /> : null}
       <DetailsCardView timeline={timeline} />

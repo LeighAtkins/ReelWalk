@@ -26,8 +26,9 @@ export function frameThumbKeyFor(objectKey: string): string {
  * The output key depends only on the job id. A retried or duplicated render
  * overwrites the same object instead of creating a second one.
  */
-export function outputKeyFor(jobId: string): string {
-  return `renders/${jobId}.mp4`;
+export function outputKeyFor(jobId: string, attempt?: number): string {
+  // The first attempt keeps the plain key (every existing output); a retry gets its own.
+  return attempt && attempt > 1 ? `renders/${jobId}-${attempt}.mp4` : `renders/${jobId}.mp4`;
 }
 
 /**

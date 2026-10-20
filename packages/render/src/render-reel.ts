@@ -77,20 +77,25 @@ export async function renderReel(
  * every shot (a title or matte that mounts, a pin that overlaps the next cut).
  * Each is tagged with the shot it belongs to so a failure names the shot.
  */
-export function reelCheckpoints(timeline: Timeline, fps: number = REEL_FORMAT.fps): { frame: number; shot: number; edge: "first" | "last"; clipId: string }[] {
+export type CheckpointEdge = "first" | "middle" | "last";
+
+/** The frames preflight draws: the first, middle and last frame of every shot (ADR 0042; the middle since the review of 2026-10-20, where motion, pins and mattes are mid-way). */
+export function reelCheckpoints(timeline: Timeline, fps: number = REEL_FORMAT.fps): { frame: number; shot: number; edge: CheckpointEdge; clipId: string }[] {
   const starts = clipStartsMs(timeline);
-  const out: { frame: number; shot: number; edge: "first" | "last"; clipId: string }[] = [];
+  const out: { frame: number; shot: number; edge: CheckpointEdge; clipId: string }[] = [];
   timeline.clips.forEach((clip, i) => {
     const first = Math.round((starts[i] * fps) / 1000);
     const last = Math.max(first, Math.round(((starts[i] + clipDurationMs(clip)) * fps) / 1000) - 1);
+    const middle = Math.round((first + last) / 2);
     out.push({ frame: first, shot: i + 1, edge: "first", clipId: clip.id });
+    if (middle !== first && middle !== last) out.push({ frame: middle, shot: i + 1, edge: "middle", clipId: clip.id });
     if (last !== first) out.push({ frame: last, shot: i + 1, edge: "last", clipId: clip.id });
   });
   return out;
 }
 
 export class PreflightError extends Error {
-  constructor(public readonly shot: number, public readonly edge: "first" | "last", public readonly frame: number, cause: unknown) {
+  constructor(public readonly shot: number, public readonly edge: CheckpointEdge, public readonly frame: number, cause: unknown) {
     const reason = cause instanceof Error ? cause.message.split("\n")[0] : String(cause);
     super(`Shot ${shot} could not be drawn at its ${edge} frame (frame ${frame}): ${reason}`);
     this.name = "PreflightError";
@@ -106,14 +111,14 @@ export class PreflightError extends Error {
 export async function preflightReel(
   input: { timeline: Timeline; assets: Record<string, ReelAsset>; keepIn?: string; timeoutMs?: number; width?: number },
   onProgress?: (done: number, total: number) => void,
-): Promise<{ frame: number; shot: number; edge: "first" | "last"; path: string }[]> {
+): Promise<{ frame: number; shot: number; edge: CheckpointEdge; path: string }[]> {
   const serveUrl = await getServeUrl();
   const timeline = isInstagramMusic(input.timeline.music) ? { ...input.timeline, music: null } : input.timeline;
   const inputProps = { timeline, assets: input.assets, watermark: false };
   const composition = await selectComposition({ serveUrl, id: REEL_COMPOSITION_ID, inputProps });
   const points = reelCheckpoints(timeline, composition.fps).filter((p) => p.frame < composition.durationInFrames);
   const dir = input.keepIn ?? (await mkdtemp(path.join(os.tmpdir(), "reelwalk-preflight-")));
-  const made: { frame: number; shot: number; edge: "first" | "last"; path: string }[] = [];
+  const made: { frame: number; shot: number; edge: CheckpointEdge; path: string }[] = [];
   try {
     for (const [index, point] of points.entries()) {
       const output = path.join(dir, `shot-${String(point.shot).padStart(2, "0")}-${point.edge}.jpg`);

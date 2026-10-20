@@ -266,3 +266,51 @@ Marked on screenshots of export `cmvg6ns4k000001adg9gh6upm`:
   to the take with the original look; her face at that scale remains the
   open problem (a Veo-native medium shot, not a composite, is the next
   thing to try).
+
+## Round four (2026-10-20): "it's not even changed"
+
+Export `cmvge66a8000201ad8hmvaw8q`. The owner asked for first and last
+frames of each shot, then several frames per shot, then said the same
+issues were still there. They were right; the frames I had checked were
+not the frames the viewer sees.
+
+- **Slip 58: bars cut as a polygon ate half the plane.** The first `bars`
+  implementation built one `clip-path: polygon()` for "surface minus bar",
+  which cannot express a hole; the path ran the wrong way round and half
+  the title vanished. Now `clip-path: path(evenodd, …)` with the surface as
+  the outer ring and each bar as an inner ring (#171).
+- **Slip 59: a surfaced title was a fraction of its surface.** The fit for
+  a title with a surface still came from the free-planar rule (a cap on
+  width that only ever shrank). The owner drew boxes the width of a road
+  and got letters a third of that. A surfaced title now fills the surface,
+  `min(0.94·width/line, 0.92·height/lineHeight)`, scaling up as well as
+  down (#173).
+- **Slip 60: surfaces measured off a letterboxed stage.** The editor
+  preview is 968×1882 with 80 px black bands; I read corners off that
+  and divided by the stage height, so every y was 4 % off and the pole
+  bars missed the poles. Measure off the video element's own box.
+- **Slip 61: a screenshot of the wrong frame passed as evidence.**
+  `Page.captureScreenshot` with `captureBeyondViewport` returned the
+  compositor's last surface, not the current one; the DOM said LIGHT, the
+  picture showed STEP OUT. Capture inside the viewport after two
+  animation frames, and log the clip and titles in the DOM beside the
+  file so a stale picture is caught.
+- **Slip 62: changing the layout mid-seek stalls the player.** Emulating
+  a tall viewport and then seeking left the Remotion player on its last
+  frame while the playhead label moved on. Seek at the normal size, then
+  enlarge only for the capture.
+- **Slip 63: I verified against my own frames, not the owner's marks.**
+  The side-by-side that finally settled it was the owner's marked
+  screenshot next to my frame at the same moment. That comparison is now
+  the acceptance test for a placement note; stills of my own render never
+  were.
+- **Slip 64: a wall that leaves the frame.** EVERY ROOM belongs on the
+  dark wall left of the window, as drawn, but the push-in shrinks that
+  wall from 42 % of the frame to 15 % by the cut, so a title painted on
+  it slides off. Painted means painted: it goes on the wall and fades
+  before it leaves, instead of floating on the glass.
+- **Slip 65: a slab whose near end is on the right.** OCEAN VIEWS was
+  asked to get "smaller to the right", but the slab's near end is the
+  right end, so a sign painted on it grows to the right. The surface
+  follows the slab as drawn; the perspective is the building's, not
+  mine, and it can be flipped if the look is wanted over the physics.

@@ -241,7 +241,10 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
   const visible = opacity * position.opacity;
   if (quad && text.pin?.quad) {
     // A planar title never wraps, so a long one is shrunk to fit the frame rather than running off it.
-    const fit = planarFitAndShift(text.pin.quad, oneLineWidth(text.text, { fontFamily: String(css.fontFamily ?? ""), fontWeight: css.fontWeight, fontSize: Number(css.fontSize) || 64, letterSpacing: text.tracking, fontStretch: css.fontStretch ? String(css.fontStretch) : undefined }, width)).fit;
+    const line = oneLineWidth(text.text, { fontFamily: String(css.fontFamily ?? ""), fontWeight: css.fontWeight, fontSize: Number(css.fontSize) || 64, letterSpacing: text.tracking, fontStretch: css.fontStretch ? String(css.fontStretch) : undefined }, width);
+    // Inside the frame, and when painted on a chosen surface, inside that surface with a margin.
+    const rectWidth = Math.max(0.05, text.pin.quad[2] - text.pin.quad[0]);
+    const fit = Math.min(planarFitAndShift(text.pin.quad, line).fit, text.surface ? Math.min(1, (rectWidth * 0.86) / line) : 1);
     // The text sits on the plane the tracker followed: a box at the pinned corners, warped to where they are now (ADR 0039).
     const q0 = text.pin.quad;
     const left = q0[0] * width, top = q0[1] * height;

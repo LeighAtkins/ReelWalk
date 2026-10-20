@@ -52,7 +52,7 @@ import { saveCaption } from "@/app/actions";
 import { CaptionEditor } from "../caption-editor";
 import { AlertIcon, CloseIcon, InstagramIcon, PlusIcon } from "../icons";
 import { InstagramSoundBrowser } from "../instagram-sound-picker";
-import { findMatchingCut, trackTextPath } from "./frame-analysis";
+import { detectSurface, findMatchingCut, trackTextPath } from "./frame-analysis";
 import { Sheet } from "../sheet";
 
 // ── Shell ───────────────────────────────────────────────────────
@@ -831,9 +831,12 @@ function planarShift(text: Pick<TextOverlay, "text" | "style" | "color" | "size"
 }
 
 /** Pin a text to the surface under it so it moves with the camera (ADR 0039). */
-export function PinSheet({ text, clip, asset, clipStartMs, onPath, onClose }: {
+export function PinSheet({ text, clip, asset, clipStartMs, onPath, onSurface, onClose }: {
   text: TextOverlay; clip: Clip | null; asset: LibraryAsset | undefined; clipStartMs: number;
-  onPath(pinned: { path: TextOverlay["path"]; pin: TextOverlay["pin"] } | undefined, patch?: { startMs?: number; endMs?: number; x?: number }): void; onClose(): void;
+  onPath(pinned: { path: TextOverlay["path"]; pin: TextOverlay["pin"] } | undefined, patch?: { startMs?: number; endMs?: number; x?: number }): void;
+  /** The surface the title is painted on was found or cleared (also drops any pin, which must be redone on the new plane). */
+  onSurface?(surface: number[] | undefined): void;
+  onClose(): void;
 }) {
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -871,9 +874,22 @@ export function PinSheet({ text, clip, asset, clipStartMs, onPath, onClose }: {
     <Sheet title="Pin to the picture" onClose={onClose}>
       <p className="muted small">The text follows the wall, floor or object under it as the camera moves, as one flat plane in perspective, and stays with that shot if you trim or move it. Place it on something with detail first.</p>
       <label className="field small"><input type="checkbox" checked={wholeShot} onChange={event => setWholeShot(event.target.checked)} /> For the whole shot: already there when the shot starts, gone when it ends</label>
-      <Range label="Turn" value={yaw} min={-60} max={60} step={1} display={yaw === 0 ? "Facing camera" : yaw > 0 ? `Right edge recedes ${yaw}°` : `Left edge recedes ${-yaw}°`} onChange={setYaw} />
-      <Range label="Tilt" value={pitch} min={-60} max={60} step={1} display={pitch === 0 ? "Level" : pitch > 0 ? `Top recedes ${pitch}°` : `Bottom recedes ${-pitch}°`} onChange={setPitch} />
-      <p className="muted small">Match the wall: a wall running away to the right wants Turn to the right; a floor or ceiling wants Tilt. Pin again after changing them.</p>
+      <div className="row" style={{ display: "flex", gap: 8 }}>
+        <button type="button" className="btn btn-block" disabled={!canTrack || busy} data-testid="find-surface" onClick={async () => {
+          if (!clip || !asset) return;
+          setBusy(true); setStatus("Looking for the wall's edges around the text…");
+          const found = await detectSurface(asset, clip, clipStartMs, text);
+          setBusy(false);
+          if (!found) { setStatus("No clear edges around the text. Drag it onto a wall, door or panel with visible edges, or set the corners by hand after choosing a box."); return; }
+          onSurface?.(found.quad);
+          setStatus(`Found a flat surface${found.weakest < 40 ? " (one edge is faint: check the corners)" : ""}. Drag its corners to the wall's edges if they are off, then pin.`);
+        }}>{text.surface ? "Find the surface again" : "Find a flat surface"}</button>
+        {text.surface ? <button type="button" className="btn btn-quiet" disabled={busy} onClick={() => { onSurface?.(undefined); setStatus("Back to a box around the text."); }}>Use a box</button> : null}
+      </div>
+      <p className="muted small">{text.surface ? "The title is painted inside this surface, with its perspective. Drag the red corners to its edges." : "Find the wall, door or panel under the text so the title takes its real perspective; or turn and tilt a box by hand below."}</p>
+      {text.surface ? null : <Range label="Turn" value={yaw} min={-60} max={60} step={1} display={yaw === 0 ? "Facing camera" : yaw > 0 ? `Right edge recedes ${yaw}°` : `Left edge recedes ${-yaw}°`} onChange={setYaw} />}
+      {text.surface ? null : <Range label="Tilt" value={pitch} min={-60} max={60} step={1} display={pitch === 0 ? "Level" : pitch > 0 ? `Top recedes ${pitch}°` : `Bottom recedes ${-pitch}°`} onChange={setPitch} />}
+      {text.surface ? null : <p className="muted small">Match the wall: a wall running away to the right wants Turn to the right; a floor or ceiling wants Tilt. Pin again after changing them.</p>}
       <button type="button" className="btn btn-signal btn-block" disabled={!canTrack || busy} onClick={pin} data-testid="pin-text">{busy ? "Following…" : text.path && text.path.length > 2 ? "Pin again from the current position" : "Pin to the picture"}</button>
       {!canTrack ? <p className="small">Pinning needs the text to start on a video clip.</p> : null}
       {text.path ? <button type="button" className="btn btn-quiet btn-block" disabled={busy} onClick={() => { onPath(undefined); setStatus("Unpinned."); }}>Unpin (still text)</button> : null}

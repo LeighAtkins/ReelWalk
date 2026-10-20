@@ -27,6 +27,8 @@ type PreviewProps = {
   onTogglePlay(): void;
   onMoveText(id: string, x: number, y: number, gesture: string): void;
   onResizeText(id: string, size: number, gesture: string): void;
+  /** The selected title's surface corners were dragged (frame fractions, tl tr br bl). */
+  onSurfaceText?(id: string, quad: number[], gesture: string): void;
   onSelectText(id: string): void;
   onEditText(id: string): void;
   empty: React.ReactNode;
@@ -41,6 +43,42 @@ function snap(value: number): number {
 }
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+
+/** The surface a title is painted on: a dashed outline with a draggable corner at each of its four points (ADR 0043). */
+function SurfaceHandles({ quad, frame, onChange }: { quad: number[]; frame: RefObject<HTMLDivElement | null>; onChange(quad: number[], gesture: string): void }) {
+  const points = `${quad[0] * 100}%,${quad[1] * 100}% ${quad[2] * 100}%,${quad[3] * 100}% ${quad[4] * 100}%,${quad[5] * 100}% ${quad[6] * 100}%,${quad[7] * 100}%`;
+  return (
+    <>
+      <svg className="surface-outline" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" }}>
+        <polygon points={points.replace(/%/g, "")} fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.85)" strokeWidth={0.4} strokeDasharray="1.2 0.8" vectorEffect="non-scaling-stroke" />
+      </svg>
+      {[0, 1, 2, 3].map((i) => (
+        <button
+          key={i}
+          type="button"
+          className="surface-corner"
+          aria-label={`Surface corner ${["top left", "top right", "bottom right", "bottom left"][i]}. Drag to the edge of the wall.`}
+          style={{ position: "absolute", left: `${quad[i * 2] * 100}%`, top: `${quad[i * 2 + 1] * 100}%`, width: 18, height: 18, marginLeft: -9, marginTop: -9, borderRadius: 9, border: "2px solid #fff", background: "rgba(255,90,95,0.9)", padding: 0, cursor: "grab", touchAction: "none" }}
+          onPointerDown={(event) => {
+            if (event.button !== 0 || !frame.current) return;
+            event.stopPropagation();
+            event.currentTarget.setPointerCapture(event.pointerId);
+            const gesture = `drag:surface-${i}:${Date.now()}`;
+            const move = (e: PointerEvent) => {
+              const rect = frame.current!.getBoundingClientRect();
+              const next = [...quad];
+              next[i * 2] = Math.max(-0.5, Math.min(1.5, (e.clientX - rect.left) / rect.width));
+              next[i * 2 + 1] = Math.max(-0.5, Math.min(1.5, (e.clientY - rect.top) / rect.height));
+              onChange(next.map((v) => Number(v.toFixed(4))), gesture);
+            };
+            const up = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); };
+            window.addEventListener("pointermove", move); window.addEventListener("pointerup", up);
+          }}
+        />
+      ))}
+    </>
+  );
+}
 
 /** An invisible copy of the text at preview scale, which gives a box the text's exact size. */
 function Ghost({ text, scale }: { text: TextOverlay; scale: number }) {
@@ -204,6 +242,7 @@ export function Preview({
   onTogglePlay,
   onMoveText,
   onResizeText,
+  onSurfaceText,
   onSelectText,
   onEditText,
   empty,
@@ -347,7 +386,7 @@ export function Preview({
         {hasClips && !playing && !theater ? (
           <TextTargets clock={clock} timeline={timeline} selectedId={selectedText?.id ?? null} scale={scale} onSelect={onSelectText} onEdit={onEditText} />
         ) : null}
-        {selectedText && !playing && !theater ? (
+        {selectedText && !playing && !theater ? (<>
           <TextHandle
             text={selectedText}
             clock={clock}
@@ -357,7 +396,10 @@ export function Preview({
             onResize={(size, gesture) => onResizeText(selectedText.id, size, gesture)}
             onEdit={() => onEditText(selectedText.id)}
           />
-        ) : null}
+          {selectedText.surface && onSurfaceText ? (
+            <SurfaceHandles quad={selectedText.surface} frame={frame} onChange={(quad, gesture) => onSurfaceText(selectedText.id, quad, gesture)} />
+          ) : null}
+        </>) : null}
       </div>
     </div>
   );

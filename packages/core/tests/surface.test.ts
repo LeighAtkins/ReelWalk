@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { findSurfaceQuad, houghLines, type Gray } from "../src";
+import { findSurfaceQuad, houghLines, orientQuad, type Gray } from "../src";
 
 /** A frame with a bright trapezoid (a wall panel seen at an angle) over a dim gradient. */
 function panel(width: number, height: number, quad: number[]): Gray {
@@ -54,5 +54,19 @@ describe("houghLines keeps symmetric edges", () => {
     const lines = houghLines(pts, 200, 200, { minVotes: 150 });
     const rhos = lines.filter((l) => Math.abs(l.theta) < 0.01 || Math.abs(l.theta - Math.PI) < 0.01).map((l) => Math.round(Math.abs(l.rho))).sort((a, b) => a - b);
     expect(rhos).toEqual([50, 150]);
+  });
+});
+
+describe("orientQuad", () => {
+  it("leaves a canonical rectangle and a sloping road plane alone", () => {
+    expect(orientQuad([0.1, 0.2, 0.9, 0.2, 0.9, 0.5, 0.1, 0.5])).toEqual([0.1, 0.2, 0.9, 0.2, 0.9, 0.5, 0.1, 0.5]);
+    const road = [0.236, 0.642, 0.852, 0.944, 0.697, 1.031, 0.143, 0.694];
+    expect(orientQuad(road)).toEqual(road);
+  });
+  it("unmirrors a counter-clockwise order and rotates a quad started at the wrong corner", () => {
+    // Placed bottom-left, bottom-right, top-right, top-left: mirrored and upside down.
+    expect(orientQuad([0.1, 0.5, 0.9, 0.5, 0.9, 0.2, 0.1, 0.2])).toEqual([0.1, 0.2, 0.9, 0.2, 0.9, 0.5, 0.1, 0.5]);
+    // Started at the top-right, going clockwise.
+    expect(orientQuad([0.9, 0.2, 0.9, 0.5, 0.1, 0.5, 0.1, 0.2])).toEqual([0.1, 0.2, 0.9, 0.2, 0.9, 0.5, 0.1, 0.5]);
   });
 });

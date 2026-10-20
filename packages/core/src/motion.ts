@@ -454,3 +454,30 @@ export function invertHomography(h: number[]): number[] | null {
   const inv = [A, -(b * j - c * i), b * f - c * e, B, a * j - c * g, -(a * f - c * d), C, -(a * i - b * g), a * e - b * d];
   return inv.map((v) => v / det);
 }
+
+/**
+ * Four corners in whatever order they were placed, returned as top-left,
+ * top-right, bottom-right, bottom-left for an upright, unmirrored title
+ * (ADR 0044). The winding is made clockwise on screen (a mirrored order
+ * flips the words), then the edge that runs most nearly left to right is
+ * taken as the top, so a plane along a road or a slab keeps its own slope.
+ */
+export function orientQuad(quad: readonly number[]): Quad {
+  const pts: [number, number][] = [0, 1, 2, 3].map((i) => [quad[i * 2], quad[i * 2 + 1]]);
+  // Signed area, y down: positive is clockwise on screen.
+  let area = 0;
+  for (let i = 0; i < 4; i++) { const a = pts[i], b = pts[(i + 1) % 4]; area += a[0] * b[1] - b[0] * a[1]; }
+  const wound = area < 0 ? [pts[0], pts[3], pts[2], pts[1]] : pts;
+  const lengths = [0, 1, 2, 3].map((k) => { const a = wound[k], b = wound[(k + 1) % 4]; return Math.hypot(b[0] - a[0], b[1] - a[1]); });
+  const longest = Math.max(...lengths) || 1e-9;
+  let best = 0, bestScore = -Infinity;
+  for (let k = 0; k < 4; k++) {
+    const a = wound[k], b = wound[(k + 1) % 4];
+    const dx = b[0] - a[0];
+    const len = lengths[k] || 1e-9;
+    // The edge pointing most nearly right, the long edges counting for more: a road's length, not its short end.
+    const score = (dx / len) * Math.sqrt(len / longest);
+    if (score > bestScore) { bestScore = score; best = k; }
+  }
+  return [0, 1, 2, 3].flatMap((i) => wound[(best + i) % 4]) as Quad;
+}

@@ -42,7 +42,7 @@ import { HOOK_DESCRIPTIONS, HOOK_FONTS, HOOK_LABELS, type Hook, type HookKind,
   type PlanOverlay,
   type TextAnimation,
   type TextOverlay,
-  type TextStyle, oneLineWidth, PLANAR_MAX_WIDTH } from "@reelwalk/core";
+  type TextStyle, oneLineWidth, planarFitAndShift } from "@reelwalk/core";
 import { ClipSourceInfo } from "./clip-source-info";
 import { ELEGANT_FONT_FAMILY, FILTER_CSS, FILTER_LABELS, TEXT_ANIMATION_LABELS, TEXT_STYLE_LABELS, textTreatmentCss } from "@reelwalk/render/reel";
 import { formatDuration } from "@/lib/format";
@@ -823,12 +823,11 @@ export function HookSheet({ hook, hasPerson, onChange, onWords, onClose }: {
   );
 }
 
-/** The title's centre x, moved in so its one line (shrunk to the frame if needed) starts at least 3% inside both edges. */
-function inFrameX(text: Pick<TextOverlay, "text" | "x" | "style" | "color" | "size" | "font" | "tracking" | "shadow">): number {
+/** How far to move a pinned title's centre so its line, warped onto the tracked plane, starts 3% inside both frame edges. */
+function planarShift(text: Pick<TextOverlay, "text" | "style" | "color" | "size" | "font" | "tracking" | "shadow">, quad0: readonly number[]): number {
   const css = textTreatmentCss(text);
-  const width = oneLineWidth(text.text, { fontFamily: String(css.fontFamily ?? ""), fontWeight: css.fontWeight, fontSize: Number(css.fontSize) || 64, letterSpacing: text.tracking });
-  const half = Math.min(width, PLANAR_MAX_WIDTH) / 2;
-  return Math.max(0.03 + half, Math.min(0.97 - half, text.x));
+  const width = oneLineWidth(text.text, { fontFamily: String(css.fontFamily ?? ""), fontWeight: css.fontWeight, fontSize: Number(css.fontSize) || 64, letterSpacing: text.tracking, fontStretch: css.fontStretch ? String(css.fontStretch) : undefined });
+  return planarFitAndShift(quad0, width).shift;
 }
 
 /** Pin a text to the surface under it so it moves with the camera (ADR 0039). */
@@ -847,13 +846,14 @@ export function PinSheet({ text, clip, asset, clipStartMs, onPath, onClose }: {
   async function pin() {
     if (!clip || !asset) return;
     const timing = wholeShot ? { startMs: clipStartMs, endMs: clipStartMs + clipDurationMs(clip) } : { startMs: text.startMs, endMs: text.endMs };
-    // A title that starts cut off at the frame edge never reads as being on the wall: measure the
-    // selected text's box in the preview and move its centre in so it begins fully in frame.
-    const nudged = inFrameX(text);
     setBusy(true); setStatus("Following the surface under the text…");
-    const tracked = await trackTextPath(asset, clip, clipStartMs, { ...text, x: nudged, ...timing }, fraction => setStatus(`Following the surface under the text… ${Math.round(fraction * 100)}%`), { yaw, pitch });
+    const tracked = await trackTextPath(asset, clip, clipStartMs, { ...text, ...timing }, fraction => setStatus(`Following the surface under the text… ${Math.round(fraction * 100)}%`), { yaw, pitch });
     setBusy(false);
     if (!tracked) { setStatus("Could not follow this shot. Try placing the text on a surface with some detail."); return; }
+    // A title that starts cut off at the frame edge never reads as being on the wall: with the plane
+    // known (and leaned), move the centre so the warped line begins fully in frame. The path is relative, so the pin follows.
+    const shift = tracked.pin.quad ? planarShift(text, tracked.pin.quad) : 0;
+    const nudged = Math.abs(shift) > 0.002 ? Number((text.x + shift).toFixed(4)) : text.x;
     onPath({ path: tracked.path, pin: tracked.pin }, { ...(wholeShot ? timing : {}), ...(nudged !== text.x ? { x: nudged } : {}) });
     const { path, lostAtMs, quality } = tracked;
     const lostNote = lostAtMs !== null ? ` The surface was lost ${((lostAtMs - tracked.pin.fromMs) / 1000 / (clip.speed || 1)).toFixed(1)} s in, so the title fades there.` : "";

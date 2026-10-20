@@ -61,12 +61,23 @@ describe("pinned text", () => {
 });
 
 describe("planar titles fit the frame", () => {
-  it("estimates a one-line width without a canvas and scales a wide title down", async () => {
-    const { oneLineWidth, planarFitScale, PLANAR_MAX_WIDTH } = await import("../src");
-    const narrow = oneLineWidth("LIGHT", { fontSize: 96 });
-    const wide = oneLineWidth("OCEAN VIEWS AND MORE", { fontSize: 96, letterSpacing: 0.04 });
-    expect(narrow).toBeLessThan(wide);
-    expect(planarFitScale(narrow)).toBe(1);
-    expect(planarFitScale(wide) * wide).toBeCloseTo(PLANAR_MAX_WIDTH, 6);
+  it("estimates a one-line width without a DOM, honouring stretch and spacing", async () => {
+    const { oneLineWidth } = await import("../src");
+    const plain = oneLineWidth("LIGHT", { fontSize: 96 });
+    expect(oneLineWidth("LIGHT", { fontSize: 96, fontStretch: "125%" })).toBeCloseTo(plain * 1.25, 6);
+    expect(oneLineWidth("LIGHT", { fontSize: 96, letterSpacing: 0.1 })).toBeGreaterThan(plain);
+  });
+  it("shrinks a wide title to the frame and shifts a cut-off one inward", async () => {
+    const { planarFitAndShift, leanQuad } = await import("../src");
+    const flat = [0.3, 0.35, 0.7, 0.35, 0.7, 0.45, 0.3, 0.45];
+    expect(planarFitAndShift(flat, 0.5)).toMatchObject({ fit: 1, shift: 0 });
+    const wide = planarFitAndShift(flat, 1.2);
+    expect(wide.fit).toBeCloseTo(0.92 / 1.2, 4); expect(wide.right - wide.left).toBeCloseTo(0.92, 4);
+    // A plane centred at 0.3 with a 0.6 line runs off the left: shifted so it starts at 3%.
+    const off = planarFitAndShift([0.1, 0.35, 0.5, 0.35, 0.5, 0.45, 0.1, 0.45], 0.6);
+    expect(off.left).toBeCloseTo(0.03, 4); expect(off.shift).toBeGreaterThan(0);
+    // A plane turned 40° magnifies its near edge: the projected line is wider than the flat one, so it shrinks more.
+    const leaned = leanQuad(flat as never, 40, 0);
+    expect(planarFitAndShift(leaned, 0.9).fit).toBeLessThan(planarFitAndShift(flat, 0.9).fit + 1e-9);
   });
 });

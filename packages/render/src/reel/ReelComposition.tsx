@@ -236,9 +236,10 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
   if (text.pin && progress === PINNED_ELSEWHERE) return null;
   const face = { ...css, ...(text.depth === "extruded" ? { textShadow: extrudedShadow(text.color, Number(css.fontSize) || 64), WebkitTextStroke: `${Math.max(0.5, (Number(css.fontSize) || 64) * 0.01)}px rgba(0,0,0,0.35)` } : {}) };
   // Paint on the surface: hard-light keeps the wall's own light and grain through the letters (white lightens, dark darkens), with the footage's softness.
-  const meet = text.blend === "surface" ? { mixBlendMode: "hard-light" as const, filter: "blur(0.6px)", opacity: 0.92 } : {};
-  // A tracked title fades where the tracker lost the surface, instead of cutting.
+  // A tracked title fades where the tracker lost the surface (or where its path says so), instead of cutting.
   const visible = opacity * position.opacity;
+  // The blend's own 0.92 multiplies the fade; spread after `opacity`, a flat 0.92 used to cancel it.
+  const meet = text.blend === "surface" ? { mixBlendMode: "hard-light" as const, filter: "blur(0.6px)", opacity: visible * 0.92 } : {};
   if (quad && text.pin?.quad) {
     // A planar title never wraps, so a long one is shrunk to fit the frame rather than running off it.
     const line = oneLineWidth(text.text, { fontFamily: String(css.fontFamily ?? ""), fontWeight: css.fontWeight, fontSize: Number(css.fontSize) || 64, letterSpacing: text.tracking, fontStretch: css.fontStretch ? String(css.fontStretch) : undefined }, width);

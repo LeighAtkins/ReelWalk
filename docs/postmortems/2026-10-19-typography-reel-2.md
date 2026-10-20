@@ -207,3 +207,34 @@ facade band, 22 points, worst jump 2 px, reads as paint; LIGHT on the
 stair wall, 7 points, holds; WAKE UP HERE on the bed wall, worst jump
 39 px before #164. Matte: hair and hand edges cleaner; a faint halo
 remains on backlit hair.
+
+## Owner's review of the surface pass (2026-10-20, 12:45 MYT)
+
+Marked on screenshots of export `cmvg6ns4k000001adg9gh6upm`:
+
+- **Slip 46: every title in the wrong spot.** BEACHFRONT belongs on the
+  road, not across the houses; OCEAN VIEWS on the broad white slab face
+  under the louvres, not the louvre line; LIGHT lower, on the sunlit part
+  of the wall; WAKE UP HERE at window level, not on the ceiling slab. I
+  read the facade's geometry wrong at the first frame (the band runs down
+  to the right, not up) and chose surfaces by what tracked, not by what a
+  viewer reads as the wall. Surfaces re-set to the marks.
+- **Slip 47: the presenter's face is distorted.** The composite keeps her
+  at true human scale in a wide frame, so her head is about 80 px tall
+  and Veo renders it soft. A second take asking for a medium shot came
+  back at the same scale (the scale rule wins). Fix: a zoomed crop of
+  the plate uploaded as a still, composed and animated from that, so the
+  face is 120 px or more.
+- **Slip 48: the raised arm is not masked.** Thin, low-confidence parts
+  fell below the alpha band. #166 grows the mask 2 px and accepts from
+  0.18.
+- **Slip 49: text drawn in the distance but over the foreground.** STEP
+  OUT sat on the window plane yet drew over the dark wall in front of it;
+  LIGHT over the railing. A painted title must not exist outside its
+  surface: #166 clips the text to the warped surface box, so the surface
+  must be chosen as the visible pane (STEP OUT and WAKE UP HERE now sit
+  on the window glass).
+- **Slip 50: "ugly finish".** The red boxed tag "DM FOR THE TOUR" is off
+  the house style (serif, quiet). Replaced with a serif white line.
+- **Slip 51 (found while re-pinning):** the in-frame nudge translated a
+  surface pin's corners off its wall; #167 restricts it to box pins.

@@ -583,7 +583,7 @@ export function Preview({
             <button type="button" role="tab" aria-selected={tool === "corners"} className={tool === "corners" ? "check-mark is-current" : "check-mark"} onClick={() => setTool("corners")}>Corners</button>
             <button type="button" role="tab" aria-selected={tool === "cutouts"} className={tool === "cutouts" ? "check-mark is-current" : "check-mark"} onClick={() => setTool("cutouts")} data-testid="tool-cutouts">In front</button>
           </div>
-          <span className="small">{tool === "corners" ? "Drag the corners onto the surface." : "Tap around what is in front."}</span>
+          <span className="small">{tool === "corners" ? "Drag the corners onto the surface, in any order." : "Tap around what is in front."}</span>
           {placing ? <button type="button" className="btn" disabled={placing.busy} onClick={placing.onTrack} data-testid="placing-track">{placing.busy ? "Tracking…" : "Track"}</button> : null}
           <button type="button" className="btn btn-signal" onClick={() => onDoneCorners?.()} data-testid="corners-done">Done</button>
         </div>

@@ -15,7 +15,7 @@ import {
 // WebCodecs-based video, used when the worker renders: about twice as fast as
 // OffthreadVideo here, and it falls back to it for files it cannot decode.
 import { Video as RenderVideo } from "@remotion/media";
-import { cameraAt, homography, invertHomography, matrix3d, oneLineWidth, PINNED_ELSEWHERE, pinnedProgress, planarFitAndShift, textPositionAt, textQuadAt, duckGain, framePlan, INSTAGRAM, isInstagramMusic, speechWindows, REEL_FORMAT, timelineDurationMs, walkInto, type Clip, type Logo, type Plan, type TextOverlay, type Timeline, endsBeforeShot } from "@reelwalk/core";
+import { cameraAt, homography, invertHomography, matrix3d, oneLineWidth, PINNED_ELSEWHERE, pinnedProgress, planarFitAndShift, textPositionAt, textQuadAt, duckGain, framePlan, INSTAGRAM, isInstagramMusic, speechWindows, REEL_FORMAT, timelineDurationMs, walkInto, type Clip, type Logo, type Plan, type TextOverlay, type Timeline, endsBeforeShot, orientQuad } from "@reelwalk/core";
 import { whipGeometry } from "./whip";
 import { clipPresentation } from "./presentation";
 import { useFontsFor } from "./fonts";
@@ -206,8 +206,9 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
   const position = textPositionAt(text, progress);
   // A title with a surface but no pin yet is drawn inside its surface as it stands (ADR 0044): the corners
   // being dragged reshape the words at once, and pinning then makes that plane follow the camera.
-  const quad = textQuadAt(text, progress) ?? (text.surface && !text.pin ? text.surface : null);
-  const plane = text.pin?.quad ?? (text.surface && !text.pin ? text.surface : undefined);
+  const bare = text.surface && !text.pin ? orientQuad(text.surface) : null;
+  const quad = textQuadAt(text, progress) ?? bare;
+  const plane = text.pin?.quad ?? bare ?? undefined;
   // A pinned title belongs to its shot: while another clip is on screen it is not drawn at all.
   // Hooks first: a pinned title on another clip returns nothing, but only after every hook has run (React 300 otherwise).
   useFontsFor(text.text, Number(css.fontWeight ?? 600));

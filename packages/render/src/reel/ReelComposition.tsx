@@ -15,7 +15,7 @@ import {
 // WebCodecs-based video, used when the worker renders: about twice as fast as
 // OffthreadVideo here, and it falls back to it for files it cannot decode.
 import { Video as RenderVideo } from "@remotion/media";
-import { cameraAt, cameraMoveAt, homography, matrix3d, PINNED_ELSEWHERE, pinnedProgress, textPositionAt, textQuadAt, duckGain, framePlan, INSTAGRAM, isInstagramMusic, speechWindows, REEL_FORMAT, timelineDurationMs, walkInto, type Clip, type Logo, type Plan, type TextOverlay, type Timeline } from "@reelwalk/core";
+import { cameraAt, cameraMoveAt, homography, matrix3d, oneLineWidth, PINNED_ELSEWHERE, pinnedProgress, planarFitScale, textPositionAt, textQuadAt, duckGain, framePlan, INSTAGRAM, isInstagramMusic, speechWindows, REEL_FORMAT, timelineDurationMs, walkInto, type Clip, type Logo, type Plan, type TextOverlay, type Timeline } from "@reelwalk/core";
 import { whipGeometry } from "./whip";
 import { useFontsFor } from "./fonts";
 import { ELEGANT_FADE_S, FILTER_CSS, textTreatmentCss } from "./look";
@@ -240,6 +240,8 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
   // A tracked title fades where the tracker lost the surface, instead of cutting.
   const visible = opacity * position.opacity;
   if (quad && text.pin?.quad) {
+    // A planar title never wraps, so a long one is shrunk to fit the frame rather than running off it.
+    const fit = planarFitScale(oneLineWidth(text.text, { fontFamily: String(css.fontFamily ?? ""), fontWeight: css.fontWeight, fontSize: Number(css.fontSize) || 64, letterSpacing: text.tracking }, width));
     // The text sits on the plane the tracker followed: a box at the pinned corners, warped to where they are now (ADR 0039).
     const q0 = text.pin.quad;
     const left = q0[0] * width, top = q0[1] * height;
@@ -250,7 +252,7 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
       <AbsoluteFill style={{ pointerEvents: "none", perspective: "none" }}>
         <div style={{ position: "absolute", left, top, width: w, height: h, display: "flex", alignItems: "center", justifyContent: "center", transformOrigin: "0 0", transform: H ? matrix3d(H) : undefined, opacity: visible, whiteSpace: "nowrap", textAlign: "center", ...meet }}>
           {/* The tracked box is only the plane's frame, narrower than most titles: the words sit on one line (or the lines the author typed) and overflow it, warped with it. */}
-          <span style={{ ...face, whiteSpace: text.text.includes("\n") ? "pre" : "nowrap", overflowWrap: "normal", wordBreak: "keep-all", transform: `scale(${scale})` }}>{text.text}</span>
+          <span style={{ ...face, whiteSpace: text.text.includes("\n") ? "pre" : "nowrap", overflowWrap: "normal", wordBreak: "keep-all", transform: `scale(${scale * fit})` }}>{text.text}</span>
         </div>
       </AbsoluteFill>
     );

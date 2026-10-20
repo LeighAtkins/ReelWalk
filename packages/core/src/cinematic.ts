@@ -72,3 +72,28 @@ export function luxuryFinish(timeline: Timeline, variant: "refined" | "modern" =
     texts: timeline.texts.map(t => ({ ...t, shadow: t.shadow ?? "strong" })),
   };
 }
+
+/**
+ * How wide a one-line title is, as a fraction of the frame, measured with the
+ * browser's own text metrics when a canvas is available (render, editor) and
+ * estimated from the character count otherwise. A planar title never wraps, so
+ * this is what decides whether it fits the frame.
+ */
+export function oneLineWidth(text: string, font: { fontFamily?: string; fontWeight?: string | number; fontSize: number; letterSpacing?: number }, frameWidth = 1080): number {
+  const spacing = (font.letterSpacing ?? 0) * font.fontSize * Math.max(0, text.length - 1);
+  try {
+    const canvas = typeof document !== "undefined" ? document.createElement("canvas") : null;
+    const ctx = canvas?.getContext("2d");
+    if (ctx) {
+      ctx.font = `${font.fontWeight ?? 600} ${font.fontSize}px ${font.fontFamily ?? "sans-serif"}`;
+      return (ctx.measureText(text).width + spacing) / frameWidth;
+    }
+  } catch { /* no canvas here */ }
+  return (text.length * font.fontSize * 0.62 + spacing) / frameWidth;
+}
+
+/** The largest fraction of the frame a planar title may span; the scale that brings a wider one down to it. */
+export const PLANAR_MAX_WIDTH = 0.92;
+export function planarFitScale(width: number): number {
+  return width > PLANAR_MAX_WIDTH ? PLANAR_MAX_WIDTH / width : 1;
+}

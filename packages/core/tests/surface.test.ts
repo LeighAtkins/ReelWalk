@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { findSurfaceQuad, houghLines, orientQuad, type Gray } from "../src";
+import { findSurfaceQuad, houghLines, orientOrder, orientQuad, type Gray } from "../src";
 
 /** A frame with a bright trapezoid (a wall panel seen at an angle) over a dim gradient. */
 function panel(width: number, height: number, quad: number[]): Gray {
@@ -68,5 +68,12 @@ describe("orientQuad", () => {
     expect(orientQuad([0.1, 0.5, 0.9, 0.5, 0.9, 0.2, 0.1, 0.2])).toEqual([0.1, 0.2, 0.9, 0.2, 0.9, 0.5, 0.1, 0.5]);
     // Started at the top-right, going clockwise.
     expect(orientQuad([0.9, 0.2, 0.9, 0.5, 0.1, 0.5, 0.1, 0.2])).toEqual([0.1, 0.2, 0.9, 0.2, 0.9, 0.5, 0.1, 0.5]);
+  });
+});
+
+describe("orientOrder", () => {
+  it("gives the index permutation behind orientQuad", () => {
+    expect(orientOrder([0.1, 0.5, 0.9, 0.5, 0.9, 0.2, 0.1, 0.2])).toEqual([3, 2, 1, 0]);
+    expect(orientOrder([0.1, 0.2, 0.9, 0.2, 0.9, 0.5, 0.1, 0.5])).toEqual([0, 1, 2, 3]);
   });
 });

@@ -463,7 +463,17 @@ export function invertHomography(h: number[]): number[] | null {
  * taken as the top, so a plane along a road or a slab keeps its own slope.
  */
 export function orientQuad(quad: readonly number[]): Quad {
-  const pts: [number, number][] = [0, 1, 2, 3].map((i) => [quad[i * 2], quad[i * 2 + 1]]);
+  const order = orientOrder(quad);
+  return order.flatMap((i) => [quad[i * 2], quad[i * 2 + 1]]) as Quad;
+}
+
+/**
+ * The corner order `orientQuad` would use, as indices into the given quad, so
+ * a pinned plane and every keyframe tracked from it can be re-ordered the
+ * same way (the keyframes' corners follow the plane's order).
+ */
+export function orientOrder(quad: readonly number[]): [number, number, number, number] {
+  const pts: [number, number, number][] = [0, 1, 2, 3].map((i) => [quad[i * 2], quad[i * 2 + 1], i]);
   // Signed area, y down: positive is clockwise on screen.
   let area = 0;
   for (let i = 0; i < 4; i++) { const a = pts[i], b = pts[(i + 1) % 4]; area += a[0] * b[1] - b[0] * a[1]; }
@@ -479,5 +489,5 @@ export function orientQuad(quad: readonly number[]): Quad {
     const score = (dx / len) * Math.sqrt(len / longest);
     if (score > bestScore) { bestScore = score; best = k; }
   }
-  return [0, 1, 2, 3].flatMap((i) => wound[(best + i) % 4]) as Quad;
+  return [0, 1, 2, 3].map((i) => wound[(best + i) % 4][2]) as [number, number, number, number];
 }

@@ -15,7 +15,7 @@ import {
 // WebCodecs-based video, used when the worker renders: about twice as fast as
 // OffthreadVideo here, and it falls back to it for files it cannot decode.
 import { Video as RenderVideo } from "@remotion/media";
-import { cameraAt, homography, invertHomography, matrix3d, oneLineWidth, PINNED_ELSEWHERE, pinnedProgress, planarFitAndShift, textPositionAt, textQuadAt, duckGain, framePlan, INSTAGRAM, isInstagramMusic, speechWindows, REEL_FORMAT, timelineDurationMs, walkInto, type Clip, type Logo, type Plan, type TextOverlay, type Timeline, endsBeforeShot, orientQuad } from "@reelwalk/core";
+import { cameraAt, homography, invertHomography, matrix3d, oneLineWidth, PINNED_ELSEWHERE, pinnedProgress, planarFitAndShift, textPositionAt, textQuadAt, duckGain, framePlan, INSTAGRAM, isInstagramMusic, speechWindows, REEL_FORMAT, timelineDurationMs, walkInto, type Clip, type Logo, type Plan, type TextOverlay, type Timeline, endsBeforeShot, orientOrder, orientQuad } from "@reelwalk/core";
 import { whipGeometry } from "./whip";
 import { clipPresentation } from "./presentation";
 import { useFontsFor } from "./fonts";
@@ -207,8 +207,12 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
   // A title with a surface but no pin yet is drawn inside its surface as it stands (ADR 0044): the corners
   // being dragged reshape the words at once, and pinning then makes that plane follow the camera.
   const bare = text.surface && !text.pin ? orientQuad(text.surface) : null;
-  const quad = textQuadAt(text, progress) ?? bare;
-  const plane = text.pin?.quad ?? bare ?? undefined;
+  // A pinned plane keeps the order its corners were placed in, as do its keyframes; both are re-ordered
+  // the same way so a title pinned from a mirrored placement still reads upright.
+  const order = text.pin?.quad ? orientOrder(text.pin.quad) : null;
+  const reorder = (q: number[] | null): number[] | null => (q && order ? order.flatMap((i) => [q[i * 2], q[i * 2 + 1]]) : q);
+  const quad = reorder(textQuadAt(text, progress)) ?? bare;
+  const plane = (text.pin?.quad ? reorder(text.pin.quad) : bare) ?? undefined;
   // A pinned title belongs to its shot: while another clip is on screen it is not drawn at all.
   // Hooks first: a pinned title on another clip returns nothing, but only after every hook has run (React 300 otherwise).
   useFontsFor(text.text, Number(css.fontWeight ?? 600));

@@ -58,6 +58,25 @@ export function endsBeforeShot(timeline: Timeline, text: TextOverlay): boolean {
   return clipEndMs - text.endMs > 80;
 }
 
+/**
+ * A pinned title given a new plane without re-tracking (ADR 0044): each
+ * keyframe's corners are the old plane's corners carried by that frame's
+ * motion, so the new plane is carried the same way. Lets a corner be moved
+ * on any frame of the shot and the whole track follow at once.
+ */
+export function reshapePin(text: TextOverlay, surface: readonly number[]): { pin: NonNullable<TextOverlay["pin"]>; path: TextOverlay["path"] } | null {
+  if (!text.pin?.quad || !text.path) return null;
+  const from = text.pin.quad as Quad;
+  const path = text.path.map((key) => {
+    if (!key.q) return key;
+    const H = homography(from, key.q as Quad);
+    if (!H) return key;
+    const q = [0, 1, 2, 3].flatMap((i) => { const [x, y] = applyHomography(H, surface[i * 2], surface[i * 2 + 1]); return [Number(x.toFixed(4)), Number(y.toFixed(4))]; });
+    return { ...key, q };
+  });
+  return { pin: { ...text.pin, quad: [...surface] }, path };
+}
+
 /** The tracked plane's corners at `progress`, interpolated between keyframes; null when the text has no planar track. */
 export function textQuadAt(text: TextOverlay, progress: number): number[] | null {
   if (!text.path || !text.pin?.quad || progress === PINNED_ELSEWHERE) return null;

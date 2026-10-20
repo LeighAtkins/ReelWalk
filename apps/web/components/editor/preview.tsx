@@ -71,6 +71,18 @@ function dragPoint(event: React.PointerEvent<HTMLButtonElement>, frame: RefObjec
   window.addEventListener("pointermove", move); window.addEventListener("pointerup", up);
 }
 
+/** Where the plane's first-frame coordinates are on this frame (`to`) and back (`from`); identity on the first frame or without a pin. */
+type PlaneView = { to(x: number, y: number): [number, number]; from(x: number, y: number): [number, number] };
+const IDENTITY_VIEW: PlaneView = { to: (x, y) => [x, y], from: (x, y) => [x, y] };
+function planeView(first: readonly number[] | undefined, now: readonly number[] | null): PlaneView {
+  if (!first || !now) return IDENTITY_VIEW;
+  const H = homography(first as [number, number, number, number, number, number, number, number], now as [number, number, number, number, number, number, number, number]);
+  const back = H ? homography(now as [number, number, number, number, number, number, number, number], first as [number, number, number, number, number, number, number, number]) : null;
+  if (!H || !back) return IDENTITY_VIEW;
+  return { to: (x, y) => applyHomography(H, x, y), from: (x, y) => applyHomography(back, x, y) };
+}
+const viewPoints = (points: readonly number[], view: PlaneView): number[] => Array.from({ length: points.length / 2 }, (_, i) => view.to(points[i * 2], points[i * 2 + 1])).flat();
+
 const quadPoints = (quad: readonly number[]) => `${quad[0] * 100},${quad[1] * 100} ${quad[2] * 100},${quad[3] * 100} ${quad[4] * 100},${quad[5] * 100} ${quad[6] * 100},${quad[7] * 100}`;
 
 /** The <video> the stage is showing now: the one with a picture and a size on screen. */
@@ -142,8 +154,10 @@ function PerspectiveGrid({ quad }: { quad: number[] }) {
  * cross-hair through it helps land it on the wall's edge. Posts in front of
  * the surface (a mullion, a pole) are strips whose two edges drag sideways.
  */
-function SurfaceHandles({ quad, bars = [], frame, onChange, onBars, large = false }: { quad: number[]; bars?: number[][]; frame: RefObject<HTMLDivElement | null>; onChange(quad: number[], gesture: string): void; onBars?(bars: number[][], gesture: string): void; large?: boolean }) {
+function SurfaceHandles({ quad: stored, bars: storedBars = [], frame, onChange, onBars, large = false, view = IDENTITY_VIEW }: { quad: number[]; bars?: number[][]; frame: RefObject<HTMLDivElement | null>; onChange(quad: number[], gesture: string): void; onBars?(bars: number[][], gesture: string): void; large?: boolean; view?: PlaneView }) {
   const [active, setActive] = useState<{ x: number; y: number } | null>(null);
+  // Shown where the plane is on this frame; stored (and edited) in the first frame's coordinates.
+  const quad = viewPoints(stored, view), bars = storedBars.map((bar) => viewPoints(bar, view));
   return (
     <>
       {large && active ? <Loupe frame={frame} x={active.x} y={active.y} /> : null}
@@ -167,7 +181,8 @@ function SurfaceHandles({ quad, bars = [], frame, onChange, onBars, large = fals
           onPointerDown={(event) => {
             const gesture = `drag:surface-${i}:${Date.now()}`;
             dragPoint(event, frame, (x, y) => {
-              const next = [...quad]; next[i * 2] = x; next[i * 2 + 1] = y;
+              const [fx, fy] = view.from(x, y);
+              const next = [...stored]; next[i * 2] = fx; next[i * 2 + 1] = fy;
               setActive({ x, y });
               onChange(next.map((v) => Number(v.toFixed(4))), gesture);
             }, () => setActive(null));
@@ -185,8 +200,9 @@ function SurfaceHandles({ quad, bars = [], frame, onChange, onBars, large = fals
                 onPointerDown={(event) => {
                   const gesture = `drag:bar-${b}-${side}:${Date.now()}`;
                   dragPoint(event, frame, (x, y) => {
-                    const next = bars.map((q) => [...q]);
-                    next[b][top] = x; next[b][bottom] = x;
+                    const next = storedBars.map((q) => [...q]);
+                    // The edge keeps its own top and bottom; only its x moves, taken back to the first frame at each end.
+                    next[b][top] = view.from(x, y)[0]; next[b][bottom] = view.from(x, y)[0];
                     setActive({ x, y });
                     onBars(next.map((q) => q.map((v) => Number(v.toFixed(4)))), gesture);
                   }, () => setActive(null));
@@ -194,7 +210,7 @@ function SurfaceHandles({ quad, bars = [], frame, onChange, onBars, large = fals
             );
           })}
           <button type="button" className="surface-bar-remove" aria-label={`Remove post ${b + 1}`} style={{ left: `${((bar[0] + bar[2]) / 2) * 100}%`, top: `${Math.min(bar[1], bar[3]) * 100}%` }}
-            onPointerDown={(event) => event.stopPropagation()} onClick={() => onBars(bars.filter((_, i) => i !== b), `bar-remove-${Date.now()}`)}>×</button>
+            onPointerDown={(event) => event.stopPropagation()} onClick={() => onBars(storedBars.filter((_, i) => i !== b), `bar-remove-${Date.now()}`)}>×</button>
         </span>
       )) : null}
     </>
@@ -208,19 +224,22 @@ const polygonPoints = (points: readonly number[]) => Array.from({ length: points
  * new one is built by tapping its points in order; existing points drag, with
  * the loupe. Finish needs three points; the title is cut out inside each.
  */
-function CutoutEditor({ cutouts, frame, onChange }: { cutouts: number[][]; frame: RefObject<HTMLDivElement | null>; onChange(cutouts: number[][], gesture: string): void }) {
+function CutoutEditor({ cutouts: stored, frame, onChange, view = IDENTITY_VIEW }: { cutouts: number[][]; frame: RefObject<HTMLDivElement | null>; onChange(cutouts: number[][], gesture: string): void; view?: PlaneView }) {
+  // Drafts are kept in first-frame coordinates too, so a shape begun on one frame reads right on another.
   const [draft, setDraft] = useState<number[] | null>(null);
   const [active, setActive] = useState<{ x: number; y: number } | null>(null);
   const drafting = draft !== null;
+  const cutouts = stored.map((shape) => viewPoints(shape, view));
+  const draftShown = draft ? viewPoints(draft, view) : null;
   const place = (event: React.PointerEvent<HTMLDivElement>) => {
     if (!drafting || !frame.current || event.button !== 0) return;
     const rect = frame.current.getBoundingClientRect();
-    const x = Number(((event.clientX - rect.left) / rect.width).toFixed(4)), y = Number(((event.clientY - rect.top) / rect.height).toFixed(4));
-    setDraft([...(draft ?? []), x, y]);
+    const [x, y] = view.from((event.clientX - rect.left) / rect.width, (event.clientY - rect.top) / rect.height);
+    setDraft([...(draft ?? []), Number(x.toFixed(4)), Number(y.toFixed(4))]);
   };
   const finish = () => {
     if (!draft || draft.length < 6) return;
-    onChange([...cutouts, draft], `cutout-add-${Date.now()}`);
+    onChange([...stored, draft], `cutout-add-${Date.now()}`);
     setDraft(null);
   };
   return (
@@ -229,7 +248,7 @@ function CutoutEditor({ cutouts, frame, onChange }: { cutouts: number[][]; frame
       {drafting ? <div className="cutout-canvas" data-testid="cutout-canvas" onPointerDown={place} /> : null}
       <svg className="surface-outline" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" }}>
         {cutouts.map((shape, i) => <polygon key={i} points={polygonPoints(shape)} fill="rgba(20,20,20,0.45)" stroke="rgba(120,200,255,0.95)" strokeWidth={0.4} vectorEffect="non-scaling-stroke" />)}
-        {draft && draft.length >= 4 ? <polyline points={polygonPoints(draft)} fill={draft.length >= 6 ? "rgba(120,200,255,0.15)" : "none"} stroke="rgba(120,200,255,0.95)" strokeWidth={0.4} strokeDasharray="1.2 0.8" vectorEffect="non-scaling-stroke" /> : null}
+        {draftShown && draftShown.length >= 4 ? <polyline points={polygonPoints(draftShown)} fill={draftShown.length >= 6 ? "rgba(120,200,255,0.15)" : "none"} stroke="rgba(120,200,255,0.95)" strokeWidth={0.4} strokeDasharray="1.2 0.8" vectorEffect="non-scaling-stroke" /> : null}
       </svg>
       {cutouts.map((shape, c) => (
         <span key={c}>
@@ -239,8 +258,9 @@ function CutoutEditor({ cutouts, frame, onChange }: { cutouts: number[][]; frame
               onPointerDown={(event) => {
                 const gesture = `drag:cutout-${c}-${i}:${Date.now()}`;
                 dragPoint(event, frame, (x, y) => {
-                  const next = cutouts.map((q) => [...q]);
-                  next[c][i * 2] = x; next[c][i * 2 + 1] = y;
+                  const [fx, fy] = view.from(x, y);
+                  const next = stored.map((q) => [...q]);
+                  next[c][i * 2] = fx; next[c][i * 2 + 1] = fy;
                   setActive({ x, y });
                   onChange(next.map((q) => q.map((v) => Number(v.toFixed(4)))), gesture);
                 }, () => setActive(null));
@@ -248,11 +268,11 @@ function CutoutEditor({ cutouts, frame, onChange }: { cutouts: number[][]; frame
           ))}
           <button type="button" className="surface-bar-remove" aria-label={`Remove cut-out ${c + 1}`}
             style={{ left: `${(shape.filter((_, i) => i % 2 === 0).reduce((a, b) => a + b, 0) / (shape.length / 2)) * 100}%`, top: `${Math.min(...shape.filter((_, i) => i % 2 === 1)) * 100}%` }}
-            onPointerDown={(event) => event.stopPropagation()} onClick={() => onChange(cutouts.filter((_, i) => i !== c), `cutout-remove-${Date.now()}`)}>×</button>
+            onPointerDown={(event) => event.stopPropagation()} onClick={() => onChange(stored.filter((_, i) => i !== c), `cutout-remove-${Date.now()}`)}>×</button>
         </span>
       ))}
-      {draft ? Array.from({ length: draft.length / 2 }, (_, i) => (
-        <span key={i} className="cutout-point is-draft" style={{ left: `${draft[i * 2] * 100}%`, top: `${draft[i * 2 + 1] * 100}%` }} aria-hidden="true" />
+      {draftShown ? Array.from({ length: draftShown.length / 2 }, (_, i) => (
+        <span key={i} className="cutout-point is-draft" style={{ left: `${draftShown[i * 2] * 100}%`, top: `${draftShown[i * 2 + 1] * 100}%` }} aria-hidden="true" />
       )) : null}
       <div className="cutout-tools" data-testid="cutout-tools">
         {drafting ? (<>
@@ -261,8 +281,8 @@ function CutoutEditor({ cutouts, frame, onChange }: { cutouts: number[][]; frame
           <button type="button" className="btn btn-quiet" onClick={() => setDraft(null)}>Cancel</button>
           <button type="button" className="btn btn-signal" disabled={draft!.length < 6} data-testid="cutout-finish" onClick={finish}>Finish</button>
         </>) : (<>
-          <span className="small">{cutouts.length ? `${cutouts.length} cut-out${cutouts.length === 1 ? "" : "s"}. Drag points; × removes one.` : "Nothing cut out yet."}</span>
-          <button type="button" className="btn btn-signal" disabled={cutouts.length >= 12} data-testid="cutout-add" onClick={() => setDraft([])}>Add a cut-out</button>
+          <span className="small">{stored.length ? `${stored.length} cut-out${stored.length === 1 ? "" : "s"}. Drag points; × removes one.` : "Nothing cut out yet."}</span>
+          <button type="button" className="btn btn-signal" disabled={stored.length >= 12} data-testid="cutout-add" onClick={() => setDraft([])}>Add a cut-out</button>
         </>)}
       </div>
     </>
@@ -270,25 +290,17 @@ function CutoutEditor({ cutouts, frame, onChange }: { cutouts: number[][]; frame
 }
 
 /**
- * The placing screen's frame overlay. Corners live on the first frame of the shot, so they are
- * editable there; on the other moments the plane is shown where it is (tracked when pinned), with
- * a way back to the first frame to adjust.
+ * The placing screen's frame overlay: the selected title's corners and posts,
+ * or its cut-outs, shown where the tracked plane puts them on this frame and
+ * editable there. A drag is taken back to the first frame's coordinates
+ * through the plane's motion, so one move on any frame moves the whole track.
  */
-function PlacingOverlay({ clock, timeline, text, frame, firstMs, fps, onSurface, onBars, onFirst }: { clock: Clock; timeline: Timeline; text: TextOverlay; frame: RefObject<HTMLDivElement | null>; firstMs: number; fps: number; onSurface(quad: number[], gesture: string): void; onBars?(bars: number[][], gesture: string): void; onFirst(): void }) {
+function PlacingOverlay({ clock, timeline, text, frame, tool, onSurface, onBars, onCutouts }: { clock: Clock; timeline: Timeline; text: TextOverlay; frame: RefObject<HTMLDivElement | null>; tool: "corners" | "cutouts"; onSurface(quad: number[], gesture: string): void; onBars?(bars: number[][], gesture: string): void; onCutouts?(cutouts: number[][], gesture: string): void }) {
   const now = useClock(clock);
-  const atFirst = Math.abs(now - firstMs) < 1000 / fps;
-  if (atFirst || !text.pin) {
-    return <SurfaceHandles large quad={text.surface!} bars={text.bars} frame={frame} onChange={onSurface} onBars={onBars} />;
-  }
-  const quad = textQuadAt(text, pinnedProgress(timeline, text, now)) ?? text.surface!;
-  return (
-    <>
-      <svg className="surface-outline" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" }}>
-        <polygon points={quadPoints(quad)} fill="none" stroke="rgba(120,255,160,0.9)" strokeWidth={0.4} strokeDasharray="1.2 0.8" vectorEffect="non-scaling-stroke" />
-      </svg>
-      <button type="button" className="btn btn-quiet placing-first" data-testid="placing-first" onClick={onFirst}>Back to the first frame to adjust</button>
-    </>
-  );
+  const tracked = text.pin ? textQuadAt(text, pinnedProgress(timeline, text, now)) : null;
+  const view = planeView(text.pin?.quad, tracked);
+  if (tool === "cutouts") return onCutouts ? <CutoutEditor cutouts={text.cutouts ?? []} frame={frame} onChange={onCutouts} view={view} /> : null;
+  return <SurfaceHandles large quad={text.surface!} bars={text.bars} frame={frame} onChange={onSurface} onBars={onBars} view={view} />;
 }
 
 /** Check mode: every title on screen now, its surface (tracked where it is pinned) outlined, so a drift or a miss shows at full size before an export (ADR 0044). */
@@ -583,7 +595,7 @@ export function Preview({
             <button type="button" role="tab" aria-selected={tool === "corners"} className={tool === "corners" ? "check-mark is-current" : "check-mark"} onClick={() => setTool("corners")}>Corners</button>
             <button type="button" role="tab" aria-selected={tool === "cutouts"} className={tool === "cutouts" ? "check-mark is-current" : "check-mark"} onClick={() => setTool("cutouts")} data-testid="tool-cutouts">In front</button>
           </div>
-          <span className="small">{tool === "corners" ? "Drag the corners onto the surface, in any order." : "Tap around what is in front."}</span>
+          <span className="small">{tool === "corners" ? "Drag the corners on any frame; the whole track follows." : "Tap around what is in front."}</span>
           {placing ? <button type="button" className="btn" disabled={placing.busy} onClick={placing.onTrack} data-testid="placing-track">{placing.busy ? "Tracking…" : "Track"}</button> : null}
           <button type="button" className="btn btn-signal" onClick={() => onDoneCorners?.()} data-testid="corners-done">Done</button>
         </div>
@@ -593,7 +605,7 @@ export function Preview({
         </button>
       ) : null}
       {theater && check ? <CheckStrip clock={clock} marks={check.marks} onSeek={check.onSeek} /> : null}
-      {theater && corners && placing && tool === "corners" ? (
+      {theater && corners && placing ? (
         <div className="placing-strip" data-testid="placing-strip">
           {placing.status ? <p className="small placing-status" role="status">{placing.status}</p> : null}
           <CheckStrip clock={clock} marks={placing.marks} onSeek={placing.onSeek} />
@@ -656,16 +668,11 @@ export function Preview({
         {hasClips && !playing && !theater ? (
           <TextTargets clock={clock} timeline={timeline} selectedId={selectedText?.id ?? null} scale={scale} onSelect={onSelectText} onEdit={onEditText} />
         ) : null}
-        {theater && corners && selectedText?.surface && onSurfaceText && tool === "corners" ? (
-          placing && placing.marks.length ? (
-            <PlacingOverlay clock={clock} timeline={timeline} text={selectedText} frame={frame} firstMs={placing.marks[0].ms} fps={REEL_FORMAT.fps}
-              onSurface={(quad, gesture) => onSurfaceText(selectedText.id, quad, gesture)} onBars={onBarsText ? (bars, gesture) => onBarsText(selectedText.id, bars, gesture) : undefined} onFirst={() => placing.onSeek(placing.marks[0].ms)} />
-          ) : (
-            <SurfaceHandles large quad={selectedText.surface} bars={selectedText.bars} frame={frame} onChange={(quad, gesture) => onSurfaceText(selectedText.id, quad, gesture)} onBars={onBarsText ? (bars, gesture) => onBarsText(selectedText.id, bars, gesture) : undefined} />
-          )
-        ) : null}
-        {theater && corners && selectedText?.surface && onCutoutsText && tool === "cutouts" ? (
-          <CutoutEditor cutouts={selectedText.cutouts ?? []} frame={frame} onChange={(cutouts, gesture) => onCutoutsText(selectedText.id, cutouts, gesture)} />
+        {theater && corners && selectedText?.surface && onSurfaceText ? (
+          <PlacingOverlay clock={clock} timeline={timeline} text={selectedText} frame={frame} tool={tool}
+            onSurface={(quad, gesture) => onSurfaceText(selectedText.id, quad, gesture)}
+            onBars={onBarsText ? (bars, gesture) => onBarsText(selectedText.id, bars, gesture) : undefined}
+            onCutouts={onCutoutsText ? (cutouts, gesture) => onCutoutsText(selectedText.id, cutouts, gesture) : undefined} />
         ) : null}
         {selectedText && !playing && !theater ? (<>
           <TextHandle

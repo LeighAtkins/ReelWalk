@@ -3304,13 +3304,6 @@ video:-webkit-full-screen {
   color: #fff;
   font-size: 12px;
 }
-.placing-first {
-  position: absolute;
-  left: 50%;
-  bottom: 12px;
-  transform: translateX(-50%);
-  z-index: 4;
-}
 .stage-theater.is-placing {
   padding-bottom: calc(env(safe-area-inset-bottom) + 96px);
 }

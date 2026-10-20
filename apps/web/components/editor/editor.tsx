@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "r
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import type { PlayerRef } from "@remotion/player";
-import { setHook, wordsBehindHook, locate, orientQuad,
+import { setHook, wordsBehindHook, locate, orientQuad, reshapePin,
   addClips,
   insertAiShot,
   luxuryFinish,
@@ -1155,7 +1155,13 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         onTogglePlay={togglePlay}
         clock={clock}
         onMoveText={(id, x, y, gesture) => apply((current) => updateText(current, id, { x, y }), gesture)}
-        onSurfaceText={(id, quad, gesture) => apply((current) => updateText(current, id, { surface: orientQuad(quad).map((v) => Number(v.toFixed(4))) }), gesture)}
+        onSurfaceText={(id, quad, gesture) => apply((current) => {
+          const surface = orientQuad(quad).map((v) => Number(v.toFixed(4)));
+          const text = current.texts.find((item) => item.id === id);
+          // Pinned: the plane and every keyframe move with the corner, no re-tracking (ADR 0044).
+          const reshaped = text ? reshapePin(text, surface) : null;
+          return updateText(current, id, { surface, ...(reshaped ? { pin: reshaped.pin, path: reshaped.path } : {}) });
+        }, gesture)}
         onBarsText={(id, bars, gesture) => apply((current) => updateText(current, id, { bars: bars.length ? bars : undefined }), gesture)}
         onCutoutsText={(id, cutouts, gesture) => apply((current) => updateText(current, id, { cutouts: cutouts.length ? cutouts : undefined }), gesture)}
         check={checking ? { marks: checkMarks, onSeek: seek } : null}

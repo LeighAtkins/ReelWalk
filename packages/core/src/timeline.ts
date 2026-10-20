@@ -164,6 +164,8 @@ export const textSchema = z
     blend: z.enum(["plain", "surface"]).optional(),
     /** The flat surface the title is painted on, as four corners (tl, tr, br, bl) in frame fractions, found from the picture's edges or dragged by hand (ADR 0043). Pinning tracks this plane. */
     surface: z.array(z.number().min(-0.5).max(1.5)).length(8).optional(),
+    /** Things in front of the surface that hide the title where they cross it (a window mullion, a post): quads in frame fractions at pin time, on or near the surface's plane so they move with it (ADR 0043). */
+    bars: z.array(z.array(z.number().min(-0.5).max(1.5)).length(8)).max(8).optional(),
     /** Offsets from x/y across this overlay's lifetime, with optional scale and rotation (degrees): a drift, or a surface tracked through the shot (ADR 0039). */
     path: z.array(z.object({
       t: unit, x: z.number().min(-0.5).max(0.5), y: z.number().min(-0.5).max(0.5), s: z.number().min(0.2).max(5).optional(), r: z.number().min(-180).max(180).optional(),

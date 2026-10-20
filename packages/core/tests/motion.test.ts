@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyHomography, bestShift, describeMotion, fitAffine, fitHomography, fitSimilarity, leanQuad, homography, matrix3d, motionFlags, motionProfile, pickMatchingFrame, planePoints, robustHomography, robustFit, smoothKeyframes, stepChange, trackPatch, trackPlane, type Gray, type Quad } from "../src";
+import { applyHomography, bestShift, describeMotion, fitAffine, fitHomography, fitSimilarity, invertHomography, leanQuad, homography, matrix3d, motionFlags, motionProfile, pickMatchingFrame, planePoints, robustHomography, robustFit, smoothKeyframes, stepChange, trackPatch, trackPlane, type Gray, type Quad } from "../src";
 
 /** A textured frame (a fixed noise pattern, like a wall or floor) shifted by (sx, sy); another `seed` is a different picture. */
 function frame(sx: number, sy: number, seed = 1, width = 24, height = 40): Gray {
@@ -157,5 +157,16 @@ describe("leaning a plane into perspective", () => {
     // Tilting the top away shortens the top edge.
     const t = leanQuad(flat, 0, 30);
     expect(t[2] - t[0]).toBeLessThan(t[4] - t[6]);
+  });
+});
+
+describe("inverse homography", () => {
+  it("maps a point back where it came from", () => {
+    const h = homography([0, 0, 100, 0, 100, 40, 0, 40], [10, 20, 95, 12, 98, 60, 6, 48])!;
+    const inv = invertHomography(h)!;
+    const [u, v] = applyHomography(h, 30, 20);
+    const [x, y] = applyHomography(inv, u, v);
+    expect(x).toBeCloseTo(30, 6); expect(y).toBeCloseTo(20, 6);
+    expect(invertHomography([1, 2, 3, 2, 4, 6, 0, 0, 1])).toBeNull();
   });
 });

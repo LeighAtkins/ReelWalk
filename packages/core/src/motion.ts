@@ -444,3 +444,13 @@ export function leanQuad(quad: Quad, yaw: number, pitch: number, focal = 1.0, as
   const mx = (out[0] + out[2] + out[4] + out[6]) / 4 - cx, my = (out[1] + out[3] + out[5] + out[7]) / 4 - cy;
   return out.map((v, i) => v - (i % 2 === 0 ? mx : my)) as Quad;
 }
+
+/** The inverse of a row-major 3×3 homography (adjugate over determinant), or null when singular. */
+export function invertHomography(h: number[]): number[] | null {
+  const [a, b, c, d, e, f, g, i, j] = h;
+  const A = e * j - f * i, B = -(d * j - f * g), C = d * i - e * g;
+  const det = a * A + b * B + c * C;
+  if (Math.abs(det) < 1e-12) return null;
+  const inv = [A, -(b * j - c * i), b * f - c * e, B, a * j - c * g, -(a * f - c * d), C, -(a * i - b * g), a * e - b * d];
+  return inv.map((v) => v / det);
+}

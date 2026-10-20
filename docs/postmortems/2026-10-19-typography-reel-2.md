@@ -168,3 +168,14 @@ title is drawn from its pinned corners, so the plane never moved; the
 nudge in #157 and #159 had no visible effect. Measured in the editor
 (line centre 0.41 while x said 0.57). Fixed by translating the pinned
 quad and every keyframe's corners by the shift.
+
+## After the fixes (2026-10-20, 04:50 MYT)
+
+Export `cmvg22q9e000001ad8fowkzfx`, every title re-pinned with the new
+fit, checked on a motion strip and on the saved paths: no plane
+collapses or shears; worst single jump 5 px (was 131); OCEAN VIEWS
+starts fully in frame, leans 30° into the fascia and leaves with the
+pan; WAKE UP HERE starts in frame and grows with the push-in; LIGHT and
+EVERY ROOM hold steady; WELCOME / HOME sit behind the presenter. The Pin
+sheet now says how good each track is (WAKE UP HERE's bare wall: "weak,
+7 points"), so a bad surface is known before export. Fixes #156–#160.

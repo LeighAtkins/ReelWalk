@@ -53,6 +53,7 @@ const nextConfig: NextConfig = {
     return [
       { source: "/mediapipe/wasm/:path*", destination: "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.1.1/wasm/:path*" },
       { source: "/mediapipe/selfie_segmenter.tflite", destination: "https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite" },
+      { source: "/mediapipe/magic_touch.tflite", destination: "https://storage.googleapis.com/mediapipe-models/interactive_segmenter/magic_touch/float32/latest/magic_touch.tflite" },
     ];
   },
 };

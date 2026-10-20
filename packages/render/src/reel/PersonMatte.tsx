@@ -46,7 +46,7 @@ function loadSegmenter(isRendering: boolean): Promise<Segmenter> {
 }
 
 /** Working size for the matte's edge work: a quarter of the pixels, upscaled at the end; the model's own grid is coarser still. */
-const WORK_WIDTH = 540, WORK_HEIGHT = 960;
+export const WORK_WIDTH = 540, WORK_HEIGHT = 960;
 /** How much of the previous frame's mask is kept, to settle the edge between frames. */
 const SETTLE = 0.35;
 
@@ -69,7 +69,7 @@ function segmentToMask(segmenter: Segmenter, source: CanvasImageSource, width: n
 type Fit = ReturnType<typeof fitRects>;
 
 /** Draws the frame into the work canvas through the clip's fit geometry (what the footage shows, at a quarter size). */
-function drawWork(frame: CanvasImageSource, scratch: MatteScratch, fit: Fit, width: number, height: number): CanvasRenderingContext2D {
+export function drawWork(frame: CanvasImageSource, scratch: MatteScratch, fit: Fit, width: number, height: number): CanvasRenderingContext2D {
   scratch.work.width = WORK_WIDTH; scratch.work.height = WORK_HEIGHT;
   const wctx = scratch.work.getContext("2d", { willReadFrequently: true })!;
   wctx.clearRect(0, 0, WORK_WIDTH, WORK_HEIGHT);
@@ -145,7 +145,7 @@ export function drawPersonOnly(segmenter: Segmenter, frame: CanvasImageSource, o
 }
 
 /** Steps a decode to `seconds` and resolves once it holds that picture (readyState ≥ 2). */
-function frameAt(element: HTMLVideoElement, seconds: number, fps: number): Promise<void> {
+export function frameAt(element: HTMLVideoElement, seconds: number, fps: number): Promise<void> {
   return new Promise((resolve, reject) => {
     const done = () => { cleanup(); resolve(); };
     const failed = () => { cleanup(); reject(new Error(element.error ? `video error ${element.error.code}` : "video error")); };
@@ -217,12 +217,13 @@ export const PersonMatteView: React.FC<{ clip: Clip; asset: ReelAsset; durationI
         scratch.current ??= newScratch();
         const previousKey = frame > 0 ? key(frame - 1) : null;
         let previous: { key: string; frame: CanvasImageSource } | null = null;
-        if (previousKey && scratch.current.rawKey !== previousKey) {
+        if (previousKey && scratch.current.rawKey !== previousKey && isRendering) {
           // The frame before was not the last one made here (a parallel page, a seek, a retry): read it from the footage.
+          // Only in an export: the editor scrubs, and a second seek per frame left the matte a frame behind the picture.
           await frameAt(element, seconds(frame - 1), fps);
           if (cancelled) return;
           previous = { key: previousKey, frame: snapshot(element) };
-        } else if (previousKey) {
+        } else if (previousKey && scratch.current.rawKey === previousKey) {
           previous = { key: previousKey, frame: element };
         }
         await frameAt(element, seconds(frame), fps);
@@ -237,7 +238,7 @@ export const PersonMatteView: React.FC<{ clip: Clip; asset: ReelAsset; durationI
       }
     })();
     return () => { cancelled = true; continueRender(handle); };
-  }, [segmenter, frame, fps, width, height, clip.id, clip.sourceStartMs, clip.speed, clip.fit]);
+  }, [segmenter, frame, fps, width, height, clip.id, clip.sourceStartMs, clip.speed, clip.fit, isRendering]);
 
   if (failed || asset.kind !== "VIDEO") return null;
   // The same fade, whip and motion as the footage underneath, so the person stays on their own body.

@@ -26,6 +26,7 @@ import { PlanOverlayView } from "./PlanOverlayView";
 import type { ReelAsset, ReelProps } from "./types";
 import { Watermark } from "./Watermark";
 import { PersonMatteView } from "./PersonMatte";
+import { ObjectMatteView } from "./ObjectMatte";
 import { HookView } from "./HookView";
 
 const WhipBlur: React.FC<{ id: string; amount: number; direction: Clip["whipDirection"] }> = ({ id, amount, direction }) => {
@@ -415,6 +416,20 @@ export const ReelComposition: React.FC<ReelProps> = ({ timeline, assets, waterma
               whipOut={timeline.clips[index + 1]?.transitionIn === "whip" ? timeline.clips[index + 1].whipDirection ?? "right" : null} />
           </Sequence>
         );
+      })}
+      {/* Things tapped as being in front of a title (ADR 0044): the object under the tap, above the text layer. */}
+      {plan.clips.flatMap(({ clip, from, durationInFrames }) => {
+        const asset = assets[clip.assetId];
+        if (!asset || asset.kind !== "VIDEO") return [];
+        const startMs = (from * 1000) / fps, endMs = ((from + durationInFrames) * 1000) / fps;
+        const index = timeline.clips.indexOf(clip);
+        return timeline.texts.filter((text) => text.occluders?.length && text.startMs < endMs && text.endMs > startMs).map((text) => (
+          <Sequence key={`object-${clip.id}-${text.id}`} from={from} durationInFrames={durationInFrames} name={`in front of ${text.text.slice(0, 12)}`}>
+            <ObjectMatteView clip={clip} asset={asset} text={text} timeline={timeline} from={from} durationInFrames={durationInFrames}
+              fadeOut={timeline.clips[index + 1]?.transitionIn === "fade"}
+              whipOut={timeline.clips[index + 1]?.transitionIn === "whip" ? timeline.clips[index + 1].whipDirection ?? "right" : null} />
+          </Sequence>
+        ));
       })}
       {timeline.hook && plan.clips[0] ? <HookView timeline={timeline} hook={timeline.hook} firstClip={plan.clips[0].clip} asset={assets[plan.clips[0].clip.assetId]} /> : null}
       <DetailsCardView timeline={timeline} />

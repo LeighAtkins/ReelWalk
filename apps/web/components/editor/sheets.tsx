@@ -943,9 +943,9 @@ export function PinSheet({ text, clip, asset, clipStartMs, onPath, onSurface, on
             onPlaceCorners?.();
           }}>{text.bars?.length ? `Add another post (${text.bars.length})` : "Add a post"}</button>
           {text.bars?.length ? <button type="button" className="btn btn-quiet" disabled={busy} onClick={() => onBars([])}>Remove posts</button> : null}
-          {onDrawCutout ? <button type="button" className="btn btn-block" disabled={busy} data-testid="draw-cutout" onClick={onDrawCutout}>{text.cutouts?.length ? `Cut-outs (${text.cutouts.length})` : "Draw a cut-out"}</button> : null}
+          {onDrawCutout ? <button type="button" className="btn btn-signal btn-block" disabled={busy} data-testid="draw-cutout" onClick={onDrawCutout}>{text.occluders?.length ? `In front (${text.occluders.length} tapped)` : "Tap what is in front"}</button> : null}
         </div>
-        <p className="muted small">A post is a straight strip for a mullion or a pole. A cut-out is any shape: tap around a plant, a chair back or a railing in front of the surface, and the title is cut out behind it.</p>
+        <p className="muted small">Tap the plant, chair back or railing in front of the surface, full screen: it is cut out on every frame and the title goes behind it. A post is a straight strip for a mullion or a pole; a shape can also be drawn by hand.</p>
       </>) : null}
       <h3 className="small" style={{ margin: "8px 0 4px" }}>{text.surface ? "3. Pin" : "2. Pin"}</h3>
       <label className="field small"><input type="checkbox" checked={wholeShot} onChange={event => setWholeShot(event.target.checked)} /> For the whole shot: already there when the shot starts, gone when it ends</label>

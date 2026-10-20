@@ -238,3 +238,31 @@ Marked on screenshots of export `cmvg6ns4k000001adg9gh6upm`:
   the house style (serif, quiet). Replaced with a serif white line.
 - **Slip 51 (found while re-pinning):** the in-frame nudge translated a
   surface pin's corners off its wall; #167 restricts it to box pins.
+
+## Owner's fourth review (2026-10-20, 14:15 MYT)
+
+"There's improvement but": marked on export `cmvg9fdrl000001adi84xznd1`.
+
+- **Slip 52: BEACHFRONT slanted wrong.** Right place, but the plane's
+  sides were not perpendicular to the road in pixel space, so the letters
+  leaned. A rotated rectangle wants its side vector perpendicular to its
+  long axis *in pixels*, which in 9:16 frame fractions is not what it
+  looks like. Re-set with the perpendicular computed in pixels.
+- **Slip 53: OCEAN VIEWS above the wall.** I set the slab face from the
+  5 s frame's geometry; at the first frame, where the pin is placed, the
+  band sits lower and shallower. Surfaces must be read off the first
+  frame of the shot, every time.
+- **Slip 54: WELCOME / HOME static while the camera rises.** Words behind
+  the presenter were plain texts; they now get a surface on the garage
+  wall behind her and are pinned like the others, with the matte in
+  front.
+- **Slip 55: text outside a window not blocked by the mullion.** New
+  `bars` on a title (#169): quads in front of the surface, cut from the
+  plane in its own coordinates so they move with it.
+- **Slip 56: LIGHT slanted wrong.** The wall's verticals lean in the
+  image; the plane's sides must follow them, not the frame's edges.
+- **Slip 57: the presenter "looks different, not natural".** The take
+  from the zoomed plate came back over-sharpened and off-model. Reverted
+  to the take with the original look; her face at that scale remains the
+  open problem (a Veo-native medium shot, not a composite, is the next
+  thing to try).

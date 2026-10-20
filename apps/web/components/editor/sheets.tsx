@@ -831,6 +831,39 @@ function planarShift(text: Pick<TextOverlay, "text" | "style" | "color" | "size"
 }
 
 /** Pin a text to the surface under it so it moves with the camera (ADR 0039). */
+/**
+ * Tracks the surface under a title through its shot and returns what to store
+ * (ADR 0039/0044). Shared by the Pin sheet and the full-screen placing mode's
+ * Track button, so both follow the same rules.
+ */
+export async function pinTitle({ text, clip, asset, clipStartMs, wholeShot, lean, onProgress }: {
+  text: TextOverlay; clip: Clip; asset: LibraryAsset; clipStartMs: number; wholeShot: boolean; lean: { yaw: number; pitch: number }; onProgress?(fraction: number): void;
+}): Promise<{ pinned: { path: TextOverlay["path"]; pin: TextOverlay["pin"] }; patch: { startMs?: number; endMs?: number; x?: number }; status: string } | { error: string }> {
+  const timing = wholeShot ? { startMs: clipStartMs, endMs: clipStartMs + clipDurationMs(clip) } : { startMs: text.startMs, endMs: text.endMs };
+  const tracked = await trackTextPath(asset, clip, clipStartMs, { ...text, ...timing }, onProgress, lean);
+  if (!tracked) return { error: "Could not follow this shot. Try placing the text on a surface with some detail." };
+  // A title that starts cut off at the frame edge never reads as being on the wall: with the plane
+  // known (and leaned), move the centre so the warped line begins fully in frame. The path is relative, so the pin follows.
+  // A title on a chosen surface stays on it (the text is fitted and clipped inside); only a box pin is moved in from the frame edge.
+  const shift = tracked.pin.quad && !text.surface ? planarShift(text, tracked.pin.quad) : 0;
+  const nudged = Math.abs(shift) > 0.002 ? Number((text.x + shift).toFixed(4)) : text.x;
+  // A planar title is drawn from its corners, not its centre: move the pinned plane and every keyframe's corners too.
+  const moveQuad = (q: readonly number[] | undefined) => q ? q.map((v, i) => Number((i % 2 === 0 ? v + shift : v).toFixed(4))) : q;
+  const pinned = nudged === text.x ? { path: tracked.path, pin: tracked.pin } : {
+    path: tracked.path.map(point => ({ ...point, ...(point.q ? { q: moveQuad(point.q) as number[] } : {}) })),
+    pin: { ...tracked.pin, quad: moveQuad(tracked.pin.quad) as number[] | undefined },
+  };
+  const { path, lostAtMs, quality } = tracked;
+  const lostNote = lostAtMs !== null ? ` The surface was lost ${((lostAtMs - tracked.pin.fromMs) / 1000 / (clip.speed || 1)).toFixed(1)} s in, so the title fades there.` : "";
+  const nudgeNote = nudged !== text.x ? ` Moved the title ${nudged < text.x ? "left" : "right"} so it starts fully in frame.` : "";
+  const gradeNote = quality.grade === "good" ? `Good track: ${quality.inliers} points agreed on every step.` : quality.grade === "weak" ? `Weak track: only ${quality.inliers} points agreed and ${quality.held} of ${quality.steps} steps were held. Try a surface with more detail, or a bigger area of it.` : "The surface could not be followed to the end.";
+  return {
+    pinned,
+    patch: { ...(wholeShot ? timing : {}), ...(nudged !== text.x ? { x: nudged } : {}) },
+    status: `${gradeNote} ${path.length} keyframes${wholeShot ? ", for the whole shot" : ""}.${lostNote}${nudgeNote}`,
+  };
+}
+
 export function PinSheet({ text, clip, asset, clipStartMs, onPath, onSurface, onBars, onCheck, onPlaceCorners, onDrawCutout, onClose }: {
   text: TextOverlay; clip: Clip | null; asset: LibraryAsset | undefined; clipStartMs: number;
   onPath(pinned: { path: TextOverlay["path"]; pin: TextOverlay["pin"] } | undefined, patch?: { startMs?: number; endMs?: number; x?: number }): void;
@@ -856,28 +889,12 @@ export function PinSheet({ text, clip, asset, clipStartMs, onPath, onSurface, on
   const canTrack = Boolean(clip && clip.kind === "VIDEO" && asset);
   async function pin() {
     if (!clip || !asset) return;
-    const timing = wholeShot ? { startMs: clipStartMs, endMs: clipStartMs + clipDurationMs(clip) } : { startMs: text.startMs, endMs: text.endMs };
     setBusy(true); setStatus("Following the surface under the text…");
-    const tracked = await trackTextPath(asset, clip, clipStartMs, { ...text, ...timing }, fraction => setStatus(`Following the surface under the text… ${Math.round(fraction * 100)}%`), { yaw, pitch });
+    const result = await pinTitle({ text, clip, asset, clipStartMs, wholeShot, lean: { yaw, pitch }, onProgress: fraction => setStatus(`Following the surface under the text… ${Math.round(fraction * 100)}%`) });
     setBusy(false);
-    if (!tracked) { setStatus("Could not follow this shot. Try placing the text on a surface with some detail."); return; }
-    // A title that starts cut off at the frame edge never reads as being on the wall: with the plane
-    // known (and leaned), move the centre so the warped line begins fully in frame. The path is relative, so the pin follows.
-    // A title on a chosen surface stays on it (the text is fitted and clipped inside); only a box pin is moved in from the frame edge.
-    const shift = tracked.pin.quad && !text.surface ? planarShift(text, tracked.pin.quad) : 0;
-    const nudged = Math.abs(shift) > 0.002 ? Number((text.x + shift).toFixed(4)) : text.x;
-    // A planar title is drawn from its corners, not its centre: move the pinned plane and every keyframe's corners too.
-    const moveQuad = (q: readonly number[] | undefined) => q ? q.map((v, i) => Number((i % 2 === 0 ? v + shift : v).toFixed(4))) : q;
-    const pinned = nudged === text.x ? { path: tracked.path, pin: tracked.pin } : {
-      path: tracked.path.map(point => ({ ...point, ...(point.q ? { q: moveQuad(point.q) as number[] } : {}) })),
-      pin: { ...tracked.pin, quad: moveQuad(tracked.pin.quad) as number[] | undefined },
-    };
-    onPath(pinned, { ...(wholeShot ? timing : {}), ...(nudged !== text.x ? { x: nudged } : {}) });
-    const { path, lostAtMs, quality } = tracked;
-    const lostNote = lostAtMs !== null ? ` The surface was lost ${((lostAtMs - tracked.pin.fromMs) / 1000 / (clip.speed || 1)).toFixed(1)} s in, so the title fades there.` : "";
-    const nudgeNote = nudged !== text.x ? ` Moved the title ${nudged < text.x ? "left" : "right"} so it starts fully in frame.` : "";
-    const gradeNote = quality.grade === "good" ? `Good track: ${quality.inliers} points agreed on every step.` : quality.grade === "weak" ? `Weak track: only ${quality.inliers} points agreed and ${quality.held} of ${quality.steps} steps were held. Try a surface with more detail, or a bigger area of it.` : "The surface could not be followed to the end.";
-    setStatus(`${gradeNote} ${path.length} keyframes${wholeShot ? ", for the whole shot" : ""}.${lostNote}${nudgeNote} Play it back; unpin to go back to still text.`);
+    if ("error" in result) { setStatus(result.error); return; }
+    onPath(result.pinned, result.patch);
+    setStatus(result.status);
   }
   return (
     <Sheet title="Pin to the picture" onClose={onClose}>

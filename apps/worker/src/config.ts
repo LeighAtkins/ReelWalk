@@ -17,6 +17,8 @@ export type WorkerConfig = {
   /** A RUNNING job with no heartbeat for this long is assumed to have lost its worker. */
   staleSeconds: number;
   retryBackoffSeconds: number;
+  /** The most one render attempt may take before it is failed and retried. */
+  jobTimeoutSeconds: number;
   /** How often the worker looks for outbox messages the web app could not send itself. */
   outboxPollSeconds: number;
   /** Browser tabs per render. */
@@ -56,6 +58,7 @@ export function getConfig(env = process.env): WorkerConfig {
     heartbeatSeconds: numberFrom(env, "RENDER_HEARTBEAT_SECONDS", 20),
     staleSeconds: numberFrom(env, "RENDER_STALE_SECONDS", 60),
     retryBackoffSeconds: numberFrom(env, "RENDER_RETRY_BACKOFF_SECONDS", 15),
+    jobTimeoutSeconds: numberFrom(env, "RENDER_JOB_TIMEOUT_SECONDS", 45 * 60),
     outboxPollSeconds: numberFrom(env, "OUTBOX_POLL_SECONDS", 5),
     renderConcurrency: numberFrom(env, "RENDER_CONCURRENCY", 4),
     healthPort: numberFrom(env, "HEALTH_PORT", 8081),

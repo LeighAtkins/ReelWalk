@@ -63,6 +63,22 @@ function deps(store: JobStore, render: HandlerDeps["render"]): HandlerDeps {
 const queued: JobSnapshot = { status: "QUEUED", generation: 1, heartbeatAt: null };
 
 describe("handleDelivery", () => {
+  it("fails an attempt that runs past the job deadline so it can be retried", async () => {
+    vi.useFakeTimers();
+    try {
+      const { store, state } = fakeStore(queued);
+      const never = () => new Promise<typeof output>(() => undefined);
+      const delivery = fakeDelivery(1);
+      const outcome = handleDelivery({ store, render: never, config: { ...config, jobTimeoutSeconds: 1 }, log: () => {} }, delivery);
+      await vi.advanceTimersByTimeAsync(1500);
+      expect(await outcome).toBe("retrying");
+      expect(state.job!.status).toBe("QUEUED");
+      expect(state.error).toMatch(/exceeded/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("does not publish the output of a worker whose job was taken over while it rendered", async () => {
     // Worker A claims (attempt 1), stops heartbeating, worker B takes over (attempt 2) and finishes; then A's render returns.
     const { store, state } = fakeStore(queued);

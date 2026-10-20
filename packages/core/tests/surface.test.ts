@@ -46,3 +46,13 @@ describe("finding the flat surface under a title", () => {
     expect(Math.abs(lines[0].rho - 100)).toBeLessThan(2);
   });
 });
+
+describe("houghLines keeps symmetric edges", () => {
+  it("returns both of two parallel edges at equal distance either side of the centre", () => {
+    const pts: { x: number; y: number; dir: number }[] = [];
+    for (let y = 0; y < 200; y++) { pts.push({ x: 50, y, dir: 0 }); pts.push({ x: 150, y, dir: 0 }); }
+    const lines = houghLines(pts, 200, 200, { minVotes: 150 });
+    const rhos = lines.filter((l) => Math.abs(l.theta) < 0.01 || Math.abs(l.theta - Math.PI) < 0.01).map((l) => Math.round(Math.abs(l.rho))).sort((a, b) => a - b);
+    expect(rhos).toEqual([50, 150]);
+  });
+});

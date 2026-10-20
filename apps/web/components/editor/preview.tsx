@@ -33,6 +33,10 @@ type PreviewProps = {
   onBarsText?(id: string, bars: number[][], gesture: string): void;
   /** The cut-outs in front of the selected title's surface changed (ADR 0044). */
   onCutoutsText?(id: string, cutouts: number[][], gesture: string): void;
+  /** The taps naming things in front of the selected title changed (ADR 0044). */
+  onOccludersText?(id: string, occluders: { x: number; y: number }[], gesture: string): void;
+  /** People in the shot pass in front of the selected title (the person matte). */
+  onBehindText?(id: string, behind: boolean): void;
   onSelectText(id: string): void;
   onEditText(id: string): void;
   empty: React.ReactNode;
@@ -290,16 +294,59 @@ function CutoutEditor({ cutouts: stored, frame, onChange, view = IDENTITY_VIEW }
 }
 
 /**
+ * Things in front, by tapping (ADR 0044): a tap on the frame names an object;
+ * the segmenter cuts it out on every frame and the title goes behind it. Taps
+ * are stored in first-frame coordinates and shown where the plane carries
+ * them. Drawing a shape by hand remains for what the segmenter cannot find.
+ */
+function OccluderEditor({ text, frame, view, onOccluders, onCutouts, onBehind }: { text: TextOverlay; frame: RefObject<HTMLDivElement | null>; view: PlaneView; onOccluders(occluders: { x: number; y: number }[], gesture: string): void; onCutouts?(cutouts: number[][], gesture: string): void; onBehind?(behind: boolean): void }) {
+  const [byHand, setByHand] = useState(false);
+  const taps = text.occluders ?? [];
+  const tap = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!frame.current || event.button !== 0 || taps.length >= 4) return;
+    const rect = frame.current.getBoundingClientRect();
+    const [x, y] = view.from((event.clientX - rect.left) / rect.width, (event.clientY - rect.top) / rect.height);
+    onOccluders([...taps, { x: Number(x.toFixed(4)), y: Number(y.toFixed(4)) }], `occluder-add-${Date.now()}`);
+  };
+  if (byHand && onCutouts) {
+    return (<>
+      <CutoutEditor cutouts={text.cutouts ?? []} frame={frame} onChange={onCutouts} view={view} />
+      <button type="button" className="btn btn-quiet occluder-mode" onClick={() => setByHand(false)}>Back to tapping</button>
+    </>);
+  }
+  return (
+    <>
+      <div className="cutout-canvas" data-testid="occluder-canvas" onPointerDown={tap} />
+      {taps.map((point, i) => {
+        const [x, y] = view.to(point.x, point.y);
+        return (
+          <button key={i} type="button" className="occluder-tap" data-testid="occluder-tap" aria-label={`Remove tap ${i + 1}`} style={{ left: `${x * 100}%`, top: `${y * 100}%` }}
+            onPointerDown={(event) => event.stopPropagation()} onClick={() => onOccluders(taps.filter((_, k) => k !== i), `occluder-remove-${Date.now()}`)}>×</button>
+        );
+      })}
+      <div className="cutout-tools" data-testid="occluder-tools">
+        <span className="small">{taps.length ? `${taps.length} tapped. The title goes behind what is under each tap; tap a mark to remove it.` : "Tap the plant, chair or railing the title should go behind. Up to four taps."}</span>
+        {onBehind ? <button type="button" className={text.behind ? "check-mark is-current" : "check-mark"} aria-pressed={Boolean(text.behind)} data-testid="behind-toggle" onClick={() => onBehind(!text.behind)}>People in front</button> : null}
+        {onCutouts ? <button type="button" className="btn btn-quiet" data-testid="by-hand" onClick={() => setByHand(true)}>{text.cutouts?.length ? `Drawn shapes (${text.cutouts.length})` : "Draw by hand"}</button> : null}
+      </div>
+    </>
+  );
+}
+
+/**
  * The placing screen's frame overlay: the selected title's corners and posts,
  * or its cut-outs, shown where the tracked plane puts them on this frame and
  * editable there. A drag is taken back to the first frame's coordinates
  * through the plane's motion, so one move on any frame moves the whole track.
  */
-function PlacingOverlay({ clock, timeline, text, frame, tool, onSurface, onBars, onCutouts }: { clock: Clock; timeline: Timeline; text: TextOverlay; frame: RefObject<HTMLDivElement | null>; tool: "corners" | "cutouts"; onSurface(quad: number[], gesture: string): void; onBars?(bars: number[][], gesture: string): void; onCutouts?(cutouts: number[][], gesture: string): void }) {
+function PlacingOverlay({ clock, timeline, text, frame, tool, onSurface, onBars, onCutouts, onOccluders, onBehind }: { clock: Clock; timeline: Timeline; text: TextOverlay; frame: RefObject<HTMLDivElement | null>; tool: "corners" | "cutouts"; onSurface(quad: number[], gesture: string): void; onBars?(bars: number[][], gesture: string): void; onCutouts?(cutouts: number[][], gesture: string): void; onOccluders?(occluders: { x: number; y: number }[], gesture: string): void; onBehind?(behind: boolean): void }) {
   const now = useClock(clock);
   const tracked = text.pin ? textQuadAt(text, pinnedProgress(timeline, text, now)) : null;
   const view = planeView(text.pin?.quad, tracked);
-  if (tool === "cutouts") return onCutouts ? <CutoutEditor cutouts={text.cutouts ?? []} frame={frame} onChange={onCutouts} view={view} /> : null;
+  if (tool === "cutouts") {
+    if (onOccluders) return <OccluderEditor text={text} frame={frame} view={view} onOccluders={onOccluders} onCutouts={onCutouts} onBehind={onBehind} />;
+    return onCutouts ? <CutoutEditor cutouts={text.cutouts ?? []} frame={frame} onChange={onCutouts} view={view} /> : null;
+  }
   return <SurfaceHandles large quad={text.surface!} bars={text.bars} frame={frame} onChange={onSurface} onBars={onBars} view={view} />;
 }
 
@@ -499,6 +546,8 @@ export function Preview({
   onSurfaceText,
   onBarsText,
   onCutoutsText,
+  onOccludersText,
+  onBehindText,
   onSelectText,
   onEditText,
   empty,
@@ -595,7 +644,7 @@ export function Preview({
             <button type="button" role="tab" aria-selected={tool === "corners"} className={tool === "corners" ? "check-mark is-current" : "check-mark"} onClick={() => setTool("corners")}>Corners</button>
             <button type="button" role="tab" aria-selected={tool === "cutouts"} className={tool === "cutouts" ? "check-mark is-current" : "check-mark"} onClick={() => setTool("cutouts")} data-testid="tool-cutouts">In front</button>
           </div>
-          <span className="small">{tool === "corners" ? "Drag the corners on any frame; the whole track follows." : "Tap around what is in front."}</span>
+          <span className="small">{tool === "corners" ? "Drag the corners on any frame; the whole track follows." : "Tap what the title should go behind."}</span>
           {placing ? <button type="button" className="btn" disabled={placing.busy} onClick={placing.onTrack} data-testid="placing-track">{placing.busy ? "Tracking…" : "Track"}</button> : null}
           <button type="button" className="btn btn-signal" onClick={() => onDoneCorners?.()} data-testid="corners-done">Done</button>
         </div>
@@ -672,7 +721,9 @@ export function Preview({
           <PlacingOverlay clock={clock} timeline={timeline} text={selectedText} frame={frame} tool={tool}
             onSurface={(quad, gesture) => onSurfaceText(selectedText.id, quad, gesture)}
             onBars={onBarsText ? (bars, gesture) => onBarsText(selectedText.id, bars, gesture) : undefined}
-            onCutouts={onCutoutsText ? (cutouts, gesture) => onCutoutsText(selectedText.id, cutouts, gesture) : undefined} />
+            onCutouts={onCutoutsText ? (cutouts, gesture) => onCutoutsText(selectedText.id, cutouts, gesture) : undefined}
+            onOccluders={onOccludersText ? (occluders, gesture) => onOccludersText(selectedText.id, occluders, gesture) : undefined}
+            onBehind={onBehindText ? (behind) => onBehindText(selectedText.id, behind) : undefined} />
         ) : null}
         {selectedText && !playing && !theater ? (<>
           <TextHandle

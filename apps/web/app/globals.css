@@ -3307,3 +3307,26 @@ video:-webkit-full-screen {
 .stage-theater.is-placing {
   padding-bottom: calc(env(safe-area-inset-bottom) + 96px);
 }
+
+/* Taps naming things in front (ADR 0044). */
+.occluder-tap {
+  position: absolute;
+  z-index: 4;
+  width: 36px;
+  height: 36px;
+  margin: -18px 0 0 -18px;
+  padding: 0;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: rgb(120 200 255 / 0.75);
+  color: #000;
+  font-size: 16px;
+  line-height: 1;
+  box-shadow: 0 1px 6px rgb(0 0 0 / 0.5);
+}
+.occluder-mode {
+  position: absolute;
+  left: 12px;
+  top: calc(env(safe-area-inset-top) + 84px);
+  z-index: 6;
+}

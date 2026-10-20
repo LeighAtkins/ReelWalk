@@ -1164,6 +1164,8 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         }, gesture)}
         onBarsText={(id, bars, gesture) => apply((current) => updateText(current, id, { bars: bars.length ? bars : undefined }), gesture)}
         onCutoutsText={(id, cutouts, gesture) => apply((current) => updateText(current, id, { cutouts: cutouts.length ? cutouts : undefined }), gesture)}
+        onOccludersText={(id, occluders, gesture) => apply((current) => updateText(current, id, { occluders: occluders.length ? occluders : undefined }), gesture)}
+        onBehindText={(id, behind) => apply((current) => updateText(current, id, { behind: behind || undefined }), `behind-${id}`)}
         check={checking ? { marks: checkMarks, onSeek: seek } : null}
         corners={placing}
         onDoneCorners={exitTheater}
@@ -1394,7 +1396,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         const clip = at ? timeline.clips[at.index] : null;
         return <PinSheet text={selectedText} clip={clip} asset={clip ? library[clip.assetId] : undefined} clipStartMs={at ? selectedText.startMs - at.offsetMs : 0}
           onPath={(pinned, patch) => apply((current) => updateText(current, selectedText.id, { path: pinned?.path, pin: pinned?.pin, ...(patch ?? {}) }), `pin-${selectedText.id}`)}
-          onSurface={(surface) => apply((current) => updateText(current, selectedText.id, { surface, path: undefined, pin: undefined, ...(surface ? {} : { bars: undefined, cutouts: undefined }) }), `surface-${selectedText.id}`)}
+          onSurface={(surface) => apply((current) => updateText(current, selectedText.id, { surface, path: undefined, pin: undefined, ...(surface ? {} : { bars: undefined, cutouts: undefined, occluders: undefined }) }), `surface-${selectedText.id}`)}
           onBars={(bars) => apply((current) => updateText(current, selectedText.id, { bars: bars.length ? bars : undefined }), `bars-${selectedText.id}`)}
           onCheck={openCheck} onPlaceCorners={() => openCorners("corners")} onDrawCutout={() => openCorners("cutouts")} onClose={closeSheet} />;
       })() : null}

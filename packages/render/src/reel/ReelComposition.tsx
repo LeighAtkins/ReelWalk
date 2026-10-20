@@ -246,7 +246,8 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
     const rectWidth = Math.max(0.05, text.pin.quad[2] - text.pin.quad[0]);
     const rectHeight = Math.max(0.02, text.pin.quad[7] - text.pin.quad[1]);
     const lineHeight = ((Number(css.fontSize) || 64) * 1.12) / height;
-    const fit = Math.min(planarFitAndShift(text.pin.quad, line).fit, text.surface ? Math.min(1, (rectWidth * 0.86) / line, (rectHeight * 0.8) / lineHeight) : 1);
+    // A title on a chosen surface fills it: scaled up or down to span 94% of its width, as long as it fits its height.
+    const fit = text.surface ? Math.min((rectWidth * 0.94) / line, (rectHeight * 0.92) / lineHeight) : planarFitAndShift(text.pin.quad, line).fit;
     // The text sits on the plane the tracker followed: a box at the pinned corners, warped to where they are now (ADR 0039).
     const q0 = text.pin.quad;
     const left = q0[0] * width, top = q0[1] * height;

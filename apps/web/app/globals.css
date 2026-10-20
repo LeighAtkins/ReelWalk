@@ -3283,3 +3283,34 @@ video:-webkit-full-screen {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* The placing screen's strip: the shot's five moments and the tracker's note, under the frame. */
+.placing-strip {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(env(safe-area-inset-bottom) + 4px);
+  z-index: 3;
+}
+.placing-strip .check-strip {
+  position: static;
+  justify-content: center;
+}
+.placing-status {
+  margin: 0 12px 4px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: rgb(0 0 0 / 0.6);
+  color: #fff;
+  font-size: 12px;
+}
+.placing-first {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  z-index: 4;
+}
+.stage-theater.is-placing {
+  padding-bottom: calc(env(safe-area-inset-bottom) + 96px);
+}

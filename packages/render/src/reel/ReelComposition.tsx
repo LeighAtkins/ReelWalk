@@ -228,9 +228,14 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
     // A planar title never wraps, so a long one is shrunk to fit the frame rather than running off it.
     // The widest of the typed lines sets the width.
     const line = Math.max(...text.text.split("\n").map((part) => oneLineWidth(part || " ", { fontFamily: String(css.fontFamily ?? ""), fontWeight: css.fontWeight, fontSize: Number(css.fontSize) || 64, letterSpacing: text.tracking, fontStretch: css.fontStretch ? String(css.fontStretch) : undefined }, width)));
-    // Inside the frame, and when painted on a chosen surface, inside that surface with a margin: its width and its height.
-    const rectWidth = Math.max(0.05, plane[2] - plane[0]);
-    const rectHeight = Math.max(0.02, plane[7] - plane[1]);
+    // The plane's own rectangle: as wide as the average of its top and bottom edges and as tall as the
+    // average of its sides, in pixels. One edge alone (the top for width, the left for height) made a
+    // title grow to fill a long top edge and then warp thin onto a short bottom one as a corner was dragged.
+    const px = (i: number) => plane[i * 2] * width, py = (i: number) => plane[i * 2 + 1] * height;
+    const edge = (a: number, b: number) => Math.hypot(px(b) - px(a), py(b) - py(a));
+    const w = Math.max(1, (edge(0, 1) + edge(3, 2)) / 2), h = Math.max(1, (edge(0, 3) + edge(1, 2)) / 2);
+    const rectWidth = Math.max(0.05, w / width);
+    const rectHeight = Math.max(0.02, h / height);
     // The block the author typed: one line, or the lines they broke it into (each as tall as a line).
     const lines = text.text.split("\n").length;
     const lineHeight = (((Number(css.fontSize) || 64) * 1.12) / height) * lines;
@@ -239,7 +244,6 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
     // The text sits on the plane the tracker followed: a box at the pinned corners, warped to where they are now (ADR 0039).
     const q0 = plane;
     const left = q0[0] * width, top = q0[1] * height;
-    const w = Math.max(1, (q0[2] - q0[0]) * width), h = Math.max(1, (q0[7] - q0[1]) * height);
     const now = quad.map((v, i) => (i % 2 === 0 ? v * width - left : v * height - top)) as [number, number, number, number, number, number, number, number];
     const H = homography([0, 0, w, 0, w, h, 0, h], now);
     // Bars (a mullion, a post) in front of the surface: holes cut in the plane's own coordinates, so they warp with it.

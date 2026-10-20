@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { Player, type PlayerRef } from "@remotion/player";
 import { prefetch } from "remotion";
-import { INSTAGRAM, minTextSize, oneLineWidth, pinnedProgress, PLANAR_MAX_WIDTH, planarFitAndShift, REEL_FORMAT, TEXT_SIZE_MAX, textsAt, textPositionAt, textQuadAt, type TextOverlay, type Timeline } from "@reelwalk/core";
+import { applyHomography, homography, INSTAGRAM, minTextSize, oneLineWidth, pinnedProgress, PLANAR_MAX_WIDTH, planarFitAndShift, REEL_FORMAT, TEXT_SIZE_MAX, textsAt, textPositionAt, textQuadAt, type TextOverlay, type Timeline } from "@reelwalk/core";
 import { ReelComposition, reelDurationInFrames, textTreatmentCss, type ReelAsset } from "@reelwalk/render/reel";
 import { PlayIcon } from "../icons";
 import { useClock, type Clock } from "./clock";
@@ -44,6 +44,11 @@ type PreviewProps = {
   /** Corner placing (ADR 0044): full screen, only the selected title's corners and posts, a loupe under the finger; "cutouts" opens on the cut-out tool. */
   corners?: false | "corners" | "cutouts";
   onDoneCorners?(): void;
+  /**
+   * The placing screen's own check (ADR 0044): the shot's five moments to step through, and Track, which
+   * follows the surface through the shot right there so the later moments show the tracked result.
+   */
+  placing?: { marks: { label: string; ms: number }[]; onSeek(ms: number): void; onTrack(): void; status: string | null; busy: boolean } | null;
 };
 
 /** Snaps to the centre line when the text is dragged close to it. */
@@ -114,6 +119,23 @@ function Loupe({ frame, x, y }: { frame: RefObject<HTMLDivElement | null>; x: nu
 }
 
 /**
+ * The plane's own grid, warped through the four corners: how a rectangle on
+ * this surface leans and shrinks, visible before any text is fitted to it,
+ * so a corner that makes the words warp thin shows as a grid that does.
+ */
+function PerspectiveGrid({ quad }: { quad: number[] }) {
+  const H = homography([0, 0, 1, 0, 1, 1, 0, 1], quad as [number, number, number, number, number, number, number, number]);
+  if (!H) return null;
+  const at = (u: number, v: number) => { const [x, y] = applyHomography(H, u, v); return `${x * 100},${y * 100}`; };
+  const lines: string[] = [];
+  for (let i = 1; i < 4; i++) {
+    lines.push(`${at(i / 4, 0)} ${at(i / 4, 1)}`);
+    lines.push(`${at(0, i / 4)} ${at(1, i / 4)}`);
+  }
+  return <>{lines.map((points, i) => <polyline key={i} points={points} fill="none" stroke="rgba(255,255,255,0.45)" strokeWidth={0.3} vectorEffect="non-scaling-stroke" />)}</>;
+}
+
+/**
  * The surface a title is painted on: a dashed outline with a numbered,
  * draggable corner at each of its four points, set by hand on the first
  * frame of the shot (ADR 0043, ADR 0044). While a corner is dragged, a
@@ -127,6 +149,7 @@ function SurfaceHandles({ quad, bars = [], frame, onChange, onBars, large = fals
       {large && active ? <Loupe frame={frame} x={active.x} y={active.y} /> : null}
       <svg className="surface-outline" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" }}>
         <polygon points={quadPoints(quad)} fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.85)" strokeWidth={0.4} strokeDasharray="1.2 0.8" vectorEffect="non-scaling-stroke" />
+        {large ? <PerspectiveGrid quad={quad} /> : null}
         {bars.map((bar, i) => <polygon key={i} points={quadPoints(bar)} fill="rgba(20,20,20,0.45)" stroke="rgba(255,210,80,0.9)" strokeWidth={0.4} vectorEffect="non-scaling-stroke" />)}
         {active ? (<>
           <line x1={0} x2={100} y1={active.y * 100} y2={active.y * 100} stroke="rgba(255,90,95,0.9)" strokeWidth={0.3} vectorEffect="non-scaling-stroke" />
@@ -242,6 +265,28 @@ function CutoutEditor({ cutouts, frame, onChange }: { cutouts: number[][]; frame
           <button type="button" className="btn btn-signal" disabled={cutouts.length >= 12} data-testid="cutout-add" onClick={() => setDraft([])}>Add a cut-out</button>
         </>)}
       </div>
+    </>
+  );
+}
+
+/**
+ * The placing screen's frame overlay. Corners live on the first frame of the shot, so they are
+ * editable there; on the other moments the plane is shown where it is (tracked when pinned), with
+ * a way back to the first frame to adjust.
+ */
+function PlacingOverlay({ clock, timeline, text, frame, firstMs, fps, onSurface, onBars, onFirst }: { clock: Clock; timeline: Timeline; text: TextOverlay; frame: RefObject<HTMLDivElement | null>; firstMs: number; fps: number; onSurface(quad: number[], gesture: string): void; onBars?(bars: number[][], gesture: string): void; onFirst(): void }) {
+  const now = useClock(clock);
+  const atFirst = Math.abs(now - firstMs) < 1000 / fps;
+  if (atFirst || !text.pin) {
+    return <SurfaceHandles large quad={text.surface!} bars={text.bars} frame={frame} onChange={onSurface} onBars={onBars} />;
+  }
+  const quad = textQuadAt(text, pinnedProgress(timeline, text, now)) ?? text.surface!;
+  return (
+    <>
+      <svg className="surface-outline" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" }}>
+        <polygon points={quadPoints(quad)} fill="none" stroke="rgba(120,255,160,0.9)" strokeWidth={0.4} strokeDasharray="1.2 0.8" vectorEffect="non-scaling-stroke" />
+      </svg>
+      <button type="button" className="btn btn-quiet placing-first" data-testid="placing-first" onClick={onFirst}>Back to the first frame to adjust</button>
     </>
   );
 }
@@ -450,6 +495,7 @@ export function Preview({
   check = null,
   corners = false,
   onDoneCorners,
+  placing = null,
 }: PreviewProps) {
   const frame = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(0.3);
@@ -538,6 +584,7 @@ export function Preview({
             <button type="button" role="tab" aria-selected={tool === "cutouts"} className={tool === "cutouts" ? "check-mark is-current" : "check-mark"} onClick={() => setTool("cutouts")} data-testid="tool-cutouts">In front</button>
           </div>
           <span className="small">{tool === "corners" ? "Drag the corners onto the surface." : "Tap around what is in front."}</span>
+          {placing ? <button type="button" className="btn" disabled={placing.busy} onClick={placing.onTrack} data-testid="placing-track">{placing.busy ? "Tracking…" : "Track"}</button> : null}
           <button type="button" className="btn btn-signal" onClick={() => onDoneCorners?.()} data-testid="corners-done">Done</button>
         </div>
       ) : theater ? (
@@ -546,6 +593,12 @@ export function Preview({
         </button>
       ) : null}
       {theater && check ? <CheckStrip clock={clock} marks={check.marks} onSeek={check.onSeek} /> : null}
+      {theater && corners && placing && tool === "corners" ? (
+        <div className="placing-strip" data-testid="placing-strip">
+          {placing.status ? <p className="small placing-status" role="status">{placing.status}</p> : null}
+          <CheckStrip clock={clock} marks={placing.marks} onSeek={placing.onSeek} />
+        </div>
+      ) : null}
       <div className="stage-frame" ref={frame} data-testid="preview">
         {hasClips ? (
           <>
@@ -604,7 +657,12 @@ export function Preview({
           <TextTargets clock={clock} timeline={timeline} selectedId={selectedText?.id ?? null} scale={scale} onSelect={onSelectText} onEdit={onEditText} />
         ) : null}
         {theater && corners && selectedText?.surface && onSurfaceText && tool === "corners" ? (
-          <SurfaceHandles large quad={selectedText.surface} bars={selectedText.bars} frame={frame} onChange={(quad, gesture) => onSurfaceText(selectedText.id, quad, gesture)} onBars={onBarsText ? (bars, gesture) => onBarsText(selectedText.id, bars, gesture) : undefined} />
+          placing && placing.marks.length ? (
+            <PlacingOverlay clock={clock} timeline={timeline} text={selectedText} frame={frame} firstMs={placing.marks[0].ms} fps={REEL_FORMAT.fps}
+              onSurface={(quad, gesture) => onSurfaceText(selectedText.id, quad, gesture)} onBars={onBarsText ? (bars, gesture) => onBarsText(selectedText.id, bars, gesture) : undefined} onFirst={() => placing.onSeek(placing.marks[0].ms)} />
+          ) : (
+            <SurfaceHandles large quad={selectedText.surface} bars={selectedText.bars} frame={frame} onChange={(quad, gesture) => onSurfaceText(selectedText.id, quad, gesture)} onBars={onBarsText ? (bars, gesture) => onBarsText(selectedText.id, bars, gesture) : undefined} />
+          )
         ) : null}
         {theater && corners && selectedText?.surface && onCutoutsText && tool === "cutouts" ? (
           <CutoutEditor cutouts={selectedText.cutouts ?? []} frame={frame} onChange={(cutouts, gesture) => onCutoutsText(selectedText.id, cutouts, gesture)} />

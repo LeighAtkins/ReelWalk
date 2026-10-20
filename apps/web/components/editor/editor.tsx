@@ -126,6 +126,7 @@ import { HookSheet, PinSheet,
   ZoomSheet,
   type InstagramSoundAccess,
   type TextDraft,
+  pinTitle,
 } from "./sheets";
 import { analyseStoredAudio, uploadFile } from "./upload";
 import { useAutosave } from "./use-autosave";
@@ -283,7 +284,8 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
   const [checking, setChecking] = useState(false);
   // Corner placing (ADR 0044): the frame full screen with only the selected title's corners, a loupe under the finger.
   const [placing, setPlacing] = useState<false | "corners" | "cutouts">(false);
-  const exitTheater = useCallback(() => { setTheater(false); setChecking(false); setPlacing(false); }, []);
+  const [placingStatus, setPlacingStatus] = useState<{ text: string | null; busy: boolean }>({ text: null, busy: false });
+  const exitTheater = useCallback(() => { setTheater(false); setChecking(false); setPlacing(false); setPlacingStatus({ text: null, busy: false }); }, []);
   const openCorners = useCallback((tool: "corners" | "cutouts" = "corners") => { playerRef.current?.pause(); setChecking(false); setPlacing(tool); setTheater(true); }, []);
   const playerRef = useRef<PlayerRef>(null);
   // The Player loads after this component and remounts when the reel goes
@@ -706,6 +708,29 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
     setTheater(true);
     if (checkMarks.length) seek(checkMarks[0].ms);
   }, [checkMarks, seek]);
+
+  // The placing screen's marks: the five moments of the selected title's shot; and Track, run right there.
+  const placingShot = useMemo(() => {
+    if (!selectedText) return null;
+    const at = locate(timeline, selectedText.startMs);
+    if (!at) return null;
+    const clip = timeline.clips[at.index];
+    const start = clipStartsMs(timeline)[at.index];
+    const length = clipDurationMs(clip);
+    const frameMs = 1000 / REEL_FORMAT.fps;
+    const marks = [0, 0.25, 0.5, 0.75, 1].map((share, k) => ({ label: ["start", "¼", "½", "¾", "end"][k], ms: Math.round(start + Math.min(Math.max(share * length, frameMs), Math.max(frameMs, length - frameMs))) }));
+    return { clip, clipStartMs: selectedText.startMs - at.offsetMs, marks };
+  }, [selectedText, timeline]);
+  const trackInPlace = useCallback(async () => {
+    if (!selectedText || !placingShot) return;
+    const asset = library[placingShot.clip.assetId];
+    if (!asset || placingShot.clip.kind !== "VIDEO") { setPlacingStatus({ text: "Tracking needs the title to start on a video clip.", busy: false }); return; }
+    setPlacingStatus({ text: "Following the surface through the shot…", busy: true });
+    const result = await pinTitle({ text: selectedText, clip: placingShot.clip, asset, clipStartMs: placingShot.clipStartMs, wholeShot: true, lean: { yaw: selectedText.pin?.lean?.yaw ?? 0, pitch: selectedText.pin?.lean?.pitch ?? 0 }, onProgress: (fraction) => setPlacingStatus({ text: `Following the surface through the shot… ${Math.round(fraction * 100)}%`, busy: true }) });
+    if ("error" in result) { setPlacingStatus({ text: result.error, busy: false }); return; }
+    apply((current) => updateText(current, selectedText.id, { path: result.pinned.path, pin: result.pinned.pin, ...result.patch }), `pin-${selectedText.id}`);
+    setPlacingStatus({ text: `${result.status} Step through the shot below.`, busy: false });
+  }, [selectedText, placingShot, library, apply]);
 
   // ── Export ──────────────────────────────────────────────────
   const openExport = useCallback(async () => {
@@ -1136,6 +1161,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         check={checking ? { marks: checkMarks, onSeek: seek } : null}
         corners={placing}
         onDoneCorners={exitTheater}
+        placing={placing && placingShot ? { marks: placingShot.marks, onSeek: seek, onTrack: trackInPlace, status: placingStatus.text, busy: placingStatus.busy } : null}
         onResizeText={(id, size, gesture) => apply((current) => updateText(current, id, { size }), gesture)}
         onSelectText={(id) => setSelection({ kind: "text", id })}
         onEditText={(id) => {

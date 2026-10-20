@@ -281,7 +281,10 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
   const [theater, setTheater] = useState(false);
   // Check mode (ADR 0044): full screen with five moments per shot to jump between, every surface outlined.
   const [checking, setChecking] = useState(false);
-  const exitTheater = useCallback(() => { setTheater(false); setChecking(false); }, []);
+  // Corner placing (ADR 0044): the frame full screen with only the selected title's corners, a loupe under the finger.
+  const [placing, setPlacing] = useState(false);
+  const exitTheater = useCallback(() => { setTheater(false); setChecking(false); setPlacing(false); }, []);
+  const openCorners = useCallback(() => { playerRef.current?.pause(); setChecking(false); setPlacing(true); setTheater(true); }, []);
   const playerRef = useRef<PlayerRef>(null);
   // The Player loads after this component and remounts when the reel goes
   // from empty to non-empty; state makes the event subscription follow it.
@@ -1097,12 +1100,14 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
             {saveLabel}
           </span>
         </div>
-        <button type="button" className="btn btn-quiet" onClick={openCheck} disabled={!hasClips} data-testid="check-button">
-          Check
-        </button>
-        <button type="button" className="btn btn-signal" onClick={openExport} disabled={!hasClips} data-testid="export-button">
-          Export
-        </button>
+        <div className="editor-top-actions">
+          <button type="button" className="btn btn-quiet" onClick={openCheck} disabled={!hasClips} data-testid="check-button">
+            Check
+          </button>
+          <button type="button" className="btn btn-signal" onClick={openExport} disabled={!hasClips} data-testid="export-button">
+            Export
+          </button>
+        </div>
       </header>
 
       {autosave.status === "conflict" ? (
@@ -1128,6 +1133,8 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         onSurfaceText={(id, quad, gesture) => apply((current) => updateText(current, id, { surface: quad }), gesture)}
         onBarsText={(id, bars, gesture) => apply((current) => updateText(current, id, { bars: bars.length ? bars : undefined }), gesture)}
         check={checking ? { marks: checkMarks, onSeek: seek } : null}
+        corners={placing}
+        onDoneCorners={exitTheater}
         onResizeText={(id, size, gesture) => apply((current) => updateText(current, id, { size }), gesture)}
         onSelectText={(id) => setSelection({ kind: "text", id })}
         onEditText={(id) => {
@@ -1356,7 +1363,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
           onPath={(pinned, patch) => apply((current) => updateText(current, selectedText.id, { path: pinned?.path, pin: pinned?.pin, ...(patch ?? {}) }), `pin-${selectedText.id}`)}
           onSurface={(surface) => apply((current) => updateText(current, selectedText.id, { surface, path: undefined, pin: undefined, ...(surface ? {} : { bars: undefined }) }), `surface-${selectedText.id}`)}
           onBars={(bars) => apply((current) => updateText(current, selectedText.id, { bars: bars.length ? bars : undefined }), `bars-${selectedText.id}`)}
-          onCheck={openCheck} onClose={closeSheet} />;
+          onCheck={openCheck} onPlaceCorners={openCorners} onClose={closeSheet} />;
       })() : null}
       {sheet === "timing" && selectedText ? (
         <TimingSheet

@@ -831,7 +831,7 @@ function planarShift(text: Pick<TextOverlay, "text" | "style" | "color" | "size"
 }
 
 /** Pin a text to the surface under it so it moves with the camera (ADR 0039). */
-export function PinSheet({ text, clip, asset, clipStartMs, onPath, onSurface, onBars, onCheck, onClose }: {
+export function PinSheet({ text, clip, asset, clipStartMs, onPath, onSurface, onBars, onCheck, onPlaceCorners, onClose }: {
   text: TextOverlay; clip: Clip | null; asset: LibraryAsset | undefined; clipStartMs: number;
   onPath(pinned: { path: TextOverlay["path"]; pin: TextOverlay["pin"] } | undefined, patch?: { startMs?: number; endMs?: number; x?: number }): void;
   /** The surface the title is painted on was set, found or cleared (also drops any pin, which must be redone on the new plane). */
@@ -840,6 +840,8 @@ export function PinSheet({ text, clip, asset, clipStartMs, onPath, onSurface, on
   onBars?(bars: number[][]): void;
   /** Open check mode: the frame full screen with five moments per shot to look at. */
   onCheck?(): void;
+  /** Open corner placing: the frame full screen with the corners and a loupe. */
+  onPlaceCorners?(): void;
   onClose(): void;
 }) {
   const [status, setStatus] = useState<string | null>(null);
@@ -887,8 +889,12 @@ export function PinSheet({ text, clip, asset, clipStartMs, onPath, onSurface, on
             const x0 = Math.max(0.02, Math.min(0.98 - w, text.x - w / 2)), y0 = Math.max(0.02, Math.min(0.98 - h, text.y - h / 2));
             onSurface?.([x0, y0, x0 + w, y0, x0 + w, y0 + h, x0, y0 + h].map(v => Number(v.toFixed(4))));
             setStatus("Drag the four red corners onto the surface's own corners: 1 top left, 2 top right, 3 bottom right, 4 bottom left. The title fills whatever shape you make.");
+            onPlaceCorners?.();
           }}>Set the four corners</button>
         )}
+        {text.surface && onPlaceCorners ? (
+          <button type="button" className="btn btn-signal btn-block" disabled={busy} data-testid="place-corners" onClick={onPlaceCorners}>Place the corners full screen</button>
+        ) : null}
         <button type="button" className={text.surface ? "btn btn-quiet" : "btn btn-block"} disabled={!canTrack || busy} data-testid="find-surface" onClick={async () => {
           if (!clip || !asset) return;
           setBusy(true); setStatus("Looking for the wall's edges around the text…");
@@ -913,6 +919,7 @@ export function PinSheet({ text, clip, asset, clipStartMs, onPath, onSurface, on
             const half = 0.015;
             onBars([...(text.bars ?? []), [topX - half, topY, topX + half, topY, bottomX + half, bottomY, bottomX - half, bottomY].map(v => Number(v.toFixed(4)))]);
             setStatus("Drag the yellow edges onto the post's edges. The title is cut out where the post stands, so the post stays in front of it.");
+            onPlaceCorners?.();
           }}>{text.bars?.length ? `Add another post (${text.bars.length})` : "Add a post"}</button>
           {text.bars?.length ? <button type="button" className="btn btn-quiet" disabled={busy} onClick={() => onBars([])}>Remove posts</button> : null}
         </div>

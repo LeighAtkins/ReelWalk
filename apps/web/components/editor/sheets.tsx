@@ -855,7 +855,8 @@ export function PinSheet({ text, clip, asset, clipStartMs, onPath, onSurface, on
     if (!tracked) { setStatus("Could not follow this shot. Try placing the text on a surface with some detail."); return; }
     // A title that starts cut off at the frame edge never reads as being on the wall: with the plane
     // known (and leaned), move the centre so the warped line begins fully in frame. The path is relative, so the pin follows.
-    const shift = tracked.pin.quad ? planarShift(text, tracked.pin.quad) : 0;
+    // A title on a chosen surface stays on it (the text is fitted and clipped inside); only a box pin is moved in from the frame edge.
+    const shift = tracked.pin.quad && !text.surface ? planarShift(text, tracked.pin.quad) : 0;
     const nudged = Math.abs(shift) > 0.002 ? Number((text.x + shift).toFixed(4)) : text.x;
     // A planar title is drawn from its corners, not its centre: move the pinned plane and every keyframe's corners too.
     const moveQuad = (q: readonly number[] | undefined) => q ? q.map((v, i) => Number((i % 2 === 0 ? v + shift : v).toFixed(4))) : q;

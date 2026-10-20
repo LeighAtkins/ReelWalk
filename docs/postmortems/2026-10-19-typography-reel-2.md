@@ -314,3 +314,50 @@ not the frames the viewer sees.
   right end, so a sign painted on it grows to the right. The surface
   follows the slab as drawn; the perspective is the building's, not
   mine, and it can be flipped if the look is wanted over the physics.
+
+## Round five (2026-10-20 evening to 2026-10-21): the owner places the corners
+
+The owner tried the new tools on their phone. Every slip below was found by
+them in minutes, after I had reported each feature as verified.
+
+- **Slip 66: the four corners were unusable on a phone.** Handles piled up
+  on a 300 px stage under the play disc, and the header's new Check button
+  wrapped Export into a red circle. Placing moved to full screen with 44 px
+  handles, a loupe under the finger and a Done bar (#179, #181).
+- **Slip 67: the play disc covered the picture.** Moved to the stage's
+  corner at a third of the size (#180).
+- **Slip 68: posts and cut-outs hid nothing.** A CSS image mask reads alpha
+  by default, so the white plane with black holes was fully opaque; posts had
+  been silently broken since #177 replaced the clip path with a mask. Found
+  because a cut-out drawn over STEP OUT left the words visible; computed
+  style said the mask was there. `mask-mode: luminance` (#182). Verify a
+  mask by forcing the style in the live preview and capturing, never by
+  reading the style.
+- **Slip 69: corners placed counter-clockwise rendered the title mirrored
+  and upside down.** Corner numbering is not a thing a person follows. Any
+  order is now re-ordered so the title reads upright (#184), including
+  planes already pinned from a mirrored placement (#185).
+- **Slip 70: the title grew thinner the further a corner was stretched.**
+  The plane's rectangle came from the top edge and the left edge alone.
+  Sized from the average of opposite edges (#183); a perspective grid shows
+  the lean before any text is fitted.
+- **Slip 71: the two full-screen modes could not be used together.** Five
+  marks and a Track button now live inside the placing screen (#183).
+- **Slip 72: in full screen the cut-out stayed where it was drawn while the
+  title moved.** Every handle now follows the tracked plane, and a drag on
+  any frame reshapes the plane and its keyframes at once (#186).
+- **Slip 73: drawing cut-outs by hand is the wrong primitive.** The owner
+  wants to tap the object. MediaPipe's interactive segmenter, already in the
+  bundle, returns the object under a point; the tap is carried through the
+  shot by the title's plane and the object is cut out on every frame (#187).
+- **Slip 74: the presenter froze a frame behind the picture while
+  scrubbing.** The deterministic settling pass seeks the previous frame
+  before the current one; needed in an export, a lag in the editor. Skipped
+  in the editor (#187).
+- **Slip 75: the presenter's face drifted across takes.** Each new take was
+  generated from the previous generated output. Rule: every take starts
+  from the original plate.
+- **Slip 76: my verification kept passing things the owner failed in a
+  minute.** Four of today's slips were visible in the first phone-sized
+  capture once I took one. The phone viewport (412×915, touch) is now part
+  of the check before reporting a placement feature.

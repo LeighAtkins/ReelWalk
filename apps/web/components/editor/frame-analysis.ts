@@ -1,4 +1,4 @@
-import { leanQuad, pickMatchingFrame, planePoints, smoothKeyframes, trackPlane, type Clip, type Gray, type Quad, type TextOverlay } from "@reelwalk/core";
+import { findSurfaceQuad, leanQuad, pickMatchingFrame, planePoints, smoothKeyframes, trackPlane, type Clip, type Gray, type Quad, type TextOverlay } from "@reelwalk/core";
 import type { LibraryAsset } from "@/lib/library";
 
 /** Browser side of @reelwalk/core's motion module: small grayscale frames from a video element. */
@@ -72,9 +72,9 @@ export type TrackQuality = {
  * of cutting.
  */
 export async function trackTextPath(
-  asset: LibraryAsset, clip: Clip, clipStartMs: number, text: Pick<TextOverlay, "x" | "y" | "startMs" | "endMs">,
+  asset: LibraryAsset, clip: Clip, clipStartMs: number, text: Pick<TextOverlay, "x" | "y" | "startMs" | "endMs"> & { surface?: readonly number[] },
   onProgress?: (fraction: number) => void,
-  /** Turn and tilt of the plane into the wall's perspective, degrees. */
+  /** Turn and tilt of the plane into the wall's perspective, degrees; ignored when the text has a surface. */
   lean: { yaw: number; pitch: number } = { yaw: 0, pitch: 0 },
 ): Promise<{ path: NonNullable<TextOverlay["path"]>; pin: NonNullable<TextOverlay["pin"]>; lostAtMs: number | null; quality: TrackQuality } | null> {
   const speed = clip.speed || 1;
@@ -93,13 +93,18 @@ export async function trackTextPath(
     // The plane around the text, kept inside the frame with room for a patch.
     const hw = TRACK_WIDTH * 0.2, hh = TRACK_HEIGHT * 0.075, margin = radius + 1;
     const cx = Math.max(margin + hw, Math.min(TRACK_WIDTH - 1 - margin - hw, centre.x)), cy = Math.max(margin + hh, Math.min(TRACK_HEIGHT - 1 - margin - hh, centre.y));
-    // The plane starts turned and tilted like the wall; the tracker then moves that leaned plane.
-    const flat: Quad = [cx - hw, cy - hh, cx + hw, cy - hh, cx + hw, cy + hh, cx - hw, cy + hh];
-    const leaned = leanQuad(flat.map((v, i) => (i % 2 === 0 ? v / TRACK_WIDTH : v / TRACK_HEIGHT)) as Quad, lean.yaw, lean.pitch);
-    let quad: Quad = leaned.map((v, i) => (i % 2 === 0 ? v * TRACK_WIDTH : v * TRACK_HEIGHT)) as Quad;
-    // Points with detail on the surface; a bare wall gets a wider search box (its frame, skirting or picture edges carry the motion).
-    let points = planePoints(prev, flat, { grid: 7, radius, minEnergy: 10 });
-    if (points.length < 6) points = planePoints(prev, [cx - hw * 1.8, cy - hh * 2.5, cx + hw * 1.8, cy - hh * 2.5, cx + hw * 1.8, cy + hh * 2.5, cx - hw * 1.8, cy + hh * 2.5], { grid: 9, radius, minEnergy: 8 });
+    // The plane is the surface the author chose (its own perspective, from the picture's edges), or a box
+    // around the text turned and tilted like the wall; the tracker then moves that plane.
+    const surface = text.surface && text.surface.length === 8 ? (text.surface.map((v, i) => (i % 2 === 0 ? v * TRACK_WIDTH : v * TRACK_HEIGHT)) as Quad) : null;
+    const flat: Quad = surface ?? [cx - hw, cy - hh, cx + hw, cy - hh, cx + hw, cy + hh, cx - hw, cy + hh];
+    const leaned = surface ? surface : (leanQuad(flat.map((v, i) => (i % 2 === 0 ? v / TRACK_WIDTH : v / TRACK_HEIGHT)) as Quad, lean.yaw, lean.pitch).map((v, i) => (i % 2 === 0 ? v * TRACK_WIDTH : v * TRACK_HEIGHT)) as Quad);
+    let quad: Quad = leaned;
+    // Points with detail on the surface and along its edges (a clean wall's own edges carry the motion);
+    // a bare box gets a wider search area (its frame, skirting or picture edges).
+    const xs = [flat[0], flat[2], flat[4], flat[6]], ys = [flat[1], flat[3], flat[5], flat[7]];
+    const grow = (k: number): Quad => { const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys); const gx = (x1 - x0) * k, gy = (y1 - y0) * k; return [x0 - gx, y0 - gy, x1 + gx, y0 - gy, x1 + gx, y1 + gy, x0 - gx, y1 + gy]; };
+    let points = planePoints(prev, surface ? grow(0.08) : flat, { grid: surface ? 9 : 7, radius, minEnergy: surface ? 8 : 10 });
+    if (points.length < 6) points = planePoints(prev, surface ? grow(0.3) : [cx - hw * 1.8, cy - hh * 2.5, cx + hw * 1.8, cy - hh * 2.5, cx + hw * 1.8, cy + hh * 2.5, cx - hw * 1.8, cy + hh * 2.5], { grid: 9, radius, minEnergy: 8 });
     if (points.length < 4) return null;
     const quad0 = quad.map((v, i) => (i % 2 === 0 ? v / TRACK_WIDTH : v / TRACK_HEIGHT)) as Quad;
     const baseDistance = Math.hypot(quad[2] - quad[0], quad[3] - quad[1]) || 1;
@@ -156,7 +161,7 @@ export async function trackTextPath(
     const clean = smoothKeyframes(path.filter((p, i) => i === 0 || p.t > path[i - 1].t));
     quality.inliers = quality.steps ? Math.round(inlierSum / Math.max(1, quality.steps - quality.held)) : 0;
     quality.grade = lostAtMs !== null ? "lost" : quality.held > quality.steps * 0.15 || quality.inliers < 8 ? "weak" : "good";
-    return clean.length >= 2 ? { path: clean, pin: { assetId: asset.id, fromMs: Math.round(firstSource), toMs: Math.round(lastSource), quad: quad0, ...(lean.yaw || lean.pitch ? { lean } : {}) }, lostAtMs, quality } : null;
+    return clean.length >= 2 ? { path: clean, pin: { assetId: asset.id, fromMs: Math.round(firstSource), toMs: Math.round(lastSource), quad: quad0, ...(!surface && (lean.yaw || lean.pitch) ? { lean } : {}) }, lostAtMs, quality } : null;
   } catch {
     return null;
   } finally {
@@ -193,5 +198,28 @@ export async function findMatchingCut(
     return null;
   } finally {
     for (const video of [a, b]) if (video) { video.removeAttribute("src"); video.load(); }
+  }
+}
+
+/**
+ * The flat surface under a text at the frame it starts on (ADR 0043): the
+ * strongest edges left, right, above and below it, as four corners in frame
+ * fractions, or null when the picture has no usable edges there.
+ */
+export async function detectSurface(asset: LibraryAsset, clip: Clip, clipStartMs: number, text: Pick<TextOverlay, "x" | "y" | "startMs">): Promise<{ quad: number[]; weakest: number } | null> {
+  const speed = clip.speed || 1;
+  const sourceMs = clip.sourceStartMs + Math.max(0, text.startMs - clipStartMs) * speed;
+  let video: HTMLVideoElement | null = null;
+  try {
+    video = await load(asset);
+    await seek(video, Math.min(sourceMs, Math.max(0, clip.sourceEndMs - 40)));
+    const gray = grayFrame(video, TRACK_WIDTH * 2, TRACK_HEIGHT * 2);
+    const found = findSurfaceQuad(gray, text.x * gray.width, text.y * gray.height);
+    if (!found) return null;
+    return { quad: found.quad.map((v, i) => Number((i % 2 === 0 ? v / gray.width : v / gray.height).toFixed(4))), weakest: Math.min(found.sides.left, found.sides.right, found.sides.top, found.sides.bottom) };
+  } catch {
+    return null;
+  } finally {
+    if (video) { video.removeAttribute("src"); video.load(); }
   }
 }

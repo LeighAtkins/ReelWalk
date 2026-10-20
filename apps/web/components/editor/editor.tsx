@@ -1088,6 +1088,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         onTogglePlay={togglePlay}
         clock={clock}
         onMoveText={(id, x, y, gesture) => apply((current) => updateText(current, id, { x, y }), gesture)}
+        onSurfaceText={(id, quad, gesture) => apply((current) => updateText(current, id, { surface: quad }), gesture)}
         onResizeText={(id, size, gesture) => apply((current) => updateText(current, id, { size }), gesture)}
         onSelectText={(id) => setSelection({ kind: "text", id })}
         onEditText={(id) => {
@@ -1313,7 +1314,8 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         const at = locate(timeline, selectedText.startMs);
         const clip = at ? timeline.clips[at.index] : null;
         return <PinSheet text={selectedText} clip={clip} asset={clip ? library[clip.assetId] : undefined} clipStartMs={at ? selectedText.startMs - at.offsetMs : 0}
-          onPath={(pinned, patch) => apply((current) => updateText(current, selectedText.id, { path: pinned?.path, pin: pinned?.pin, ...(patch ?? {}) }), `pin-${selectedText.id}`)} onClose={closeSheet} />;
+          onPath={(pinned, patch) => apply((current) => updateText(current, selectedText.id, { path: pinned?.path, pin: pinned?.pin, ...(patch ?? {}) }), `pin-${selectedText.id}`)}
+          onSurface={(surface) => apply((current) => updateText(current, selectedText.id, { surface, path: undefined, pin: undefined }), `surface-${selectedText.id}`)} onClose={closeSheet} />;
       })() : null}
       {sheet === "timing" && selectedText ? (
         <TimingSheet

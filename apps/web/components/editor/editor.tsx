@@ -28,6 +28,8 @@ import { setHook, wordsBehindHook, locate, orientQuad, reshapePin, placementVers
   setMusic,
   textsAt,
   timelineDurationMs,
+  reelMoodInput,
+  reelMoods,
   updateClip,
   updateText,
   type Clip,
@@ -1463,6 +1465,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
           onChange={(patch) => apply((current) => (current.music ? setMusic(current, { ...current.music, ...patch }) : current), "music")}
           onRemove={deleteSelection}
           onClose={closeSheet}
+          popular={{ moods: reelMoods(reelMoodInput(timeline, title)), reelMs: totalMs }}
         />
       ) : null}
 

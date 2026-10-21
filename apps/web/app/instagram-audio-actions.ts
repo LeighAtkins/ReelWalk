@@ -1,10 +1,11 @@
 "use server";
 
 import { z } from "zod";
-import { isInstagramAudioType } from "@reelwalk/core";
+import { isInstagramAudioType, isMusicMood, type PopularPick } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
 import { searchInstagramAudio, type AudioSearchResult } from "@/lib/instagram-audio";
 import { ensureInstagramSoundAsset, instagramSoundProblem } from "@/lib/instagram-sound";
+import { popularSounds } from "@/lib/music-picks";
 import { toLibraryAsset, type LibraryAsset } from "@/lib/library";
 import { postingProblem } from "@/lib/scheduled-posts";
 import { mediaUrl } from "@/lib/storage";
@@ -17,6 +18,19 @@ export async function searchInstagramSounds(input: { type: string; query: string
   const problem = await postingProblem(user.workspaceId);
   if (problem) return { ok: false, error: problem };
   return searchInstagramAudio(user.workspaceId, { type: input.type, query: String(input.query ?? "") });
+}
+
+/**
+ * The Music sheet's "Popular now" row (ADR 0058): sounds from the stored
+ * chart for the reel's moods and length. Empty when the workspace cannot use
+ * Instagram's sounds, or there is no chart yet.
+ */
+export async function popularInstagramSounds(input: { moods: unknown; reelMs: unknown }): Promise<{ ok: true; picks: PopularPick[] }> {
+  const user = await getCurrentUser();
+  if (await instagramSoundProblem(user.workspaceId)) return { ok: true, picks: [] };
+  const moods = Array.isArray(input.moods) ? input.moods.filter(isMusicMood).slice(0, 2) : [];
+  const reelMs = typeof input.reelMs === "number" && Number.isFinite(input.reelMs) ? Math.min(Math.max(0, input.reelMs), 10 * 60_000) : 0;
+  return { ok: true, picks: await popularSounds(user.workspaceId, { moods, reelMs }) };
 }
 
 const soundSchema = z.object({

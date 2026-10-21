@@ -446,11 +446,11 @@ export async function matchCandidates<T extends { key: string; title: string; ar
   let failures = 0;
   for (const candidate of candidates) {
     for (const type of ["music", "original_sound"] as const) {
-      const query = type === "music" ? `${candidate.title} ${normaliseArtist(candidate.artist)}` : candidate.title;
+      // The title alone: Instagram's search matches titles, and the matcher checks the artist itself.
       searches++;
       let sounds: InstagramAudioTrack[];
       try {
-        sounds = await search(type, query.slice(0, 100));
+        sounds = await search(type, candidate.title.slice(0, 100));
       } catch {
         failures++;
         continue;
@@ -521,28 +521,30 @@ export function whyLine(row: Pick<PopularSoundRow, "playlists" | "igMatch" | "tr
   return line;
 }
 
-/** Weight of a sound for the reel's first mood, its second, and any other. */
+/** Weight of a sound for the reel's first mood and its second. */
 const MOOD_FIT = [1, 0.8] as const;
-const OFF_MOOD = 0.35;
 /** A sound that ends before the reel does plays the rest in silence on Instagram. */
 const TOO_SHORT = 0.5;
 
 /**
  * The sounds to offer for a reel: matched candidates for its moods, best
- * first, a sound shorter than the reel after one that is long enough, other
- * moods only to fill the row. Each Instagram sound once.
+ * first, a sound shorter than the reel after one that is long enough. Songs
+ * of other moods never fill the row; only when nothing at all fits the
+ * reel's moods is the chart's overall best offered instead. Each Instagram
+ * sound once.
  */
 export function pickPopularSounds(rows: PopularSoundRow[], input: { moods: MusicMoodId[]; reelMs: number; limit?: number }): PopularPick[] {
   const limit = input.limit ?? 5;
   const moods = input.moods.length > 0 ? input.moods.slice(0, 2) : [DEFAULT_MUSIC_MOOD];
-  const ranked = rows
-    .filter((row) => row.igAudioId && (row.igDurationMs === null || row.igDurationMs >= MIN_SOUND_MS))
+  const usable = rows.filter((row) => row.igAudioId && (row.igDurationMs === null || row.igDurationMs >= MIN_SOUND_MS));
+  const onMood = usable.filter((row) => moods.some((mood) => row.moods.includes(mood)));
+  const ranked = (onMood.length > 0 ? onMood : usable)
     .map((row) => {
-      const fit = moods.reduce((best, mood, index) => (row.moods.includes(mood) ? Math.max(best, MOOD_FIT[index] ?? OFF_MOOD) : best), OFF_MOOD);
+      const fit = moods.reduce((best, mood, index) => (row.moods.includes(mood) ? Math.max(best, MOOD_FIT[index] ?? 0) : best), 0) || 1;
       const length = row.igDurationMs !== null && input.reelMs > 0 && row.igDurationMs < input.reelMs ? TOO_SHORT : 1;
-      return { row, onMood: fit > OFF_MOOD, weight: (row.score + trendingBonus(row.trendingRank)) * fit * length };
+      return { row, weight: (row.score + trendingBonus(row.trendingRank)) * fit * length };
     })
-    .sort((a, b) => Number(b.onMood) - Number(a.onMood) || b.weight - a.weight || a.row.key.localeCompare(b.row.key));
+    .sort((a, b) => b.weight - a.weight || a.row.key.localeCompare(b.row.key));
 
   const picks: PopularPick[] = [];
   const seen = new Set<string>();

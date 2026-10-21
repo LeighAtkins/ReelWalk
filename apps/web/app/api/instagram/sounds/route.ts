@@ -1,4 +1,4 @@
-import { chooseInstagramSound, searchInstagramSounds } from "@/app/instagram-audio-actions";
+import { chooseInstagramSound, popularInstagramSounds, searchInstagramSounds } from "@/app/instagram-audio-actions";
 import { getSessionUser } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
@@ -13,13 +13,14 @@ export async function POST(request: Request) {
   const site = request.headers.get("sec-fetch-site");
   if (site && site !== "same-origin") return Response.json({ ok: false, error: "Cross-site request refused." }, { status: 403 });
   if (!(await getSessionUser())) return Response.json({ ok: false, error: "You were signed out. Sign in again." }, { status: 401 });
-  let body: { action?: unknown; type?: unknown; query?: unknown; audioId?: unknown; title?: unknown; artist?: unknown };
+  let body: { action?: unknown; type?: unknown; query?: unknown; audioId?: unknown; title?: unknown; artist?: unknown; moods?: unknown; reelMs?: unknown };
   try {
     body = (await request.json()) as typeof body;
   } catch {
     return Response.json({ ok: false, error: "Could not read the request." }, { status: 400 });
   }
   if (body.action === "search") return Response.json(await searchInstagramSounds({ type: String(body.type ?? "music"), query: String(body.query ?? "") }));
+  if (body.action === "popular") return Response.json(await popularInstagramSounds({ moods: body.moods, reelMs: body.reelMs }));
   if (body.action === "choose") {
     return Response.json(
       await chooseInstagramSound({ audioId: String(body.audioId ?? ""), type: String(body.type ?? "music"), title: String(body.title ?? ""), artist: typeof body.artist === "string" ? body.artist : null }),

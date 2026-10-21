@@ -38,6 +38,7 @@ import { HOOK_DESCRIPTIONS, HOOK_FONTS, HOOK_LABELS, type Hook, type HookKind,
   type ListingDetails,
   type Motion,
   type Music,
+  type MusicMoodId,
   type PanoView,
   type PlanOverlay,
   type TextAnimation,
@@ -52,6 +53,7 @@ import { saveCaption } from "@/app/actions";
 import { CaptionEditor } from "../caption-editor";
 import { AlertIcon, CloseIcon, InstagramIcon, PlusIcon } from "../icons";
 import { InstagramSoundBrowser } from "../instagram-sound-picker";
+import { PopularSounds } from "../popular-sounds";
 import { detectSurface, findMatchingCut, trackTextPathDetailed } from "./frame-analysis";
 import { planarShift } from "./title-metrics";
 import { crossingNow } from "./pass-crossing";
@@ -1083,11 +1085,14 @@ export function MusicSheet({
   onChange,
   onRemove,
   onClose,
+  popular,
 }: {
   library: LibraryAsset[];
   music: Music | null;
   uploading: boolean;
   instagram: InstagramSoundAccess;
+  /** The reel's moods and length, for the "Popular now" row (ADR 0058). */
+  popular?: { moods: MusicMoodId[]; reelMs: number };
   /** The Instagram sound being fetched after it was picked. */
   instagramBusyId: string | null;
   onPick(asset: LibraryAsset): void;
@@ -1182,6 +1187,19 @@ export function MusicSheet({
             <InstagramIcon size={14} />
             Powered by Instagram
           </p>
+          {popular ? (
+            <PopularSounds
+              moods={popular.moods}
+              reelMs={popular.reelMs}
+              selectedId={fromInstagram ? (instagramSound?.audioId ?? music?.instagramAudioId ?? null) : null}
+              busyId={instagramBusyId}
+              disabled={instagramBusyId !== null}
+              onSelect={(track) => {
+                busyTitle.current = track.title;
+                onPickInstagram(track);
+              }}
+            />
+          ) : null}
           <div className="segmented" role="group" aria-label="Kind of sound">
             <button type="button" aria-pressed={type === "music"} onClick={() => setType("music")} data-testid="music-source-instagram">
               Music

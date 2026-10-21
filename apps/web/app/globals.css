@@ -2065,6 +2065,31 @@ input[type="range"] {
   min-width: 0;
 }
 
+/* Music sheet: "Popular now" (ADR 0058), above the search. One column: no preview button. */
+.popular-sounds {
+  display: grid;
+  gap: 6px;
+}
+
+.popular-sounds-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.popular-row {
+  grid-template-columns: 1fr;
+}
+
+.popular-row .sound-pick {
+  padding-right: 10px;
+}
+
+.popular-why {
+  line-height: 1.3;
+}
+
 /* The export screen's sound: picker, a note, and Play with sound under it. */
 .export-sound {
   display: grid;

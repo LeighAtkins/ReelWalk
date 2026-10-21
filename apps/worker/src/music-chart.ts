@@ -100,7 +100,11 @@ export async function runMusicChart(input: {
     ({ matches, searches, failures } = await matchCandidates(toMatch, input.search));
   }
 
-  const bpm = await input.store.bpmFor([...new Set([...matches.values()].map((found) => found.sound.id))]);
+  // Tempo is a nicety: without it the editor measures the sound once it is picked.
+  const bpm = await input.store.bpmFor([...new Set([...matches.values()].map((found) => found.sound.id))]).catch((error: unknown) => {
+    log(`tempo lookup failed: ${error instanceof Error ? error.message : String(error)}`);
+    return new Map<string, number>();
+  });
   const lookedUp = new Set(toMatch.map((candidate) => candidate.key));
   const rows: MusicCandidateWrite[] = scored.map(({ popularity: _popularity, ...candidate }) => {
     const row: MusicCandidateWrite = { ...candidate, source: snapshot.source, fetchedAt: snapshot.fetchedAt };

@@ -215,7 +215,7 @@ describe("the Instagram matcher", () => {
     expect(matches.has("c")).toBe(false);
     expect(searches).toBe(5);
     expect(failures).toBe(2);
-    expect(search).toHaveBeenCalledWith("music", "Nuvole Bianche ludovico einaudi");
+    expect(search).toHaveBeenCalledWith("music", "Nuvole Bianche");
   });
 });
 
@@ -261,7 +261,7 @@ describe("picks for a reel", () => {
     ...over,
   });
 
-  it("puts the reel's mood first, long-enough sounds before short ones, fills with other moods", () => {
+  it("offers the reel's moods only, long-enough sounds before short ones", () => {
     const rows = [
       row({ key: "off", moods: ["deep-house"], score: 100 }),
       row({ key: "short", score: 50, igDurationMs: 20_000 }),
@@ -270,8 +270,12 @@ describe("picks for a reel", () => {
       row({ key: "dupe", score: 5, igAudioId: "ig-fits" }),
     ];
     const picks = pickPopularSounds(rows, { moods: ["cozy-winter"], reelMs: 30_000 });
-    expect(picks.map((pick) => pick.track.id)).toEqual(["ig-fits", "ig-short", "ig-off"]);
+    expect(picks.map((pick) => pick.track.id)).toEqual(["ig-fits", "ig-short"]);
     expect(pickPopularSounds(rows, { moods: ["cozy-winter"], reelMs: 30_000, limit: 1 })).toHaveLength(1);
+    // The second mood counts, a little less.
+    expect(pickPopularSounds(rows, { moods: ["cozy-winter", "deep-house"], reelMs: 30_000 }).map((pick) => pick.track.id)).toEqual(["ig-off", "ig-fits", "ig-short"]);
+    // Nothing for the mood at all: the chart's best, rather than an empty row.
+    expect(pickPopularSounds(rows, { moods: ["summer-house"], reelMs: 30_000 }).map((pick) => pick.track.id)).toEqual(["ig-off", "ig-fits", "ig-short"]);
   });
 
   it("only ever returns stored sounds, shaped for the Music sheet", () => {

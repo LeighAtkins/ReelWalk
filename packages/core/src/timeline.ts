@@ -268,7 +268,17 @@ export const musicSchema = z
     sections: z.array(songSectionSchema).max(MAX_SECTIONS).optional(),
     /** Where the Energy control was last set for this song, 0 (chill) to 1 (hype) (ADR 0059). */
     energy: unit.optional(),
-    /** "On the beat" (ADR 0059): title entrances, particle bursts, whips and the presenter's pass go onto the bar when the cut changes. Absent (older reels) is off. */
+    /**
+     * What the last Energy change cut from (ADR 0059): the clips' order and windows before pacing, a key of the cut it
+     * made, and the hero it put on the drop. While the reel's clips still match `resultKey`, the next Energy change
+     * plans from `base` again, so the order does not churn and going back to a stop gives back its cut.
+     */
+    pace: z.object({
+      base: z.array(z.object({ id: z.string().min(1), sourceStartMs: ms, sourceEndMs: ms })).max(100),
+      resultKey: z.string().min(1).max(32),
+      heroClipId: z.string().min(1).nullable(),
+    }).optional(),
+    /** "On the beat" (ADR 0059): title entrances, particle bursts and whips go onto the bar when the cut changes. Absent (older reels) is off. */
     onBeat: z.boolean().optional(),
   })
   // Instagram has no start offset for an attached sound, so neither does the edit.

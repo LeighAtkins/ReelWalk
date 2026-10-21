@@ -1,7 +1,7 @@
 /**
  * Editing to the song (ADR 0059): a cut plan that moves with the music, and
  * "On the beat", which puts the things that happen inside a shot (a title's
- * entrance, a particle burst, a whip, the presenter's pass) on the bar.
+ * entrance, a particle burst, a whip) on the bar.
  *
  * Pure and deterministic: the same reel, song and energy always give the same
  * cut, so moving the Energy control back to where it was gives back the same
@@ -9,9 +9,10 @@
  */
 import { beatPeriodMs } from "./beats";
 import type { MotionSample } from "./motion";
+import { isGeneratedAssetId } from "./presenter";
 import { BEATS_PER_BAR, sectionAt } from "./song";
 import { clipRunEndMs, retimeTexts, textAttachment } from "./text-timing";
-import { MIN_CLIP_MS, clipDurationMs, clipStartsMs, timelineDurationMs, type Clip, type Music, type SectionKind, type SongSection, type Timeline } from "./timeline";
+import { MIN_CLIP_MS, clipDurationMs, clipStartsMs, timelineDurationMs, type Clip, type Music, type SectionKind, type SongSection, type TextOverlay, type Timeline } from "./timeline";
 
 /** The Energy control's stops, chill to hype. */
 export const ENERGY_STOPS = [
@@ -126,16 +127,33 @@ const HERO_BEATS: [number, number] = [8, 4];
 /** A 360 photo needs time for its sweep to read. */
 const PANO_MIN_MS = 3500;
 
-export type PaceShot = { clipId: string; startMs: number; endMs: number; beats: number; section: SectionKind | "none"; hero: boolean };
+export type PaceShot = { clipId: string; startMs: number; endMs: number; beats: number; section: SectionKind | "none"; hero: boolean; held: boolean };
 export type PacePlan = { clips: Clip[]; shots: PaceShot[]; heroClipId: string | null };
 
 export type PaceOptions = {
   /** 0 (chill) to 1 (hype). */
   energy: number;
-  /** Measured energy of each clip by clip id (`clipEnergyFromMotion`); clips left out use `fallbackClipEnergy`. */
+  /** MEASURED energy of each clip by clip id (`clipEnergyFromMotion`). Only measured clips can be the hero; the rest use `fallbackClipEnergy` for their length. */
   clipEnergy?: Record<string, number>;
+  /**
+   * Assets whose clips carry speech (a transcript with words). A video playing its own sound (volume > 0) from one of
+   * these is held: never shortened, moved or reordered. Left out (unknown), every video with its sound on is held.
+   */
+  speechAssetIds?: readonly string[];
+  /** The hero an earlier Energy change chose; kept while it can still be the hero, so later changes do not churn the order. */
+  heroClipId?: string | null;
   sourceDurationsMs?: Record<string, number | null | undefined>;
 };
+
+/**
+ * Whether pacing must leave a clip exactly as it is: an AI take (a presenter speaking, generated footage), or a video
+ * whose own speech is heard. Cutting either to its middle loses the line.
+ */
+export function heldByPace(clip: Clip, speechAssetIds?: readonly string[]): boolean {
+  if (isGeneratedAssetId(clip.assetId)) return true;
+  if (clip.kind !== "VIDEO" || clip.volume <= 0) return false;
+  return speechAssetIds ? speechAssetIds.includes(clip.assetId) : true;
+}
 
 /** Beats for one shot: the section's chill-to-hype range at this energy, shortened a little for a lively clip and lengthened for a still one, in powers of two. */
 function shotBeats(range: [number, number], energy: number, clipEnergy: number, minBeats: number): number {
@@ -148,45 +166,75 @@ function shotBeats(range: [number, number], energy: number, clipEnergy: number, 
 /**
  * The cut plan: every clip, in order, for a number of beats chosen by the
  * part of the song it plays over and the energy: slow holds in the intro,
- * faster cuts through the build, the hero shot (the clip that moves most)
- * held on the drop, and the outro slowing down again. Cuts land on a grid of
- * the shot's length laid from the bar lines (a four-beat shot cuts on a
- * downbeat) and on every section start, so the drop is a cut. A video is
- * never played past its source (it keeps the middle of what it showed); when
- * not even one beat fits, it cuts off the beat and the next cut goes back on
- * it. Null when the song has no tempo or there is nothing to cut.
+ * faster cuts through the build, the hero shot held on the drop, and the
+ * outro slowing down again. Cuts land on a grid of the shot's length laid
+ * from the bar lines (a four-beat shot cuts on a downbeat) and on every
+ * section start, so the drop is a cut. A video is never played past its
+ * source (it keeps the middle of what it showed); when not even one beat
+ * fits, it cuts off the beat and the next cut goes back on it.
+ *
+ * The hero is the clip MEASURED to move most, and only when at least two
+ * clips were measured and they differ; with nothing measured the order is
+ * kept. A held clip (`heldByPace`) keeps its window and its place among the
+ * other clips; the hero never jumps over one. Null when the song has no tempo
+ * or there is nothing to cut.
  */
 export function planPace(timeline: Timeline, options: PaceOptions): PacePlan | null {
   const music = timeline.music;
   const grid = reelGrid(music);
   if (!grid || timeline.clips.length === 0) return null;
+  const sections = reelSections(music);
+  const held = (clip: Clip) => heldByPace(clip, options.speechAssetIds);
+  const hero = chooseHero(timeline, options, sections, grid, held);
+  const plan = cutPlan(timeline, options, sections, grid, held, hero);
+  if (!hero) return plan;
+  // The hero never jumps over a held clip: that would reorder a take with its own sound.
+  const before = timeline.clips.map((clip) => clip.id);
+  const after = plan.clips.map((clip) => clip.id);
+  const crosses = timeline.clips.some((clip) => {
+    if (!held(clip)) return false;
+    const was = Math.sign(before.indexOf(hero.id) - before.indexOf(clip.id));
+    return was !== Math.sign(after.indexOf(hero.id) - after.indexOf(clip.id));
+  });
+  return crosses ? cutPlan(timeline, options, sections, grid, held, null) : plan;
+}
+
+function chooseHero(timeline: Timeline, options: PaceOptions, sections: SongSection[], grid: ReelGrid, held: (clip: Clip) => boolean): Clip | null {
+  if (!sections.some((section) => section.kind === "drop") || timeline.clips.length < 2) return null;
+  const heroMin = HERO_BEATS[1] * grid.periodMs * 0.5;
+  const durations = options.sourceDurationsMs ?? {};
+  const eligible = (clip: Clip) => !held(clip) && longestMs(clip, durations) >= heroMin;
+  if (options.heroClipId) {
+    const kept = timeline.clips.find((clip) => clip.id === options.heroClipId);
+    if (kept && eligible(kept)) return kept;
+  }
+  const measured = timeline.clips.filter((clip) => options.clipEnergy?.[clip.id] !== undefined);
+  if (measured.length < 2) return null;
+  const energies = measured.map((clip) => options.clipEnergy![clip.id]);
+  if (Math.max(...energies) - Math.min(...energies) < 0.05) return null;
+  let hero: Clip | null = null;
+  let best = -1;
+  for (const clip of measured) {
+    const energy = options.clipEnergy![clip.id];
+    if (!eligible(clip) || energy <= best) continue;
+    best = energy;
+    hero = clip;
+  }
+  return hero;
+}
+
+function longestMs(clip: Clip, durations: Record<string, number | null | undefined>): number {
+  if (clip.kind !== "VIDEO") return Infinity;
+  return Math.floor((durations[clip.assetId] ?? clip.sourceEndMs) / clip.speed);
+}
+
+function cutPlan(timeline: Timeline, options: PaceOptions, sections: SongSection[], grid: ReelGrid, held: (clip: Clip) => boolean, heroClip: Clip | null): PacePlan {
   const energy = Math.min(1, Math.max(0, options.energy));
   const durations = options.sourceDurationsMs ?? {};
   const P = grid.periodMs;
   const minBeats = Math.max(1, Math.ceil(MIN_CLIP_MS / P - 1e-9));
-  const sections = reelSections(music);
   const energyOf = (clip: Clip) => options.clipEnergy?.[clip.id] ?? fallbackClipEnergy(clip);
-  const speedOf = (clip: Clip) => (clip.kind === "IMAGE" ? 1 : clip.speed);
-  const longest = (clip: Clip) => {
-    if (clip.kind !== "VIDEO") return Infinity;
-    const source = durations[clip.assetId] ?? clip.sourceEndMs;
-    return Math.floor(source / speedOf(clip));
-  };
-
-  // The hero: the clip that moves most, when the clips differ at all and there is a drop to put it on.
   const drop = sections.find((section) => section.kind === "drop");
-  const energies = timeline.clips.map(energyOf);
-  const spread = Math.max(...energies) - Math.min(...energies);
-  let heroClip: Clip | null = null;
-  if (drop && timeline.clips.length > 1 && spread >= 0.05) {
-    const heroMin = HERO_BEATS[1] * P * 0.5;
-    let best = -1;
-    for (const [index, clip] of timeline.clips.entries()) {
-      if (longest(clip) < heroMin || energies[index] <= best) continue;
-      best = energies[index];
-      heroClip = clip;
-    }
-  }
   const queue = timeline.clips.filter((clip) => clip !== heroClip);
   let heroPending = heroClip !== null;
 
@@ -203,6 +251,14 @@ export function planPace(timeline: Timeline, options: PaceOptions): PacePlan | n
     } else clip = queue.shift()!;
 
     const kind: SectionKind | "none" = sectionAt(sections, t + P / 4)?.kind ?? "none";
+    if (held(clip)) {
+      // Exactly as it was: the next cut goes back on the grid.
+      const actual = clipDurationMs(clip);
+      clips.push(clip);
+      shots.push({ clipId: clip.id, startMs: t, endMs: t + actual, beats: Math.round(actual / P), section: kind, hero: false, held: true });
+      t += actual;
+      continue;
+    }
     const beats = isHero ? shotBeats(HERO_BEATS, energy, 0.5, minBeats) : shotBeats(SHOT_BEATS[kind], energy, energyOf(clip), minBeats);
     const minimum = Math.max(MIN_CLIP_MS, clip.pano ? PANO_MIN_MS : 0);
     const step = Math.min(beats, BEATS_PER_BAR);
@@ -211,7 +267,7 @@ export function planPace(timeline: Timeline, options: PaceOptions): PacePlan | n
     const boundary = sections.find((section) => section.startMs > t + minimum && section.startMs < end - 1);
     if (boundary) end = boundary.startMs;
     // A video plays no further than its source: the longest whole number of beats that fits, else what fits.
-    const most = longest(clip);
+    const most = longestMs(clip, durations);
     if (end - t > most) {
       const fit = gridAtOrBefore(grid, t + most, 1);
       end = fit - t >= minimum ? fit : t + most;
@@ -220,7 +276,7 @@ export function planPace(timeline: Timeline, options: PaceOptions): PacePlan | n
     const next = withLength(clip, length, durations);
     const actual = clipDurationMs(next);
     clips.push(next);
-    shots.push({ clipId: clip.id, startMs: t, endMs: t + actual, beats, section: kind, hero: isHero });
+    shots.push({ clipId: clip.id, startMs: t, endMs: t + actual, beats, section: kind, hero: isHero, held: false });
     t += actual;
   }
   return { clips, shots, heroClipId: heroClip?.id ?? null };
@@ -236,57 +292,96 @@ function withLength(clip: Clip, lengthMs: number, durations: Record<string, numb
   return { ...clip, sourceStartMs: start, sourceEndMs: start + length };
 }
 
+/** A short, stable key of the clips' order and windows (FNV-1a), to tell whether the reel is still the cut pacing made. */
+export function clipsKey(clips: readonly Clip[]): string {
+  let h = 0x811c9dc5;
+  const text = clips.map((clip) => `${clip.id}:${clip.sourceStartMs}-${clip.sourceEndMs}`).join("|");
+  for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 0x01000193);
+  return (h >>> 0).toString(16).padStart(8, "0");
+}
+
 /**
- * The reel cut to the song at `energy`, titles following their clips by the
- * attachment rule (ADR 0048), and, when "On the beat" is on, entrances,
- * bursts, whips and the pass on the bar. The reel as it was when the song has
- * no tempo.
+ * What an Energy change cuts from: while the reel is still exactly the cut the
+ * last change made (`music.pace.resultKey`), the clips as they were before
+ * pacing and the hero chosen then; once anything else changed the cut (a
+ * trim, a reorder, a new clip), the reel as it is now.
+ */
+export function paceOrigin(timeline: Timeline): { clips: Clip[]; heroClipId: string | null } {
+  const pace = timeline.music?.pace;
+  if (!pace || pace.resultKey !== clipsKey(timeline.clips)) return { clips: timeline.clips, heroClipId: null };
+  const byId = new Map(timeline.clips.map((clip) => [clip.id, clip]));
+  if (pace.base.length !== timeline.clips.length || pace.base.some((entry) => !byId.has(entry.id))) return { clips: timeline.clips, heroClipId: null };
+  return { clips: pace.base.map((entry) => ({ ...byId.get(entry.id)!, sourceStartMs: entry.sourceStartMs, sourceEndMs: entry.sourceEndMs })), heroClipId: pace.heroClipId };
+}
+
+/**
+ * The reel cut to the song at `energy` (planned from `paceOrigin`), titles
+ * following their clips by the attachment rule (ADR 0048), the plan recorded
+ * on the music, and, when "On the beat" is on, entrances, bursts and whips on
+ * the bar. The reel as it was when the song has no tempo.
  */
 export function paceTimeline(timeline: Timeline, options: PaceOptions): Timeline {
-  const plan = planPace(timeline, options);
+  if (!timeline.music) return timeline;
+  const origin = paceOrigin(timeline);
+  const plan = planPace({ ...timeline, clips: origin.clips }, { ...options, heroClipId: options.heroClipId ?? origin.heroClipId });
   if (!plan) return timeline;
-  const cut = retimeTexts(timeline, { ...timeline, clips: plan.clips });
-  return timeline.music?.onBeat ? putOnTheBeat(cut, options.sourceDurationsMs) : cut;
+  const pace = { base: origin.clips.map(({ id, sourceStartMs, sourceEndMs }) => ({ id, sourceStartMs, sourceEndMs })), resultKey: clipsKey(plan.clips), heroClipId: plan.heroClipId };
+  const music = { ...timeline.music, energy: Math.round(Math.min(1, Math.max(0, options.energy)) * 100) / 100, pace };
+  const cut = retimeTexts(timeline, { ...timeline, music, clips: plan.clips });
+  return music.onBeat ? putOnTheBeat(cut, options.sourceDurationsMs, options.speechAssetIds) : cut;
+}
+
+/** How far (ms) the reel runs past the end of its song, 0 when it does not or the song's length is unknown. */
+export function pastSongEndMs(timeline: Timeline, songDurationMs: number | null | undefined): number {
+  if (!timeline.music || !songDurationMs) return 0;
+  return Math.max(0, timelineDurationMs(timeline) - (songDurationMs - timeline.music.sourceStartMs));
 }
 
 // ── On the beat ─────────────────────────────────────────────────
 
-/** Shortest a title is left after its entrance moves onto the bar. */
-const MIN_TEXT_MS = 300;
+/** A title whose entrance moving would leave it shorter than this (or than it was, if shorter) stays where it is. */
+const MIN_TEXT_MS = 800;
+/** Titles that open the reel are on the first frames, and the cover: they never move. */
+const OPENING_MS = 500;
+
+/** Whether "On the beat" leaves a title where it is: the hook (its words are the cover), anything on the opening frames, room labels (redrawn by their own rule). */
+function fixedTitle(text: TextOverlay): boolean {
+  return text.id.startsWith("hook") || text.id.startsWith("room-") || text.startMs < OPENING_MS;
+}
 
 /**
  * "On the beat": each of these goes to the nearest downbeat, never so far
  * that it changes what it belongs to:
  * - a whip's cut (the clip before it lengthens or shortens, within its
- *   source; titles follow by the attachment rule);
+ *   source, never below a 360's sweep and never a held clip; titles follow by
+ *   the attachment rule);
  * - a title's entrance (`startMs`; the title keeps its length), staying over
  *   the clip it is attached to, and for a pinned title inside the frames its
- *   path was tracked on;
- * - a particle burst (`particles.burstMs`), inside the title's life;
- * - the presenter's pass (`passMs`), inside the title's life and only when
- *   a downbeat is within one beat: the pass is where she really crosses the
- *   words, so it may move by at most a beat.
- * Nothing that is not set is added. The reel as it was without a tempo.
+ *   path was tracked on. Titles over one clip keep their order and never land
+ *   on the same moment; a move that would leave a title under 800 ms is not
+ *   made. The hook and anything starting in the first 500 ms never move;
+ * - a particle burst (`particles.burstMs`), inside the title's life.
+ * The presenter's pass (`passMs`) is never moved: it is where she really
+ * crosses the words. Nothing that is not set is added. The reel as it was
+ * without a tempo.
  */
-export function putOnTheBeat(timeline: Timeline, sourceDurationsMs: Record<string, number | null | undefined> = {}): Timeline {
+export function putOnTheBeat(timeline: Timeline, sourceDurationsMs: Record<string, number | null | undefined> = {}, speechAssetIds?: readonly string[]): Timeline {
   const grid = reelGrid(timeline.music);
   if (!grid || timeline.clips.length === 0) return timeline;
-  const afterWhips = whipsOnTheBeat(timeline, grid, sourceDurationsMs);
+  const afterWhips = whipsOnTheBeat(timeline, grid, sourceDurationsMs, speechAssetIds);
   const current = afterWhips === timeline ? timeline : retimeTexts(timeline, afterWhips);
   const total = timelineDurationMs(current);
   const starts = clipStartsMs(current);
-  const nearestWithin = (ms: number, from: number, to: number, tolerance = Infinity) => {
+  const nearestWithin = (ms: number, from: number, to: number) => {
     const candidates = downbeatsBetween(grid, from, to);
     if (candidates.length === 0) return null;
-    const best = candidates.reduce((a, b) => (Math.abs(b - ms) < Math.abs(a - ms) ? b : a));
-    return Math.abs(best - ms) <= tolerance ? best : null;
+    return candidates.reduce((a, b) => (Math.abs(b - ms) < Math.abs(a - ms) ? b : a));
   };
-  const texts = current.texts.map((text) => {
-    if (text.id.startsWith("room-")) return text;
-    let next = text;
+
+  // Each title's scope (its clip, or the reel) and the window its entrance may move in.
+  const placed = current.texts.map((text, at) => {
     const attachment = textAttachment(current, text);
     const index = attachment.kind === "clip" ? current.clips.findIndex((clip) => clip.id === attachment.clipId) : -1;
-    // Where the entrance may go: over its own clip when attached, the pinned frames when pinned, else the reel.
     let from = index >= 0 ? starts[index] : 0;
     let to = index >= 0 ? clipRunEndMs(current, index, starts) : total;
     if (text.pin && index >= 0) {
@@ -295,36 +390,50 @@ export function putOnTheBeat(timeline: Timeline, sourceDurationsMs: Record<strin
       from = Math.max(from, starts[index] + (text.pin.fromMs - clip.sourceStartMs) / speed);
       to = Math.min(to, starts[index] + (text.pin.toMs - clip.sourceStartMs) / speed);
     }
-    const length = text.endMs - text.startMs;
-    const entrance = nearestWithin(text.startMs, from, Math.min(to, total) - MIN_TEXT_MS);
-    if (entrance !== null && entrance !== text.startMs) {
-      const endMs = Math.min(entrance + length, to, total);
-      if (endMs - entrance >= Math.min(length, MIN_TEXT_MS)) next = { ...next, startMs: entrance, endMs: Math.round(endMs) };
-    }
-    if (next.particles?.burstMs !== undefined) {
-      const burst = nearestWithin(next.particles.burstMs, next.startMs, next.endMs);
-      if (burst !== null && burst !== next.particles.burstMs) next = { ...next, particles: { ...next.particles, burstMs: burst } };
-    }
-    if (next.passMs !== undefined) {
-      const pass = nearestWithin(next.passMs, next.startMs, next.endMs, grid.periodMs);
-      if (pass !== null && pass !== next.passMs) next = { ...next, passMs: pass };
-    }
-    return next;
+    return { at, text, scope: index >= 0 ? current.clips[index].id : "", from: Math.max(from, OPENING_MS), to: Math.min(to, total) };
   });
+  const texts = [...current.texts];
+  const scopes = new Map<string, typeof placed>();
+  for (const entry of placed) scopes.set(entry.scope, [...(scopes.get(entry.scope) ?? []), entry]);
+  for (const group of scopes.values()) {
+    group.sort((a, b) => a.text.startMs - b.text.startMs || a.at - b.at);
+    let previous = -Infinity;
+    group.forEach((entry, i) => {
+      const { text } = entry;
+      let next = text;
+      if (!fixedTitle(text)) {
+        const length = text.endMs - text.startMs;
+        const entrance = nearestWithin(text.startMs, entry.from, entry.to - Math.min(length, MIN_TEXT_MS));
+        const following = group[i + 1]?.text.startMs ?? Infinity;
+        // Order kept, never two entrances on one moment, and never under 800 ms (or its own length) at the clip's end.
+        if (entrance !== null && entrance !== text.startMs && entrance > previous && entrance < following) {
+          const endMs = Math.round(Math.min(entrance + length, entry.to));
+          if (endMs - entrance >= Math.min(length, MIN_TEXT_MS)) next = { ...next, startMs: entrance, endMs };
+        }
+      }
+      if (next.particles?.burstMs !== undefined && !next.id.startsWith("room-")) {
+        const burst = nearestWithin(next.particles.burstMs, Math.max(next.startMs, OPENING_MS), next.endMs);
+        if (burst !== null && burst !== next.particles.burstMs) next = { ...next, particles: { ...next.particles, burstMs: burst } };
+      }
+      previous = next.startMs;
+      texts[entry.at] = next;
+    });
+  }
   const changed = texts.some((text, i) => text !== current.texts[i]);
   return changed ? { ...current, texts } : current;
 }
 
-/** Each whip's cut moved to the nearest downbeat by lengthening or shortening the clip before it, where its source and the shortest clip allow. */
-function whipsOnTheBeat(timeline: Timeline, grid: ReelGrid, durations: Record<string, number | null | undefined>): Timeline {
+/** Each whip's cut moved to the nearest downbeat by lengthening or shortening the clip before it, where its source, the shortest clip (a 360's sweep) and a held clip allow. */
+function whipsOnTheBeat(timeline: Timeline, grid: ReelGrid, durations: Record<string, number | null | undefined>, speechAssetIds?: readonly string[]): Timeline {
   let clips = timeline.clips;
   for (let i = 1; i < clips.length; i++) {
     if (clips[i].transitionIn !== "whip") continue;
+    const before = clips[i - 1];
+    if (heldByPace(before, speechAssetIds)) continue;
     const cut = clipStartsMs({ ...timeline, clips })[i];
     const target = nearestDownbeatMs(grid, cut);
-    const before = clips[i - 1];
     const length = clipDurationMs(before) + (target - cut);
-    if (target === cut || length < MIN_CLIP_MS) continue;
+    if (target === cut || length < Math.max(MIN_CLIP_MS, before.pano ? PANO_MIN_MS : 0)) continue;
     let next: Clip;
     if (before.kind === "IMAGE") next = { ...before, sourceEndMs: before.sourceStartMs + length };
     else {

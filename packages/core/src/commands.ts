@@ -56,9 +56,9 @@ export type Command =
    * back the same cut. `clipEnergy` is measured motion by clip id; `songMap`
    * is the song's bars and sections when the song did not have them yet.
    */
-  | { type: "pace"; energy: number; clipEnergy?: Record<string, number>; songMap?: SongMap }
+  | { type: "pace"; energy: number; clipEnergy?: Record<string, number>; songMap?: SongMap; /** Assets whose clips carry speech: their clips are held (see `heldByPace`). */ speechAssetIds?: string[] }
   /** "On the beat" (ADR 0059) switched; switching it on puts entrances, bursts, whips and the pass on the bar. */
-  | { type: "setOnBeat"; on: boolean }
+  | { type: "setOnBeat"; on: boolean; speechAssetIds?: string[] }
   /** The draft review's pace and length (ADR 0022). */
   | { type: "retime"; shotMs: number }
   | { type: "retimeToLength"; totalMs: number }
@@ -162,7 +162,7 @@ function run(timeline: Timeline, command: Command, context: CommandContext): Tim
     case "setSpeed":
       return cut(updateClip(timeline, command.clipId, { speed: command.speed }));
     case "setMusic":
-      return withMusic(timeline, command.music, Boolean(command.snap), durations);
+      return withMusic(timeline, command.music, Boolean(command.snap), durations, true);
     case "snapToBeat": {
       if (timeline.clips.length < 2) return timeline;
       const snapped = cut(snapCutsToBeats(timeline, durations));
@@ -174,12 +174,12 @@ function run(timeline: Timeline, command: Command, context: CommandContext): Tim
       const map = command.songMap && !base.music.downbeats?.length ? { downbeats: command.songMap.downbeats, sections: command.songMap.sections } : {};
       const energy = Math.round(Math.min(1, Math.max(0, command.energy)) * 100) / 100;
       const withSong: Timeline = { ...base, music: { ...base.music, ...map, energy } };
-      return paceTimeline(withSong, { energy, clipEnergy: command.clipEnergy, sourceDurationsMs: durations });
+      return paceTimeline(withSong, { energy, clipEnergy: command.clipEnergy, speechAssetIds: command.speechAssetIds, sourceDurationsMs: durations });
     }
     case "setOnBeat": {
       if (!timeline.music) return timeline;
       const next: Timeline = { ...timeline, music: { ...timeline.music, onBeat: command.on } };
-      return command.on ? putOnTheBeat(next, durations) : next;
+      return command.on ? putOnTheBeat(next, durations, command.speechAssetIds) : next;
     }
     case "retime":
       return retime(timeline, command.shotMs, durations);
@@ -192,17 +192,18 @@ function run(timeline: Timeline, command: Command, context: CommandContext): Tim
       const proposal = parseTimeline(command.proposal);
       if (!command.music) return proposal;
       const { snap, ...music } = command.music;
-      return withMusic(proposal, music, Boolean(snap), durations);
+      // The proposal placed its own titles: its song's cuts are snapped, but nothing is moved onto the bar.
+      return withMusic(proposal, music, Boolean(snap), durations, false);
     }
   }
 }
 
-function withMusic(timeline: Timeline, choice: MusicChoice | null, snap: boolean, durations: Record<string, number | null | undefined>): Timeline {
+function withMusic(timeline: Timeline, choice: MusicChoice | null, snap: boolean, durations: Record<string, number | null | undefined>, onBeat: boolean): Timeline {
   // "On the beat" is on for every song chosen from now on, unless the reel's song had it switched off (ADR 0059).
   const withSong = setMusic(timeline, choice ? { ...choice, volume: choice.volume ?? timeline.music?.volume ?? 0.8, onBeat: choice.onBeat ?? timeline.music?.onBeat ?? true } : null);
   if (!snap || !withSong.music?.bpm || withSong.clips.length < 2) return withSong;
   const snapped = retimeTexts(timeline, snapCutsToBeats(withSong, durations));
-  return snapped.music?.onBeat ? putOnTheBeat(snapped, durations) : snapped;
+  return onBeat && snapped.music?.onBeat ? putOnTheBeat(snapped, durations) : snapped;
 }
 
 /** Which clips, texts and other parts differ between two timelines. */

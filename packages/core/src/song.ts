@@ -169,6 +169,8 @@ function findSections(samples: Float32Array, sampleRate: number, downbeats: numb
   const high = level.map((value) => value >= 0.66);
   const firstDrop = high.indexOf(true);
   const lastDrop = high.lastIndexOf(true);
+  // No bar loud enough to be a drop (the smoothing can flatten a lone peak): no structure to cut to.
+  if (firstDrop === -1) return [];
   for (let i = 0; i < bars.length; i++) {
     if (high[i]) kinds[i] = "drop";
     else if (i > lastDrop) kinds[i] = "outro";

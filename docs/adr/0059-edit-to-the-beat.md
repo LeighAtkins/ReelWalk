@@ -9,8 +9,7 @@ Cuts could already snap to beats (`beats.ts`, ADR 0021's snap, the
 the same whatever part of the song it played over. A pro edit moves with
 the song: slow holds while the intro breathes, faster cuts as it builds,
 the best shot landing on the drop, things inside the shot (a title
-arriving, a burst of snow, a whip, the presenter crossing the words) on the
-bar. The reel knew the tempo and the first beat, nothing about bars or
+arriving, a burst of snow, a whip) on the bar. The reel knew the tempo and the first beat, nothing about bars or
 sections, and nothing about how much each clip moves except the measured
 motion the director's evidence gathers (`motion.ts`, ADR 0034).
 
@@ -36,12 +35,13 @@ sound is only analysed, never rendered: ADR 0019 is unchanged.
   drop the **build**; bars after the last drop the **outro**. A one-bar dip
   inside a drop (a fill) stays drop. A steady loop (under 3 dB between its
   quietest and loudest bars and much the same attacks throughout) has no
-  sections. Sections are contiguous from 0 and every boundary is a downbeat.
+  sections, and neither does a song where no bar reaches the drop's level
+  after smoothing. Sections are contiguous from 0 and every boundary is a downbeat.
 
 Stored additively:
 
 - `MediaAsset.songMap` (new nullable JSONB, migration
-  `20261021059000_media_song_map`), validated by `songMapSchema`, handed
+  `20261021050000_media_song_map`), validated by `songMapSchema`, handed
   to the editor as `LibraryAsset.songMap`.
 - The reel's `music` gains optional `downbeats[]`, `sections[]`, `energy`
   (where the Energy control was left) and `onBeat`. Absent on every saved
@@ -68,11 +68,17 @@ order:
 - **On the bar.** A shot ends on a grid of its own length laid from the bar
   lines (a four-beat shot cuts on a downbeat, a two-beat one on a half bar),
   and every section start is a cut, so the drop is a cut.
-- **The hero on the drop.** The clip that moves most (measured) is held out
+- **The hero on the drop.** The clip *measured* to move most is held out
   of the order and placed on the drop's first downbeat with a longer hold
-  (8→4 beats). When nothing tells the clips apart (energies within 0.05)
-  the order is left alone. A reel that ends before the drop puts the hero
-  last.
+  (8→4 beats). Only measured clips can be the hero, and only when at least
+  two were measured and they differ by 0.05 or more; with nothing measured
+  the order is kept. A reel that ends before the drop puts the hero last.
+- **Held clips.** An AI take (`ai-…` assets: a presenter speaking,
+  generated footage) and a video playing its own speech (volume > 0 and a
+  transcript with words; when the editor cannot say, every video with its
+  sound on) are never shortened, moved or reordered: they keep their window
+  and their place, the next cut goes back on the grid, and the hero never
+  jumps over one (the plan is redone without a hero if it would).
 - **Sources.** A photo can be any length (a 360 at least 3.5 s for its
   sweep); a video keeps the middle of what it showed and never plays past
   its source: the longest whole number of beats that fits, else what fits
@@ -92,7 +98,13 @@ ADR 0048 (`retimeTexts`: an attached title follows its clip to its new
 place and window, a caption across cuts keeps its seconds). It plans from
 `context.gestureBase`, the reel before the Energy drag began, so a drag
 across the stops is one history entry and dragging back gives back exactly
-the earlier cut. `{ type: "setOnBeat", on }` switches "On the beat"; on puts
+the earlier cut. Across gestures the same holds: the music records
+`pace: { base, resultKey, heroClipId }` (the clips' order and windows before
+pacing, a key of the cut it made, the hero). While the reel's clips still
+match `resultKey`, the next Energy change plans from `base` with the same
+hero, so the order does not churn and any stop gives back its cut; once
+anything else changes the cut (a trim, a reorder, a new clip) the reel as it
+is becomes the new base. `{ type: "setOnBeat", on }` switches "On the beat"; on puts
 things on the bar in the same step.
 
 ### On the beat (`putOnTheBeat`)
@@ -103,17 +115,25 @@ Each to the nearest downbeat, never so far it changes what it belongs to:
   source; titles follow by the attachment rule);
 - a **title entrance** (`startMs`; the title keeps its length), staying
   over the clip it is attached to and, when pinned, inside the frames its
-  path was tracked on (`pin.fromMs/toMs` are not touched);
+  path was tracked on (`pin.fromMs/toMs` are not touched). Titles over one
+  clip keep their order and never land on the same moment, and a move that
+  would leave a title under 800 ms at its clip's end is not made. The hook
+  (`hook…` ids) and anything starting in the first 500 ms never move: they
+  are the opening frames and the cover;
 - a **particle burst** (`particles.burstMs`) inside the title's life. The
   field (`particleField`) puffs out from its centre and brightens for
-  900 ms after `burstMs`; without `burstMs` it is byte-for-byte what it was;
-- the **presenter's pass** (`passMs`) inside the title's life, and only when
-  a downbeat is within one beat: the pass is where she really crosses the
-  words, so it moves at most a beat.
+  900 ms after `burstMs`; without `burstMs` it is byte-for-byte what it was.
+
+The presenter's pass (`passMs`) is **not** moved: it is tied to where she
+really crosses the words in the footage, and moving it even a beat drops
+the words behind her before she arrives. A whip never shortens a 360 photo
+below its 3.5 s sweep and never changes a held clip.
 
 Nothing that is not set is added. It runs in `pace`, `setOnBeat` (on), and
 after `snapToBeat` and a song picked with `snap` when the music has
-`onBeat`. **Default on for new reels**: every song chosen from now on
+`onBeat`. An AI proposal (Ask, Make it for me, the director) that brings a
+song keeps its own title times: its cuts are snapped as before, nothing is
+moved onto the bar. **Default on for new reels**: every song chosen from now on
 (`setMusic`) gets `onBeat: true` unless the reel's song had it switched off,
 as do the songs new reels start with (tour, venue, autopilot). Saved reels
 have no `onBeat` and are off: nothing about them is reinterpreted.
@@ -122,8 +142,13 @@ have no `onBeat` and are off: nothing about them is reinterpreted.
 
 In the Music sheet, under the song in use (tap the music, Adjust): an
 **Energy** slider with five stops (Chill, Easy, Steady, Lively, Hype) and an
-**On the beat** switch, both 44 px tall. "Listening…" shows while the clips
-and the song are being measured. Nothing else is added; the old "Snap cuts
+**On the beat** switch, both 44 px tall. Clip motion is measured on the
+first Energy change, not when the sheet opens (sixteen videos × five seeks
+is too much for a phone just for opening it); that first change is cut
+without a hero, the next has one. "Listening…" shows meanwhile. A song
+analysed before this change is analysed when the sheet opens. When the
+recut reel runs 0.5 s or more past the end of the song, the editor says so
+once ("The reel runs 4.2 s past the end of the song"). Nothing else is added; the old "Snap cuts
 to the beat again" button stays under Adjust.
 
 ## Consequences
@@ -131,8 +156,9 @@ to the beat again" button stays under Adjust.
 - A reel can be recut to its song with one thumb movement and undone with
   one tap; the plan is a pure function and tested without a browser.
 - Picking a song (and snapping, as before) now also puts title entrances,
-  bursts, whips and passes on the bar, because new songs default to On the
-  beat. A studio that does not want that switches it off once per song.
+  bursts and whips on the bar (never the hook or the opening frames),
+  because new songs default to On the beat. A studio that does not want
+  that switches it off once per song.
 - Pacing reorders one clip (the hero). A studio that wanted its order kept
   can undo; there is no "keep my order" switch, by the simpler-by-default
   rule.
@@ -140,7 +166,7 @@ to the beat again" button stays under Adjust.
   90 s of any song: sections after that are unknown and the grid is
   extrapolated.
 - **Prisma migration.** `MediaAsset.songMap` needs
-  `20261021059000_media_song_map` applied before this deploys: Prisma
+  `20261021050000_media_song_map` applied before this deploys: Prisma
   selects every column of a model, so a missing column breaks every
   library query. ship.sh does not apply migrations.
 
@@ -150,8 +176,13 @@ Known gaps:
   EDM-shaped and pop-shaped songs; it does not know verse from chorus, and a
   song whose chorus is no louder than its verse has no drop.
 - Downbeats assume 4/4. A waltz gets bars of four beats.
-- Clip energy is measured once per Music-sheet visit; a clip added
-  afterwards uses the fallback until the sheet is opened again.
+- The tempo can be half or double the real one (60 ↔ 120 bpm, a known
+  limit of `detectBeats`); bars and shot lengths are then twice or half as
+  long as they should be.
+- Pacing does not shorten the reel to fit the song: a song shorter than the
+  reel leaves the end silent, and the editor only warns.
+- Clip energy is measured on the first Energy change of a visit; a clip
+  added afterwards is measured on the next change.
 - The hero is "the clip that moves most", not "the best shot". Picking the
   hero by hand is a later step (it belongs on the clip, where the studio taps
   it).
@@ -177,13 +208,27 @@ On Windows 10, branch rebased on main at ad193af7:
   moving an attached title with its clip and keeping a caption's seconds;
   a later stop planned from the gesture's base equals planning it
   directly; the lazily supplied song map; On the beat for entrances,
-  bursts, a pass within a beat (and one left alone beyond it), a title kept
-  over its own clip, a whip's cut; old reels off; setOnBeat; a new song
-  defaulting on; a burst changing the particle field only during its
-  900 ms); `apps/web/components/editor/document-store.test.ts` (a drag
-  across four Energy stops is one history entry, equal to planning the last
-  stop directly, and one undo restores the reel object as it was).
-- `SMOKE_COMPARE=1 pnpm smoke` (Remotion's Chrome Headless Shell,
+  bursts, the pass never moved, a title kept over its own clip, a whip's
+  cut; old reels off; setOnBeat; a new song defaulting on; a burst changing
+  the particle field only during its 900 ms). After review (PR #212): the
+  hook, `hook-word-…` and a title at 0.4 s never move (directly and through
+  an Instagram pick with the snap, first beat at 1.2 s); an AI proposal's
+  title keeps its time; staggered titles at 6.2 s and 6.8 s keep their
+  order and do not collapse; a moved title keeps ≥ 800 ms; a 7.3 s AI take
+  and a speaking clip keep their windows and places, the hero is dropped
+  when it would jump over a held clip, and an unmuted video is held when
+  speech is unknown; a whip never changes a held clip or takes a 360 under
+  3.5 s; the hero only from measured energy (none with nothing measured,
+  one measured, or measured clips alike); a later gesture plans from the
+  recorded base (same cut at the same stop, the hero not churned by newer
+  measurements, a trim resetting the base); the reel's overrun past its
+  song; a song with no bar at the drop's level has no sections.
+  `apps/web/components/editor/document-store.test.ts` (a drag across four
+  Energy stops is one history entry, equal to planning the last stop
+  directly, cuts with a hero, and one undo restores the reel object as it
+  was).
+- `SMOKE_COMPARE=1 pnpm smoke` (before the review fixes, which do not
+  touch rendering; Remotion's Chrome Headless Shell,
   ffmpeg 6.1.1 essentials as `FFMPEG`, Remotion's ffprobe): ok. Preview
   against export: all ten frames SSIM 0.980–0.993, worst block 6.3–14.8;
   the three planar titles on their planes (drift 0.9–1.1 px, controls

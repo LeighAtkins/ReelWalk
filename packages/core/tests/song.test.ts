@@ -50,6 +50,12 @@ describe("analyseSong", () => {
     expect(Math.abs(otherMap.sections[2].startMs - other.partStartsMs[2])).toBeLessThan(30);
   });
 
+  it("finds no sections when no stretch is loud enough to be a drop", () => {
+    // One loud bar between quiet ones: the three-bar smoothing leaves no bar at the drop's level.
+    const blip = clickSong({ parts: [{ kind: "intro", bars: 8 }, { kind: "drop", bars: 1 }, { kind: "outro", bars: 8 }] });
+    expect(analyseSong(blip.samples, detectBeats(blip.samples)!).sections).toEqual([]);
+  });
+
   it("finds no sections in a steady loop", () => {
     const loop = clickSong({ parts: [{ kind: "drop", bars: 16 }] });
     const loopMap = analyseSong(loop.samples, detectBeats(loop.samples)!);

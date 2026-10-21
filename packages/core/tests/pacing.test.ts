@@ -10,6 +10,7 @@ import {
   parseTimeline,
   particleField,
   planPace,
+  pastSongEndMs,
   putOnTheBeat,
   reelGrid,
   textAttachment,
@@ -47,7 +48,7 @@ for (const id of ids) durations[`v-${id}`] = 30000;
 function reel(extra: Partial<Music> = {}): Timeline {
   return parseTimeline({
     version: 1,
-    clips: ids.map((id, i) => (i % 3 === 2 ? { id, assetId: `p-${id}`, kind: "IMAGE", sourceStartMs: 0, sourceEndMs: 3000 } : { id, assetId: `v-${id}`, kind: "VIDEO", sourceStartMs: 4000, sourceEndMs: 7000 })),
+    clips: ids.map((id, i) => (i % 3 === 2 ? { id, assetId: `p-${id}`, kind: "IMAGE", sourceStartMs: 0, sourceEndMs: 3000 } : { id, assetId: `v-${id}`, kind: "VIDEO", sourceStartMs: 4000, sourceEndMs: 7000, volume: 0 })),
     texts: [
       // Inside c4 (12–15 s), 400 ms in: attached to c4.
       { id: "kitchen", text: "Kitchen", startMs: 12400, endMs: 14400, style: "elegant" },
@@ -57,7 +58,7 @@ function reel(extra: Partial<Music> = {}): Timeline {
     music: { ...music, ...extra },
   });
 }
-// c7 moves most: the hero.
+// B-roll under music: the videos are muted, so pacing may cut them (a clip with its own speech is held). c7 moves most: the hero.
 const clipEnergy = Object.fromEntries(ids.map((id, i) => [id, i === 7 ? 0.95 : 0.3 + (i % 4) * 0.05]));
 const ctx: CommandContext = { generation: 0, sourceDurationsMs: durations };
 // In reel time (the song starts 8.25 s in, its first beat at 0.25 s) beats fall on multiples of 500 ms and bars on multiples of 2 s.
@@ -106,11 +107,13 @@ describe("planPace", () => {
   });
 
   it("leaves the order alone when nothing was measured to tell the clips apart", () => {
-    const plan = planPace(reel(), { energy: 0.5, sourceDurationsMs: { ...durations } })!;
-    // Videos (0.5) and photos (0.15) differ, so the first video moves; with all photos nothing does.
-    expect(plan.heroClipId).not.toBeNull();
-    const photos = parseTimeline({ ...reel(), clips: reel().clips.map((clip) => ({ ...clip, kind: "IMAGE", sourceStartMs: 0, sourceEndMs: 3000 })) });
-    expect(planPace(photos, { energy: 0.5 })!.clips.map((clip) => clip.id)).toEqual(ids);
+    // Nothing measured: videos and photos differ only by their fallback energies, which never pick a hero.
+    const plan = planPace(reel(), { energy: 0.5, sourceDurationsMs: durations })!;
+    expect(plan.heroClipId).toBeNull();
+    expect(plan.clips.map((clip) => clip.id)).toEqual(ids);
+    // One clip measured is not enough to compare; measured clips that move alike are not either.
+    expect(planPace(reel(), { energy: 0.5, clipEnergy: { c7: 0.9 }, sourceDurationsMs: durations })!.heroClipId).toBeNull();
+    expect(planPace(reel(), { energy: 0.5, clipEnergy: { c3: 0.5, c7: 0.52 }, sourceDurationsMs: durations })!.heroClipId).toBeNull();
   });
 
   it("never plays a video past its source", () => {
@@ -182,7 +185,7 @@ describe("On the beat", () => {
     expect(nearestDownbeatMs(grid, 3100)).toBe(4000);
   });
 
-  it("moves entrances, bursts and the pass onto the bar, and leaves what is not set", () => {
+  it("moves entrances and bursts onto the bar, never the pass, and leaves what is not set", () => {
     const timeline = parseTimeline({
       ...reel({ onBeat: true }),
       texts: [
@@ -194,8 +197,8 @@ describe("On the beat", () => {
     const after = putOnTheBeat(timeline, durations);
     const of = (id: string) => after.texts.find((text) => text.id === id)!;
     expect(of("kitchen")).toMatchObject({ startMs: 12000, endMs: 14000, particles: { kind: "snow", burstMs: 14000 } });
-    expect(of("pass")).toMatchObject({ startMs: 4000, endMs: 9500, passMs: 6000 });
-    // 22.9 s is 0.9 s from the nearest bar inside the title: more than a beat, so the pass stays where she crosses.
+    // The pass is where she really crosses the words: it never moves.
+    expect(of("pass")).toMatchObject({ startMs: 4000, endMs: 9500, passMs: 6300 });
     expect(of("far").passMs).toBe(22900);
     expect(of("far").startMs).toBe(22000);
     expect(of("kitchen").particles?.seed).toBeUndefined();
@@ -257,5 +260,126 @@ describe("clip energy and bursts", () => {
     expect(particleField({ ...base, timeMs: 5000, burstMs: 5200 })).toEqual(particleField({ ...base, timeMs: 5000 }));
     expect(particleField({ ...base, timeMs: 6200, burstMs: 5200 })).toEqual(particleField({ ...base, timeMs: 6200 }));
     expect(particleField({ ...base, timeMs: 5320, burstMs: 5200 })).not.toEqual(particleField({ ...base, timeMs: 5320 }));
+  });
+});
+
+describe("review fixes (PR #212)", () => {
+  const ctxOf = (gestureBase?: Timeline): CommandContext => ({ ...ctx, ...(gestureBase ? { gestureBase } : {}) });
+
+  it("never moves the hook or a title on the opening frames", () => {
+    // An Instagram sound at 120 bpm whose first beat is at 1.2 s: bars at 1.2 s, 3.2 s, ...
+    const timeline = parseTimeline({
+      ...reel({ onBeat: true, sourceStartMs: 0, beatOffsetMs: 1200, downbeats: undefined, sections: undefined }),
+      texts: [
+        { id: "hook", text: "Just listed", startMs: 300, endMs: 2500, style: "headline" },
+        { id: "hook-word-1", text: "Ocean", startMs: 900, endMs: 2000 },
+        { id: "early", text: "Wow", startMs: 400, endMs: 1500 },
+        { id: "later", text: "Pool", startMs: 1400, endMs: 2600 },
+      ],
+    });
+    const after = putOnTheBeat(timeline, durations);
+    const of = (id: string) => after.texts.find((text) => text.id === id)!;
+    expect(of("hook")).toMatchObject({ startMs: 300, endMs: 2500 });
+    expect(of("hook-word-1")).toMatchObject({ startMs: 900, endMs: 2000 });
+    expect(of("early")).toMatchObject({ startMs: 400, endMs: 1500 });
+    expect(of("later").startMs).toBe(1200);
+    // The same through a song pick with the snap.
+    const picked = applyCommand(parseTimeline({ ...timeline, music: null }), { type: "setMusic", music: { assetId: "ig", sourceStartMs: 0, bpm: 120, beatOffsetMs: 1200, instagramAudioId: "1" }, snap: true }, ctx).timeline;
+    expect(picked.texts.find((text) => text.id === "hook")!.startMs).toBe(300);
+  });
+
+  it("keeps an AI proposal's own title times", () => {
+    const proposal = parseTimeline({ ...reel({ onBeat: true }), music: null, texts: [{ id: "t", text: "Hall", startMs: 3300, endMs: 4800 }] });
+    const landed = applyCommand(reel({ onBeat: true }), { type: "applyProposal", baseGeneration: 0, proposal, music: { ...music, onBeat: true, snap: true } }, ctx).timeline;
+    expect(landed.texts[0]).toMatchObject({ startMs: 3300, endMs: 4800 });
+  });
+
+  it("keeps staggered titles in order and apart", () => {
+    // c2 (a photo) plays 6–9 s; bars at 6 s and 8 s. 6.2 s and 6.8 s would both go to 6 s.
+    const timeline = parseTimeline({
+      ...reel({ onBeat: true }),
+      texts: [
+        { id: "one", text: "Three", startMs: 6200, endMs: 7400 },
+        { id: "two", text: "bedrooms", startMs: 6800, endMs: 8000 },
+      ],
+    });
+    const after = putOnTheBeat(timeline, durations);
+    const [one, two] = after.texts;
+    expect(one.startMs).toBe(6000);
+    expect(two.startMs).toBe(6800);
+    expect(one.startMs).toBeLessThan(two.startMs);
+  });
+
+  it("does not leave a title under 800 ms at its clip's end", () => {
+    // c2 (a photo) plays 6–9 s. 7.7 s goes to the 8 s bar and keeps 1 s before the clip ends.
+    const timeline = parseTimeline({ ...reel({ onBeat: true }), texts: [{ id: "t", text: "Garden", startMs: 7700, endMs: 8900 }] });
+    expect(putOnTheBeat(timeline, durations).texts[0]).toMatchObject({ startMs: 8000, endMs: 9000 });
+    // Wherever it starts, a moved title keeps at least 800 ms before its clip ends.
+    for (const startMs of [7100, 7600, 8150]) {
+      const after = putOnTheBeat(parseTimeline({ ...reel({ onBeat: true }), texts: [{ id: "t", text: "Garden", startMs, endMs: Math.min(9000, startMs + 1500) }] }), durations).texts[0];
+      expect(after.endMs - after.startMs).toBeGreaterThanOrEqual(800);
+    }
+  });
+
+  it("never shortens, moves or reorders a clip with its own speech or an AI take", () => {
+    const base = reel();
+    const clips = base.clips.map((clip, i) =>
+      i === 3 ? { ...clip, assetId: "ai-take", sourceStartMs: 0, sourceEndMs: 7300 } : i === 4 ? { ...clip, volume: 1 } : clip,
+    );
+    const timeline = parseTimeline({ ...base, clips });
+    const lengths = { ...durations, "ai-take": 7300 };
+    const plan = planPace(timeline, { energy: 1, clipEnergy, speechAssetIds: ["v-c4"], sourceDurationsMs: lengths })!;
+    const at = (id: string) => plan.clips.findIndex((clip) => clip.id === id);
+    expect(plan.clips[at("c3")]).toEqual(timeline.clips[3]);
+    expect(plan.clips[at("c4")]).toEqual(timeline.clips[4]);
+    // The 7.3 s voiced take and the speaking clip keep their places among the others (the hero c7 only moves later).
+    const order = plan.clips.map((clip) => clip.id).filter((id) => id !== "c7");
+    expect(order).toEqual(ids.filter((id) => id !== "c7"));
+    // The hero never crosses a held clip: c7 to the drop would jump over the held c9, so there is no hero.
+    const blocked = parseTimeline({ ...base, clips: base.clips.map((clip, i) => (i === 9 ? { ...clip, assetId: "ai-take2" } : clip)) });
+    const blockedPlan = planPace(blocked, { energy: 0.5, clipEnergy, sourceDurationsMs: { ...durations, "ai-take2": 30000 } })!;
+    expect(blockedPlan.heroClipId).toBeNull();
+    expect(blockedPlan.clips.map((clip) => clip.id)).toEqual(ids);
+    // A video with its sound on and no speech known is held too (the conservative default).
+    expect(planPace(parseTimeline({ ...base, clips: base.clips.map((clip, i) => (i === 0 ? { ...clip, volume: 1 } : clip)) }), { energy: 1, sourceDurationsMs: durations })!.clips[0]).toEqual(
+      parseTimeline({ ...base, clips: base.clips.map((clip, i) => (i === 0 ? { ...clip, volume: 1 } : clip)) }).clips[0],
+    );
+  });
+
+  it("keeps a whip's clip before it whole when it is a held clip or a 360 photo", () => {
+    const base = reel({ onBeat: true });
+    const whip = (before: Partial<Timeline["clips"][number]>) =>
+      parseTimeline({ ...base, texts: [], clips: base.clips.map((clip, i) => (i === 1 ? { ...clip, ...before } : i === 2 ? { ...clip, transitionIn: "whip" } : clip)) });
+    // c1 is 3–5.3 s; the whip into c2 at 5.3 s would move to 6 s by lengthening c1.
+    const voiced = whip({ sourceEndMs: 6300, volume: 1 });
+    expect(clipStartsMs(putOnTheBeat(voiced, durations, ["v-c1"]))[2]).toBe(5300);
+    // A 360 photo of 3.7 s (3–6.7 s) would have to shrink to 3 s for the whip to land on the 6 s bar: under its 3.5 s sweep, so it stays.
+    const pano = whip({ kind: "IMAGE", assetId: "pano", sourceStartMs: 0, sourceEndMs: 3700, pano: { yawStart: -45, yawEnd: 45, pitch: 0, fov: 90 } });
+    expect(clipStartsMs(pano)[2]).toBe(6700);
+    expect(clipStartsMs(putOnTheBeat(pano, durations))[2]).toBe(6700);
+  });
+
+  it("an Energy change in a later gesture plans from the same origin, so going back gives back the cut", () => {
+    const original = reel();
+    const hype = applyCommand(original, { type: "pace", energy: 1, clipEnergy }, ctxOf()).timeline;
+    expect(hype.music?.pace?.heroClipId).toBe("c7");
+    // A new gesture, seconds later: its base is the hype cut.
+    const steady = applyCommand(hype, { type: "pace", energy: 0.5, clipEnergy }, ctxOf()).timeline;
+    expect(steady.clips).toEqual(applyCommand(original, { type: "pace", energy: 0.5, clipEnergy }, ctxOf()).timeline.clips);
+    // Measured energies that arrive later do not churn the hero once chosen.
+    const again = applyCommand(steady, { type: "pace", energy: 1, clipEnergy: { ...clipEnergy, c1: 1 } }, ctxOf()).timeline;
+    expect(again.clips).toEqual(hype.clips);
+    // A trim after pacing makes the reel as it is the new origin.
+    const trimmed = applyCommand(hype, { type: "trimClip", clipId: "c0", window: { sourceStartMs: 4000, sourceEndMs: 5000 } }, ctxOf()).timeline;
+    const after = applyCommand(trimmed, { type: "pace", energy: 1, clipEnergy }, ctxOf()).timeline;
+    expect(after.music?.pace?.base.map((entry) => entry.id)).toEqual(trimmed.clips.map((clip) => clip.id));
+  });
+
+  it("says how far a reel runs past its song", () => {
+    const timeline = reel();
+    const total = clipStartsMs(timeline).at(-1)! + 3000;
+    expect(pastSongEndMs(timeline, null)).toBe(0);
+    expect(pastSongEndMs(timeline, 8250 + total)).toBe(0);
+    expect(pastSongEndMs(timeline, 8250 + total - 4000)).toBe(4000);
   });
 });

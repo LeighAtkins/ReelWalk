@@ -36,6 +36,8 @@ import { setHook, wordsBehindHook, locate, orientQuad, reshapePin, placementVers
   type InstagramAudioTrack,
   type Issue,
   type MusicChoice,
+  hasSpeech,
+  pastSongEndMs,
   type Plan,
   type SongMap,
   type Timeline,
@@ -257,6 +259,11 @@ function Tool({
       {label}
     </button>
   );
+}
+
+/** Assets whose clips carry speech: pacing never cuts into those clips when their sound is on (ADR 0059). */
+function speechAssetIds(library: Record<string, LibraryAsset>): string[] {
+  return Object.values(library).filter((asset) => asset.kind === "VIDEO" && hasSpeech(asset.transcript)).map((asset) => asset.id);
 }
 
 /** A song's tempo and, when it was analysed, its bars and sections (ADR 0059), as the reel's music carries them. */
@@ -562,26 +569,40 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
     [showToast],
   );
 
-  // With the Music sheet open on a song with a tempo: measure how much each clip moves and, for a song analysed
-  // before ADR 0059, find its bars and sections from the same copy the editor plays (never baked into an export).
+  // With the Music sheet open on a song analysed before ADR 0059: find its bars and sections from the same copy the
+  // editor plays (never baked into an export), so the first Energy change can cut to them.
   const musicSheetOpen = sheet === "music";
   useEffect(() => {
-    const current = snapshot().timeline;
-    const music = current.music;
-    if (!musicSheetOpen || !music?.bpm || beatWork.current) return;
-    beatWork.current = true;
-    setBeatMeasuring(true);
+    const music = snapshot().timeline.music;
+    if (!musicSheetOpen || !music?.bpm || music.downbeats?.length) return;
     const asset = libraryRef.current[music.assetId];
-    const work: Promise<unknown>[] = [measureClipEnergies(current, libraryRef.current, clipEnergies.current).then((measured) => Object.assign(clipEnergies.current, measured))];
-    if (!music.downbeats?.length && asset && !songMaps.current[asset.id]) {
-      if (asset.songMap) songMaps.current[asset.id] = asset.songMap;
-      else work.push(analyseStoredAudio(asset.url).then((analysis) => { if (analysis.songMap) songMaps.current[asset.id] = analysis.songMap; }));
+    if (!asset || songMaps.current[asset.id]) return;
+    if (asset.songMap) {
+      songMaps.current[asset.id] = asset.songMap;
+      return;
     }
-    void Promise.allSettled(work).then(() => {
-      beatWork.current = false;
-      setBeatMeasuring(false);
+    void analyseStoredAudio(asset.url).then((analysis) => {
+      if (analysis.songMap) songMaps.current[asset.id] = analysis.songMap;
     });
   }, [musicSheetOpen, timeline.music?.assetId, timeline.music?.bpm, snapshot]);
+
+  /**
+   * How much each clip moves, measured on the first Energy change only (five small frames per video: too much work for
+   * a phone just for opening the sheet). That first change is cut without a hero; the hero comes with the next one.
+   */
+  const measureForPace = useCallback(() => {
+    const current = snapshot().timeline;
+    if (beatWork.current || current.clips.every((clip) => clip.kind !== "VIDEO" || clipEnergies.current[clip.id] !== undefined)) return;
+    beatWork.current = true;
+    setBeatMeasuring(true);
+    void measureClipEnergies(current, libraryRef.current, clipEnergies.current)
+      .then((measured) => Object.assign(clipEnergies.current, measured))
+      .finally(() => {
+        beatWork.current = false;
+        setBeatMeasuring(false);
+      });
+  }, [snapshot]);
+  const pastSongWarned = useRef(false);
 
   const pickInstagramSound = useCallback(
     async (track: InstagramAudioTrack): Promise<boolean> => {
@@ -1511,12 +1532,17 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
               music={timeline.music}
               measuring={beatMeasuring}
               onEnergy={(energy) => {
+                measureForPace();
                 const music = snapshot().timeline.music;
                 // One drag across the stops is one undo step, planned from the reel before it (ADR 0059).
-                runCommand({ type: "pace", energy, clipEnergy: { ...clipEnergies.current }, songMap: music ? songMaps.current[music.assetId] : undefined }, "pace");
+                const result = runCommand({ type: "pace", energy, clipEnergy: { ...clipEnergies.current }, songMap: music ? songMaps.current[music.assetId] : undefined, speechAssetIds: speechAssetIds(libraryRef.current) }, "pace");
+                // A song shorter than the reel leaves the end silent: say so once.
+                const past = pastSongEndMs(result.timeline, music ? libraryRef.current[music.assetId]?.durationMs : null);
+                if (past >= 500 && !pastSongWarned.current) showToast(`The reel runs ${(past / 1000).toFixed(1)} s past the end of the song.`, 4000);
+                pastSongWarned.current = past >= 500;
               }}
               onOnBeat={(on) => {
-                runCommand({ type: "setOnBeat", on });
+                runCommand({ type: "setOnBeat", on, speechAssetIds: speechAssetIds(libraryRef.current) });
                 showToast(on ? "Titles, bursts and whips on the beat." : "On the beat is off.");
               }}
             />

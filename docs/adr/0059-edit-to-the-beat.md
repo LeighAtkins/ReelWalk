@@ -158,4 +158,41 @@ Known gaps:
 
 ## What was verified
 
-See the PR for the commands and their results.
+On Windows 10, branch rebased on main at ad193af7:
+
+- `pnpm check` (eslint, every package's typecheck, every package's tests):
+  passes. New tests: `packages/core/tests/song.test.ts` (a generated click
+  track, 120 bpm after a 250 ms lead and 97 bpm after 900 ms: tempo, every
+  downbeat within 3% of a bar of its kick, intro/build/drop/outro in order,
+  the drop exactly on its bar (< 30 ms), the other boundaries within a bar,
+  contiguous sections on downbeats, the same result twice, a steady loop
+  with no sections); `packages/core/tests/pacing.test.ts` (plan
+  determinism; every cut on a beat and every shot of a bar or more ending
+  on a downbeat at chill, steady and hype; a cut on the drop; the hero (the
+  clip measured to move most) on the drop and held longer than the drop's
+  other shots; intro holds longer than build; hype shorter than steady
+  shorter than chill; order kept when nothing tells clips apart; no video
+  past its source; nothing without a tempo; the analysed click track
+  planned end to end with the hero on its detected drop; the pace command
+  moving an attached title with its clip and keeping a caption's seconds;
+  a later stop planned from the gesture's base equals planning it
+  directly; the lazily supplied song map; On the beat for entrances,
+  bursts, a pass within a beat (and one left alone beyond it), a title kept
+  over its own clip, a whip's cut; old reels off; setOnBeat; a new song
+  defaulting on; a burst changing the particle field only during its
+  900 ms); `apps/web/components/editor/document-store.test.ts` (a drag
+  across four Energy stops is one history entry, equal to planning the last
+  stop directly, and one undo restores the reel object as it was).
+- `SMOKE_COMPARE=1 pnpm smoke` (Remotion's Chrome Headless Shell,
+  ffmpeg 6.1.1 essentials as `FFMPEG`, Remotion's ffprobe): ok. Preview
+  against export: all ten frames SSIM 0.980–0.993, worst block 6.3–14.8;
+  the three planar titles on their planes (drift 0.9–1.1 px, controls
+  caught). The report-only baseline comparison flags frame 19 (worst block
+  71.3); the same run on main before this branch flags the same frame with
+  the same numbers, so it is this machine's ffmpeg, not this change.
+
+Not verified: the Energy control and the On the beat switch were not
+driven in a browser (no local stack was run, by the brief's rules), the
+in-browser clip-energy measurement and the lazy song analysis were not run
+against real media, and no real song (only generated click tracks) was put
+through the section detector. The migration was not applied anywhere.

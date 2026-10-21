@@ -153,7 +153,7 @@ describe("particleField (ADR 0055)", () => {
     expect(embers.every((p) => p.r >= 0.75 && p.r <= 2)).toBe(true);
     expect(new Set(embers.map((p) => p.color)).size).toBeGreaterThan(5);
     const dust = particleField({ kind: "dust", timeMs: 900, box, density: 2 }).particles;
-    expect(dust.every((p) => p.opacity <= 0.3)).toBe(true);
+    expect(dust.every((p) => p.opacity <= 0.4 && p.r <= 2.5)).toBe(true);
   });
 
   it("moves snow down and embers up", () => {

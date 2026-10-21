@@ -65,9 +65,9 @@ export function particleCount(kind: ParticleKind, density = 1): number {
   return Math.round(kind === "dust" ? base / 2 : base);
 }
 
-/** The margin (px) around a box the particles may wander into: about half its height, at least 24, at most 240. */
+/** The margin (px) around a box the particles may wander into: three quarters of its height (or 8% of its width), 32 to 280. */
 export function particleMargin(box: { width: number; height: number }): number {
-  return Math.round(Math.min(240, Math.max(24, box.height * 0.5, box.width * 0.06)));
+  return Math.round(Math.min(280, Math.max(32, box.height * 0.75, box.width * 0.08)));
 }
 
 /** A uniform number in [0, 1) from three integers: a 32-bit integer mix, the same on every machine. */
@@ -135,10 +135,10 @@ export function particleField(input: ParticleInput): ParticleField {
       const life = smoothstep(0, 0.35, y / H) * (1 - smoothstep(0.92, 1, y / H));
       particles.push({ x, y, r, opacity: flicker * life * edgeFade(x, W), color: mix("#ffb15c", "#ff6a2a", u(8)), front });
     } else {
-      const r = 0.5 + u(2);
+      const r = 1 + 1.5 * u(2);
       const x = wrap(u(0) * W + (u(3) - 0.5) * 16 * t + 5 * Math.sin(t * 0.4 + phase), W);
       const y = wrap(u(1) * H + (u(4) - 0.5) * 12 * t + 4 * Math.cos(t * 0.3 + phase), H);
-      const opacity = (0.12 + 0.18 * u(6)) * edgeFade(x, W) * edgeFade(y, H);
+      const opacity = (0.18 + 0.22 * u(6)) * edgeFade(x, W) * edgeFade(y, H);
       particles.push({ x, y, r, opacity, color: "#f4efe6", front });
     }
   }
@@ -150,10 +150,10 @@ const BLUR: Record<ParticleKind, number> = { snow: 0.8, embers: 0.6, dust: 0.9 }
 /** One layer of a field as an SVG string. Numbers are rounded so the string is stable and short. */
 export function particleSvg(field: ParticleField, layer: "front" | "back", id: string): string {
   const safe = id.replace(/[^A-Za-z0-9_-]/g, "_");
-  const circles = field.particles
-    .filter((p) => p.front === (layer === "front") && p.opacity > 0.005)
-    .map((p) => `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${p.r.toFixed(2)}" fill="${p.color}" fill-opacity="${p.opacity.toFixed(3)}"/>`)
-    .join("");
+  const shown = field.particles.filter((p) => p.front === (layer === "front") && p.opacity > 0.005);
+  const circle = (p: Particle, r: number, opacity: number) => `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${r.toFixed(2)}" fill="${p.color}" fill-opacity="${opacity.toFixed(3)}"/>`;
+  // An ember glows: a faint halo three times its size under the spark itself.
+  const circles = shown.map((p) => (field.kind === "embers" ? circle(p, p.r * 3, p.opacity * 0.22) : "") + circle(p, p.r, p.opacity)).join("");
   const w = field.width.toFixed(0), h = field.height.toFixed(0);
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><defs><filter id="${safe}" x="-10%" y="-10%" width="120%" height="120%"><feGaussianBlur stdDeviation="${BLUR[field.kind]}"/></filter></defs><g filter="url(#${safe})">${circles}</g></svg>`;
 }

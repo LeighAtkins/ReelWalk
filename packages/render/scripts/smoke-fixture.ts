@@ -82,8 +82,10 @@ export function smokeTimeline(): Timeline {
     ],
     texts: [
       // Words behind a person (matte), extruded: the first clip, where the matte mounts at frame 0.
-      // At 1.2 s the reader passes in front of it (ADR 0055): the words cover her until then.
-      { id: "w1", text: "WELCOME", startMs: 0, endMs: 2500, x: 0.5, y: 0.4, style: "headline", size: 1.4, animation: "pop", behind: true, depth: "extruded", passMs: 1200 },
+      // At 0.9 s the reader passes in front of it (ADR 0055): the words cover her until then. Before 1 s, so that from
+      // frame 30, where s2's woodpile tap starts tracking, she covers WELCOME again: that object matte belongs to s2 but
+      // draws above every behind title (ADR 0046's order), and over exposed words it shows in s2's probe.
+      { id: "w1", text: "WELCOME", startMs: 0, endMs: 2500, x: 0.5, y: 0.4, style: "headline", size: 1.4, animation: "pop", behind: true, depth: "extruded", passMs: 900 },
       // A pinned title painted on the window over the reader's head, on real footage (ADR 0053): the attachment check follows it.
       // The woodpile in front of her is tapped (ADR 0044), on the frame at 1 s, and tracked from there (ADR 0051); it is
       // well clear of the window, so the acceptance checks still see every letter of the title.

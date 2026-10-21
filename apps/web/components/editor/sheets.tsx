@@ -1144,9 +1144,12 @@ export function MusicSheet({
   onRemove,
   onClose,
   popular,
+  beat,
 }: {
   library: LibraryAsset[];
   music: Music | null;
+  /** Energy and "On the beat" (ADR 0059), shown with the song in use. */
+  beat?: React.ReactNode;
   uploading: boolean;
   instagram: InstagramSoundAccess;
   /** The reel's moods and length, for the "Popular now" row (ADR 0058). */
@@ -1188,6 +1191,7 @@ export function MusicSheet({
               {adjust ? "Done" : "Adjust"}
             </button>
           </div>
+          {beat}
           {adjust ? (
             <>
               <Range

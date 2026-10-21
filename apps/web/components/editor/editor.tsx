@@ -37,6 +37,7 @@ import { setHook, wordsBehindHook, locate, orientQuad, reshapePin, placementVers
   type Issue,
   type MusicChoice,
   type Plan,
+  type SongMap,
   type Timeline,
   setClipRoom,
   setCover,
@@ -126,6 +127,8 @@ import { HookSheet, PinSheet,
   pinTitle,
 } from "./sheets";
 import { analyseStoredAudio, uploadFile } from "./upload";
+import { BeatControl } from "./beat-control";
+import { measureClipEnergies } from "./clip-energy";
 import { useAutosave } from "./use-autosave";
 import { AiVideoPanel } from "../ai-video-panel";
 import { Sheet } from "./sheets";
@@ -256,6 +259,11 @@ function Tool({
   );
 }
 
+/** A song's tempo and, when it was analysed, its bars and sections (ADR 0059), as the reel's music carries them. */
+function songFields(asset: LibraryAsset): Pick<MusicChoice, "bpm" | "beatOffsetMs" | "downbeats" | "sections"> {
+  return { bpm: asset.bpm, beatOffsetMs: asset.beatOffsetMs, ...(asset.songMap ? { downbeats: asset.songMap.downbeats, sections: asset.songMap.sections } : {}) };
+}
+
 export function Editor({ reel, timeline: initialTimeline, library: initialLibrary, openLibrary, tours = {}, instagramSounds = null, askAvailable = false, briefs: initialBriefs = [], autopilot = false, review: startInReview = false }: EditorProps) {
   const [review, setReview] = useState(startInReview);
   const [briefs, setBriefs] = useState<Brief[]>(initialBriefs);
@@ -276,6 +284,11 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
   const [sheet, setSheet] = useState<SheetName | null>(autopilot ? "autopilot" : openLibrary && initialTimeline.clips.length === 0 ? "media" : null);
   const [uploads, setUploads] = useState<PendingUpload[]>([]);
   const [musicUploading, setMusicUploading] = useState(false);
+  // Editing to the beat (ADR 0059): measured clip motion and song bars, gathered when the Music sheet opens.
+  const clipEnergies = useRef<Record<string, number>>({});
+  const songMaps = useRef<Record<string, SongMap>>({});
+  const beatWork = useRef(false);
+  const [beatMeasuring, setBeatMeasuring] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [guides, setGuides] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -495,7 +508,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         const asset = await uploadFile(file, () => undefined);
         if (asset.kind !== "AUDIO") throw new Error(`${file.name} is not an audio file.`);
         setLibrary((current) => ({ ...current, [asset.id]: asset }));
-        runCommand({ type: "setMusic", music: { assetId: asset.id, sourceStartMs: 0, volume: 0.8, bpm: asset.bpm, beatOffsetMs: asset.beatOffsetMs } });
+        runCommand({ type: "setMusic", music: { assetId: asset.id, sourceStartMs: 0, volume: 0.8, ...songFields(asset) } });
         setSelection({ kind: "music" });
       } catch (error) {
         showToast(error instanceof Error ? error.message : "Could not upload the song.");
@@ -524,12 +537,13 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         if (asset.durationMs === null) {
           const analysis = await analyseStoredAudio(asset.url);
           if (analysis.durationMs !== null) {
-            asset = { ...asset, durationMs: analysis.durationMs, bpm: analysis.beat?.bpm ?? null, beatOffsetMs: analysis.beat?.offsetMs ?? null };
+            asset = { ...asset, durationMs: analysis.durationMs, bpm: analysis.beat?.bpm ?? null, beatOffsetMs: analysis.beat?.offsetMs ?? null, songMap: analysis.songMap };
             void analyseInstagramSound({
               assetId: asset.id,
               durationMs: analysis.durationMs,
               bpm: asset.bpm,
               beatOffsetMs: asset.beatOffsetMs,
+              songMap: analysis.songMap,
               catalogueMs: track.durationMs,
             }).catch(() => undefined);
           }
@@ -537,7 +551,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         const chosen = asset;
         setLibrary((current) => ({ ...current, [chosen.id]: chosen }));
         libraryRef.current = { ...libraryRef.current, [chosen.id]: chosen };
-        return { assetId: chosen.id, sourceStartMs: 0, bpm: chosen.bpm, beatOffsetMs: chosen.beatOffsetMs, instagramAudioId: chosen.instagram?.audioId ?? track.id };
+        return { assetId: chosen.id, sourceStartMs: 0, ...songFields(chosen), instagramAudioId: chosen.instagram?.audioId ?? track.id };
       } catch {
         showToast("Could not get that sound from Instagram. Try again.");
         return null;
@@ -547,6 +561,27 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
     },
     [showToast],
   );
+
+  // With the Music sheet open on a song with a tempo: measure how much each clip moves and, for a song analysed
+  // before ADR 0059, find its bars and sections from the same copy the editor plays (never baked into an export).
+  const musicSheetOpen = sheet === "music";
+  useEffect(() => {
+    const current = snapshot().timeline;
+    const music = current.music;
+    if (!musicSheetOpen || !music?.bpm || beatWork.current) return;
+    beatWork.current = true;
+    setBeatMeasuring(true);
+    const asset = libraryRef.current[music.assetId];
+    const work: Promise<unknown>[] = [measureClipEnergies(current, libraryRef.current, clipEnergies.current).then((measured) => Object.assign(clipEnergies.current, measured))];
+    if (!music.downbeats?.length && asset && !songMaps.current[asset.id]) {
+      if (asset.songMap) songMaps.current[asset.id] = asset.songMap;
+      else work.push(analyseStoredAudio(asset.url).then((analysis) => { if (analysis.songMap) songMaps.current[asset.id] = analysis.songMap; }));
+    }
+    void Promise.allSettled(work).then(() => {
+      beatWork.current = false;
+      setBeatMeasuring(false);
+    });
+  }, [musicSheetOpen, timeline.music?.assetId, timeline.music?.bpm, snapshot]);
 
   const pickInstagramSound = useCallback(
     async (track: InstagramAudioTrack): Promise<boolean> => {
@@ -1470,7 +1505,22 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
           instagram={instagramSounds}
           instagramBusyId={instagramBusy}
           onPickInstagram={pickInstagramSound}
-          onPick={(asset) => runCommand({ type: "setMusic", music: { assetId: asset.id, sourceStartMs: 0, bpm: asset.bpm, beatOffsetMs: asset.beatOffsetMs } })}
+          onPick={(asset) => runCommand({ type: "setMusic", music: { assetId: asset.id, sourceStartMs: 0, ...songFields(asset) } })}
+          beat={timeline.music?.bpm ? (
+            <BeatControl
+              music={timeline.music}
+              measuring={beatMeasuring}
+              onEnergy={(energy) => {
+                const music = snapshot().timeline.music;
+                // One drag across the stops is one undo step, planned from the reel before it (ADR 0059).
+                runCommand({ type: "pace", energy, clipEnergy: { ...clipEnergies.current }, songMap: music ? songMaps.current[music.assetId] : undefined }, "pace");
+              }}
+              onOnBeat={(on) => {
+                runCommand({ type: "setOnBeat", on });
+                showToast(on ? "Titles, bursts and whips on the beat." : "On the beat is off.");
+              }}
+            />
+          ) : null}
           onSnap={() => {
             // Titles and room names follow their clips to the new cut points (retimeTexts).
             runCommand({ type: "snapToBeat" });

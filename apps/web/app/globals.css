@@ -2940,6 +2940,59 @@ video:-webkit-full-screen {
   font-size: 14px;
 }
 
+/* Editing to the beat (ADR 0059): Energy and "On the beat", thumb-sized. */
+.beat-control {
+  display: grid;
+  gap: 8px;
+}
+
+.beat-scale {
+  display: flex;
+  justify-content: space-between;
+}
+
+.beat-switch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: var(--tap);
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--radius-m);
+  background: var(--panel);
+  color: inherit;
+  font-weight: 600;
+}
+
+.beat-switch-track {
+  position: relative;
+  width: 40px;
+  height: 24px;
+  border-radius: 12px;
+  background: var(--rule);
+  transition: background 0.15s;
+}
+
+.beat-switch-track::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--paper);
+  transition: transform 0.15s;
+}
+
+.beat-switch[aria-checked="true"] .beat-switch-track {
+  background: var(--signal);
+}
+
+.beat-switch[aria-checked="true"] .beat-switch-track::after {
+  transform: translateX(16px);
+}
+
 .powered-by {
   display: flex;
   align-items: center;

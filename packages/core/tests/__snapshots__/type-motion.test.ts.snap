@@ -16,7 +16,7 @@ exports[`shine (ADR 0061) > matches a snapshot of one frame per preset 1`] = `
         "rotation": 27,
         "size": 0.587853295285908,
         "slot": 0,
-        "svg": "<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100%" height="100%"><g transform="rotate(27 50 50)" fill="#ffffff" fill-opacity="0.927"><circle cx="50" cy="50" r="9" fill-opacity="0.510"/><path d="M50 0 L54 46 L100 50 L54 54 L50 100 L46 54 L0 50 L46 46 Z"/></g></svg>",
+        "svg": "<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100%" height="100%"><g transform="rotate(27 50 50)" fill="#ffffff" fill-opacity="0.927"><circle cx="50" cy="50" r="18" fill-opacity="0.204"/><circle cx="50" cy="50" r="9" fill-opacity="0.649"/><path d="M50 0 L56 44 L100 50 L56 56 L50 100 L44 56 L0 50 L44 44 Z"/></g></svg>",
       },
     ],
   },
@@ -51,7 +51,7 @@ exports[`shine (ADR 0061) > matches a snapshot of one frame per preset 1`] = `
         "rotation": 23.63,
         "size": 0.6308820771784247,
         "slot": 0,
-        "svg": "<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100%" height="100%"><g transform="rotate(23.63 50 50)" fill="#ffffff" fill-opacity="0.995"><circle cx="50" cy="50" r="9" fill-opacity="0.547"/><path d="M50 0 L54 46 L100 50 L54 54 L50 100 L46 54 L0 50 L46 46 Z"/></g></svg>",
+        "svg": "<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100%" height="100%"><g transform="rotate(23.63 50 50)" fill="#ffffff" fill-opacity="0.995"><circle cx="50" cy="50" r="18" fill-opacity="0.219"/><circle cx="50" cy="50" r="9" fill-opacity="0.697"/><path d="M50 0 L56 44 L100 50 L56 56 L50 100 L44 56 L0 50 L44 44 Z"/></g></svg>",
       },
     ],
   },
@@ -59,12 +59,12 @@ exports[`shine (ADR 0061) > matches a snapshot of one frame per preset 1`] = `
     "band": {
       "bloom": {
         "color": "#ffffff",
-        "maskImage": "linear-gradient(110deg, transparent 47.14%, #000 54.94%, transparent 62.74%)",
+        "maskImage": "linear-gradient(110deg, transparent 46.1%, #000 55.1%, transparent 64.1%)",
         "opacity": 0.95,
         "textShadow": "0 0 0.05em rgba(255,255,255,0.85), 0 0 0.2em rgba(255,255,255,0.85)",
       },
       "tone": {
-        "backgroundImage": "linear-gradient(110deg, transparent 41.94%, rgba(38,46,60,0.42) 47.79%, #ffffff 54.94%, rgba(38,46,60,0.42) 62.09%, transparent 67.94%)",
+        "backgroundImage": "linear-gradient(110deg, transparent 40.1%, rgba(38,46,60,0.5) 46.85%, #ffffff 55.1%, rgba(38,46,60,0.5) 63.35%, transparent 70.1%)",
         "opacity": 0.95,
       },
     },

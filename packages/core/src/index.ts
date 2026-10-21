@@ -18,6 +18,7 @@ export * from "./drag";
 export * from "./handle";
 export * from "./instagram";
 export * from "./instagram-audio";
+export * from "./music-picks";
 export * from "./insights";
 export * from "./job-status";
 export * from "./keys";

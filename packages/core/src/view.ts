@@ -87,8 +87,14 @@ export function clipMomentAtSource(clip: Pick<Clip, "kind" | "speed" | "sourceSt
   return { progress: frames > 1 ? Math.min(1, Math.max(0, frame / (frames - 1))) : 0, seconds: Math.max(0, frame / fps) };
 }
 
-/** What is on screen at `reelMs`: the clip (by frame-rounded plan, like the composition), the source time and the moment. */
-export type OnScreen = { index: number; clip: Clip; sourceMs: number; moment: ClipMoment };
+/**
+ * What is on screen at `reelMs`: the clip (by frame-rounded plan, like the
+ * composition), the source time and the moment. `mediaMs` is the time the
+ * composition's media element is actually at: Remotion trims on whole frames
+ * (trimBefore = round(sourceStartMs·fps)), so it can differ from `sourceMs`
+ * by up to half a frame; read pixels at `mediaMs` to see the stage's frame.
+ */
+export type OnScreen = { index: number; clip: Clip; sourceMs: number; mediaMs: number; moment: ClipMoment };
 
 /** Takes reel ms; returns the clip on screen with its source ms and moment, or null past the end. */
 export function onScreenAt(timeline: Timeline, reelMs: number, fps: number = REEL_FORMAT.fps): OnScreen | null {
@@ -98,7 +104,8 @@ export function onScreenAt(timeline: Timeline, reelMs: number, fps: number = REE
   const speed = clip.kind === "IMAGE" ? 1 : clip.speed || 1;
   const sourceMs = clip.sourceStartMs + at.offsetMs * speed;
   const frames = framePlan(timeline, fps).clips[at.index].durationInFrames;
-  return { index: at.index, clip, sourceMs, moment: clipMomentAtSource(clip, sourceMs, fps, frames) };
+  const mediaMs = ((Math.round((clip.sourceStartMs * fps) / 1000) + ((at.offsetMs * fps) / 1000) * speed) * 1000) / fps;
+  return { index: at.index, clip, sourceMs, mediaMs, moment: clipMomentAtSource(clip, sourceMs, fps, frames) };
 }
 
 /** Takes a clip, its source size in px and a moment; returns how its picture sits in the composition then. */

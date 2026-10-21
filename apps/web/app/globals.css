@@ -773,6 +773,16 @@ p {
   inset: 0;
 }
 
+/* The composition's own rectangle inside the stage (ADR 0047): handles, guides and title targets are
+   placed in it, so a fraction means the same point as in the reel even when the stage is not 9:16. */
+.stage-plane {
+  position: absolute;
+  pointer-events: none;
+}
+:where(.stage-plane) > * {
+  pointer-events: auto;
+}
+
 .stage-empty {
   position: absolute;
   inset: 0;

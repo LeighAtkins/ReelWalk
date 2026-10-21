@@ -90,6 +90,13 @@ async function canvasAgainstSource(page: Page, shift: number) {
   }, shift);
 }
 
+// The list reporter prints a failure's message only when the whole suite ends; say it now, with a screenshot.
+test.afterEach(async ({ page }, info) => {
+  if (info.status === info.expectedStatus) return;
+  console.log(`inspect failed: ${info.error?.message ?? info.status}`);
+  await page.screenshot({ path: "test-results/inspect-failure.png" }).catch(() => undefined);
+});
+
 test("Inspect on a phone: pinch to 4×, step a frame, the canvas shows the source's own pixels, controls off the picture", async ({ page }) => {
   test.setTimeout(5 * 60_000);
   await page.goto("/");

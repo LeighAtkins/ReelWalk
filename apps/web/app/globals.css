@@ -3687,7 +3687,8 @@ video:-webkit-full-screen {
 .inspect-row.is-chips {
   justify-content: center;
 }
-.inspect-scrub {
+/* input.… outranks the global input[type="range"] height of 32 px. */
+input.inspect-scrub {
   flex: 1;
   min-width: 0;
   height: 44px;

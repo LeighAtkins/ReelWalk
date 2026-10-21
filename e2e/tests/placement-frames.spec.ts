@@ -151,6 +151,36 @@ async function titleBox(page: Page, debugName?: string): Promise<Box | null> {
   }, { a: withTitle.toString("base64"), b: without.toString("base64") });
 }
 
+/**
+ * Puts each corner on its own corner of the frame and checks the 44 px
+ * handle there is whole on screen: inside the viewport and the topmost
+ * element at its four inset corners (so nothing clips or covers it).
+ */
+async function expectCornersReachable(page: Page, cdp: CDPSession) {
+  const plane = await planeBox(page);
+  const view = page.viewportSize()!;
+  console.log(`placing frame x ${plane.x.toFixed(1)}–${(plane.x + plane.width).toFixed(1)} of ${view.width}`);
+  const extremes: XY[] = [[plane.x, plane.y], [plane.x + plane.width, plane.y], [plane.x + plane.width, plane.y + plane.height], [plane.x, plane.y + plane.height]];
+  for (let i = 0; i < 4; i++) {
+    const from = (await cornerCentres(page))[i];
+    await touchDrag(cdp, from, extremes[i]);
+    const box = (await page.getByTestId("surface-corner").nth(i).boundingBox())!;
+    expect(box.width).toBeGreaterThanOrEqual(44);
+    expect(box.height).toBeGreaterThanOrEqual(44);
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.y).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(view.width);
+    expect(box.y + box.height).toBeLessThanOrEqual(view.height);
+    const painted = await page.evaluate(({ box, i }) => {
+      const handle = document.querySelectorAll("[data-testid=surface-corner]")[i];
+      const inset = 3;
+      return [[box.x + inset, box.y + box.height / 2], [box.x + box.width - inset, box.y + box.height / 2], [box.x + box.width / 2, box.y + inset], [box.x + box.width / 2, box.y + box.height - inset]]
+        .every(([x, y]) => { const hit = document.elementFromPoint(x, y); return hit === handle || handle.contains(hit); });
+    }, { box, i });
+    expect(painted, `corner ${i + 1} is painted whole at the frame's corner`).toBe(true);
+  }
+}
+
 /** The rendered title lies inside the handles' quad and spans most of it. */
 async function expectTitleOnHandles(page: Page, label: string) {
   const quad = await cornerCentres(page);
@@ -195,6 +225,8 @@ test("placing on landscape footage under Fill and Fit: loupe, handles and tracke
   console.log(`stage box ${stageBox.width.toFixed(1)}×${stageBox.height.toFixed(1)}, composition ${plane.width.toFixed(1)}×${plane.height.toFixed(1)} at +${(plane.y - stageBox.y).toFixed(1)}`);
   expect(plane.width / plane.height).toBeCloseTo(9 / 16, 3);
 
+  // Every corner can be put on the frame's own corner and stays whole under a thumb.
+  await expectCornersReachable(page, cdp);
   // On the dark panel at the shot's first frame.
   await placeCorners(page, cdp, [[0.42, 0.36], [0.88, 0.36], [0.88, 0.54], [0.42, 0.54]], "Fill, first frame");
   const placed = await cornerCentres(page);
@@ -235,5 +267,20 @@ test("placing on landscape footage under Fill and Fit: loupe, handles and tracke
   await page.waitForTimeout(800);
   // The panel at the first frame under Fit: u 0.44–0.81, v 0.42–0.55.
   await placeCorners(page, cdp, [[0.47, 0.44], [0.78, 0.44], [0.78, 0.53], [0.47, 0.53]], "Fit, first frame");
+  const placedFit = await cornerCentres(page);
+  // Tracked under Fit: the analysis sees the picture alone, so the plane follows the panel, not the backdrop.
+  await page.getByTestId("placing-track").click();
+  await expect(page.getByTestId("placing-track")).toHaveText("Tracking…", { timeout: 10_000 }).catch(() => undefined);
+  await expect(page.getByTestId("placing-track")).toHaveText("Track", { timeout: 120_000 });
+  console.log(`Fit track: ${await page.locator(".placing-status").textContent()}`);
+  await expect(page.locator(".placing-status")).toContainText(/Good track|Weak track/);
+  await page.getByRole("button", { name: "Show ½" }).click();
+  await page.waitForTimeout(1200);
+  const laterFit = await cornerCentres(page);
+  // Under Fit the picture is the full width: 120 source px of 1280 is 0.094 of the frame.
+  console.log(`Fit: handles moved ${(laterFit[0][0] - placedFit[0][0]).toFixed(1)} px at ½; expected about ${(-0.094 * plane.width).toFixed(1)}`);
+  const turn = (q: XY[]) => (Math.atan2(q[1][1] - q[0][1], q[1][0] - q[0][0]) * 180) / Math.PI;
+  console.log(`Fit: top edge turned ${(turn(laterFit) - turn(placedFit)).toFixed(1)}° at ½`);
+  await expectTitleOnHandles(page, "Fit, ½, tracked");
   await page.getByTestId("corners-done").click();
 });

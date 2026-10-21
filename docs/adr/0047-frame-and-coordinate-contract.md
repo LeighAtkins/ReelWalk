@@ -45,7 +45,8 @@ function says which it takes and returns:
 - `planeMotion` (stored first-frame ↔ displayed, for pinned planes),
   `planeFrame` (unit square ↔ quad), `mapPoints`, `storedFraction`.
 - `placementVersion(timeline, textId)`: everything that decides a title's
-  plane and what tracking would produce.
+  plane and what tracking would produce. Posts are excluded (they cut the
+  title, they do not move its plane); the Pin sheet adds its unsaved lean.
 
 It imports only core, so W1's `scene.ts` can import it.
 
@@ -55,10 +56,35 @@ fit (with the blurred backdrop under Fit), zoom, camera move and colour
 filter; `FrameService.frameAt(target, sourceMs)` caches frames by clip
 instance, presentation and time (six frames, two open sources);
 `timelineFrames(timeline, assets).frameAt(clipId, sourceMs)` resolves a
-clip instance by id with its frame-plan length. Surface detection reads
-from it; tracking's `grayFrame` draws through `drawPresented` for the clip
-it was opened for (the tracking orchestration itself is unchanged); the
-loupe reads the stage frame at `mediaMs`, so it has no geometry of its own.
+clip instance by id with its frame-plan length. Drawing (`frame-draw.ts`) has two purposes:
+
+- **analysis** (surface detection, and tracking's `grayFrame` for the clip
+  the video was opened for): the picture alone, through fit, zoom and move,
+  on flat grey, with no grade. Under Fit the composition's blurred backdrop
+  moves about 3.9× faster than a 16:9 picture (and is black where canvas
+  filters are missing, Safari), so points found on it bent the plane and
+  differently per browser. The tracking orchestration itself is unchanged.
+- **view** (the loupe): what the viewer sees, backdrop and grade included.
+
+Videos are seeked to the middle of the composition frame (`midFrameMs`):
+seeking to a frame's start rounded to the millisecond (33 ms < 33.33 ms)
+lands on the frame before. The loupe reads the stage frame at `mediaMs`, so
+it has no geometry of its own. It is mounted only while a point is held, so
+frames are decoded only then; its requests are latest-wins per source
+(superseded ones are dropped before they seek), and evicted canvases are
+zeroed at once (iOS caps canvas memory and frees it lazily). Four frames
+and two sources are kept.
+
+iOS caveat: Remotion seeks the stage's own video to `time.toFixed(1)` on
+iOS and re-seeks only when it is more than 0.01 s off, so on an iPhone the
+stage can be a frame or two from the exact time; the loupe then shows the
+exact frame, not the stage's.
+
+**Placing screen layout.** The full-screen placing frame is sized to fit
+the viewport at 9:16 with a 44 px gutter each side; the stage grid track
+is pinned to the box. Before, the auto track grew to the frame's
+height-derived width and the right-hand corners sat 6 px from a 412 px
+screen's edge with 30 of their 44 px visible.
 `findMatchingCut` still compares raw sources (it compares two clips'
 footage, not placements).
 
@@ -93,6 +119,11 @@ evaluated `plane` once `scene.ts` lands.
   (handles and title agree with each other; the plane itself drifts).
   That is the tracking algorithm (W7's), not the frame contract.
 
+Follow-ups: cancelling a track is "ignored at the next step", not an
+abort (the video load and first seek cannot be interrupted); lens
+softness is not drawn in the loupe; the backdrop blur is drawn at 48 px
+where the effective blur after the 1.25 scale is 60 px.
+
 ## What was verified
 
 - `packages/core/tests/view.test.ts` (20 tests): `fitRects` identical to
@@ -118,6 +149,17 @@ evaluated `plane` once `scene.ts` lands.
   - A corner dragged at ½ stays under the finger (<1.5 px) and the rendered
     title is still inside the new quad.
   - Fit, corner held: loupe vs stage 7.1; shifted 67.3.
+- Review round (same e2e, the frame now fits the screen): placing frame
+  x 44–368 of 412, every corner put on its frame corner is whole on screen
+  (≥44×44, topmost at four inset points); Fill loupe 2.4 vs 37.6; Fit loupe
+  6.6 vs 85.1; Fit track "Good" (18 points), top edge turned 1.0° at ½,
+  title inside the handles. Under Fill the tracker still turns the plane on
+  the pure pan (as on main).
+- `packages/core/tests/frame-draw.test.ts`: a Fit frame drawn for analysis
+  has one draw (the picture), no filter, and zero gradient outside the
+  picture; the backdrop and grade are drawn only for viewing and only where
+  canvas filters exist. `midFrameMs` lands inside the frame on rounded
+  boundaries.
 - `pnpm check` passes.
 
 Not verified: the e2e stage was 9:16 in this layout, so the band offset of

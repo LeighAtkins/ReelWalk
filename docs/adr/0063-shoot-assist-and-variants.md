@@ -142,7 +142,7 @@ Pro-editing area 5. Two gaps on either side of the edit:
 ## What was verified
 
 - `pnpm check` passes (lint, typecheck of every package, all unit tests:
-  core 60 files / 616 tests, web 23, worker 146, render 68, db 7 run and 30
+  core 60 files / 616 tests, web 23, worker 175, render 68, db 7 run and 30
   skipped without a database).
 - `tests/shoot.test.ts` (13): the schema accepts and normalises a model
   answer, caps at 12, rejects empty lists, unknown moves, missing fields,

@@ -119,8 +119,8 @@ export async function runAcceptance(input: {
     // The title's pixels: the frame with a probe of it, less the frame without it. The probe is the same title
     // in solid magenta with no surface blend or shadow, so its letters stand out on any footage (white letters
     // hard-lit onto a white window or a pale wall drew almost nothing to measure). Colour, blend and shadow do
-    // not enter the placement code, so the probe sits exactly where the title does.
-    const probe: Timeline = { ...timeline, texts: timeline.texts.map((other) => (other.id === text.id ? { ...other, color: PROBE_COLOUR, blend: undefined, shadow: "none" as const } : other)) };
+    // not enter the placement code, so the probe sits exactly where the title does. Its particles (ADR 0055) are left out: they are not glyphs.
+    const probe: Timeline = { ...timeline, texts: timeline.texts.map((other) => (other.id === text.id ? { ...other, color: PROBE_COLOUR, blend: undefined, shadow: "none" as const, particles: undefined } : other)) };
     const without: Timeline = { ...timeline, texts: timeline.texts.filter((other) => other.id !== text.id) };
     const probeDir = path.join(outDir, `probe-${text.id}`), bareDir = path.join(outDir, `without-${text.id}`);
     await mkdir(probeDir, { recursive: true });

@@ -54,6 +54,10 @@ type FilmstripProps = {
   onAddMedia(): void;
   onAddText(): void;
   onAddMusic(): void;
+  /** Script mode (ADR 0060): the presenter across the whole reel, from the timeline's header. */
+  onPresenter?(): void;
+  /** A script's takes are ready to place. */
+  presenterReady?: boolean;
 };
 
 /**
@@ -78,6 +82,8 @@ export function Filmstrip({
   onAddMedia,
   onAddText,
   onAddMusic,
+  onPresenter,
+  presenterReady,
 }: FilmstripProps) {
   const scroller = useRef<HTMLDivElement>(null);
   const [pad, setPad] = useState(180);
@@ -539,6 +545,11 @@ export function Filmstrip({
         </div>
       </div>
       <span className="playhead" aria-hidden="true" />
+      {onPresenter && timeline.clips.length > 0 ? (
+        <button type="button" className="timeline-presenter" data-ready={presenterReady || undefined} aria-label={presenterReady ? "Presenter: takes ready to place" : "Presenter: lines across the reel"} onClick={onPresenter}>
+          Presenter
+        </button>
+      ) : null}
       <div className="timeline-zoom" role="group" aria-label="Timeline zoom">
         <button type="button" aria-label="Zoom out" disabled={pps <= MIN_PPS} onClick={() => zoom(1 / 1.6)}>
           −

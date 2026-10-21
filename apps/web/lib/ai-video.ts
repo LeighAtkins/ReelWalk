@@ -9,6 +9,14 @@ export function aiVoiceConfigured(): boolean {
   return process.env.VOICE_ENABLED === "true";
 }
 
+/**
+ * Lip sync (ADR 0038) also needs the sync.so key, which only the worker holds. The web is told it is there with
+ * LIPSYNC_ENABLED, set together with the key; until then only Veo's own voice is offered (ADR 0060).
+ */
+export function aiLipsyncConfigured(): boolean {
+  return aiVoiceConfigured() && process.env.LIPSYNC_ENABLED === "true";
+}
+
 export function aiVideoConfigured(): boolean {
   return process.env.AI_VIDEO_ENABLED === "true" && Boolean(process.env.GOOGLE_CLOUD_PROJECT);
 }

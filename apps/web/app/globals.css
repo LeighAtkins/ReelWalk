@@ -1001,6 +1001,120 @@ p {
   box-shadow: -12px 0 10px var(--ink-deep);
 }
 
+/* Script mode (ADR 0060): the presenter across the reel, where the reel's timeline starts. */
+.timeline-presenter {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 4;
+  height: 26px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 0 0 8px 0;
+  background: var(--ink-deep);
+  box-shadow: 12px 0 10px var(--ink-deep);
+  color: var(--paper);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+/* Thumb-sized to touch, header-sized to see. */
+.timeline-presenter::after {
+  content: "";
+  position: absolute;
+  inset: -4px -6px -14px -4px;
+}
+
+.timeline-presenter[data-ready]::before {
+  content: "";
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--signal);
+  vertical-align: 1px;
+}
+
+.script-sheet {
+  display: grid;
+  gap: 14px;
+}
+
+.script-line {
+  display: grid;
+  gap: 6px;
+}
+
+.script-line-head {
+  display: grid;
+  grid-template-columns: 36px 1fr auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.script-plate {
+  width: 36px;
+  height: 64px;
+  border-radius: 6px;
+  object-fit: cover;
+  background: var(--ink-deep);
+}
+
+.script-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.script-strip {
+  position: relative;
+  display: flex;
+  gap: 2px;
+  height: 14px;
+  margin: 8px 0 6px;
+}
+
+.script-strip-clip {
+  flex-basis: 0;
+  min-width: 2px;
+  border-radius: 3px;
+  background: rgb(243 237 226 / 0.18);
+}
+
+.script-strip-mark {
+  position: absolute;
+  top: -6px;
+  width: 22px;
+  height: 22px;
+  margin-left: -11px;
+  border-radius: 50%;
+  background: var(--paper);
+  color: var(--ink-deep);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 22px;
+  text-align: center;
+}
+
+.script-takes {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding-left: 1.2em;
+}
+
+.script-takes li {
+  display: grid;
+  gap: 4px;
+  justify-items: start;
+}
+
+.script-take-line {
+  font-size: 14px;
+}
+
 .timeline-zoom button {
   width: 26px;
   height: 22px;

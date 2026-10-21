@@ -282,6 +282,17 @@ fixed, as before.
   2026-10-21 (sha256 above), and jsdelivr's 1.1.1 WASM files match the
   installed package's.
 
+- With the acceptance harness (ADR 0053, `SMOKE_COMPARE=1`): preview
+  against export passes at all ten frames, and the three planar titles
+  pass their plane and shape checks. The harness found two things. A
+  still could be captured before an object matte's first frame was drawn
+  (the segmenter's delayRender was released before the frame effect took
+  its own handle; fixed by releasing it from an effect declared after the
+  frame effect). And a tap on the Mandelbrot shot selected a region that
+  hid letters of the titles the harness measures. That is an occluder
+  working as designed, not drift, so the smoke's tap is now the woodpile
+  in front of the reader, clear of the window title.
+
 ## Left open
 
 - Vendoring the models (or baking them into the worker image) so a deleted

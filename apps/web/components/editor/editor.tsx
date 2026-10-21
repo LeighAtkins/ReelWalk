@@ -671,8 +671,10 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         const elegant = draft.style === "elegant";
         const y = Math.min(elegant ? 0.7 : 0.62, (elegant ? 0.5 : 0.42) +textsAt(timeline, clock.get()).length * 0.1);
         const startMs = clock.get();
-        apply((current) => addText(current, { ...draft, id, startMs, x: 0.5, y }));
+        // A callout's label sits right of centre with its point below-left of it (ADR 0061); the dot is then dragged onto the feature.
+        apply((current) => addText(current, draft.callout ? { ...draft, id, startMs, x: 0.62, y: 0.5, callout: { x: 0.4, y: 0.64 } } : { ...draft, id, startMs, x: 0.5, y }));
         setSelection({ kind: "text", id });
+        if (draft.callout) showToast("Drag the blue dot onto the feature, then Pin it to follow it.", 4000);
         // Park just past the entry animation (pop or slow fade), so the paused preview shows the text fully.
         seek(startMs + (elegant ? ELEGANT_FADE_S * 1000 + 100 : 300));
       }
@@ -1213,6 +1215,8 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         onCutoutsText={(id, cutouts, gesture) => apply((current) => updateText(current, id, { cutouts: cutouts.length ? cutouts : undefined }), gesture)}
         onOccludersText={(id, occluders, gesture) => apply((current) => updateText(current, id, { occluders: occluders.length ? occluders : undefined }), gesture)}
         onBehindText={(id, behind) => apply((current) => updateText(current, id, { behind: behind || undefined }), `behind-${id}`)}
+        // Moving a callout's point drops its pin: the track followed the old point (ADR 0061).
+        onCalloutAnchorText={(id, x, y, gesture) => apply((current) => updateText(current, id, { callout: { x, y }, path: undefined, pin: undefined }), gesture)}
         check={checking ? { marks: checkMarks, onSeek: seek } : null}
         corners={placing}
         onDoneCorners={exitTheater}
@@ -1435,7 +1439,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
       ) : null}
 
       {sheet === "text-new" ? <TextSheet initial={null} onSave={saveText} onClose={closeSheet} /> : null}
-      {sheet === "text-edit" && selectedText ? <TextSheet initial={selectedText} playheadNow={clock.get} onSave={saveText} onClose={closeSheet} /> : null}
+      {sheet === "text-edit" && selectedText ? <TextSheet initial={selectedText} playheadNow={clock.get} title={selectedText} music={timeline.music} onSave={saveText} onClose={closeSheet} /> : null}
       {sheet === "pin" && selectedText ? (() => {
         const at = locate(timeline, selectedText.startMs);
         const clip = at ? timeline.clips[at.index] : null;

@@ -68,7 +68,8 @@ export function retime(timeline: Timeline, shotMs: number, sourceDurationsMs: Re
   }
   // Texts follow the same way as after any other cut change (ADR 0048).
   if (onBeat && current.music?.bpm) current = snapCutsToBeats(current, sourceDurationsMs);
-  return retimeTexts(timeline, current);
+  // Every clip changes at once: titles keep their length rather than being cut at their clip's end.
+  return retimeTexts(timeline, current, { keepInsideClip: false });
 }
 
 /** The reel brought to about `totalMs` by giving every shot the same share, between 1.2 and 5 s. */

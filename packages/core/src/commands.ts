@@ -81,6 +81,8 @@ export type CommandResult = {
   stale?: true;
   /** Set when the command could not be applied (it threw, or its result is not a valid timeline); `timeline` is the current one, untouched. */
   rejected?: string;
+  /** Set when the result is not a valid timeline but the reel already was not before it: the command is let through so the reel stays editable. */
+  warning?: string;
 };
 
 /** Applies one command. Pure: the same timeline and command always give the same result. */
@@ -95,10 +97,13 @@ export function applyCommand(timeline: Timeline, command: Command, context: Comm
   if (next === timeline) return { timeline, changes: [] };
   // Nothing invalid enters the history: the result must still be a timeline the schema accepts.
   const check = timelineSchema.safeParse(next);
-  if (!check.success) return { timeline, changes: [], rejected: check.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ") };
+  const problem = check.success ? null : check.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ");
+  // A reel that was already invalid (saved before a limit, or changed outside the commands) stays editable.
+  if (problem && timelineSchema.safeParse(timeline).success) return { timeline, changes: [], rejected: problem };
   const changes = diffTimelines(timeline, next);
   // A command that changed nothing (a clip moved to where it is) is no step at all.
-  return changes.length === 0 ? { timeline, changes } : { timeline: next, changes };
+  if (changes.length === 0) return { timeline, changes };
+  return problem ? { timeline: next, changes, warning: problem } : { timeline: next, changes };
 }
 
 function run(timeline: Timeline, command: Command, context: CommandContext): Timeline {

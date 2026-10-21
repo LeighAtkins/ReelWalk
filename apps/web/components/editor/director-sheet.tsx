@@ -16,8 +16,8 @@ export function DirectorSheet({ reelId, timeline, generation, library, onApply, 
   reelId: string; timeline: Timeline; library: LibraryAsset[];
   /** The reel's current document generation: a review applies only against the generation it was asked for. */
   generation: number;
-  /** Applies a review as one step; the new generation and reel, or null when the reel changed since the review was asked for. */
-  onApply(review: Review): Promise<{ generation: number; timeline: Timeline } | null>;
+  /** Applies a review as one step: the new generation and reel, or why not (the reel changed since, or the edit is not a valid reel). */
+  onApply(review: Review): Promise<{ ok: true; generation: number; timeline: Timeline } | { ok: false; reason: "stale" | "rejected"; message: string }>;
   /** Media the director brought in (AI takes made or considered), so the editor's library and picker know them. */
   onAssets?(assets: LibraryAsset[]): void;
   onClose(): void;
@@ -104,7 +104,7 @@ export function DirectorSheet({ reelId, timeline, generation, library, onApply, 
         state.runId ??= result.editId;
         if (result.applied.length || result.plan.edit.caption) {
           const applied = await onApply(result);
-          if (!applied) { setMessage("The timeline changed while Opus was working, so the run stopped before making anything."); return; }
+          if (!applied.ok) { setMessage(applied.reason === "stale" ? "The timeline changed while Opus was working, so the run stopped before making anything." : `The run stopped before making anything: ${applied.message}`); return; }
           base = applied.timeline; baseGeneration = applied.generation;
         }
         const step = directorLoopStep(result.plan, { round: state.round, maxRounds: DIRECTOR_LOOP_MAX_ROUNDS, budgetCredits: budget, spentCredits: state.spent });
@@ -162,7 +162,7 @@ export function DirectorSheet({ reelId, timeline, generation, library, onApply, 
       {review.plan.issues.length ? <ul>{review.plan.issues.map((issue, i) => <li key={i}>{issue}</li>)}</ul> : null}
       <p className="muted small">{review.plan.limitations}</p>
       <details><summary>What Opus looked at</summary><p className="small">{review.evidence.length} clips, {review.evidence.reduce((n, e) => n + e.timesMs.length, 0)} frames. Opus sees still frames, not sound or the finished playback.</p></details>
-      {review.applied.length > 0 || review.plan.edit.caption ? <><details><summary>What Opus would change</summary><ul>{review.applied.map((s, i) => <li key={i}>{s}</li>)}</ul>{review.skipped.map((s, i) => <p key={i}>{s}</p>)}{review.plan.edit.caption ? <p style={{ whiteSpace: "pre-wrap" }}>Post caption: {review.plan.edit.caption}</p> : null}</details><button type="button" className="btn btn-signal btn-block" disabled={!current || busy} onClick={() => { void onApply(review).then((applied) => setMessage(applied ? "Applied as one editable, undoable step." : "The timeline changed. Ask Opus to review the current edit.")); }}>Apply these changes</button>{!current ? <p className="small">You have edited the reel since. Ask Opus again before applying.</p> : null}</> : null}
+      {review.applied.length > 0 || review.plan.edit.caption ? <><details><summary>What Opus would change</summary><ul>{review.applied.map((s, i) => <li key={i}>{s}</li>)}</ul>{review.skipped.map((s, i) => <p key={i}>{s}</p>)}{review.plan.edit.caption ? <p style={{ whiteSpace: "pre-wrap" }}>Post caption: {review.plan.edit.caption}</p> : null}</details><button type="button" className="btn btn-signal btn-block" disabled={!current || busy} onClick={() => { void onApply(review).then((applied) => setMessage(applied.ok ? "Applied as one editable, undoable step." : applied.reason === "stale" ? "The timeline changed. Ask Opus to review the current edit." : applied.message)); }}>Apply these changes</button>{!current ? <p className="small">You have edited the reel since. Ask Opus again before applying.</p> : null}</> : null}
       {review.plan.shots.map((s, i) => <article key={`${review.editId}:${i}`}>
         <h3>{s.title}</h3><p>{s.reason}</p>{s.line ? <p className="small">She says: “{s.line}” · {s.voice === "veo" ? "Veo's own voice" : "the presenter voice, lip-synced"}</p> : null}<p className="small">New {s.durationSeconds}-second AI shot · {aiClipCredits(s.durationSeconds, Boolean(s.voice))} {aiClipCredits(s.durationSeconds, Boolean(s.voice)) === 1 ? "credit" : "credits"}</p>
         <details><summary>Opus's instructions for this shot</summary><p style={{ whiteSpace: "pre-wrap" }}>{s.prompt}</p><p className="small">First: {s.first ? `${media.find(a => a.id === s.first!.assetId)?.fileName ?? s.first.assetId} at ${(s.first.atMs / 1000).toFixed(2)}s` : "None"}<br />Last: {s.last ? `${media.find(a => a.id === s.last!.assetId)?.fileName ?? s.last.assetId} at ${(s.last.atMs / 1000).toFixed(2)}s` : "None"}{s.compose ? <><br />Start and end stills are composed first, placing the presenter from {media.find(a => a.id === s.compose!.presenter.assetId)?.fileName ?? s.compose.presenter.assetId} into the real frame at human scale.</> : null}</p></details>

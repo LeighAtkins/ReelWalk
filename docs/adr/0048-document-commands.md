@@ -110,6 +110,28 @@ the cuts to it is one entry.
   use before validating them, which made a 3x speed-up of a short named clip
   fail silently.
 
+## Amendments after the second review (Opus, PR #191)
+
+- **Where a title belongs is decided once, from the timeline before the
+  change.** A plain title is cut at its clip's end only when it sat inside
+  that clip before and this change shortened or moved that clip (the cut
+  point is the end of the pieces continuing it when the change was a
+  split). A title that already ran on over the pieces of a split keeps its
+  length through later trims, speed changes and duplicates. The review's
+  pace and length (`retime`, `retimeToLength`) never cut titles; that is
+  the one way they differ from a trim of the same windows.
+- **A refused proposal is a failure everywhere.** `proposals.ts`
+  (`landProposal`) is the one way Ask, Make it for me and the director
+  apply what they bring back; a stale or invalid proposal returns a reason
+  and a message, and each path reports it (no "Here is a first cut",
+  "Polished" or "Applied" over a rejection; the director loop stops).
+- **The Trim sheet is one gesture per opening**, with a `drag:` key, so a
+  paused slider keeps one undo step and one baseline.
+- **The text limit.** `addRoomLabels` never takes a reel past `MAX_TEXTS`;
+  a command on a reel that was already invalid is let through with a
+  `warning` so the reel stays editable.
+- A rejected drag says so once per gesture, not on every pointer move.
+
 ## Consequences
 
 - AI edits no longer drag captions that span cuts along with the first
@@ -130,8 +152,8 @@ the cuts to it is one entry.
 ## What was verified
 
 - `pnpm check` passes: lint, typecheck of every package, and all unit tests
-  (core 401, including 24 in `commands.test.ts`; web 12, in
-  `document-store.test.ts` and `autopilot-flow.test.ts`, which drive the
+  (core 408, including 31 in `commands.test.ts`; web 21, in
+  `document-store.test.ts`, `autopilot-flow.test.ts` and `proposals.test.ts`, which drive the
   store the editor uses; the existing
   `ai-edit`, `text-follows` and `review` tests pass unchanged).
 - `commands.test.ts` proves: the same cut change through `trimClip`, an AI

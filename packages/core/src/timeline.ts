@@ -294,10 +294,13 @@ export const hookSchema = z.object({
 });
 export type Hook = z.infer<typeof hookSchema>;
 
+/** Most text overlays a reel may carry. */
+export const MAX_TEXTS = 50;
+
 export const timelineSchema = z.object({
   version: z.literal(1),
   clips: z.array(clipSchema).max(100),
-  texts: z.array(textSchema).max(50),
+  texts: z.array(textSchema).max(MAX_TEXTS),
   music: musicSchema.nullable(),
   /** Floor plan with a marker that follows the clips. Null when the reel has none. */
   plan: planOverlaySchema.nullable().default(null),
@@ -633,7 +636,9 @@ export function addRoomLabels(timeline: Timeline): Timeline {
     .map((label) => ({ ...label, startMs: Math.max(label.startMs, clearFrom), endMs: Math.min(label.endMs, clearUntil) }))
     .filter((label) => label.endMs - label.startMs >= 600)
     .map((label) => textSchema.parse({ ...label, x: 0.5, y: 0.74, style: "box", color: "#ffffff", size: 0.8 }));
-  return { ...timeline, texts: [...timeline.texts.filter((text) => !managed.has(text.id) && !text.id.startsWith("room-")), ...fitted] };
+  const others = timeline.texts.filter((text) => !managed.has(text.id) && !text.id.startsWith("room-"));
+  // Labels never take the reel past the most texts it may have: the first rooms are named, the rest are not.
+  return { ...timeline, texts: [...others, ...fitted.slice(0, Math.max(0, MAX_TEXTS - others.length))] };
 }
 
 /** When the details card is on screen, as [start, end) windows in ms. */

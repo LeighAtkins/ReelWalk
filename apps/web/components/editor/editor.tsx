@@ -35,7 +35,6 @@ import { setHook, wordsBehindHook, locate, orientQuad, reshapePin,
   type MusicChoice,
   type Plan,
   type Timeline,
-  sameTimeline,
   setClipRoom,
   setCover,
   setLogo,
@@ -94,6 +93,7 @@ import { DirectorSheet } from "./director-sheet";
 import { Filmstrip, type PendingUpload, type Selection } from "./filmstrip";
 import { STALE_PROPOSAL, useDocument } from "./use-document";
 import { runAutopilot } from "./autopilot-flow";
+import { landProposal, reviewGeneration } from "./proposals";
 import { HookSheet, PinSheet,
   AskSheet,
   AutopilotSheet,
@@ -302,21 +302,30 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
     setTimeout(() => setToast((current) => (current === message ? null : current)), ms);
   }, []);
 
+  const rejectedKey = useRef<string | null>(null);
   /** Every command goes through here: one that could not be applied says so instead of doing nothing (ADR 0048). */
   const runCommand = useCallback(
     (...args: Parameters<typeof runDocumentCommand>) => {
       const result = runDocumentCommand(...args);
+      const key = args[1] ?? null;
+      if (result.warning) console.warn("command applied to a reel that was already invalid", args[0].type, result.warning);
       if (result.rejected) {
         console.warn("command rejected", args[0].type, result.rejected);
-        showToast("That change could not be made, so the reel is as it was.", 4000);
-      }
+        // Once per gesture, not on every pointer move of a drag.
+        if (key === null || rejectedKey.current !== key) showToast("That change could not be made, so the reel is as it was.", 4000);
+        rejectedKey.current = key;
+      } else rejectedKey.current = null;
       return result;
     },
     [runDocumentCommand, showToast],
   );
 
   // A sheet opening or closing ends any slider gesture: the next change is its own step with its own baseline.
-  useEffect(() => endGesture(), [sheet, endGesture]);
+  const sheetOpenedAt = useRef(0);
+  useEffect(() => {
+    sheetOpenedAt.current = Date.now();
+    endGesture();
+  }, [sheet, endGesture]);
 
   /** A hint shown the first time something comes up on this device, never again. */
   const tipShown = useRef<string | null>(null);
@@ -538,6 +547,10 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
     },
     [fetchInstagramSound, runCommand, showToast],
   );
+
+  /** How Ask, Make it for me and the director apply what they bring back (proposals.ts). */
+  // The document's own runCommand: each path reports a refused proposal in its own words.
+  const proposalDeps = useMemo(() => ({ runCommand: runDocumentCommand, snapshot, fetchSound: fetchInstagramSound }), [runDocumentCommand, snapshot, fetchInstagramSound]);
 
   // ── New version ─────────────────────────────────────────────
   // After a deploy, this page's uploads and exports (server actions) stop
@@ -780,11 +793,9 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         },
         polish: (from) => runAiJob<Cut>(`/api/reels/${reel.id}/autopilot`, { timeline: from, style, info }),
         // The cut, and the Instagram sound it chose snapped to, land as one proposal against `baseGeneration`.
-        takeIn: async (data, baseGeneration) => {
+        takeIn: (data, baseGeneration) => {
           if (data.assets?.length) setLibrary((current) => ({ ...current, ...Object.fromEntries(data.assets!.map((asset) => [asset.id, asset])) }));
-          if (snapshot().generation !== baseGeneration) return { stale: true as const, generation: snapshot().generation };
-          const music = data.instagramPick ? await fetchInstagramSound(data.instagramPick) : null;
-          return runCommand({ type: "applyProposal", baseGeneration, proposal: data.timeline, ...(music ? { music: { ...music, snap: true } } : {}) });
+          return landProposal(proposalDeps, baseGeneration, data.timeline, data.instagramPick);
         },
       },
       {
@@ -816,7 +827,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
       },
       STALE_PROPOSAL,
     );
-  }, [autopilotPhase, uploads.length, timeline.clips.length, reel.id, showToast, snapshot, runCommand, fetchInstagramSound]);
+  }, [autopilotPhase, uploads.length, timeline.clips.length, reel.id, showToast, snapshot, proposalDeps]);
 
   // Rooms named as soon as the shots are up, so they show (and can be changed) before the reel is made.
   const roomsAsked = useRef(new Set<string>());
@@ -1324,7 +1335,8 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
           asset={library[selectedClip.assetId]}
           next={timeline.clips[selectedClipIndex + 1] ? { clip: timeline.clips[selectedClipIndex + 1], asset: library[timeline.clips[selectedClipIndex + 1].assetId] } : null}
           onChange={(window) => {
-            runCommand({ type: "trimClip", clipId: selectedClip.id, window }, `trim-${selectedClip.id}`);
+            // One gesture (one undo step, one baseline) for as long as the sheet is open, however long the slider rests.
+            runCommand({ type: "trimClip", clipId: selectedClip.id, window }, `drag:trim-${selectedClip.id}:${sheetOpenedAt.current}`);
           }}
           onClose={closeSheet}
         />
@@ -1500,11 +1512,9 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
             // A song or shot the AI brought in joins the library first, so the preview can play it.
             if (data.assets?.length) setLibrary((current) => ({ ...current, ...Object.fromEntries(data.assets!.map((asset) => [asset.id, asset])) }));
             if (data.applied.length > 0) {
-              if (snapshot().generation !== base.generation) return { ok: false, message: STALE_PROPOSAL };
-              // The edit and the Instagram sound it chose (snapped to) are one undo step.
-              const music = data.instagramPick ? await fetchInstagramSound(data.instagramPick) : null;
-              const result = runCommand({ type: "applyProposal", baseGeneration: base.generation, proposal: data.timeline, ...(music ? { music: { ...music, snap: true } } : {}) });
-              if (result.stale) return { ok: false, message: STALE_PROPOSAL };
+              // The edit and the Instagram sound it chose (snapped to) are one undo step; stale or invalid, nothing changes.
+              const landed = await landProposal(proposalDeps, base.generation, data.timeline, data.instagramPick);
+              if (!landed.ok) return { ok: false, message: landed.message };
               showToast(data.note, 6000);
               setSheet(null);
             }
@@ -1529,21 +1539,16 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
       ) : null}
 
       {sheet === "director" ? <DirectorSheet reelId={reel.id} timeline={timeline} generation={generation} library={libraryList} onClose={closeSheet} onAssets={(assets) => setLibrary((current) => ({ ...current, ...Object.fromEntries(assets.map((asset) => [asset.id, asset])) }))} onApply={async (review) => {
-        // A review asked for in this session carries the generation it was made against. One saved
-        // earlier has none: it counts as made against the current reel only if it is the same edit.
-        const baseGeneration = review.generation ?? (sameTimeline(snapshot().timeline, review.baseline) ? snapshot().generation : -1);
-        if (baseGeneration !== snapshot().generation) return null;
         if (review.assets.length) setLibrary(current => ({ ...current, ...Object.fromEntries(review.assets.map(asset => [asset.id, asset])) }));
         // The plan may have chosen an Instagram sound; like the ask flow, it lands in the same step as the edit, so the reel actually has music.
-        const music = review.instagramPick ? await fetchInstagramSound(review.instagramPick) : null;
-        const result = runCommand({ type: "applyProposal", baseGeneration, proposal: review.timeline, ...(music ? { music: { ...music, snap: true } } : {}) });
-        if (result.stale) return null;
+        const landed = await landProposal(proposalDeps, reviewGeneration({ snapshot }, review), review.timeline, review.instagramPick);
+        if (!landed.ok) return landed;
         if (review.plan.edit.caption) {
           setCaption(review.plan.edit.caption);
           void saveCaption({ id: reel.id, caption: review.plan.edit.caption }).catch(() => undefined);
         }
         showToast("Applied Opus's proposed edit. Undo takes it back.");
-        return { generation: result.generation, timeline: result.timeline };
+        return landed;
       }} /> : null}
 
       {sheet === "review-timing" ? (

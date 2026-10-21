@@ -155,13 +155,23 @@ export type TextRetimeOptions = {
   except?: ReadonlySet<string>;
   /** Texts that may come back when they fell off the end (default: all of `before`'s); a text deleted on purpose is left out. */
   kept?: TextOverlay[];
+  /**
+   * Whether a plain title that sat inside its own clip is cut at that clip's
+   * end when this change shortened or moved the clip (default true). The
+   * review's pace and length change every clip at once and leave titles whole.
+   */
+  keepInsideClip?: boolean;
 };
 
 /**
  * The one way texts are retimed after the cut changed from `before` to
  * `after`:
- * - attached texts go back over their clip's picture (`reflowTexts`); a plain
- *   (unpinned) one is kept inside its clip, so it stays attached;
+ * - attached texts go back over their clip's picture (`reflowTexts`); where a
+ *   title belongs is decided once, from `before`: a plain (unpinned) title
+ *   that sat inside its own clip is cut at that clip's end only when this
+ *   change shortened or moved that clip, so a trim cannot push it over a cut
+ *   and detach it; a title that already ran on over the pieces of a split
+ *   is never cut;
  * - reel-relative texts keep the seconds they had in `before`: one the change
  *   only cut short, or dropped off the end, gets its time back (a trim
  *   dragged in and out again, AI steps that shorten the reel on the way);
@@ -176,14 +186,30 @@ export function retimeTexts(before: Timeline, after: Timeline, options: TextReti
   let current = reflowTexts(after, anchors, kept);
   if (current.clips.length === 0) return { ...current, texts: [] };
 
-  // Plain attached texts stay inside the clip (or split run) they follow.
+  // A plain title inside its own clip stays inside it when this change shortened or moved that clip.
   const starts = clipStartsMs(current);
   const pinned = new Set(before.texts.filter((text) => text.pin).map((text) => text.id));
-  const owner = new Map(anchors.filter((anchor) => !pinned.has(anchor.textId)).map((anchor) => {
-    let index = current.clips.findIndex((clip) => clip.id === anchor.clipId);
-    if (index === -1) index = Math.min(anchor.clipIndex, current.clips.length - 1);
-    return [anchor.textId, index] as const;
-  }));
+  const changed = (clipId: string) => {
+    const was = before.clips.findIndex((clip) => clip.id === clipId);
+    const now = current.clips.findIndex((clip) => clip.id === clipId);
+    if (was === -1 || now === -1 || was !== now) return true;
+    const a = before.clips[was];
+    const b = current.clips[now];
+    return a.sourceStartMs !== b.sourceStartMs || a.sourceEndMs !== b.sourceEndMs || a.speed !== b.speed;
+  };
+  const owner = new Map(
+    (options.keepInsideClip === false ? [] : anchors)
+      .filter((anchor) => {
+        if (pinned.has(anchor.textId)) return false;
+        const own = before.clips.find((clip) => clip.id === anchor.clipId) ?? current.clips.find((clip) => clip.id === anchor.clipId);
+        return own !== undefined && anchor.offsetMs + anchor.durationMs <= clipDurationMs(own) && changed(anchor.clipId);
+      })
+      .map((anchor) => {
+        let index = current.clips.findIndex((clip) => clip.id === anchor.clipId);
+        if (index === -1) index = Math.min(anchor.clipIndex, current.clips.length - 1);
+        return [anchor.textId, index] as const;
+      }),
+  );
   // Reel-relative texts get back the seconds they had before the change, unless it moved them on purpose.
   const anchored = new Set(anchors.map((anchor) => anchor.textId));
   const keptIds = new Set(kept.map((text) => text.id));
@@ -196,6 +222,7 @@ export function retimeTexts(before: Timeline, after: Timeline, options: TextReti
   const texts = [...current.texts, ...[...relative.values()].filter((text) => !present.has(text.id))].map((text) => {
     const index = owner.get(text.id);
     if (index !== undefined) {
+      // Its clip's end, or the end of the pieces continuing it when this change was a split.
       const end = clipRunEndMs(current, index, starts);
       return text.endMs > end && end > text.startMs ? { ...text, endMs: end } : text;
     }

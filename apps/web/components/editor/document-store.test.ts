@@ -79,6 +79,19 @@ describe("gesture baselines live as long as their undo step", () => {
     expect(title(store)).toEqual(squeezed);
   });
 
+  it("a Trim sheet slider paused mid-gesture stays one step with one baseline (drag: key per sheet opening)", () => {
+    vi.useFakeTimers();
+    const spanning = parseTimeline({ ...reel(), texts: [{ id: "cap", text: "Just listed", startMs: 3000, endMs: 7500 }] });
+    const store = createDocumentStore(spanning, durations);
+    const key = "drag:trim-a:1000";
+    store.runCommand(trimA(1500), key);
+    expect(store.getState().history.present.texts[0].endMs).toBe(5500);
+    vi.advanceTimersByTime(900);
+    store.runCommand(trimA(4000), key);
+    expect(store.getState().history.present.texts[0]).toMatchObject({ startMs: 3000, endMs: 7500 });
+    expect(store.getState().history.past).toHaveLength(1);
+  });
+
   it("closing the sheet ends the gesture", () => {
     const store = createDocumentStore(reel(), durations);
     store.runCommand(trimA(2000), "trim-a");

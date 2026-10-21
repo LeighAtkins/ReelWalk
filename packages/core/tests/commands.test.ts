@@ -4,7 +4,7 @@ import { pinnedProgress, PINNED_ELSEWHERE } from "../src/cinematic";
 import { applyCommand, type Command, type CommandContext } from "../src/commands";
 import { retime } from "../src/review";
 import { textAttachment } from "../src/text-timing";
-import { clipStartsMs, parseTimeline, timelineDurationMs, type Timeline } from "../src/timeline";
+import { addRoomLabels, clipStartsMs, MAX_TEXTS, parseTimeline, timelineDurationMs, timelineSchema, type Timeline } from "../src/timeline";
 
 // One cut change, whichever button makes it, moves the titles the same way (ADR 0048, slip 28).
 
@@ -67,8 +67,11 @@ describe("which texts follow a clip", () => {
 
 describe("the same cut change through trim, an AI proposal and the review", () => {
   it("moves the titles identically", () => {
+    // A title that fits inside the trimmed clip (source 5.5–6.5 s): the review never cuts a title at its clip's end,
+    // trims do when the title would spill over, so the comparison is about where titles go, not that cut.
+    const base = parseTimeline({ ...reel(), texts: reel().texts.map((text) => (text.id === "title" ? { ...text, endMs: 4500 } : text)) });
     // retime(…, 3000) keeps the middle 3 s of clip a (source 2–8 s): 3.5–6.5 s. Clip b is 4 s → its middle 3 s, 0.5–3.5 s. Photo c → 3 s.
-    const review = retime(reel(), 3000, durations);
+    const review = retime(base, 3000, durations);
     expect(review.clips.map((clip) => [clip.sourceStartMs, clip.sourceEndMs])).toEqual([
       [3500, 6500],
       [500, 3500],
@@ -76,20 +79,20 @@ describe("the same cut change through trim, an AI proposal and the review", () =
     ]);
 
     // The same windows by hand, one trim each.
-    let manual = reel();
+    let manual = base;
     manual = apply(manual, { type: "trimClip", clipId: "a", window: { sourceStartMs: 3500, sourceEndMs: 6500 } }).timeline;
     manual = apply(manual, { type: "trimClip", clipId: "b", window: { sourceStartMs: 500, sourceEndMs: 3500 } }).timeline;
 
     // The same windows asked of the AI, then applied as a proposal.
-    const plan = applyAiEditPlan(reel(), {
+    const plan = applyAiEditPlan(base, {
       ops: [op({ op: "trim", clip: 1, startMs: 3500, endMs: 6500 }), op({ op: "trim", clip: 2, startMs: 500, endMs: 3500 })],
       note: "",
     }, { assets, songs: [], newId: () => "n" });
-    const proposal = apply(reel(), { type: "applyProposal", baseGeneration: 0, proposal: plan.timeline });
+    const proposal = apply(base, { type: "applyProposal", baseGeneration: 0, proposal: plan.timeline });
 
     expect(times(manual)).toEqual(times(review));
     expect(times(proposal.timeline)).toEqual(times(review));
-    // The title kept its frame (source 5.5 s → 2 s into the trimmed clip a) and stays inside a, which now ends at 3 s; the caption kept its seconds.
+    // The title kept its frame (source 5.5 s → 2 s into the trimmed clip a); the caption kept its seconds.
     expect(times(review).title).toEqual([2000, 3000]);
     expect(times(review).caption).toEqual([4000, 9000]);
   });
@@ -185,6 +188,54 @@ describe("proposals", () => {
     expect(result.rejected).toBeTruthy();
     expect(result.timeline).toBe(current);
     expect(result.changes).toEqual([]);
+  });
+});
+
+describe("titles across a split keep their length through later edits (review round 2)", () => {
+  // Clip a is source 2–8 s at reel 0–6 s; the title 1–3.5 s; split at 2 s.
+  const splitReel = () => {
+    const start = parseTimeline({ ...reel(), texts: [{ id: "t", text: "Long title", startMs: 1000, endMs: 3500 }] });
+    return apply(start, { type: "splitClip", atMs: 2000, newId: "a2" }).timeline;
+  };
+  const length = (timeline: Timeline) => times(timeline).t[1] - times(timeline).t[0];
+
+  it("split keeps it whole", () => expect(times(splitReel()).t).toEqual([1000, 3500]));
+
+  it("trimming the second piece's start", () => {
+    const after = apply(splitReel(), { type: "trimClip", clipId: "a2", window: { sourceStartMs: 4200, sourceEndMs: 8000 } }).timeline;
+    expect(length(after)).toBe(2500);
+  });
+
+  it("speeding up the second piece", () => {
+    expect(length(apply(splitReel(), { type: "setSpeed", clipId: "a2", speed: 1.5 }).timeline)).toBe(2500);
+  });
+
+  it("duplicating the first piece", () => {
+    expect(length(apply(splitReel(), { type: "duplicateClip", clipId: "a", newId: "a-copy" }).timeline)).toBe(2500);
+  });
+
+  it("the review's pace never cuts a title at its clip's end", () => {
+    const paced = apply(splitReel(), { type: "retime", shotMs: 1500 }).timeline;
+    expect(length(paced)).toBe(2500);
+  });
+});
+
+describe("more texts than a reel may have (review round 2)", () => {
+  it("room labels never take the reel past the limit", () => {
+    const clips = Array.from({ length: 12 }, (_, i) => ({ id: `c${i}`, assetId: `p${i}`, kind: "IMAGE", sourceStartMs: 0, sourceEndMs: 3000, room: `room ${i}` }));
+    const texts = Array.from({ length: 45 }, (_, i) => ({ id: `t${i}`, text: `Text ${i}`, startMs: 0, endMs: 1000 }));
+    const labelled = addRoomLabels(parseTimeline({ version: 1, clips, texts, music: null }));
+    expect(labelled.texts).toHaveLength(MAX_TEXTS);
+    expect(timelineSchema.safeParse(labelled).success).toBe(true);
+  });
+
+  it("a reel that was already over the limit stays editable, with a warning", () => {
+    const valid = reel();
+    const over = { ...valid, texts: Array.from({ length: 55 }, (_, i) => ({ ...valid.texts[0], id: `t${i}` })) };
+    const result = apply(over, { type: "moveClip", clipId: "b", toIndex: 0 });
+    expect(result.rejected).toBeUndefined();
+    expect(result.warning).toBeTruthy();
+    expect(result.timeline.clips[0].id).toBe("b");
   });
 });
 

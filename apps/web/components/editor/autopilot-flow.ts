@@ -1,4 +1,5 @@
 import type { Timeline } from "@reelwalk/core";
+import type { Landed } from "./proposals";
 
 /** What the autopilot endpoint answers: a whole cut, or why not. */
 export type AutopilotCut = { ok: true; timeline: unknown } | { ok: false; message: string };
@@ -10,8 +11,8 @@ export type AutopilotSteps<C extends AutopilotCut> = {
   quick(timeline: Timeline): Promise<C>;
   /** The model's polished cut, made from `timeline` (the same input the accepted first cut had). */
   polish(timeline: Timeline): Promise<C>;
-  /** Applies a cut as one proposal against `baseGeneration`. */
-  takeIn(cut: C & { ok: true }, baseGeneration: number): Promise<{ stale?: true; generation: number }>;
+  /** Applies a cut as one proposal against `baseGeneration` (`landProposal`). */
+  takeIn(cut: C & { ok: true }, baseGeneration: number): Promise<Landed>;
 };
 
 export type AutopilotEvents = {
@@ -44,15 +45,21 @@ export async function runAutopilot<C extends AutopilotCut>(steps: AutopilotSteps
     }
     if (!quick.ok) return events.fail(quick.message);
     const result = await steps.takeIn(quick as C & { ok: true }, from.generation);
-    if (!result.stale) draft = { input: from.timeline, generation: result.generation };
+    if (result.ok) draft = { input: from.timeline, generation: result.generation };
+    // A cut that is not a valid reel is not asked for again: the same input gives the same cut.
+    else if (result.reason === "rejected") return events.fail(result.message);
   }
   if (!draft) return events.fail(staleMessage);
   events.draft();
   try {
     const polished = await steps.polish(draft.input);
     if (!polished.ok) events.polishFailed(`The first cut stays: ${polished.message}`);
-    else if ((await steps.takeIn(polished as C & { ok: true }, draft.generation)).stale) events.polishStale();
-    else events.polished();
+    else {
+      const landed = await steps.takeIn(polished as C & { ok: true }, draft.generation);
+      if (landed.ok) events.polished();
+      else if (landed.reason === "stale") events.polishStale();
+      else events.polishFailed(`The first cut stays: ${landed.message}`);
+    }
   } catch {
     events.polishFailed("The first cut stays; the polish could not reach ReelWalk.");
   }

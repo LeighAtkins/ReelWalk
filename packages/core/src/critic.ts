@@ -77,7 +77,10 @@ export const CRITIC = {
   stepMs: 500,
   /** Mean luma difference between frames `stepMs` apart above which the picture moved (compression noise on a still shot is under 0.01). */
   motion: 0.02,
-  /** The smallest presenter face, in px of a 1080×1920 frame, that holds her eyes and mouth while she speaks. */
+  /**
+   * The presenter face, in px of a 1080×1920 frame, a speaking shot should have so her eyes and mouth hold
+   * on a phone. Advice, above the identity gate's hard floor for speaking takes (165 px, ADR 0056 amendment).
+   */
   minFacePx: 220,
   /** An identity gate score below this passed, but only just (the gate's own bar is 0.6). */
   faceReviewScore: 0.7,
@@ -123,6 +126,8 @@ export type CriticFace = {
   faceHeightPx: number | null;
   /** The identity gate's lowest accepted confidence; null when the gate did not run. */
   identityScore: number | null;
+  /** False when the gate saw an accepted end without both eyes and the mouth clearly drawn; null when it did not look (takes from before that check). */
+  eyesAndMouthRendered: boolean | null;
 };
 
 /**
@@ -132,21 +137,24 @@ export type CriticFace = {
  */
 export function criticFaceFromGeneration(row: { assetId: string; shot: unknown; identityChecks: unknown; identityScore: number | null }): CriticFace {
   const shot = row.shot && typeof row.shot === "object" ? (row.shot as { line?: unknown }) : {};
-  const checks = Array.isArray(row.identityChecks) ? (row.identityChecks as { end?: unknown; attempt?: unknown; faceHeightPx?: unknown }[]) : [];
-  const accepted = new Map<string, { attempt: number; faceHeightPx: number | null }>();
+  const checks = Array.isArray(row.identityChecks) ? (row.identityChecks as { end?: unknown; attempt?: unknown; faceHeightPx?: unknown; eyesAndMouthRendered?: unknown }[]) : [];
+  const accepted = new Map<string, { attempt: number; faceHeightPx: number | null; eyesAndMouth: boolean | null }>();
   for (const check of checks) {
     if (!check || typeof check !== "object") continue;
     const end = String(check.end ?? "first"), attempt = typeof check.attempt === "number" ? check.attempt : 1;
     const faceHeightPx = typeof check.faceHeightPx === "number" && check.faceHeightPx > 0 ? check.faceHeightPx : null;
+    const eyesAndMouth = typeof check.eyesAndMouthRendered === "boolean" ? check.eyesAndMouthRendered : null;
     const held = accepted.get(end);
-    if (!held || attempt > held.attempt) accepted.set(end, { attempt, faceHeightPx });
+    if (!held || attempt > held.attempt) accepted.set(end, { attempt, faceHeightPx, eyesAndMouth });
   }
+  const looked = [...accepted.values()].flatMap((check) => (check.eyesAndMouth === null ? [] : [check.eyesAndMouth]));
   const heights = [...accepted.values()].flatMap((check) => (check.faceHeightPx === null ? [] : [check.faceHeightPx]));
   return {
     assetId: row.assetId,
     speaking: typeof shot.line === "string" && shot.line.trim().length > 0,
     faceHeightPx: heights.length ? Math.min(...heights) : null,
     identityScore: typeof row.identityScore === "number" ? row.identityScore : null,
+    eyesAndMouthRendered: looked.length ? looked.every(Boolean) : null,
   };
 }
 
@@ -616,6 +624,9 @@ function faceChecks(ctx: Context): CriticFinding[] {
     if (face.speaking && shownPx !== null && shownPx < CRITIC.minFacePx) {
       findings.push({ ...base, id: `face-small:${clip.id}`, check: "face", severity: "high",
         reason: `She speaks in shot ${index + 1} but her face is only about ${shownPx} px tall; eyes and lips go soft below ${CRITIC.minFacePx}.` });
+    } else if (face.eyesAndMouthRendered === false) {
+      findings.push({ ...base, id: `face-features:${clip.id}`, check: "face", severity: "high",
+        reason: `The likeness check saw her eyes or mouth badly drawn in shot ${index + 1}.` });
     } else if (face.identityScore !== null && face.identityScore < CRITIC.faceReviewScore) {
       findings.push({ ...base, id: `face-identity:${clip.id}`, check: "face", severity: "medium",
         reason: `The likeness check only just passed shot ${index + 1} (${face.identityScore.toFixed(2)}); look closely at her eyes and mouth.` });

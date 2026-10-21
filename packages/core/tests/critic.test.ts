@@ -208,7 +208,7 @@ describe("dead air", () => {
 
 describe("faces", () => {
   const ai = reel({ clips: [{ id: "say", assetId: "ai1", kind: "VIDEO", sourceStartMs: 0, sourceEndMs: 4000 }, ...reel().clips] });
-  const face = (patch: Partial<CriticFace>): CriticFace => ({ assetId: "ai1", speaking: true, faceHeightPx: 180, identityScore: 0.9, ...patch });
+  const face = (patch: Partial<CriticFace>): CriticFace => ({ assetId: "ai1", speaking: true, faceHeightPx: 180, identityScore: 0.9, eyesAndMouthRendered: true, ...patch });
 
   it("a speaking presenter under 220 px is flagged with a new take as the fix, never a timeline change", () => {
     const [finding] = ofCheck(run(ai, { faces: [face({})] }), "face");
@@ -225,6 +225,8 @@ describe("faces", () => {
     const [borderline] = ofCheck(run(ai, { faces: [face({ faceHeightPx: 300, identityScore: 0.64 })] }), "face");
     expect(borderline.severity).toBe("medium");
     expect(borderline.reason).toMatch(/0\.64/);
+    const [features] = ofCheck(run(ai, { faces: [face({ faceHeightPx: 300, eyesAndMouthRendered: false })] }), "face");
+    expect(features).toMatchObject({ id: "face-features:say", severity: "high" });
   });
 
   it("reads the accepted attempt of each composed end from the gate's checks (ADR 0056)", () => {
@@ -232,12 +234,15 @@ describe("faces", () => {
       assetId: "ai1", identityScore: 0.82, shot: { prompt: "x", line: "Welcome home" },
       identityChecks: [
         { end: "first", attempt: 1, samePerson: false, confidence: 0, faceHeightPx: 90, reason: "face-too-small" },
-        { end: "first", attempt: 2, samePerson: true, confidence: 0.82, faceHeightPx: 260 },
-        { end: "last", attempt: 1, samePerson: true, confidence: 0.9, faceHeightPx: 240 },
+        { end: "first", attempt: 2, samePerson: true, confidence: 0.82, faceHeightPx: 260, minFacePx: 165, eyesAndMouthRendered: true },
+        { end: "last", attempt: 1, samePerson: true, confidence: 0.9, faceHeightPx: 240, minFacePx: 165, eyesAndMouthRendered: true },
       ],
     };
-    expect(criticFaceFromGeneration(row)).toEqual({ assetId: "ai1", speaking: true, faceHeightPx: 240, identityScore: 0.82 });
-    expect(criticFaceFromGeneration({ assetId: "x", shot: null, identityChecks: null, identityScore: null })).toEqual({ assetId: "x", speaking: false, faceHeightPx: null, identityScore: null });
+    expect(criticFaceFromGeneration(row)).toEqual({ assetId: "ai1", speaking: true, faceHeightPx: 240, identityScore: 0.82, eyesAndMouthRendered: true });
+    // An accepted end without eyes and mouth (a take from before the gate required them) is flagged; a row the gate never saw is unknown.
+    const smeared = { ...row, identityChecks: [{ end: "first", attempt: 1, samePerson: true, confidence: 0.8, faceHeightPx: 250, eyesAndMouthRendered: false }] };
+    expect(criticFaceFromGeneration(smeared).eyesAndMouthRendered).toBe(false);
+    expect(criticFaceFromGeneration({ assetId: "x", shot: null, identityChecks: null, identityScore: null })).toEqual({ assetId: "x", speaking: false, faceHeightPx: null, identityScore: null, eyesAndMouthRendered: null });
   });
 });
 

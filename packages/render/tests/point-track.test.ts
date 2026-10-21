@@ -31,6 +31,20 @@ describe("the point tracker (ADR 0051)", () => {
     expect(Math.abs(found.y - 55.75)).toBeLessThan(0.3);
   });
 
+  it("finds an odd one-pixel shift of a fine, high-frequency texture (the coarse stride skips it)", () => {
+    const noise = (sx: number, sy: number): Gray => {
+      const data = new Float32Array(W * H);
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) data[y * W + x] = lattice(x - sx, y - sy);
+      return { data, width: W, height: H };
+    };
+    for (const [sx, sy] of [[1, 0], [0, 1], [3, -5], [-7, 1]]) {
+      const found = trackPoint(noise(0, 0), { x: 60, y: 60 }, noise(sx, sy), { x: 60, y: 60 });
+      expect(found.status, `${sx},${sy}`).toBe("tracked");
+      expect(found.x).toBeCloseTo(60 + sx, 1);
+      expect(found.y).toBeCloseTo(60 + sy, 1);
+    }
+  });
+
   it("keeps the prediction when the patch is flat, at the edge, or out of reach", () => {
     expect(trackPoint(field(0, 0, true), { x: 60, y: 60 }, field(0, 0), { x: 61, y: 62 })).toMatchObject({ x: 61, y: 62, status: "flat" });
     expect(trackPoint(field(0, 0), { x: 3, y: 60 }, field(0, 0), { x: 3, y: 60 }).status).toBe("edge");

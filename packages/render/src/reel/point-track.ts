@@ -97,6 +97,14 @@ export function trackPoint(ref: Gray, refPoint: Point, cur: Gray, prior: Point, 
     const score = ncc(cur, cx + dx, cy + dy, half, template.values, norm);
     if (score > best) { best = score; bx = cx + dx; by = cy + dy; }
   }
+  // A stride with no filtered pyramid can step over the peak of a fine texture (a one-pixel
+  // shift scored 0.145 with an exact match in the window): before calling it lost, try every pixel.
+  if (best < minScore) {
+    for (let dy = -radius; dy <= radius; dy++) for (let dx = -radius; dx <= radius; dx++) {
+      const score = ncc(cur, px + dx, py + dy, half, template.values, norm);
+      if (score > best) { best = score; bx = px + dx; by = py + dy; }
+    }
+  }
   if (best < minScore) return lost("lost", best);
   const ox = parabola(ncc(cur, bx - 1, by, half, template.values, norm), best, ncc(cur, bx + 1, by, half, template.values, norm));
   const oy = parabola(ncc(cur, bx, by - 1, half, template.values, norm), best, ncc(cur, bx, by + 1, half, template.values, norm));

@@ -96,6 +96,23 @@ the cuts to it is one entry.
 
 ## What was verified
 
-See the pull request for the exact commands and results: `pnpm check`
-(lint, typecheck, all unit tests including the new `commands.test.ts`) and
-the e2e suite run against a production build of this branch.
+- `pnpm check` passes: lint, typecheck of every package, and all unit tests
+  (core 396, including 19 in the new `commands.test.ts`; the existing
+  `ai-edit`, `text-follows` and `review` tests pass unchanged).
+- `commands.test.ts` proves: the same cut change through `trimClip`, an AI
+  plan applied with `applyProposal`, and the review's `retime` gives the
+  same title times; picking a song with `snap` is one state change equal to
+  the old two steps; a stale proposal is refused and changes nothing; an
+  attached text follows a moved clip and a reel-relative caption does not;
+  two uses of one video keep separate titles; split, duplicate, speed and
+  delete keep pinned titles on their tracked frames (`pinnedProgress`); a
+  trim dragged in and back out restores the title.
+- `next build` of `apps/web` succeeds.
+- Not verified: the Playwright e2e suite. On 2026-10-21 Docker Desktop's
+  published ports returned empty replies or dropped connections from the
+  host (nginx on :8080, Postgres on :5432, by 127.0.0.1, the LAN address and
+  host.docker.internal alike), so neither the compose stack nor a server
+  built from this branch could reach the database. Restoring it needs a
+  Docker Desktop / WSL restart, which was not done while other agents were
+  using the stack. The editor's Ask, autopilot, director and music flows
+  have therefore not been exercised in a browser.

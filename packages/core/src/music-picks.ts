@@ -560,6 +560,44 @@ export function pickPopularSounds(rows: PopularSoundRow[], input: { moods: Music
   return picks;
 }
 
+/** A MusicCandidate row as stored (moods and playlists are JSON): a row for the picks, or null when it has no usable match. */
+export function popularSoundRowFromStored(stored: {
+  key: string;
+  title: string;
+  artist: string;
+  score: number;
+  moods: unknown;
+  playlists: unknown;
+  igAudioId: string | null;
+  igAudioType: string | null;
+  igTitle: string | null;
+  igArtist: string | null;
+  igDurationMs: number | null;
+  igMatch: string | null;
+  trendingRank: number | null;
+  bpm: number | null;
+}): PopularSoundRow | null {
+  if (!stored.igAudioId || !stored.igTitle || (stored.igMatch !== "track" && stored.igMatch !== "cover")) return null;
+  if (stored.igAudioType !== "music" && stored.igAudioType !== "original_sound") return null;
+  const playlists = z.array(z.object({ name: z.string(), followers: z.number() })).catch([]).parse(stored.playlists);
+  return {
+    key: stored.key,
+    title: stored.title,
+    artist: stored.artist,
+    score: stored.score,
+    moods: Array.isArray(stored.moods) ? stored.moods.filter(isMusicMood) : [],
+    playlists: playlists.map(({ name, followers }) => ({ name, followers })),
+    igAudioId: stored.igAudioId,
+    igAudioType: stored.igAudioType,
+    igTitle: stored.igTitle,
+    igArtist: stored.igArtist,
+    igDurationMs: stored.igDurationMs,
+    igMatch: stored.igMatch,
+    trendingRank: stored.trendingRank,
+    bpm: stored.bpm,
+  };
+}
+
 /** The link to a sound's page on Instagram. */
 export function instagramAudioLink(audioId: string): string {
   return `https://www.instagram.com/reels/audio/${encodeURIComponent(audioId)}/`;

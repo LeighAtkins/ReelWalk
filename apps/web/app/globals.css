@@ -3589,6 +3589,8 @@ video:-webkit-full-screen {
   margin-top: 6px;
   color: var(--muted);
   font-size: 12px;
+}
+
 /* Inspect (ADR 0057): the placing layout (a 9:16 frame between 44 px gutters), with room above for the
    layer tabs and below for frame steps and chips. Controls sit outside the frame, every one 44 px or more. */
 .stage-theater.is-inspecting {

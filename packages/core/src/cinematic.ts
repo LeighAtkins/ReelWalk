@@ -121,6 +121,13 @@ export function luxuryFinish(timeline: Timeline, variant: "refined" | "modern" =
 
 export type OneLineFont = { fontFamily?: string; fontWeight?: string | number; fontSize: number; letterSpacing?: number; fontStretch?: string };
 
+/** A line's width without a DOM, px: an average advance per character, honouring stretch and letter spacing. */
+export function estimateLineWidth(text: string, font: OneLineFont): number {
+  const spacing = (font.letterSpacing ?? 0) * font.fontSize * Math.max(0, text.length - 1);
+  const stretch = font.fontStretch ? parseFloat(font.fontStretch) / 100 || 1 : 1;
+  return text.length * font.fontSize * 0.62 * stretch + spacing;
+}
+
 let measureSpan: HTMLSpanElement | null = null;
 /**
  * How wide a one-line title is, as a fraction of the frame. In a browser the
@@ -128,9 +135,13 @@ let measureSpan: HTMLSpanElement | null = null;
  * letter spacing (canvas metrics ignore a variable font's width axis and were
  * 30% short); without a DOM, an estimate from the character count. A planar
  * title never wraps, so this decides whether it fits the frame.
+ *
+ * The composition no longer calls this: scene evaluation (ADR 0046) takes an
+ * injected measurer and the renderer passes its own (packages/render
+ * src/reel/measure.ts). It stays for the editor's handles until they consume
+ * the scene evaluator.
  */
 export function oneLineWidth(text: string, font: OneLineFont, frameWidth = 1080): number {
-  const spacing = (font.letterSpacing ?? 0) * font.fontSize * Math.max(0, text.length - 1);
   if (typeof document !== "undefined") {
     try {
       if (!measureSpan) {
@@ -147,39 +158,7 @@ export function oneLineWidth(text: string, font: OneLineFont, frameWidth = 1080)
       if (width > 0) return width / frameWidth;
     } catch { /* fall through to the estimate */ }
   }
-  const stretch = font.fontStretch ? parseFloat(font.fontStretch) / 100 || 1 : 1;
-  return (text.length * font.fontSize * 0.62 * stretch + spacing) / frameWidth;
+  return estimateLineWidth(text, font) / frameWidth;
 }
 
-/** The largest fraction of the frame a planar title may span. */
-export const PLANAR_MAX_WIDTH = 0.92;
-
-/**
- * How much to shrink a planar title, and how far to move it, so its line fits
- * the frame once it is warped onto the pinned plane: the text is centred in the
- * plane's rectangle and projected through the homography to the (leaned)
- * corners, so a near edge magnified by perspective counts. `fit` ≤ 1 scales the
- * text; `shift` is the change to the title's centre x (frame fraction) that
- * keeps the projected line 3% inside both edges.
- */
-export function planarFitAndShift(quad0: readonly number[], widthFraction: number, maxWidth = PLANAR_MAX_WIDTH): { fit: number; shift: number; left: number; right: number } {
-  const left = quad0[0], top = quad0[1], w = Math.max(1e-6, quad0[2] - quad0[0]), h = Math.max(1e-6, quad0[7] - quad0[1]);
-  const now = quad0.map((v, i) => (i % 2 === 0 ? v - left : v - top)) as Quad;
-  const H = homography([0, 0, w, 0, w, h, 0, h], now);
-  const extents = (fit: number): [number, number] => {
-    const half = (widthFraction * fit) / 2, y = h / 2;
-    if (!H) return [left + w / 2 - half, left + w / 2 + half];
-    const a = applyHomography(H, w / 2 - half, y)[0] + left, b = applyHomography(H, w / 2 + half, y)[0] + left;
-    return [Math.min(a, b), Math.max(a, b)];
-  };
-  let fit = 1;
-  for (let i = 0; i < 4; i++) {
-    const [l, r] = extents(fit);
-    const span = r - l;
-    if (span <= maxWidth) break;
-    fit *= maxWidth / span;
-  }
-  const [l, r] = extents(fit);
-  const shift = l < 0.03 ? 0.03 - l : r > 0.97 ? 0.97 - r : 0;
-  return { fit, shift, left: l + shift, right: r + shift };
-}
+// planarFitAndShift and PLANAR_MAX_WIDTH moved to scene.ts (ADR 0046), with the rest of title placement.

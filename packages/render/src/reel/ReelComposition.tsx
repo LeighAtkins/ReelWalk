@@ -15,7 +15,8 @@ import {
 // WebCodecs-based video, used when the worker renders: about twice as fast as
 // OffthreadVideo here, and it falls back to it for files it cannot decode.
 import { Video as RenderVideo } from "@remotion/media";
-import { cameraAt, homography, invertHomography, matrix3d, oneLineWidth, PINNED_ELSEWHERE, pinnedProgress, planarFitAndShift, textPositionAt, textQuadAt, duckGain, framePlan, INSTAGRAM, isInstagramMusic, speechWindows, REEL_FORMAT, timelineDurationMs, walkInto, type Clip, type Logo, type Plan, type TextOverlay, type Timeline, endsBeforeShot, orientOrder, orientQuad } from "@reelwalk/core";
+import { cameraAt, duckGain, evaluateTitle, framePlan, INSTAGRAM, isInstagramMusic, matrix3d, REEL_FORMAT, sceneLayers, speechWindows, timelineDurationMs, walkInto, type Clip, type Logo, type Plan, type TextOverlay, type Timeline } from "@reelwalk/core";
+import { domMeasure } from "./measure";
 import { whipGeometry } from "./whip";
 import { clipPresentation } from "./presentation";
 import { useFontsFor } from "./fonts";
@@ -202,81 +203,42 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
   const frame = useCurrentFrame();
   const { fps, width, height } = useVideoConfig();
   const css = textTreatmentCss(text);
-  // A pinned path runs on its clip's source time (ADR 0039); a drift runs over the text's own life.
-  const progress = text.pin ? pinnedProgress(timeline, text, ((from + frame) * 1000) / fps) : durationInFrames > 1 ? frame / (durationInFrames - 1) : 0;
-  const position = textPositionAt(text, progress);
-  // A title with a surface but no pin yet is drawn inside its surface as it stands (ADR 0044): the corners
-  // being dragged reshape the words at once, and pinning then makes that plane follow the camera.
-  const bare = text.surface && !text.pin ? orientQuad(text.surface) : null;
-  // A pinned plane keeps the order its corners were placed in, as do its keyframes; both are re-ordered
-  // the same way so a title pinned from a mirrored placement still reads upright.
-  const order = text.pin?.quad ? orientOrder(text.pin.quad) : null;
-  const reorder = (q: number[] | null): number[] | null => (q && order ? order.flatMap((i) => [q[i * 2], q[i * 2 + 1]]) : q);
-  const quad = reorder(textQuadAt(text, progress)) ?? bare;
-  const plane = (text.pin?.quad ? reorder(text.pin.quad) : bare) ?? undefined;
-  // A pinned title belongs to its shot: while another clip is on screen it is not drawn at all.
+  const font = { fontFamily: String(css.fontFamily ?? ""), fontWeight: css.fontWeight, fontSize: Number(css.fontSize) || 64, letterSpacing: text.tracking, fontStretch: css.fontStretch ? String(css.fontStretch) : undefined };
   // Hooks first: a pinned title on another clip returns nothing, but only after every hook has run (React 300 otherwise).
   useFontsFor(text.text, Number(css.fontWeight ?? 600));
   const { scale, opacity, rise, chars } = textMotion(text, frame, fps, durationInFrames);
-  if (text.pin && progress === PINNED_ELSEWHERE) return null;
-  const face = { ...css, ...(text.depth === "extruded" ? { textShadow: extrudedShadow(text.color, Number(css.fontSize) || 64), WebkitTextStroke: `${Math.max(0.5, (Number(css.fontSize) || 64) * 0.01)}px rgba(0,0,0,0.35)` } : {}) };
-  // Paint on the surface: hard-light keeps the wall's own light and grain through the letters (white lightens, dark darkens), with the footage's softness.
-  // A tracked title fades where the tracker lost the surface (or where its path says so), instead of cutting;
-  // one taken off before its shot ends (ADR 0044) fades over its last 0.4 s rather than vanishing mid-shot.
-  const tail = text.pin && endsBeforeShot(timeline, text) ? interpolate(frame, [Math.max(0, durationInFrames - Math.round(0.4 * fps)), durationInFrames], [1, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" }) : 1;
-  const visible = opacity * position.opacity * tail;
+  // Where the title is on this frame comes from one place (ADR 0046): the scene evaluator in core.
+  const placement = evaluateTitle({ text, timeline, frame, from, durationInFrames, fps, width, height, font, measure: domMeasure });
+  if (placement.kind === "hidden") return null;
+  const face = { ...css, ...(text.depth === "extruded" ? { textShadow: extrudedShadow(text.color, font.fontSize), WebkitTextStroke: `${Math.max(0.5, font.fontSize * 0.01)}px rgba(0,0,0,0.35)` } : {}) };
+  const visible = opacity * placement.opacity;
   // The typewriter keeps the full text in place, invisible, so the box never changes size while it writes.
   const written = chars === null ? text.text : text.text.slice(0, chars);
   const cursor = chars !== null && chars < text.text.length && Math.floor(frame / (fps / 4)) % 2 === 0;
+  // Paint on the surface: hard-light keeps the wall's own light and grain through the letters (white lightens, dark darkens), with the footage's softness.
   // The blend's own 0.92 multiplies the fade; spread after `opacity`, a flat 0.92 used to cancel it.
   const meet = text.blend === "surface" ? { mixBlendMode: "hard-light" as const, filter: "blur(0.6px)", opacity: visible * 0.92 } : {};
-  if (quad && plane) {
-    // A planar title never wraps, so a long one is shrunk to fit the frame rather than running off it.
-    // The widest of the typed lines sets the width.
-    const line = Math.max(...text.text.split("\n").map((part) => oneLineWidth(part || " ", { fontFamily: String(css.fontFamily ?? ""), fontWeight: css.fontWeight, fontSize: Number(css.fontSize) || 64, letterSpacing: text.tracking, fontStretch: css.fontStretch ? String(css.fontStretch) : undefined }, width)));
-    // The plane's own rectangle: as wide as the average of its top and bottom edges and as tall as the
-    // average of its sides, in pixels. One edge alone (the top for width, the left for height) made a
-    // title grow to fill a long top edge and then warp thin onto a short bottom one as a corner was dragged.
-    const px = (i: number) => plane[i * 2] * width, py = (i: number) => plane[i * 2 + 1] * height;
-    const edge = (a: number, b: number) => Math.hypot(px(b) - px(a), py(b) - py(a));
-    const w = Math.max(1, (edge(0, 1) + edge(3, 2)) / 2), h = Math.max(1, (edge(0, 3) + edge(1, 2)) / 2);
-    const rectWidth = Math.max(0.05, w / width);
-    const rectHeight = Math.max(0.02, h / height);
-    // The block the author typed: one line, or the lines they broke it into (each as tall as a line).
-    const lines = text.text.split("\n").length;
-    const lineHeight = (((Number(css.fontSize) || 64) * 1.12) / height) * lines;
-    // A title on a chosen surface fills it: scaled up or down to span 94% of its width, as long as it fits its height.
-    const fit = text.surface ? Math.min((rectWidth * 0.94) / line, (rectHeight * 0.92) / lineHeight) : planarFitAndShift(plane, line).fit;
-    // The text sits on the plane the tracker followed: a box at the pinned corners, warped to where they are now (ADR 0039).
-    const q0 = plane;
-    const left = q0[0] * width, top = q0[1] * height;
-    const now = quad.map((v, i) => (i % 2 === 0 ? v * width - left : v * height - top)) as [number, number, number, number, number, number, number, number];
-    const H = homography([0, 0, w, 0, w, h, 0, h], now);
-    // Bars (a mullion, a post) in front of the surface: holes cut in the plane's own coordinates, so they warp with it.
+  if (placement.kind === "surface") {
+    const { rect, placed, fitScale, maskShapes, clipToPlane } = placement;
+    const w = rect.width, h = rect.height;
     let mask: React.CSSProperties = {};
-    if (text.surface && (text.bars?.length || text.cutouts?.length)) {
-      const H0 = homography([0, 0, w, 0, w, h, 0, h], q0.map((v, i) => (i % 2 === 0 ? v * width - left : v * height - top)) as [number, number, number, number, number, number, number, number]);
-      const inv = H0 ? invertHomography(H0) : null;
-      if (inv) {
-        // The posts are cut out of the plane in the plane's own coordinates, so they warp with it. A mask
-        // (white plane, black posts) subtracts their union: an even-odd path put two overlapping posts
-        // back to visible where they crossed, and two identical posts cancelled each other.
-        const toRect = (x: number, y: number) => { const px = x * width - left, py = y * height - top; const d = inv[6] * px + inv[7] * py + inv[8] || 1e-9; return `${((inv[0] * px + inv[1] * py + inv[2]) / d).toFixed(1)},${((inv[3] * px + inv[4] * py + inv[5]) / d).toFixed(1)}`; };
-        const shapes = [...(text.bars ?? []), ...(text.cutouts ?? [])];
-        const posts = shapes.map((shape) => `<polygon points="${Array.from({ length: shape.length / 2 }, (_, i) => toRect(shape[i * 2], shape[i * 2 + 1])).join(" ")}" fill="black"/>`).join("");
-        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><rect width="${w}" height="${h}" fill="white"/>${posts}</svg>`;
-        const url = `url("data:image/svg+xml;utf8,${encodeURIComponent(svg)}")`;
-        // Luminance, not the default alpha: an image mask reads alpha unless told otherwise, and a black
-        // polygon is as opaque as the white plane, so nothing would be cut (found on the phone, 2026-10-20).
-        mask = { maskImage: url, WebkitMaskImage: url, maskSize: "100% 100%", WebkitMaskSize: "100% 100%", maskRepeat: "no-repeat", WebkitMaskRepeat: "no-repeat", maskMode: "luminance" };
-      }
+    if (maskShapes) {
+      // Posts are cut out of the plane in the plane's own coordinates, so they warp with it. A mask
+      // (white plane, black posts) subtracts their union: an even-odd path put two overlapping posts
+      // back to visible where they crossed, and two identical posts cancelled each other.
+      const posts = maskShapes.map((shape) => `<polygon points="${Array.from({ length: shape.length / 2 }, (_, i) => `${shape[i * 2].toFixed(1)},${shape[i * 2 + 1].toFixed(1)}`).join(" ")}" fill="black"/>`).join("");
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><rect width="${w}" height="${h}" fill="white"/>${posts}</svg>`;
+      const url = `url("data:image/svg+xml;utf8,${encodeURIComponent(svg)}")`;
+      // Luminance, not the default alpha: an image mask reads alpha unless told otherwise, and a black
+      // polygon is as opaque as the white plane, so nothing would be cut (found on the phone, 2026-10-20).
+      mask = { maskImage: url, WebkitMaskImage: url, maskSize: "100% 100%", WebkitMaskSize: "100% 100%", maskRepeat: "no-repeat", WebkitMaskRepeat: "no-repeat", maskMode: "luminance" };
     }
     return (
       <AbsoluteFill style={{ pointerEvents: "none", perspective: "none" }}>
         {/* Painted on a chosen surface, the text exists only on that surface: anything in front of the surface's edge (a wall, a railing) hides it. */}
-        <div style={{ position: "absolute", left, top, width: w, height: h, display: "flex", alignItems: "center", justifyContent: "center", transformOrigin: "0 0", transform: H ? matrix3d(H) : undefined, opacity: visible, whiteSpace: "nowrap", textAlign: "center", overflow: text.surface ? "hidden" : "visible", ...mask, ...meet }}>
-          {/* The tracked box is only the plane's frame, narrower than most titles: the words sit on one line (or the lines the author typed) and overflow it, warped with it. */}
-          <span style={{ ...face, position: "relative", whiteSpace: text.text.includes("\n") ? "pre" : "nowrap", overflowWrap: "normal", wordBreak: "keep-all", transform: `scale(${scale * fit})` }}>
+        <div style={{ position: "absolute", left: rect.left, top: rect.top, width: w, height: h, display: "flex", alignItems: "center", justifyContent: "center", transformOrigin: "0 0", transform: placed ? matrix3d(placed) : undefined, opacity: visible, whiteSpace: "nowrap", textAlign: "center", overflow: clipToPlane ? "hidden" : "visible", ...mask, ...meet }}>
+          {/* The plane's box is only its frame: the words sit on one line (or the lines the author typed), scaled to fill or fit it, warped with it. */}
+          <span style={{ ...face, position: "relative", whiteSpace: text.text.includes("\n") ? "pre" : "nowrap", overflowWrap: "normal", wordBreak: "keep-all", transform: `scale(${scale * fitScale})` }}>
             {chars === null ? text.text : (<>
               {/* The typewriter on a plane: the full text holds the size, the written part sits over it. */}
               <span style={{ visibility: "hidden" }}>{text.text}</span>
@@ -288,18 +250,19 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
     );
   }
 
+  const { center, wrap } = placement;
   return (
     <AbsoluteFill style={{ pointerEvents: "none" }}>
       <div
         style={{
           position: "absolute",
-          left: position.x * width,
-          top: position.y * height,
+          left: center.x,
+          top: center.y,
           // A single word never breaks mid-word (a tracked title is usually one word); sentences wrap inside the safe width.
-          ...(/\s/.test(text.text) ? { width: width * 0.86 } : { width: "max-content", maxWidth: width * 1.4, whiteSpace: "nowrap" as const }),
+          ...(wrap.mode === "wrap" ? { width: wrap.width } : { width: "max-content", maxWidth: wrap.maxWidth, whiteSpace: "nowrap" as const }),
           display: "flex",
           justifyContent: "center",
-          transform: `translate(-50%, calc(-50% + ${rise * 40}px)) scale(${scale * position.scale}) rotate(${position.rotation}deg)`,
+          transform: `translate(-50%, calc(-50% + ${rise * 40}px)) scale(${scale * placement.scale}) rotate(${placement.rotation}deg)`,
           opacity: visible,
           ...meet,
         }}
@@ -398,38 +361,37 @@ export const ReelComposition: React.FC<ReelProps> = ({ timeline, assets, waterma
         </Sequence>
       ))}
       <PlanOverlayView timeline={timeline} />
-      {plan.texts.map(({ text, from, durationInFrames }) => (
-        <Sequence key={text.id} from={from} durationInFrames={durationInFrames} name={`text ${text.text.slice(0, 12)}`}>
-          <TextView text={text} durationInFrames={durationInFrames} timeline={timeline} from={from} />
-        </Sequence>
-      ))}
-      {/* People in front of the type (ADR 0039): a person-only matte of each clip a "behind" text overlaps, above the text layer. */}
-      {plan.clips.map(({ clip, from, durationInFrames }) => {
+      {/* Titles and what stands in front of them, bottom to top (ADR 0046): each title's occluders draw above
+          that title only; the presenter above the "behind" titles, a plain caption above every matte. */}
+      {sceneLayers(timeline, fps, (clip) => assets[clip.assetId]?.kind === "VIDEO").map((layer) => {
+        if (layer.kind === "title") {
+          const { text, from, durationInFrames } = layer;
+          return (
+            <Sequence key={text.id} from={from} durationInFrames={durationInFrames} name={`text ${text.text.slice(0, 12)}`}>
+              <TextView text={text} durationInFrames={durationInFrames} timeline={timeline} from={from} />
+            </Sequence>
+          );
+        }
+        const clip = timeline.clips[layer.clipIndex];
         const asset = assets[clip.assetId];
-        const startMs = (from * 1000) / fps, endMs = ((from + durationInFrames) * 1000) / fps;
-        if (!asset || asset.kind !== "VIDEO" || !timeline.texts.some(text => text.behind && text.startMs < endMs && text.endMs > startMs)) return null;
-        const index = timeline.clips.indexOf(clip);
+        const { from, durationInFrames } = layer;
+        const next = timeline.clips[layer.clipIndex + 1];
+        const fadeOut = next?.transitionIn === "fade";
+        const whipOut = next?.transitionIn === "whip" ? next.whipDirection ?? "right" : null;
+        if (layer.kind === "person") {
+          // People in front of the type (ADR 0039): a person-only matte of the clip.
+          return (
+            <Sequence key={`matte-${clip.id}`} from={from} durationInFrames={durationInFrames} name={`matte ${clip.id}`}>
+              <PersonMatteView clip={clip} asset={asset} durationInFrames={durationInFrames} fadeOut={fadeOut} whipOut={whipOut} />
+            </Sequence>
+          );
+        }
+        // Things tapped as being in front of this title (ADR 0044): the object under the tap.
         return (
-          <Sequence key={`matte-${clip.id}`} from={from} durationInFrames={durationInFrames} name={`matte ${clip.id}`}>
-            <PersonMatteView clip={clip} asset={asset} durationInFrames={durationInFrames}
-              fadeOut={timeline.clips[index + 1]?.transitionIn === "fade"}
-              whipOut={timeline.clips[index + 1]?.transitionIn === "whip" ? timeline.clips[index + 1].whipDirection ?? "right" : null} />
+          <Sequence key={`object-${clip.id}-${layer.text.id}`} from={from} durationInFrames={durationInFrames} name={`in front of ${layer.text.text.slice(0, 12)}`}>
+            <ObjectMatteView clip={clip} asset={asset} text={layer.text} timeline={timeline} from={from} durationInFrames={durationInFrames} fadeOut={fadeOut} whipOut={whipOut} />
           </Sequence>
         );
-      })}
-      {/* Things tapped as being in front of a title (ADR 0044): the object under the tap, above the text layer. */}
-      {plan.clips.flatMap(({ clip, from, durationInFrames }) => {
-        const asset = assets[clip.assetId];
-        if (!asset || asset.kind !== "VIDEO") return [];
-        const startMs = (from * 1000) / fps, endMs = ((from + durationInFrames) * 1000) / fps;
-        const index = timeline.clips.indexOf(clip);
-        return timeline.texts.filter((text) => text.occluders?.length && text.startMs < endMs && text.endMs > startMs).map((text) => (
-          <Sequence key={`object-${clip.id}-${text.id}`} from={from} durationInFrames={durationInFrames} name={`in front of ${text.text.slice(0, 12)}`}>
-            <ObjectMatteView clip={clip} asset={asset} text={text} timeline={timeline} from={from} durationInFrames={durationInFrames}
-              fadeOut={timeline.clips[index + 1]?.transitionIn === "fade"}
-              whipOut={timeline.clips[index + 1]?.transitionIn === "whip" ? timeline.clips[index + 1].whipDirection ?? "right" : null} />
-          </Sequence>
-        ));
       })}
       {timeline.hook && plan.clips[0] ? <HookView timeline={timeline} hook={timeline.hook} firstClip={plan.clips[0].clip} asset={assets[plan.clips[0].clip.assetId]} /> : null}
       <DetailsCardView timeline={timeline} />

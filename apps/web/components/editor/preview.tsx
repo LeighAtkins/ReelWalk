@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Player, type PlayerRef } from "@remotion/player";
 import { prefetch } from "remotion";
-import { compositionScale, emptyTimeline, INSTAGRAM, mapPoints, minTextSize, onScreenAt, pinnedProgress, PLANAR_MAX_WIDTH, planeFrame, planeMotion, REEL_FORMAT, stageRect, STILL_PLANE, storedFraction, TEXT_SIZE_MAX, textsAt, textPositionAt, textQuadAt, tapSourceMs, viewportToComposition, type PlaneMotion, type TextOverlay, type Timeline, type ViewportRect, type XY } from "@reelwalk/core";
+import { compositionScale, emptyTimeline, INSTAGRAM, mapPoints, minTextSize, onScreenAt, pinnedProgress, PLANAR_MAX_WIDTH, planeFrame, planeMotion, REEL_FORMAT, stageRect, stackTitles, STILL_PLANE, storedFraction, TEXT_SIZE_MAX, textsAt, textPositionAt, textQuadAt, tapSourceMs, viewportToComposition, type PlaneMotion, type TextOverlay, type Timeline, type ViewportRect, type XY } from "@reelwalk/core";
 import { ReelComposition, reelDurationInFrames, textTreatmentCss, type ReelAsset } from "@reelwalk/render/reel";
 import { timelineFrames } from "./frame-service";
 import { pinnedLineFit } from "./title-metrics";
@@ -549,7 +549,8 @@ function TextTargets({
   const now = useClock(clock);
   return (
     <>
-      {textsAt(timeline, now)
+      {/* Stacked as the composition draws them (ADR 0046), so a tap lands on the title that is on top. */}
+      {stackTitles(textsAt(timeline, now))
         .filter((text) => text.id !== selectedId)
         .map((text) => (
           <button

@@ -1,0 +1,206 @@
+# 52. A surface tracker that says when it cannot follow
+
+Date: 2026-10-21
+
+## Context
+
+Pinned titles (ADR 0039, 0043, 0044) are tracked in the browser by
+`trackTextPath` in `apps/web/components/editor/frame-analysis.ts`. The
+2026-10-21 rewrite review (Sol B #3) and the typography post-mortems
+found the tracker confidently wrong in ways that matter:
+
+- `planePoints` (`packages/core/src/motion.ts`) samples a grid over the
+  quad's **bounding box** without testing that a point is inside the
+  quad, so a perspective surface took features from whatever lay in the
+  box's corners.
+- When a surface had little detail, the orchestration **borrowed
+  features** from a box 8%, then 30%, then 100% larger, then from the
+  whole frame (slip 44's "track a bare wall by the motion around it").
+  Those features agree with each other very well, on a different depth
+  plane: the title slides off its wall ("surface moved off its wall";
+  titles drifting or thinning while stretched).
+- The grade summarised point counts and held steps, not whether the
+  plane stayed attached to the surface the author chose, so a wrong
+  track was graded "good".
+- `trackPlane` gated per-step scale and rotation but not shear, aspect,
+  degenerate point layouts or accumulated drift; there was no correction
+  against the first frame, and a refused step tracked from a frame its
+  points did not belong to.
+
+## Decision
+
+A new pure module, `packages/core/src/track.ts`, replaces the
+orchestration. `trackSurface(frames, anchors, options)` runs:
+
+1. **Support region.** Features (Shi–Tomasi corner strength) are taken
+   strictly **inside** the quad, at least a window's width from every
+   edge, binned in the quad's own coordinates so they spread by area.
+   Nothing outside is used unless the caller passes an explicit,
+   author-chosen `support` quad. A blank wall is refused, not borrowed.
+2. **Pyramidal Lucas–Kanade** (three levels, 11×11 window), seeded with
+   a constant-velocity guess from the previous step.
+3. **Forward–backward check**: a point tracked back that misses its
+   start by more than 0.7 px is dropped (occluder edges, sliding
+   patches).
+4. **Model selection per step**: similarity, then affine, then
+   homography, each only when it explains clearly more points (or the
+   same points clearly better, by more than noise) with enough spread.
+   Every candidate must pass degeneracy gates (per-step scale, rotation,
+   shear ≤ 4°, aspect ≤ 10%, a sane convex quad). If a richer model
+   explains the points but is refused, the step is refused as
+   **degenerate** rather than falling back to a simpler model that
+   explains a subset. A model explaining under half the followed points
+   is refused. The accumulated plane must also stay sane and within 2×
+   of the placed aspect (titles no longer thin while stretched).
+5. **Drift correction**: every 4 steps, and after any refused step, the
+   frame is warped back into the reference frame by the predicted plane
+   and the reference features are re-registered against it; the residual
+   homography is composed in. This also **re-acquires** a lost surface
+   when an occluder passes or the camera comes back.
+6. **Scoring per frame**: `attachment` = coverage of the quad's visible
+   4×4 cells by agreeing features × exp(−(e/tol)²) where e is the 75th
+   percentile reprojection error of *all* forward–backward survivors (not
+   only inliers); `confidence` = attachment × visibility; plus a corner
+   `uncertaintyPx`. Held and lost frames have confidence 0.
+
+**Rejection.** The result is either the frames or
+`{ ok: false, reason, frame, message }` with reason
+`too-few-features` (at the anchor), `plane-lost` (at frame k) or
+`degenerate-motion`; messages start "Could not follow this surface: …".
+A plane lost part-way is reported with `lostAt` and a reason; frames
+from there are held at confidence 0 and fade, and fade back in if the
+surface is re-acquired.
+
+**Manual correction keyframes.** `anchors` are author quads at frame
+indices. Each anchor tracks forward to the next and backward to the
+previous; between two anchors the two runs are blended by distance,
+weighted by confidence, so a correction at frame k pulls the track onto
+the surface around k. `trackTextPath` accepts optional
+`corrections: { atMs, quad }[]` for the editor's "edit on any frame,
+then Track"; the UI that sends them is not part of this change.
+
+**Editor.** `frame-analysis.ts`'s tracking section samples the shot (the
+same ≤ 63 frames) and calls `trackSurface`; the region-borrowing cascade
+is gone. `trackTextPath` keeps its signature (returning null on failure);
+`trackTextPathDetailed` returns the refusal reason, and `pinTitle` shows
+it. Path keyframes keep today's `t/x/y/s/r/q/o` shape, so saved reels and
+the renderer are untouched; per-keyframe confidence is returned beside
+the path (`confidence[]`) and summarised in `TrackQuality.confidence`,
+not stored in the timeline. `motion.ts` is unchanged: `planePoints` and
+`trackPlane` stay exported (the benchmark's legacy run uses them).
+
+## Benchmark
+
+`packages/core/tests/track-bench/`: synthetic sequences with known
+homographies (`synth.ts`): a textured wall plane moving by a known
+homography in front of a textured background moving by another (parallax),
+σ = 2 grey-level noise, 30 frames at the editor's 360 × 640 tracking size.
+Cases: pan with parallax, push-in, orbit (perspective change), handheld
+jitter, a narrow occluder sweeping across, a heavy occluder covering ~80%
+of the surface for a third of the shot, a cut mid-shot, a fast pan that
+takes the surface half out of frame, and a blank wall. The legacy loop is
+ported verbatim to a pure function (`legacy.ts`) and run on the same
+frames; both outputs go through `smoothKeyframes` as the editor stores
+them. "Confident" means presented as attached (legacy: full opacity and
+grade "good", the only signal it had; new: confidence ≥ 0.5). Wrong means
+mean corner error > 3 px at 360 wide (≈ 9 output px); frames after the
+cut are wrong wherever they are. "Shown wrong" counts full-opacity frames
+that are wrong, whatever the tracker claimed.
+
+| scenario | tracker | outcome | shown | mean err px | max err px | confident | false-confident | shown wrong |
+|---|---|---|---|---|---|---|---|---|
+| pan (parallax) | legacy | good | 29/29 | 0.42 | 0.59 | 29 | 0 | 0 |
+| pan (parallax) | new | tracked | 29/29 | 0.30 | 0.43 | 29 | 0 | 0 |
+| push-in | legacy | good | 29/29 | 0.66 | 0.93 | 29 | 0 | 0 |
+| push-in | new | tracked | 29/29 | 0.54 | 0.73 | 29 | 0 | 0 |
+| orbit (perspective) | legacy | good | 29/29 | 3.17 | 6.00 | 29 | 15 | 15 |
+| orbit (perspective) | new | tracked | 29/29 | 0.51 | 1.06 | 29 | 0 | 0 |
+| handheld | legacy | good | 29/29 | 0.64 | 1.09 | 29 | 0 | 0 |
+| handheld | new | tracked | 29/29 | 0.52 | 1.04 | 29 | 0 | 0 |
+| occluded pan | legacy | good | 29/29 | 0.60 | 1.05 | 29 | 0 | 0 |
+| occluded pan | new | tracked | 29/29 | 0.17 | 0.34 | 25 | 0 | 0 |
+| heavy occluder | legacy | good | 29/29 | 6.81 | 12.10 | 29 | 19 | 19 |
+| heavy occluder | new | lost @9, found again @19 | 19/29 | 0.43 | 0.59 | 19 | 0 | 0 |
+| cut mid-shot | legacy | good | 29/29 | 0.73 | 7.18 | 29 | 16 | 16 |
+| cut mid-shot | new | lost @15 (plane-lost) | 14/29 | 0.00 | 0.01 | 14 | 0 | 0 |
+| leaves frame | legacy | good | 29/29 | 0.30 | 0.56 | 29 | 0 | 0 |
+| leaves frame | new | tracked | 29/29 | 0.00 | 0.01 | 29 | 0 | 0 |
+| blank wall | legacy | good | 29/29 | 25.46 | 49.30 | 29 | 28 | 28 |
+| blank wall | new | refused: too-few-features @0 | 0/29 | – | – | 0 | 0 | 0 |
+| **all** | legacy | | | 1.67 (textured, mean of scenarios) | | 261/261 | **78/261 (29.9%)** | 78/261 |
+| **all** | new | | | 0.31 (textured, mean of scenarios) | | 203/261 | **0/261 (0.0%)** | 0/261 |
+
+Errors are px at 360 wide (× 3 for 1080 output px). Read honestly:
+
+- The big wins are the failure modes: the blank wall (legacy tracked the
+  background at 25 px mean error, graded "good"), the orbit (legacy's
+  affine-only steps drift up to 6 px under perspective change), heavy
+  occlusion (legacy followed the occluder) and the cut (legacy carried on
+  for the rest of the shot). The new tracker refused, lost and re-found, or
+  stopped at the cut instead.
+- On easy textured motion the improvement is modest (0.4–0.7 → 0.2–0.5 px),
+  and the 0.00 px rows (cut, leaves frame) are pure integer-pixel
+  translations, which flatter any LK tracker.
+- The new tracker shows fewer frames (203 vs 261 confident): it gives up
+  on frames it cannot vouch for, which is the intended trade.
+- One intermediate run had 1 false-confident frame (4.07 px) in the heavy
+  occluder case: the tracker was right (0.57 px) but `smoothKeyframes`
+  averaged the re-found frame with the held corners before it. Smoothing
+  now runs per live run (`smoothLive`); the table is after that fix.
+
+Run with `TRACK_BENCH=1 pnpm --filter @reelwalk/core exec vitest run
+tests/track.benchmark.test.ts`; a 144 × 256, 16-frame version runs in
+`pnpm check` and asserts no confidence on the blank wall, no more false
+confidence than legacy (and under 5%), and sub-threshold error on the
+textured pans.
+
+## Consequences
+
+- A bare wall is now refused with a reason instead of being tracked by
+  its surroundings. That is the point, and it is a regression for the
+  slip-44 workflow that relied on borrowing: the author must pick a
+  surface with some detail, or (once the UI exists) widen the support
+  region on purpose via `support`. No UI for widening ships here.
+- A track that loses its surface fades rather than sliding; with
+  re-acquisition it can come back in the same shot.
+- Frames are held in memory for the whole run (≤ 63 × 360 × 640 floats,
+  about 58 MB) instead of streamed; tracking compute runs after the seeks.
+- The numbers above are synthetic. They show the failure modes are
+  closed (wrong depth plane, blank wall, cut, occlusion, perspective
+  drift) but not real-footage accuracy: rolling shutter, motion blur,
+  exposure changes, compression and specular walls are not modelled.
+  The corner-strength floor (8) and residual ceiling (20 grey levels)
+  are tuned on synthetic texture and may need adjusting on real shots.
+- Object taps still inherit the wall's homography (ObjectMatte, out of
+  scope here).
+
+## Verified
+
+- `pnpm check` (eslint, every package's typecheck, every package's tests):
+  exit 0; `@reelwalk/core` 42 files, 410 passed + 1 skipped (the full
+  benchmark, env-gated). The fresh worktree first needed
+  `pnpm --filter @reelwalk/db db:generate` for the Prisma client;
+  unrelated to this change.
+- `packages/core/tests/track.test.ts`, 30 tests: pyramid (sizes, flat
+  stays flat, stops small), corner score (blank, edge, texture), support
+  points (inside-with-margin under a perspective quad with texture all
+  around, coverage > 0.9, none on a blank surface, deterministic), LK
+  (sub-pixel shift < 0.1 px on a band-limited picture, a 9,6 px shift that
+  three levels follow and one level misses, guesses, failure on blank),
+  forward–backward rejection of a half-replaced picture, model selection
+  (similarity for a pan, homography only with spread support, collinear
+  and sheared steps refused as degenerate, too few points), quad sanity,
+  drift correction (warp round trip; a 1.5 px drifted prediction
+  re-registered to < 0.25 px; a 24-frame push-in ends < 1 px off with > 3
+  corrections), scoring (coverage not count; visible half), confidence
+  drops while a heavy occluder covers the surface and every confident
+  frame is right, all three rejection reasons with frames and messages,
+  correction anchors (track both ways from frame k; a 3 px wrong start
+  pulled onto the truth by a later anchor), `smoothLive`, and identical
+  JSON output for identical input.
+- Full benchmark at 360 × 640, 30 frames (table above), via
+  `TRACK_BENCH=1`, about two minutes (the legacy brute-force matcher is
+  most of it).
+- Not verified: the editor end to end in a browser (no Chrome in this
+  run), real footage, or the `corrections` path from the UI (no UI sends
+  it yet).

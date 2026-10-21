@@ -78,14 +78,15 @@ export type TitleInput = {
   measure: Measure;
 };
 
-export type Point = { x: number; y: number };
+/** A point as x, y (fractions or composition px, as the field says). Named apart from track.ts's [x, y] Point. */
+export type ScenePoint = { x: number; y: number };
 
 export type ScreenPlacement = {
   kind: "screen";
   /** Path progress the placement was read at (0..1 for a drift; a pin's source-time progress). */
   progress: number;
   /** Centre of the text box, composition px. */
-  center: Point;
+  center: ScenePoint;
   /** A sentence wraps inside `width`; a single word stays on one line, up to `maxWidth`. */
   wrap: { mode: "wrap"; width: number } | { mode: "line"; maxWidth: number };
   /** Path scale and rotation (degrees). */
@@ -93,7 +94,7 @@ export type ScreenPlacement = {
   rotation: number;
   opacity: number;
   /** Tapped occluders on this frame, fractions. */
-  occluderTaps: Point[];
+  occluderTaps: ScenePoint[];
 };
 
 export type SurfacePlacement = {
@@ -118,7 +119,7 @@ export type SurfacePlacement = {
   clipToPlane: boolean;
   /** Posts and cut-outs as polygons in plane px ([x0, y0, x1, y1, …]), or null when none apply. */
   maskShapes: number[][] | null;
-  occluderTaps: Point[];
+  occluderTaps: ScenePoint[];
   opacity: number;
 };
 
@@ -186,7 +187,7 @@ export function titleCorners(text: TextOverlay, progress: number): { plane: numb
 }
 
 /** Where a title's tapped occluders (first-frame fractions) are at `progress`: carried by its tracked plane when it has one. */
-export function carryTaps(text: TextOverlay, progress: number): Point[] {
+export function carryTaps(text: TextOverlay, progress: number): ScenePoint[] {
   const taps = (text.occluders ?? []).map((tap) => ({ x: tap.x, y: tap.y }));
   if (!text.pin?.quad) return taps;
   const quad = textQuadAt(text, progress);

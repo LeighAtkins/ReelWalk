@@ -180,7 +180,10 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error(`smoke: FAILED after ${0}s:`, error instanceof Error ? error.message : error);
-  process.exit(1);
-});
+// Run when executed, not when imported (the fixture timeline is reused by tests and calibration).
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch((error) => {
+    console.error("smoke: FAILED:", error instanceof Error ? error.message : error);
+    process.exit(1);
+  });
+}

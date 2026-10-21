@@ -136,6 +136,40 @@ export function differenceMask(a: Rgb, b: Rgb, threshold = 24): Uint8Array {
   return mask;
 }
 
+/**
+ * Over a title's own pixels (a mask, usually its glyphs grown by a pixel),
+ * the fraction whose luma differs between the two pictures by more than
+ * `threshold`. Whole-frame scores average a missing title away (its letters
+ * are a few percent of the frame and of any 16-px block they cross); counted
+ * pixel by pixel over the letters themselves, a missing title is most of
+ * them and an encoder's loss a few.
+ */
+export function regionChange(a: Rgb, b: Rgb, mask: Uint8Array, threshold = 32): number {
+  if (a.width !== b.width || a.height !== b.height || mask.length !== a.width * a.height) throw new Error("regionChange: sizes differ");
+  let changed = 0, n = 0;
+  for (let i = 0, p = 0; i < mask.length; i++, p += 3) {
+    if (!mask[i]) continue;
+    const la = 0.299 * a.data[p] + 0.587 * a.data[p + 1] + 0.114 * a.data[p + 2];
+    const lb = 0.299 * b.data[p] + 0.587 * b.data[p + 1] + 0.114 * b.data[p + 2];
+    if (Math.abs(la - lb) > threshold) changed++;
+    n++;
+  }
+  return n ? changed / n : 0;
+}
+
+/** A mask grown by `radius` pixels (square neighbourhood). */
+export function growMask(mask: Uint8Array, width: number, height: number, radius = 1): Uint8Array {
+  const out = new Uint8Array(mask.length);
+  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+    if (!mask[y * width + x]) continue;
+    for (let dy = -radius; dy <= radius; dy++) for (let dx = -radius; dx <= radius; dx++) {
+      const yy = y + dy, xx = x + dx;
+      if (yy >= 0 && xx >= 0 && yy < height && xx < width) out[yy * width + xx] = 1;
+    }
+  }
+  return out;
+}
+
 /** The bounding box of the set pixels of a mask, or null when none is set. */
 export function maskBounds(mask: Uint8Array, width: number): { left: number; top: number; right: number; bottom: number; count: number } | null {
   let left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity, count = 0;

@@ -24,3 +24,9 @@ Windows 10 (Chrome Headless Shell from Remotion 4.0.534) on 2026-10-21.
 Fonts and Chrome builds differ between machines, so CI compares against these
 in report mode only (ADR 0053); replace them with the CI run's frames
 (the `render-acceptance` artefact) before making them strict there.
+
+`rectified-<id>.png`: the approved shape of each planar title of the smoke
+(s2, p1, s1), its glyph mask from the first full-strength frame sampled into
+the plane's own rectangle (white = letter). Written by the same `update` run;
+the shape check reads orientation and stroke width from them on every
+platform, and their overlap only in `strict` mode (ADR 0053).

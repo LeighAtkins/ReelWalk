@@ -159,7 +159,9 @@ export function ShootPlanner() {
         ))}
       </ol>
 
-      <p className="muted small">When you are done, pick the clips. They go in the order you filmed them, each named after its shot{done > 0 ? " (the ticked ones)" : ""}.</p>
+      <p className="muted small" data-testid="shoot-matching-note">
+        When you are done, pick the clips. They go in the order you filmed them, and each is named after the {done > 0 ? "ticked shot" : "shot"} filmed at that point. Rooms are guessed from the filming order: a skipped or extra clip shifts the ones after it, so check the room names in the editor.
+      </p>
       <label className="start-primary start-auto" data-busy={busy === "start"}>
         <span className="viewfinder" aria-hidden="true">
           <SparkIcon size={22} />

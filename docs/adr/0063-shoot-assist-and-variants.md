@@ -121,6 +121,40 @@ Pro-editing area 5. Two gaps on either side of the edit:
   connection; or the connection needs a reconnect for the insights
   permission. Stored numbers are shown when Instagram cannot be asked.
 
+## Amendments after review (Opus, PR #207)
+
+- **Lengths are measured, not assumed.** `retime` holds a 360 photo at
+  least 3.5 s, so eight panoramas made a 28 s "15 s" variant. `buildVariant`
+  now measures the cut and drops one more shot (evenly, keeping the ending)
+  until it is within `MAX_OVER_MS` (2 s) of its length; a variant still over
+  is skipped with a reason.
+- **Pinned titles stay on their frames.** Retiming keeps a video's middle,
+  so a title tracked on 0.5–2.5 s of a 10 s clip became a 100 ms flash with
+  its path off the picture. A pinned title is dropped from a variant unless
+  it sits over its pinned asset, its tracked window overlaps the clip's
+  shown window by at least 600 ms (or all of a shorter pin), and it lasts
+  at least 400 ms.
+- **The presenter variant is never cut mid-word.** When no word ends within
+  the line's share (and none at least a second in), the presenter hook is
+  skipped with a reason instead of cutting her off.
+- **Insights are rate-limited on every attempt.** `ReelVariant` gains
+  `insightsCheckedAt` (same unreleased migration): the ten minutes count
+  from the last attempt, success or failure, so a failing read is not
+  repeated on every load. The page's own 2 s refreshes while exports render
+  ask Instagram nothing (`live: false`) and show stored numbers. Numbers
+  stored for an earlier post of a variant are not shown for a new post of
+  it. Each variant's numbers show when it was posted, and the note says an
+  older post has had longer to collect plays. A new state, `waiting`, says
+  posted but no numbers yet.
+- **Export all confirms and locks.** The first tap says what it uses ("This
+  uses 6 of your 30 exports left this month", how many can render at once);
+  the second starts at most that many. The loop runs under a per-workspace
+  `pg_try_advisory_xact_lock(hashtext('export-all:<workspace>'))`, so a
+  second tab or a double tap starts nothing and is told so.
+- **The shot list says rooms are guessed** from the filming order, that a
+  skipped or extra clip shifts the ones after it, and to check the room
+  names in the editor.
+
 ## Consequences
 
 - The shot list costs one AI request when the model is used; the standard
@@ -142,7 +176,7 @@ Pro-editing area 5. Two gaps on either side of the edit:
 ## What was verified
 
 - `pnpm check` passes (lint, typecheck of every package, all unit tests:
-  core 60 files / 616 tests, web 23, worker 175, render 68, db 7 run and 30
+  core 616 tests, 629 after the review fixes; web 23, worker 175, render 68, db 7 run and 30
   skipped without a database).
 - `tests/shoot.test.ts` (13): the schema accepts and normalises a model
   answer, caps at 12, rejects empty lists, unknown moves, missing fields,
@@ -174,6 +208,22 @@ Pro-editing area 5. Two gaps on either side of the edit:
   `ReelVariant`, deleting the workspace removed both tables' rows.
 - `next build` of `apps/web` succeeds; `/new/shoot` and
   `/reels/[id]/variants` are built as dynamic routes.
+- After the review: `tests/variants.test.ts` (21) adds eight 360 photos
+  (15 s variant keeps 4 panoramas and the ending, every variant within 2 s
+  of its length), pinned titles (one tracked on frames no longer shown is
+  dropped, one still shown is kept, every pinned title left sits on its
+  tracked frames for ≥400 ms), and the presenter hook skipped rather than
+  cut mid-word; the three length and pin tests fail with the fixes
+  disabled. `tests/variant-sets.test.ts` (9), with the database and
+  Instagram mocked: nothing asked when unposted; a failed read stored as an
+  attempt and not repeated within ten minutes, repeated after; `live: false`
+  asks nothing and still names the winner and each post's date; a new post
+  is asked at once and old numbers are not carried over; no-connection and
+  permission states; Export all queues only variants needing an export, at
+  most the confirmed number, starts nothing when the lock is held, stops at
+  the first refusal; the confirmation's wording. The migration still equals
+  `prisma migrate diff` from main's schema.
+- The advisory-lock SQL ran only against the mock: not against Postgres.
 - **Not verified:** the pages in a browser, the shot list against a live
   model, Export all against a running worker, and insights from a real
   posted variant.

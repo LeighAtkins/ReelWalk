@@ -3,7 +3,7 @@
 import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { buildVenueReel, captionForVenue, thumbKeyFor, uploadKeyFor, venueDetailsSchema, venueVibeById } from "@reelwalk/core";
+import { buildVenueReel, captionForVenue, thumbKeyFor, uploadKeyFor, venueDetailsSchema, venueVibeById, songMapFields } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
 import { toLibraryAsset, type LibraryAsset } from "@/lib/library";
 import { getStock, isStockConfigured, searchStock, STOCK_LICENSE, stockCredit, type StockVideo } from "@/lib/stock";
@@ -52,7 +52,8 @@ export async function createVenueReel(input: VenueRequest): Promise<{ id: string
     clips,
     details,
     vibe,
-    music: song ? { assetId: song.id, sourceStartMs: 0, volume: 0.8, bpm: song.bpm, beatOffsetMs: song.beatOffsetMs } : null,
+    // A new reel's song carries its bars and sections, with "On the beat" on (ADR 0059).
+    music: song ? { assetId: song.id, sourceStartMs: 0, volume: 0.8, bpm: song.bpm, beatOffsetMs: song.beatOffsetMs, ...songMapFields(song.songMap), onBeat: true } : null,
   });
   if (!timeline) return { error: "Pick at least two clips or photos." };
 

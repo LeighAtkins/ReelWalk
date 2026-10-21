@@ -24,6 +24,12 @@ export const songMapSchema = z.object({
 });
 export type SongMap = z.infer<typeof songMapSchema>;
 
+/** A stored song map as the fields a reel's music carries (none when there is no valid map). */
+export function songMapFields(value: unknown): Partial<SongMap> {
+  const map = parseSongMap(value);
+  return map ? { downbeats: map.downbeats, sections: map.sections } : {};
+}
+
 /** Reads a stored song map (a database column, a timeline), or null when there is none or it is not one. */
 export function parseSongMap(value: unknown): SongMap | null {
   const parsed = songMapSchema.safeParse(value);

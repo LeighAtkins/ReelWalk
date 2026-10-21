@@ -12,6 +12,7 @@ import {
   MAX_UPLOAD_BYTES,
   planSchema,
   resolveUploadType,
+  songMapFields,
   songMapSchema,
   spotSchema,
   vibeById,
@@ -77,7 +78,8 @@ export async function createReelFromTour(input: { tourId: string; vibeId?: strin
         };
       }),
     plan: plan.success ? plan.data : null,
-    music: song ? { assetId: song.id, sourceStartMs: 0, volume: 0.7, bpm: song.bpm, beatOffsetMs: song.beatOffsetMs } : null,
+    // A new reel's song carries its bars and sections, with "On the beat" on (ADR 0059).
+    music: song ? { assetId: song.id, sourceStartMs: 0, volume: 0.7, bpm: song.bpm, beatOffsetMs: song.beatOffsetMs, ...songMapFields(song.songMap), onBeat: true } : null,
     vibe,
   });
   if (!timeline) return { error: "This tour has too few room photos to build a reel from." };

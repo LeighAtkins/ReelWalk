@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { analyseSong, BEAT_SAMPLE_RATE, detectBeats, parseSongMap, sectionAt } from "../src";
+import { analyseSong, BEAT_SAMPLE_RATE, detectBeats, parseSongMap, sectionAt, songMapFields } from "../src";
 import { clickSong } from "./song-fixture";
 
 describe("analyseSong", () => {
@@ -61,6 +61,8 @@ describe("analyseSong", () => {
     expect(parseSongMap(JSON.parse(JSON.stringify(map)))).toEqual(map);
     expect(parseSongMap({ downbeats: [-1], sections: [] })).toBeNull();
     expect(parseSongMap(null)).toBeNull();
+    expect(songMapFields(map)).toEqual({ downbeats: map.downbeats, sections: map.sections });
+    expect(songMapFields({ downbeats: "no" })).toEqual({});
     expect(sectionAt(map.sections, map.sections[2].startMs)?.kind).toBe("drop");
   });
 });

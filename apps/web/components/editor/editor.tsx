@@ -22,6 +22,7 @@ import { setHook, wordsBehindHook, locate, orientQuad, reshapePin,
   DEFAULT_PANO_MS,
   instagramAudioLabel,
   instagramIssues,
+  MAX_TEXTS,
   REEL_FORMAT,
   removeText,
   setMusic,
@@ -648,6 +649,12 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
       if (sheet === "text-edit" && selectedText) {
         apply((current) => updateText(current, selectedText.id, draft));
       } else {
+        // The direct edit path may not take a reel past the most texts it can have (it would then refuse every command).
+        if (timeline.texts.length >= MAX_TEXTS) {
+          showToast(`A reel can have up to ${MAX_TEXTS} texts. Delete one to add another.`, 4000);
+          setSheet(null);
+          return;
+        }
         const id = newId();
         // Stacked texts start lower, so a second one does not cover the first.
         // Elegant text sits in the middle of the picture, the way the luxury reels place it.
@@ -661,7 +668,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
       }
       setSheet(null);
     },
-    [apply, clock, seek, selectedText, sheet, timeline],
+    [apply, clock, seek, selectedText, sheet, showToast, timeline],
   );
 
   const selectAndShow = useCallback(

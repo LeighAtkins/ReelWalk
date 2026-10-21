@@ -131,6 +131,15 @@ the cuts to it is one entry.
   a command on a reel that was already invalid is let through with a
   `warning` so the reel stays editable.
 - A rejected drag says so once per gesture, not on every pointer move.
+- (Round 3) A command on an already-invalid reel passes only if it adds no
+  schema problem the reel did not already have (issue path and code), and
+  adding a text by hand stops at `MAX_TEXTS` with a message.
+
+**Follow-ups, not fixed here:** the Details sheet's slider moves texts out
+of the card's way (`keepTextsClearOfCard`) on every step with no gesture
+baseline, so a drag can push texts and not bring them back; and trimming
+away the frame a title sits on squeezes it to 100 ms, and a later trim back
+out (as a separate action, outside one gesture) does not restore it.
 
 ## Consequences
 

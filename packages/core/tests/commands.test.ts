@@ -237,6 +237,15 @@ describe("more texts than a reel may have (review round 2)", () => {
     expect(result.warning).toBeTruthy();
     expect(result.timeline.clips[0].id).toBe("b");
   });
+
+  it("but a command that adds a new problem to it is still refused", () => {
+    const valid = reel();
+    const clips = Array.from({ length: 100 }, (_, i) => ({ ...valid.clips[2], id: `p${i}` }));
+    const over = { ...valid, clips, texts: Array.from({ length: 51 }, (_, i) => ({ ...valid.texts[0], id: `t${i}` })) };
+    const result = apply(over, { type: "duplicateClip", clipId: "p0", newId: "p-copy" });
+    expect(result.rejected).toMatch(/clips/);
+    expect(result.timeline).toBe(over);
+  });
 });
 
 describe("review fixes (PR #191)", () => {

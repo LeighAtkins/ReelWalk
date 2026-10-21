@@ -32,6 +32,7 @@ export * from "./ai-director";
 export * from "./transcript";
 export * from "./guards";
 export * from "./motion";
+export * from "./track";
 export * from "./surface";
 export * from "./ducking";
 export * from "./director-loop";

@@ -121,6 +121,15 @@ export async function readObject(objectKey: string, maxBytes = 6 * 1024 * 1024):
   }
 }
 
+/**
+ * A presigned S3 GET that expires in `expiresIn` seconds, never the CDN:
+ * for a file that should be readable briefly by the signed-in studio only
+ * (Inspect's original, ADR 0057), not cached at the edge or kept forever.
+ */
+export async function presignedObjectUrl(objectKey: string, expiresIn = 900): Promise<string> {
+  return getSignedUrl(presignClient, new GetObjectCommand({ Bucket: bucket, Key: objectKey }), { expiresIn });
+}
+
 export async function mediaUrl(objectKey: string, options: { downloadAs?: string } = {}): Promise<string> {
   if (/^https?:\/\//.test(cloudfrontBaseUrl) && !options.downloadAs) {
     return `${cloudfrontBaseUrl.replace(/\/$/, "")}/${objectKey}`;

@@ -57,7 +57,7 @@ export function loadVideo(src: string, label = "The video"): Promise<HTMLVideoEl
   });
 }
 
-function loadImage(src: string): Promise<HTMLImageElement> {
+export function loadImage(src: string): Promise<HTMLImageElement> {
   const image = new Image();
   image.crossOrigin = "anonymous";
   return new Promise((resolve, reject) => {

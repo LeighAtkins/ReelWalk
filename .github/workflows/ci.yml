@@ -291,6 +291,14 @@ jobs:
       - name: List flaky tests
         if: always() && env.RUN == 'true'
         run: node e2e/report-flaky.mjs e2e/test-results/results.json
+      # Screenshots specs write as evidence (e.g. Inspect's zoomed frames, ADR 0057), kept on a pass too.
+      - uses: actions/upload-artifact@v7
+        if: always() && env.RUN == 'true'
+        with:
+          name: e2e-screenshots
+          path: e2e/test-results/inspect-*.png
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Collect logs
         if: failure()
         run: docker compose logs --no-color > compose-logs.txt

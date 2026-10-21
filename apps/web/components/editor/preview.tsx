@@ -9,6 +9,7 @@ import { timelineFrames } from "./frame-service";
 import { pinnedLineFit } from "./title-metrics";
 import { PlayIcon } from "../icons";
 import { useClock, type Clock } from "./clock";
+import { InspectMode, type InspectSource } from "./inspect";
 
 type PreviewProps = {
   timeline: Timeline;
@@ -57,6 +58,8 @@ type PreviewProps = {
    * follows the surface through the shot right there so the later moments show the tracked result.
    */
   placing?: { marks: { label: string; ms: number }[]; onSeek(ms: number): void; onTrack(): void; status: string | null; busy: boolean } | null;
+  /** Inspect mode (ADR 0057): full screen on the placing layout, the frame magnified up to 8×, Final or Footage only. */
+  inspect?: { sources: Record<string, InspectSource>; totalMs: number; onSeek(ms: number): void; onClose(): void } | null;
 };
 
 /** Snaps to the centre line when the text is dragged close to it. */
@@ -616,6 +619,7 @@ export function Preview({
   corners = false,
   onDoneCorners,
   placing = null,
+  inspect = null,
 }: PreviewProps) {
   const frame = useRef<HTMLDivElement>(null);
   // The composition's own rectangle inside the stage (ADR 0047): the Player contain-fits 9:16 into the
@@ -698,9 +702,12 @@ export function Preview({
 
   const hasClips = timeline.clips.length > 0;
   const zone = INSTAGRAM.safeZonePx;
+  // A full-screen tool (placing or Inspect) owns the frame: no tap-to-play, no play badge.
+  const inspecting = theater && Boolean(inspect);
+  const tooling = theater && (Boolean(corners) || inspecting);
 
   return (
-    <div className={theater ? (corners ? "stage stage-theater is-placing" : "stage stage-theater") : "stage"} ref={stage}>
+    <div className={inspecting ? "stage stage-theater is-placing is-inspecting" : theater ? (corners ? "stage stage-theater is-placing" : "stage stage-theater") : "stage"} ref={stage}>
       {theater && corners ? (
         <div className="corners-bar" data-testid="corners-bar">
           <div className="corners-tabs" role="tablist">
@@ -711,7 +718,7 @@ export function Preview({
           {placing ? <button type="button" className="btn" disabled={placing.busy} onClick={placing.onTrack} data-testid="placing-track">{placing.busy ? "Tracking…" : "Track"}</button> : null}
           <button type="button" className="btn btn-signal" onClick={() => onDoneCorners?.()} data-testid="corners-done">Done</button>
         </div>
-      ) : theater ? (
+      ) : theater && !inspecting ? (
         <button type="button" className="theater-close" aria-label="Exit full screen" onClick={() => onExitTheater?.()} data-testid="preview-fullscreen-close">
           ×
         </button>
@@ -743,7 +750,7 @@ export function Preview({
               moveToBeginningWhenEnded
               acknowledgeRemotionLicense
             />
-            {theater && corners ? null : (
+            {tooling ? null : (
               <button
                 type="button"
                 className="stage-tap"
@@ -751,7 +758,7 @@ export function Preview({
                 onClick={onTogglePlay}
               />
             )}
-            {!playing && !(theater && corners) ? (
+            {!playing && !tooling ? (
               <span className="play-badge">
                 <PlayIcon size={30} />
               </span>
@@ -808,6 +815,11 @@ export function Preview({
           </>) : null}
           {theater && check ? <SurfaceOutlines clock={clock} timeline={timeline} /> : null}
         </div>
+        {inspecting && inspect && hasClips ? (
+          // The stage element is mounted long before Inspect opens, so its ref is set here.
+          <InspectMode clock={clock} timeline={timeline} assets={assets} sources={inspect.sources} frame={frame} plane={planeRect} host={stage.current}
+            totalMs={inspect.totalMs} onSeek={inspect.onSeek} onClose={inspect.onClose} />
+        ) : null}
       </div>
     </div>
   );

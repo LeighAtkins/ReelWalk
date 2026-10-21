@@ -69,7 +69,7 @@ describe("handleDelivery", () => {
       const { store, state } = fakeStore(queued);
       const never = () => new Promise<typeof output>(() => undefined);
       const delivery = fakeDelivery(1);
-      const outcome = handleDelivery({ store, render: never, config: { ...config, jobTimeoutSeconds: 1 }, log: () => {} }, delivery);
+      const outcome = handleDelivery({ store, render: never, config: { ...config, jobTimeoutSeconds: 1, abortGraceSeconds: 0.1 }, log: () => {} }, delivery);
       await vi.advanceTimersByTimeAsync(1500);
       expect(await outcome).toBe("retrying");
       expect(state.job!.status).toBe("QUEUED");

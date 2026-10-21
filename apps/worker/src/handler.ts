@@ -6,6 +6,7 @@ import {
   type JobSnapshot,
   type RenderJobMessage,
 } from "@reelwalk/core";
+import { abortAfter, AttemptStopped, createAttemptScope, DEFAULT_GRACE_MS, linkAbort, runAttempt, type AttemptScope } from "./lifecycle";
 
 export type ClaimedJob = {
   id: string;
@@ -58,7 +59,8 @@ export interface Delivery {
 
 export type HandlerDeps = {
   store: JobStore;
-  render: (job: ClaimedJob, onProgress: (percent: number) => void) => Promise<RenderResult>;
+  /** Renders the job. Everything long-running takes `scope.signal` or is owned by `scope` (ADR 0050). */
+  render: (job: ClaimedJob, onProgress: (percent: number) => void, scope: AttemptScope) => Promise<RenderResult>;
   config: {
     maxAttempts: number;
     visibilitySeconds: number;
@@ -67,12 +69,16 @@ export type HandlerDeps = {
     retryBackoffSeconds: number;
     /** The most one attempt may take; past it the attempt fails and is retried or dead-lettered, instead of heartbeating forever. */
     jobTimeoutSeconds?: number;
+    /** How long a stopped attempt may take to release what it holds before it is killed. */
+    abortGraceSeconds?: number;
   };
+  /** Aborted when the worker is stopping (SIGTERM): the attempt is stopped and the job handed back. */
+  shutdown?: AbortSignal;
   now?: () => Date;
   log?: (message: string, error?: unknown) => void;
 };
 
-export type Outcome = "succeeded" | "retrying" | "failed" | "discarded" | "deferred" | "poison";
+export type Outcome = "succeeded" | "retrying" | "interrupted" | "failed" | "discarded" | "deferred" | "poison";
 
 function errorMessage(error: unknown): string {
   return (error instanceof Error ? error.message : String(error)).slice(0, 2000);
@@ -127,17 +133,21 @@ export async function handleDelivery(deps: HandlerDeps, delivery: Delivery): Pro
   }, config.heartbeatSeconds * 1000);
 
   // The heartbeat keeps the job this worker's for as long as the process lives, so a render that never
-  // settles (a stuck decode, a Chrome that stopped answering) would otherwise never be retried.
-  let deadline: ReturnType<typeof setTimeout> | undefined;
+  // settles (a stuck decode, a Chrome that stopped answering) would otherwise never be retried. The
+  // deadline and a worker shutdown abort the attempt's scope (ADR 0050); runAttempt settles only after
+  // what the render held (Chrome, ffmpeg, temp dirs) is released, so nothing below reports the attempt,
+  // or hands the job to another worker, while the old render still runs.
+  const scope = createAttemptScope({ graceMs: (config.abortGraceSeconds ?? DEFAULT_GRACE_MS / 1000) * 1000, log });
   const timeoutMs = (config.jobTimeoutSeconds ?? 45 * 60) * 1000;
-  const expired = new Promise<never>((_, reject) => { deadline = setTimeout(() => reject(new Error(`Render attempt exceeded ${Math.round(timeoutMs / 60_000)} minutes`)), timeoutMs); });
+  const cancelDeadline = abortAfter(scope, timeoutMs, () => new AttemptStopped(`Render attempt exceeded ${timeoutMs < 60_000 ? `${timeoutMs / 1000} seconds` : `${Math.round(timeoutMs / 60_000)} minutes`}`, "deadline"));
+  const unlinkShutdown = linkAbort(deps.shutdown, scope, () => new AttemptStopped("The worker stopped during the render", "shutdown"));
   try {
-    const output = await Promise.race([deps.render(job, (percent) => {
+    const output = await runAttempt(scope, () => deps.render(job, (percent) => {
       if (percent >= progress + 5 || percent === 100) {
         progress = percent;
         store.heartbeat(lease, progress).catch((error) => log(`[${job.id}] could not write progress`, error));
       }
-    }), expired]);
+    }, scope));
     if (!(await store.succeed(lease, output))) {
       // Another worker took the job over while this one rendered (it was declared stale, or the job was
       // re-queued). Its output stays unpublished and the message is theirs now.
@@ -148,6 +158,13 @@ export async function handleDelivery(deps: HandlerDeps, delivery: Delivery): Pro
     log(`[${job.id}] succeeded`);
     return "succeeded";
   } catch (error) {
+    if (error instanceof AttemptStopped && error.why === "shutdown") {
+      // Not the job's fault: hand it straight back for another worker, without a backoff.
+      log(`[${job.id}] attempt ${delivery.receiveCount} interrupted by shutdown, re-queueing`);
+      await store.requeue(lease, errorMessage(error));
+      await delivery.extend(0);
+      return "interrupted";
+    }
     const failure = decideFailure({
       attempt: delivery.receiveCount,
       maxAttempts: config.maxAttempts,
@@ -166,7 +183,8 @@ export async function handleDelivery(deps: HandlerDeps, delivery: Delivery): Pro
     return "failed";
   } finally {
     clearInterval(heartbeat);
-    clearTimeout(deadline);
+    cancelDeadline();
+    unlinkShutdown();
   }
 }
 

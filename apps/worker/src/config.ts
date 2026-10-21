@@ -19,6 +19,8 @@ export type WorkerConfig = {
   retryBackoffSeconds: number;
   /** The most one render attempt may take before it is failed and retried. */
   jobTimeoutSeconds: number;
+  /** How long a stopped render attempt (deadline, SIGTERM) may take to release Chrome, ffmpeg and temp files before they are killed. Keep it under the ECS stop timeout (30 s). */
+  abortGraceSeconds: number;
   /** How often the worker looks for outbox messages the web app could not send itself. */
   outboxPollSeconds: number;
   /** Browser tabs per render. */
@@ -59,6 +61,7 @@ export function getConfig(env = process.env): WorkerConfig {
     staleSeconds: numberFrom(env, "RENDER_STALE_SECONDS", 60),
     retryBackoffSeconds: numberFrom(env, "RENDER_RETRY_BACKOFF_SECONDS", 15),
     jobTimeoutSeconds: numberFrom(env, "RENDER_JOB_TIMEOUT_SECONDS", 45 * 60),
+    abortGraceSeconds: numberFrom(env, "RENDER_ABORT_GRACE_SECONDS", 10),
     outboxPollSeconds: numberFrom(env, "OUTBOX_POLL_SECONDS", 5),
     renderConcurrency: numberFrom(env, "RENDER_CONCURRENCY", 4),
     healthPort: numberFrom(env, "HEALTH_PORT", 8081),

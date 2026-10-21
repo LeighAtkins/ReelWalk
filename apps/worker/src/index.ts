@@ -134,12 +134,15 @@ const health = http.createServer((_request, response) => {
 });
 health.listen(config.healthPort);
 
-// On SIGTERM (rollout, scale-down) stop taking new work and let the current
-// render finish. If the pod is killed first, the message reappears after its
-// visibility timeout and another worker reclaims the job.
+// On SIGTERM (rollout, scale-down, ECS task stop) stop taking new work and
+// stop the current render (ADR 0050): ECS kills the task 30 s later, far
+// sooner than a render finishes. The attempt releases Chrome, ffmpeg and its
+// temp files within RENDER_ABORT_GRACE_SECONDS and hands the job back to the
+// queue for another worker. If the task is killed first, the message
+// reappears after its visibility timeout and another worker reclaims the job.
 for (const signal of ["SIGTERM", "SIGINT"] as const) {
   process.on(signal, () => {
-    console.log(`${signal} received, finishing current job`);
+    console.log(`${signal} received, stopping the current job and handing it back`);
     stopping = true;
     shutdown.abort();
   });
@@ -165,7 +168,12 @@ const loops = [
     config.queueUrl,
     (delivery) =>
       handleDelivery(
-        { store, config, render: (job, onProgress) => renderJob(job, s3, config.s3Bucket, onProgress, config.renderConcurrency) },
+        {
+          store,
+          config,
+          shutdown: shutdown.signal,
+          render: (job, onProgress, scope) => renderJob(job, s3, config.s3Bucket, onProgress, config.renderConcurrency, scope),
+        },
         delivery,
       ),
     // Only the render loop decides the task is idle; the outbox loop never has work of its own.

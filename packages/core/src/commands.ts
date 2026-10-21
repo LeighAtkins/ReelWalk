@@ -26,8 +26,11 @@ import {
   splitAt,
   trimClip,
   updateClip,
+  addText,
+  updateText,
   timelineSchema,
   type Music,
+  type TextOverlay,
   type Timeline,
 } from "./timeline";
 
@@ -59,7 +62,16 @@ export type Command =
    * current generation. A song the proposal chose is set (and snapped to) in
    * the same step, so the edit and its music are one undo.
    */
-  | { type: "applyProposal"; baseGeneration: number; proposal: unknown; music?: MusicChoice & { snap?: boolean } };
+  | { type: "applyProposal"; baseGeneration: number; proposal: unknown; music?: MusicChoice & { snap?: boolean } }
+  /** One title's look or place (the critic's fixes, ADR 0062). Does not change the cut, so nothing is retimed. */
+  | { type: "updateText"; textId: string; patch: Partial<Omit<TextOverlay, "id">> }
+  /** A new title. */
+  | { type: "addText"; text: Omit<TextOverlay, "endMs" | "animation"> & { endMs?: number; animation?: TextOverlay["animation"] } }
+  /** Several commands as one step and one undo ("Fix all", ADR 0062): all of them land, or none. */
+  | { type: "batch"; commands: BatchableCommand[] };
+
+/** Commands a batch may hold: no proposals (they carry their own generation check) and no nested batches. */
+export type BatchableCommand = Exclude<Command, { type: "applyProposal" } | { type: "batch" }>;
 
 export type CommandContext = {
   /** The generation of the timeline the command is applied to. */
@@ -167,6 +179,14 @@ function run(timeline: Timeline, command: Command, context: CommandContext): Tim
       const { snap, ...music } = command.music;
       return withMusic(proposal, music, Boolean(snap), durations);
     }
+    case "updateText":
+      return timeline.texts.some((text) => text.id === command.textId) ? updateText(timeline, command.textId, command.patch) : timeline;
+    case "addText":
+      if (timeline.texts.some((text) => text.id === command.text.id)) throw new Error(`A text called ${command.text.id} is already in the reel.`);
+      return addText(timeline, command.text);
+    case "batch":
+      // Each step runs against the result of the one before; a failing step throws, so the whole batch is rejected.
+      return command.commands.reduce((current, step) => run(current, step, { ...context, gestureBase: undefined }), timeline);
   }
 }
 

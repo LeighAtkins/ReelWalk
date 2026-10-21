@@ -22,7 +22,8 @@ export type FramePurpose = "view" | "analysis";
 
 type Drawable = HTMLVideoElement | HTMLImageElement;
 
-const sizeOf = (media: Drawable) => (media instanceof HTMLVideoElement ? { width: media.videoWidth, height: media.videoHeight } : { width: media.naturalWidth, height: media.naturalHeight });
+// Duck-typed rather than instanceof, so stand-in videos in tests (no DOM classes) are sized too.
+const sizeOf = (media: Drawable) => ("videoWidth" in media ? { width: media.videoWidth, height: media.videoHeight } : { width: media.naturalWidth, height: media.naturalHeight });
 
 /** Draws `media` at its current frame as the composition shows `clip` at `moment`, for viewing or for analysis. */
 export function drawPresented(ctx: CanvasRenderingContext2D, media: Drawable, clip: Pick<Clip, "fit" | "zoom" | "motion" | "filter">, moment: ClipMoment, width: number, height: number, purpose: FramePurpose): void {

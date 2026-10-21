@@ -56,7 +56,9 @@ jobs:
   # Which of the slow checks this run needs (ADR 0054). Pushes to main run
   # everything; a PR runs the end-to-end suite only when it touches what the
   # suite drives: the web app, the domain and database packages, the suite,
-  # the stack it starts (compose, nginx), dependencies, or this workflow.
+  # the stack it starts (compose, nginx), dependencies, or this workflow. The
+  # worker image's acceptance render (ADR 0053) runs when it touches the
+  # renderer or the domain package.
   changes:
     name: What changed
     runs-on: ubuntu-latest
@@ -65,6 +67,7 @@ jobs:
       pull-requests: read
     outputs:
       e2e: ${{ steps.paths.outputs.e2e }}
+      compare: ${{ steps.paths.outputs.compare }}
     steps:
       - id: paths
         env:
@@ -72,17 +75,18 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
         run: |
           if [ "$GITHUB_EVENT_NAME" != "pull_request" ]; then
-            echo "e2e=true" >> "$GITHUB_OUTPUT"
+            printf 'e2e=true\ncompare=true\n' >> "$GITHUB_OUTPUT"
             exit 0
           fi
           # Renames count under both names. If the list cannot be read, run everything.
           if ! files=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files" --jq '.[] | .filename, (.previous_filename // empty)'); then
-            echo "e2e=true" >> "$GITHUB_OUTPUT"
+            printf 'e2e=true\ncompare=true\n' >> "$GITHUB_OUTPUT"
             exit 0
           fi
           printf '%s\n' "$files"
           touches() { if printf '%s\n' "$files" | grep -qE "$1"; then echo true; else echo false; fi; }
           echo "e2e=$(touches '^(apps/web/|packages/(core|db)/|e2e/|infra/nginx/|pnpm-lock\.yaml$|pnpm-workspace\.yaml$|package\.json$|docker-compose(\.override)?\.yml$|\.github/workflows/ci\.yml$)')" | tee -a "$GITHUB_OUTPUT"
+          echo "compare=$(touches '^packages/(render|core)/')" | tee -a "$GITHUB_OUTPUT"
 
   dependency-scan:
     name: Dependency and config scan
@@ -107,7 +111,7 @@ jobs:
   images:
     name: Build and scan ${{ matrix.app }} image
     runs-on: ubuntu-latest
-    needs: verify
+    needs: [verify, changes]
     permissions:
       contents: read
       # Lets the job request a short-lived AWS token through OIDC.
@@ -120,6 +124,8 @@ jobs:
         app: [web, worker]
     env:
       IMAGE: reelwalk-${{ matrix.app }}:${{ github.sha }}
+      # The worker smoke's acceptance checks (ADR 0053), on main and on PRs that touch the renderer or core (ADR 0054).
+      SMOKE_COMPARE: ${{ (needs.changes.outputs.compare != 'true' || contains(github.event.pull_request.labels.*.name, 'skip-acceptance') || vars.SKIP_ACCEPTANCE == 'true') && '0' || '1' }}
     steps:
       - uses: actions/checkout@v7
       - uses: docker/setup-buildx-action@v4
@@ -143,11 +149,12 @@ jobs:
       # the run sees the label) or set the repository variable
       # SKIP_ACCEPTANCE=true. The baseline comparison only reports here: its
       # references were made on Windows (packages/render/fixtures/SOURCE.md).
+      # The acceptance checks take most of this step's time, so they run on
+      # pushes to main and on PRs that touch packages/render or packages/core
+      # (the "What changed" job); other PRs get the plain smoke (ADR 0054).
       - name: Render smoke test
         if: matrix.app == 'worker'
-        timeout-minutes: 25
-        env:
-          SMOKE_COMPARE: ${{ (contains(github.event.pull_request.labels.*.name, 'skip-acceptance') || vars.SKIP_ACCEPTANCE == 'true') && '0' || '1' }}
+        timeout-minutes: ${{ env.SMOKE_COMPARE == '1' && 25 || 10 }}
         # From the worker's directory: that is where the image's Chrome lives
         # (ensure-browser ran there) and the only node_modules the `node` user may write.
         run: |

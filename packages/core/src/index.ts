@@ -38,3 +38,4 @@ export * from "./director-loop";
 export * from "./hooks";
 export * from "./text-timing";
 export * from "./commands";
+export * from "./occluder";

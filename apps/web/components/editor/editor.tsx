@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import type { PlayerRef } from "@remotion/player";
@@ -14,36 +14,28 @@ import { setHook, wordsBehindHook, locate, orientQuad, reshapePin,
   removeRoomLabels,
   setDetails,
   setPlan,
-  snapCutsToBeats,
   addText,
   clipDurationMs,
   clipStartsMs,
   DEFAULT_IMAGE_MS,
   DEFAULT_PANO,
   DEFAULT_PANO_MS,
-  duplicateClip,
   instagramAudioLabel,
   instagramIssues,
-  moveClip,
   REEL_FORMAT,
-  removeClip,
   removeText,
   setMusic,
-  splitAt,
   textsAt,
   timelineDurationMs,
-  trimClip,
   updateClip,
   updateText,
   type Clip,
   type InstagramAudioTrack,
   type Issue,
+  type MusicChoice,
   type Plan,
   type Timeline,
-  parseTimeline,
   sameTimeline,
-  retime,
-  retimeToLength,
   setClipRoom,
   setCover,
   setLogo,
@@ -100,7 +92,7 @@ import { createClock, useClock, type Clock } from "./clock";
 import { ClipSourceInfo } from "./clip-source-info";
 import { DirectorSheet } from "./director-sheet";
 import { Filmstrip, type PendingUpload, type Selection } from "./filmstrip";
-import { historyReducer, initHistory } from "./history";
+import { STALE_PROPOSAL, useDocument } from "./use-document";
 import { HookSheet, PinSheet,
   AskSheet,
   AutopilotSheet,
@@ -265,13 +257,17 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
   const [autopilotError, setAutopilotError] = useState<{ message: string; upgrade: boolean } | null>(null);
   const autopilotRequest = useRef<{ style: string; info: AutopilotInfo } | null>(null);
   const router = useRouter();
-  const [history, dispatch] = useReducer(historyReducer, initialTimeline, initHistory);
+  const [library, setLibrary] = useState<Record<string, LibraryAsset>>(() => Object.fromEntries(initialLibrary.map((asset) => [asset.id, asset])));
+  const libraryRef = useRef(library);
+  libraryRef.current = library;
+  const sourceDurations = useCallback(() => Object.fromEntries(Object.values(libraryRef.current).map((entry) => [entry.id, entry.durationMs])), []);
+  // The reel, its undo history and its generation (ADR 0048). Changes to the cut go through runCommand.
+  const { history, generation, dispatch, runCommand, snapshot } = useDocument(initialTimeline, sourceDurations);
   const timeline = history.present;
   const [title, setTitle] = useState(reel.title);
   const [caption, setCaption] = useState(reel.caption);
   const [selection, setSelection] = useState<Selection>(null);
   const [sheet, setSheet] = useState<SheetName | null>(autopilot ? "autopilot" : openLibrary && initialTimeline.clips.length === 0 ? "media" : null);
-  const [library, setLibrary] = useState<Record<string, LibraryAsset>>(() => Object.fromEntries(initialLibrary.map((asset) => [asset.id, asset])));
   const [uploads, setUploads] = useState<PendingUpload[]>([]);
   const [musicUploading, setMusicUploading] = useState(false);
   const [playing, setPlaying] = useState(false);
@@ -460,7 +456,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         const asset = await uploadFile(file, () => undefined);
         if (asset.kind !== "AUDIO") throw new Error(`${file.name} is not an audio file.`);
         setLibrary((current) => ({ ...current, [asset.id]: asset }));
-        apply((current) => setMusic(current, { assetId: asset.id, sourceStartMs: 0, volume: 0.8, bpm: asset.bpm, beatOffsetMs: asset.beatOffsetMs }));
+        runCommand({ type: "setMusic", music: { assetId: asset.id, sourceStartMs: 0, volume: 0.8, bpm: asset.bpm, beatOffsetMs: asset.beatOffsetMs } });
         setSelection({ kind: "music" });
       } catch (error) {
         showToast(error instanceof Error ? error.message : "Could not upload the song.");
@@ -468,23 +464,21 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         setMusicUploading(false);
       }
     },
-    [apply, showToast],
+    [runCommand, showToast],
   );
 
   // Editing to an Instagram sound (ADR 0019): the server keeps a private copy
   // of its preview; its length and tempo are found here, like an upload's.
   const [instagramBusy, setInstagramBusy] = useState<string | null>(null);
-  const libraryRef = useRef(library);
-  libraryRef.current = library;
-  const sourceDurations = useCallback(() => Object.fromEntries(Object.values(libraryRef.current).map((entry) => [entry.id, entry.durationMs])), []);
-  const pickInstagramSound = useCallback(
-    async (track: InstagramAudioTrack): Promise<boolean> => {
+  /** Gets an Instagram sound ready to set (its private copy, length and tempo) without changing the reel. Null when it could not. */
+  const fetchInstagramSound = useCallback(
+    async (track: InstagramAudioTrack): Promise<MusicChoice | null> => {
       setInstagramBusy(track.id);
       try {
         const result = await chooseSound({ audioId: track.id, type: track.type, title: track.title, artist: track.artist });
         if (!result.ok) {
           showToast(result.error, 5000);
-          return false;
+          return null;
         }
         let asset = result.asset;
         // Measured once per copy; a sound chosen again already knows its tempo.
@@ -503,36 +497,29 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         }
         const chosen = asset;
         setLibrary((current) => ({ ...current, [chosen.id]: chosen }));
-        apply((current) =>
-          setMusic(current, {
-            assetId: chosen.id,
-            sourceStartMs: 0,
-            volume: current.music?.volume ?? 0.8,
-            bpm: chosen.bpm,
-            beatOffsetMs: chosen.beatOffsetMs,
-            instagramAudioId: chosen.instagram?.audioId ?? track.id,
-          }),
-        );
-        // The cuts follow the new song's beat straight away, room labels with them.
-        if (chosen.bpm) {
-          const durations = Object.fromEntries(Object.values(libraryRef.current).map((entry) => [entry.id, entry.durationMs]));
-          apply((current) => {
-            if (current.clips.length < 2) return current;
-            const next = snapCutsToBeats(current, durations);
-            return hasRoomLabels(next) ? addRoomLabels(next) : next;
-          });
-        }
-        setSelection({ kind: "music" });
-        showToast(`“${track.title}” added${chosen.bpm ? ", cuts on the beat" : ""}.`);
-        return true;
+        libraryRef.current = { ...libraryRef.current, [chosen.id]: chosen };
+        return { assetId: chosen.id, sourceStartMs: 0, bpm: chosen.bpm, beatOffsetMs: chosen.beatOffsetMs, instagramAudioId: chosen.instagram?.audioId ?? track.id };
       } catch {
         showToast("Could not get that sound from Instagram. Try again.");
-        return false;
+        return null;
       } finally {
         setInstagramBusy(null);
       }
     },
-    [apply, showToast],
+    [showToast],
+  );
+
+  const pickInstagramSound = useCallback(
+    async (track: InstagramAudioTrack): Promise<boolean> => {
+      const music = await fetchInstagramSound(track);
+      if (!music) return false;
+      // The song and the cuts moving onto its beat (room labels with them) are one step: one undo takes both back.
+      runCommand({ type: "setMusic", music, snap: true });
+      setSelection({ kind: "music" });
+      showToast(`“${track.title}” added${music.bpm ? ", cuts on the beat" : ""}.`);
+      return true;
+    },
+    [fetchInstagramSound, runCommand, showToast],
   );
 
   // ── New version ─────────────────────────────────────────────
@@ -609,25 +596,22 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
 
   // ── Clip, text and music actions ────────────────────────────
   const split = useCallback(() => {
-    const at = clock.get();
     const id = newId();
-    const next = splitAt(timeline, at, id);
-    if (next === timeline) {
+    if (runCommand({ type: "splitClip", atMs: clock.get(), newId: id }).changes.length === 0) {
       showToast("Move the playhead at least half a second away from a clip's edge to split it.");
       return;
     }
-    apply(() => next);
     setSelection({ kind: "clip", id });
-  }, [apply, clock, showToast, timeline]);
+  }, [runCommand, clock, showToast]);
 
   const deleteSelection = useCallback(() => {
     if (!activeSelection) return;
-    if (activeSelection.kind === "clip") apply((current) => removeClip(current, activeSelection.id));
+    if (activeSelection.kind === "clip") runCommand({ type: "deleteClip", clipId: activeSelection.id });
     if (activeSelection.kind === "text") apply((current) => removeText(current, activeSelection.id));
-    if (activeSelection.kind === "music") apply((current) => setMusic(current, null));
+    if (activeSelection.kind === "music") runCommand({ type: "setMusic", music: null });
     setSelection(null);
     setSheet(null);
-  }, [activeSelection, apply]);
+  }, [activeSelection, apply, runCommand]);
 
   const saveText = useCallback(
     (draft: TextDraft) => {
@@ -755,14 +739,9 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
   // ── Make it for me ──────────────────────────────────────────
   // Runs once the shots are up. A first cut by rule opens in the review within
   // a couple of seconds (ADR 0024); the model's cut follows in the background
-  // and replaces it, as one undoable step, unless the studio has started
-  // changing things in the meantime.
+  // and replaces it, as one undoable step, unless the reel has changed in the
+  // meantime: the polish is a proposal against the first cut's generation (ADR 0048).
   const [polishing, setPolishing] = useState(false);
-  // Changes the studio makes in the review while the polish is on its way (the sound fetch and beat snap are not theirs).
-  const editsSinceDraft = useRef(0);
-  const touched = useCallback(() => {
-    editsSinceDraft.current += 1;
-  }, []);
   useEffect(() => {
     if (autopilotPhase !== "waiting" || uploads.length > 0 || !autopilotRequest.current) return;
     if (timeline.clips.length === 0) {
@@ -779,45 +758,49 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         setAutopilotError({ message, upgrade });
       };
       type Cut = { ok: true; timeline: unknown; note: string; assets?: LibraryAsset[]; instagramPick?: InstagramAudioTrack } | { ok: false; message: string };
-      const takeIn = async (data: Cut & { ok: true }) => {
+      // The cut, and the Instagram sound it chose snapped to, land as one proposal against `baseGeneration`.
+      const takeIn = async (data: Cut & { ok: true }, baseGeneration: number) => {
         if (data.assets?.length) setLibrary((current) => ({ ...current, ...Object.fromEntries(data.assets!.map((asset) => [asset.id, asset])) }));
-        apply(() => parseTimeline(data.timeline));
-        // An Instagram sound is fetched and the cuts snapped to it.
-        if (data.instagramPick) await pickInstagramSound(data.instagramPick);
+        if (snapshot().generation !== baseGeneration) return { stale: true as const, generation: snapshot().generation };
+        const music = data.instagramPick ? await fetchInstagramSound(data.instagramPick) : null;
+        return runCommand({ type: "applyProposal", baseGeneration, proposal: data.timeline, ...(music ? { music: { ...music, snap: true } } : {}) });
       };
-      let quick: Cut;
-      try {
-        const response = await fetch(`/api/reels/${reel.id}/autopilot`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ timeline, style, info, quick: true }) });
-        quick = (await response.json()) as Cut;
-      } catch {
-        return fail("Could not reach ReelWalk. Check the connection and try again.");
+      const base = snapshot();
+      let draft: { stale?: true; generation: number } | null = null;
+      // The first cut is cheap: when a room name landed while it was being made, it is made again from the reel as it is now.
+      for (let attempt = 0; attempt < 2 && !draft; attempt++) {
+        const from = attempt === 0 ? base : snapshot();
+        let quick: Cut;
+        try {
+          const response = await fetch(`/api/reels/${reel.id}/autopilot`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ timeline: from.timeline, style, info, quick: true }) });
+          quick = (await response.json()) as Cut;
+        } catch {
+          return fail("Could not reach ReelWalk. Check the connection and try again.");
+        }
+        if (!quick.ok) return fail(quick.message);
+        const result = await takeIn(quick, from.generation);
+        if (!result.stale) draft = result;
       }
-      if (!quick.ok) return fail(quick.message);
-      await takeIn(quick);
+      if (!draft) return fail(STALE_PROPOSAL);
       // A draft, not an export (ADR 0022): it opens in the review, playing with its music;
       // the studio changes what it wants and exports when it is right.
       setAutopilotPhase("form");
       setSheet(null);
       setReview(true);
-      editsSinceDraft.current = 0;
       setPolishing(true);
       showToast("Here is a first cut. ReelWalk is polishing it; play it meanwhile.", 6000);
       try {
-        const polished = await runAiJob<Cut>(`/api/reels/${reel.id}/autopilot`, { timeline, style, info });
-        // The first cut, its sound and the polish count as the draft; anything else is the studio's.
+        const polished = await runAiJob<Cut>(`/api/reels/${reel.id}/autopilot`, { timeline: base.timeline, style, info });
         if (!polished.ok) showToast(`The first cut stays: ${polished.message}`, 6000);
-        else if (editsSinceDraft.current > 0) showToast("You started changing the first cut, so it stays as it is.", 6000);
-        else {
-          await takeIn(polished);
-          showToast("Polished: order, cut and text by ReelWalk. Undo brings the first cut back.", 7000);
-        }
+        else if ((await takeIn(polished, draft.generation)).stale) showToast("The reel changed while ReelWalk polished it, so your version stays. Review it, or ask for a change.", 6000);
+        else showToast("Polished: order, cut and text by ReelWalk. Undo brings the first cut back.", 7000);
       } catch {
         showToast("The first cut stays; the polish could not reach ReelWalk.", 6000);
       } finally {
         setPolishing(false);
       }
     })();
-  }, [autopilotPhase, uploads.length, timeline, reel.id, apply, showToast, pickInstagramSound]);
+  }, [autopilotPhase, uploads.length, timeline.clips.length, reel.id, showToast, snapshot, runCommand, fetchInstagramSound]);
 
   // Rooms named as soon as the shots are up, so they show (and can be changed) before the reel is made.
   const roomsAsked = useRef(new Set<string>());
@@ -834,7 +817,8 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
       .then((result) => {
         const rooms = result.rooms ?? {};
         if (Object.keys(rooms).length === 0) return;
-        apply((current) => ({ ...current, clips: current.clips.map((clip) => (clip.room || !rooms[clip.assetId] ? clip : { ...clip, room: rooms[clip.assetId] })) }));
+        // Nothing to name (the cut already has these rooms) leaves the reel, and its generation, as they are.
+        apply((current) => (current.clips.some((clip) => !clip.room && rooms[clip.assetId]) ? { ...current, clips: current.clips.map((clip) => (clip.room || !rooms[clip.assetId] ? clip : { ...clip, room: rooms[clip.assetId] })) } : current));
       })
       .catch(() => undefined)
       // A shot the AI could not name (a black frame, a blur) is offered for naming by hand.
@@ -988,13 +972,13 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         <Tool label="Transition" disabled={index === 0} onClick={() => setSheet("transition")}>
           <TransitionIcon />
         </Tool>
-        <Tool label="Duplicate" onClick={() => apply((current) => duplicateClip(current, selectedClip.id, newId()))}>
+        <Tool label="Duplicate" onClick={() => runCommand({ type: "duplicateClip", clipId: selectedClip.id, newId: newId() })}>
           <DuplicateIcon />
         </Tool>
-        <Tool label="Earlier" disabled={index === 0} onClick={() => apply((current) => moveClip(current, selectedClip.id, index - 1))}>
+        <Tool label="Earlier" disabled={index === 0} onClick={() => runCommand({ type: "moveClip", clipId: selectedClip.id, toIndex: index - 1 })}>
           <MoveLeftIcon />
         </Tool>
-        <Tool label="Later" disabled={index === timeline.clips.length - 1} onClick={() => apply((current) => moveClip(current, selectedClip.id, index + 1))}>
+        <Tool label="Later" disabled={index === timeline.clips.length - 1} onClick={() => runCommand({ type: "moveClip", clipId: selectedClip.id, toIndex: index + 1 })}>
           <MoveRightIcon />
         </Tool>
       </>
@@ -1250,13 +1234,8 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         onGrab={setSelection}
         onScrub={scrub}
         onTextTiming={(id, timing, gesture) => apply((current) => updateText(current, id, timing), gesture)}
-        onMoveClip={(id, toIndex) => apply((current) => moveClip(current, id, toIndex))}
-        onClipTrim={(id, window, gesture) =>
-          apply((current) => {
-            const clip = current.clips.find((item) => item.id === id);
-            return clip ? trimClip(current, id, window, library[clip.assetId]?.durationMs ?? undefined) : current;
-          }, gesture)
-        }
+        onMoveClip={(id, toIndex) => runCommand({ type: "moveClip", clipId: id, toIndex })}
+        onClipTrim={(id, window, gesture) => runCommand({ type: "trimClip", clipId: id, window }, gesture)}
         onAddMedia={() => setSheet("media")}
         onAddText={() => setSheet("text-new")}
         onAddMusic={() => setSheet("music")}
@@ -1329,13 +1308,13 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
           asset={library[selectedClip.assetId]}
           next={timeline.clips[selectedClipIndex + 1] ? { clip: timeline.clips[selectedClipIndex + 1], asset: library[timeline.clips[selectedClipIndex + 1].assetId] } : null}
           onChange={(window) => {
-            apply((current) => trimClip(current, selectedClip.id, window, library[selectedClip.assetId]?.durationMs ?? undefined), `trim-${selectedClip.id}`);
+            runCommand({ type: "trimClip", clipId: selectedClip.id, window }, `trim-${selectedClip.id}`);
           }}
           onClose={closeSheet}
         />
       ) : null}
       {sheet === "speed" && selectedClip ? (
-        <SpeedSheet clip={selectedClip} onChange={(speed) => apply((current) => updateClip(current, selectedClip.id, { speed }))} onClose={closeSheet} />
+        <SpeedSheet clip={selectedClip} onChange={(speed) => runCommand({ type: "setSpeed", clipId: selectedClip.id, speed })} onClose={closeSheet} />
       ) : null}
       {sheet === "volume" && selectedClip ? (
         <VolumeSheet
@@ -1418,16 +1397,10 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
           instagram={instagramSounds}
           instagramBusyId={instagramBusy}
           onPickInstagram={pickInstagramSound}
-          onPick={(asset) =>
-            apply((current) =>
-              setMusic(current, { assetId: asset.id, sourceStartMs: 0, volume: current.music?.volume ?? 0.8, bpm: asset.bpm, beatOffsetMs: asset.beatOffsetMs }),
-            )
-          }
+          onPick={(asset) => runCommand({ type: "setMusic", music: { assetId: asset.id, sourceStartMs: 0, bpm: asset.bpm, beatOffsetMs: asset.beatOffsetMs } })}
           onSnap={() => {
-            const durations = Object.fromEntries(Object.values(library).map((asset) => [asset.id, asset.durationMs]));
-            const next = snapCutsToBeats(timeline, durations);
-            // Room names follow their clips to the new cut points.
-            apply(() => (hasRoomLabels(next) ? addRoomLabels(next) : next));
+            // Titles and room names follow their clips to the new cut points (retimeTexts).
+            runCommand({ type: "snapToBeat" });
             showToast("Cuts moved onto the beat.");
             setSheet(null);
           }}
@@ -1501,26 +1474,28 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
           briefs={briefs}
           fresh={isFresh(timeline)}
           onAsk={async (request, answers) => {
-            touched();
-            // The editor's own copy of the timeline goes along, so unsaved work counts.
+            // The editor's own copy of the timeline goes along, so unsaved work counts; the answer is a proposal against its generation (ADR 0048).
+            const base = snapshot();
             const data = await runAiJob<
               | { ok: true; timeline: unknown; note: string; applied: string[]; skipped: string[]; questions: string[]; assets?: LibraryAsset[]; instagramPick?: InstagramAudioTrack; caption?: string }
               | { ok: false; message: string; upgrade?: boolean }
-            >(`/api/reels/${reel.id}/ai-edit`, { request, timeline, answers });
+            >(`/api/reels/${reel.id}/ai-edit`, { request, timeline: base.timeline, answers });
             if (!data.ok) return data;
             // A song or shot the AI brought in joins the library first, so the preview can play it.
             if (data.assets?.length) setLibrary((current) => ({ ...current, ...Object.fromEntries(data.assets!.map((asset) => [asset.id, asset])) }));
+            if (data.applied.length > 0) {
+              if (snapshot().generation !== base.generation) return { ok: false, message: STALE_PROPOSAL };
+              // The edit and the Instagram sound it chose (snapped to) are one undo step.
+              const music = data.instagramPick ? await fetchInstagramSound(data.instagramPick) : null;
+              const result = runCommand({ type: "applyProposal", baseGeneration: base.generation, proposal: data.timeline, ...(music ? { music: { ...music, snap: true } } : {}) });
+              if (result.stale) return { ok: false, message: STALE_PROPOSAL };
+              showToast(data.note, 6000);
+              setSheet(null);
+            }
             // A caption written for the post is kept with the reel (it is not part of the edit).
             if (data.caption) {
               setCaption(data.caption);
               void saveCaption({ id: reel.id, caption: data.caption }).catch(() => undefined);
-            }
-            if (data.applied.length > 0) {
-              const next = parseTimeline(data.timeline);
-              apply(() => next);
-              showToast(data.note, 6000);
-              setSheet(null);
-              if (data.instagramPick) await pickInstagramSound(data.instagramPick);
             }
             return { ok: true, note: data.note, applied: data.applied, skipped: data.skipped, questions: data.questions ?? [] };
           }}
@@ -1537,41 +1512,36 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         />
       ) : null}
 
-      {sheet === "director" ? <DirectorSheet reelId={reel.id} timeline={timeline} library={libraryList} onClose={closeSheet} onAssets={(assets) => setLibrary((current) => ({ ...current, ...Object.fromEntries(assets.map((asset) => [asset.id, asset])) }))} onApply={(review) => {
-        if (!sameTimeline(timeline, review.baseline)) return false;
-        // The plan may have chosen an Instagram sound; like the ask flow, the editor imports it so the reel actually has music.
-        if (review.instagramPick) void pickInstagramSound(review.instagramPick);
+      {sheet === "director" ? <DirectorSheet reelId={reel.id} timeline={timeline} generation={generation} library={libraryList} onClose={closeSheet} onAssets={(assets) => setLibrary((current) => ({ ...current, ...Object.fromEntries(assets.map((asset) => [asset.id, asset])) }))} onApply={async (review) => {
+        // A review asked for in this session carries the generation it was made against. One saved
+        // earlier has none: it counts as made against the current reel only if it is the same edit.
+        const baseGeneration = review.generation ?? (sameTimeline(snapshot().timeline, review.baseline) ? snapshot().generation : -1);
+        if (baseGeneration !== snapshot().generation) return null;
         if (review.assets.length) setLibrary(current => ({ ...current, ...Object.fromEntries(review.assets.map(asset => [asset.id, asset])) }));
-        apply(() => parseTimeline(review.timeline));
+        // The plan may have chosen an Instagram sound; like the ask flow, it lands in the same step as the edit, so the reel actually has music.
+        const music = review.instagramPick ? await fetchInstagramSound(review.instagramPick) : null;
+        const result = runCommand({ type: "applyProposal", baseGeneration, proposal: review.timeline, ...(music ? { music: { ...music, snap: true } } : {}) });
+        if (result.stale) return null;
         if (review.plan.edit.caption) {
           setCaption(review.plan.edit.caption);
           void saveCaption({ id: reel.id, caption: review.plan.edit.caption }).catch(() => undefined);
         }
         showToast("Applied Opus's proposed edit. Undo takes it back.");
-        return true;
+        return { generation: result.generation, timeline: result.timeline };
       }} /> : null}
 
       {sheet === "review-timing" ? (
         <TimingChoices
           timeline={timeline}
-          onPace={(shotMs) => {
-            touched();
-            apply((current) => retime(current, shotMs, sourceDurations()));
-          }}
-          onLength={(totalMs) => {
-            touched();
-            apply((current) => retimeToLength(current, totalMs, sourceDurations()));
-          }}
+          onPace={(shotMs) => runCommand({ type: "retime", shotMs })}
+          onLength={(totalMs) => runCommand({ type: "retimeToLength", totalMs })}
           onClose={closeSheet}
         />
       ) : null}
       {sheet === "review-look" ? (
         <LookChoices
           timeline={timeline}
-          onLook={(filter) => {
-            touched();
-            apply((current) => setLook(current, filter));
-          }}
+          onLook={(filter) => apply((current) => setLook(current, filter))}
           onClose={closeSheet}
         />
       ) : null}
@@ -1582,14 +1552,10 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
           roomLabels={hasRoomLabels(timeline)}
           canLabel={timeline.clips.some((clip) => clip.room)}
           onText={(id, text) => {
-            touched();
             apply((current) => updateText(current, id, { text }));
             showToast("Text changed.");
           }}
-          onRoomLabels={(on) => {
-            touched();
-            apply((current) => (on ? addRoomLabels(current) : removeRoomLabels(current)));
-          }}
+          onRoomLabels={(on) => apply((current) => (on ? addRoomLabels(current) : removeRoomLabels(current)))}
           onClose={closeSheet}
         />
       ) : null}
@@ -1599,7 +1565,6 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
           currentAudioId={timeline.music?.instagramAudioId ?? null}
           busyId={instagramBusy}
           onPick={async (track) => {
-            touched();
             if (await pickInstagramSound(track)) setSheet(null);
           }}
           onMore={() => setSheet("music")}

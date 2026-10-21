@@ -56,7 +56,6 @@ import {
   updateText,
   coverMs,
   type Clip,
-  type TextOverlay,
   type Timeline,
 } from "./timeline";
 

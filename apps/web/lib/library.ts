@@ -11,12 +11,6 @@ export type LibraryAsset = {
   /** Confirmed by a completed generation record, independent of filename. */
   isAiGenerated?: boolean;
   url: string;
-  /**
-   * The original file when `url` is the light preview rendition: Inspect's
-   * Footage only reads it, so a zoomed frame shows what was delivered, not
-   * the 720p preview (ADR 0057). Absent when `url` is the original.
-   */
-  originalUrl?: string;
   /** For an AI take: where the identity gate found the presenter's face on the composed first frame (ADR 0056/0057). */
   face?: FaceHint | null;
   thumbUrl: string | null;
@@ -72,8 +66,7 @@ type LibraryAssetInput = {
 async function serializeLibraryAsset(asset: LibraryAssetInput, generation: { checks: unknown } | undefined): Promise<LibraryAsset> {
   const spot = spotSchema.safeParse(asset.spot);
   // The editor plays the light preview rendition when one exists; exports always use the original.
-  const preview = asset.previewKey && asset.previewKey !== asset.objectKey ? asset.previewKey : null;
-  const [url, thumbUrl, originalUrl] = await Promise.all([mediaUrl(preview ?? asset.objectKey), asset.thumbKey ? mediaUrl(asset.thumbKey) : null, preview ? mediaUrl(asset.objectKey) : null]);
+  const [url, thumbUrl] = await Promise.all([mediaUrl(asset.previewKey ?? asset.objectKey), asset.thumbKey ? mediaUrl(asset.thumbKey) : null]);
   const face = generation ? faceHintFromChecks(generation.checks) : null;
   return {
     id: asset.id,
@@ -81,7 +74,6 @@ async function serializeLibraryAsset(asset: LibraryAssetInput, generation: { che
     fileName: asset.fileName,
     isAiGenerated: Boolean(generation),
     url,
-    ...(originalUrl ? { originalUrl } : {}),
     ...(face ? { face } : {}),
     // A photo is its own thumbnail.
     thumbUrl: thumbUrl ?? (asset.kind === "IMAGE" ? url : null),

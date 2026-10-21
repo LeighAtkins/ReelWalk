@@ -943,9 +943,9 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
     () => Object.fromEntries(Object.values(library).map((asset) => [asset.id, { src: asset.url, kind: asset.kind, transcript: asset.transcript }])),
     [library],
   );
-  // What Inspect reads beyond the Player's media: the original file, its size, and an AI take's face hint.
+  // What Inspect reads beyond the Player's media: the size and an AI take's face hint (the original is asked for on demand).
   const inspectSources = useMemo<Record<string, InspectSource>>(
-    () => Object.fromEntries(Object.values(library).map((asset) => [asset.id, { original: asset.originalUrl ?? null, width: asset.width, height: asset.height, ai: Boolean(asset.isAiGenerated), face: asset.face ?? null }])),
+    () => Object.fromEntries(Object.values(library).map((asset) => [asset.id, { width: asset.width, height: asset.height, ai: Boolean(asset.isAiGenerated), face: asset.face ?? null }])),
     [library],
   );
   // Media the preview keeps in memory: the clips' preview renditions and the

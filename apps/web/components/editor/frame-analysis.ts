@@ -1,4 +1,4 @@
-import { findSurfaceQuad, leanQuad, pickMatchingFrame, smoothLive, trackSurface, type Clip, type Gray, type Quad, type TextOverlay, type TrackFailure } from "@reelwalk/core";
+import { findSurfaceQuad, leanQuad, pickMatchingFrame, smoothTrack, trackPath, trackSurfaceAsync, type Clip, type Gray, type Quad, type TextOverlay, type TrackFailure } from "@reelwalk/core";
 import type { LibraryAsset } from "@/lib/library";
 
 /** Browser side of @reelwalk/core's motion module: small grayscale frames from a video element. */
@@ -96,8 +96,9 @@ export async function trackTextPath(
  * the surface only (never borrowed from around it), and either returns the
  * path with a confidence per keyframe or a reason it refused ("Could not
  * follow this surface: ..."). If the surface is lost (it left the frame, or
- * something covered it) the title holds and fades over a quarter of a
- * second, and fades back in if the tracker finds the surface again.
+ * something covered it) the title fades out over one sample at its last
+ * measured corners and stays hidden; it fades back in at the re-found
+ * corners if the tracker finds the surface again.
  */
 export async function trackTextPathDetailed(
   asset: LibraryAsset, clip: Clip, clipStartMs: number, text: TrackTarget,
@@ -122,9 +123,11 @@ export async function trackTextPathDetailed(
   let video: HTMLVideoElement | null = null;
   try {
     video = await load(asset);
-    // Sample the shot (at most 63 frames, as before), then track; reading frames is the slow part.
-    const times: number[] = [];
-    for (let source = firstSource; source <= lastSource + 1 && times.length < 63; source += stepMs) times.push(Math.min(source, lastSource));
+    // Sample the shot evenly from its first to its true last frame (at most 63 samples, at most stepMs apart),
+    // so keyframe t lines up with the pin's interval; then track. Reading frames is the slow part.
+    const fromMs = Math.round(firstSource), toMs = Math.round(lastSource);
+    const count = Math.min(63, Math.max(2, Math.ceil((toMs - fromMs) / stepMs) + 1));
+    const times = Array.from({ length: count }, (_, i) => fromMs + ((toMs - fromMs) * i) / (count - 1));
     const frames: Gray[] = [];
     for (const at of times) {
       await seek(video, at);
@@ -133,40 +136,12 @@ export async function trackTextPathDetailed(
     }
     const nearest = (sourceMs: number) => times.reduce((best, t, i) => (Math.abs(t - sourceMs) < Math.abs(times[best] - sourceMs) ? i : best), 0);
     const anchors = [{ index: 0, quad: quad0 }, ...(text.corrections ?? []).filter((c) => c.quad.length === 8).map((c) => ({ index: nearest(clip.sourceStartMs + (c.atMs - clipStartMs) * speed), quad: toPx(c.quad) }))];
-    const result = trackSurface(frames, anchors, { onProgress: (f) => onProgress?.(0.7 + 0.3 * f) });
+    // Hands the thread back between frame steps so progress paints and the editor stays responsive; same result as trackSurface.
+    const result = await trackSurfaceAsync(frames, anchors, { onProgress: (f) => onProgress?.(0.7 + 0.3 * f) });
     if (!result.ok) return { error: result.message, reason: result.reason };
-    const span = Math.max(1, times[times.length - 1] - firstSource);
-    const tOf = (i: number) => Math.min(1, (times[i] - firstSource) / span);
-    const fadeSpan = Math.min(1, 250 / span);
-    const live = result.frames.flatMap((f, i) => (f.lost ? [] : [i]));
-    const base = result.frames[0].quad;
-    const baseDistance = Math.hypot(base[2] - base[0], base[3] - base[1]) || 1;
-    const baseAngle = Math.atan2(base[3] - base[1], base[2] - base[0]);
-    const path = result.frames.map((frame, i) => {
-      const [tlx, tly, trx, try_, brx, bry, blx, bly] = frame.quad;
-      const mid = { x: (tlx + trx + brx + blx) / 4, y: (tly + try_ + bry + bly) / 4 };
-      const t = tOf(i);
-      // A lost frame fades out from the last measured one, and back in towards the next if the surface is found again.
-      const o = frame.lost ? Math.max(0, 1 - Math.min(...live.map((j) => Math.abs(tOf(j) - t))) / fadeSpan) : 1;
-      return {
-        t: Number(t.toFixed(4)),
-        x: Number(Math.max(-0.5, Math.min(0.5, mid.x / TRACK_WIDTH - text.x)).toFixed(4)),
-        y: Number(Math.max(-0.5, Math.min(0.5, mid.y / TRACK_HEIGHT - text.y)).toFixed(4)),
-        s: Number(Math.max(0.2, Math.min(5, Math.hypot(trx - tlx, try_ - tly) / baseDistance)).toFixed(3)),
-        r: Number(Math.max(-180, Math.min(180, ((Math.atan2(try_ - tly, trx - tlx) - baseAngle) * 180) / Math.PI)).toFixed(2)),
-        q: frame.quad.map((v, k) => Number(Math.max(-2, Math.min(3, k % 2 === 0 ? v / TRACK_WIDTH : v / TRACK_HEIGHT)).toFixed(4))) as Quad,
-        ...(o < 1 ? { o: Number(o.toFixed(3)) } : {}),
-        c: frame.confidence,
-      };
-    });
-    // The path must end at t = 1 (the last sample holds to the end of the text's life), strictly increasing, no duplicates.
-    const last = path[path.length - 1];
-    if (last.t < 1) path.push({ ...last, t: 1 });
-    else last.t = 1;
-    // Smoothed within each run the surface was followed, so a re-found frame is not averaged with held corners.
-    const kept = path.flatMap((p, i) => (i === 0 || p.t > path[i - 1].t ? [{ p, live: !result.frames[Math.min(i, result.frames.length - 1)].lost }] : []));
-    const clean = smoothLive(kept.map((k) => k.p), kept.map((k) => k.live));
-    if (clean.length < 2) return { error: "Could not follow this surface: the shot is too short to track." };
+    // Smoothed within measured runs and never further than each frame's own uncertainty; anchors stay exact.
+    // Lost frames are hidden (o = 0) and carry the nearest measured corners, so nothing stale fades in (ADR 0052).
+    const { path, confidence: perKeyframe } = trackPath(smoothTrack(result.frames), times, { fromMs, toMs }, text, { width: TRACK_WIDTH, height: TRACK_HEIGHT });
     const measured = result.frames.filter((f) => !f.anchor && !f.lost);
     const confidence = measured.length ? measured.reduce((sum, f) => sum + f.confidence, 0) / measured.length : 0;
     const lostAtMs = result.lostAt !== null ? Math.round(times[result.lostAt]) : null;
@@ -177,10 +152,10 @@ export async function trackTextPathDetailed(
       ...(result.message ? { reason: result.message } : {}),
     };
     return {
-      path: clean.map((point) => { const { c, ...rest } = point; void c; return rest; }),
-      pin: { assetId: asset.id, fromMs: Math.round(firstSource), toMs: Math.round(lastSource), quad: toFraction(quad0).map((v) => Number(v.toFixed(4))), ...(!surface && (lean.yaw || lean.pitch) ? { lean } : {}) },
+      path,
+      pin: { assetId: asset.id, fromMs, toMs, quad: toFraction(quad0).map((v) => Number(v.toFixed(4))), ...(!surface && (lean.yaw || lean.pitch) ? { lean } : {}) },
       lostAtMs, quality,
-      confidence: clean.map((p) => p.c),
+      confidence: perKeyframe,
     };
   } catch {
     return { error: "The video could not be read." };

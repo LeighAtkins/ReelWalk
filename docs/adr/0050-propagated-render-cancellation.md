@@ -24,8 +24,12 @@ made a late attempt harmless to the data; this is about the resources.
   `runAttempt(scope, work)` settles only after the scope is closed: on
   success it closes the scope and returns; on abort it gives the work
   `graceMs` to unwind through its own `finally` blocks, then releases
-  whatever is still held (newest first, each release bounded by the grace)
-  and throws the stop reason, whether or not the work ever settles.
+  whatever is still held and throws the stop reason, whether or not the
+  work ever settles. Work that finishes during the grace keeps its result.
+  `close()` releases newest first within one shared budget of `graceMs`
+  (each release is told what is left); releases still waiting when it runs
+  out are started without being awaited, so each still sends its kill. A
+  stopped attempt is therefore reported within 2 x grace.
 - **One abort path.** The job deadline (`abortAfter`), SIGTERM
   (`linkAbort` on the worker's shutdown signal) and a tool's own timeout all
   end in the same place. The first two abort the scope with an
@@ -45,31 +49,50 @@ made a late attempt harmless to the data; this is about the resources.
 - **A backstop for Chrome.** Remotion closes its browser fire-and-forget,
   so the render path also registers a release that finds this process's
   descendants whose command matches Chrome, `headless_shell` or Remotion's
-  binaries (via `/proc`), SIGTERMs the whole set at once, waits the grace,
-  and SIGKILLs what is left. It is a no-op where there is no `/proc`.
+  binaries (via `/proc`), SIGTERMs the whole set at once, waits half its
+  budget, SIGKILLs what is left and waits the other half. Zombies count as
+  gone. It is a no-op where there is no `/proc`.
 - **Reporting waits for cleanup.** The handler writes `requeue`/`fail`/
   `succeed` and changes the message's visibility only after `runAttempt`
   has settled, so neither the lease nor the message is handed on while the
   old attempt still holds anything. The heartbeat keeps running during the
-  grace, so the job does not look stale meanwhile.
-- **SIGTERM hands the job back.** A render stopped by shutdown is
-  re-queued with no backoff (`delivery.extend(0)`) and reported as the new
-  outcome `interrupted`, not as a failed attempt.
-- **Grace is configurable**: `RENDER_ABORT_GRACE_SECONDS`, default 10,
-  which keeps unwind plus reporting inside the 30 s ECS stop timeout.
-- Attempt-scoped publish (`store.ts`, the per-attempt output key) is
-  unchanged.
+  grace, so the job does not look stale meanwhile, and stops before the
+  report, so a late tick cannot re-hide a message just handed on.
+- **SIGTERM hands the job back without spending an attempt.** A render
+  stopped by shutdown is re-queued in the database and its message is
+  replaced by a fresh copy with the same generation (`Delivery.handBack`:
+  SendMessage, then DeleteMessage), whose SQS receive count starts at 1, so
+  rolling deploys cannot push a healthy job past the redrive limit (3) into
+  the dead-letter queue. The outcome is the new `interrupted`. If the
+  hand-back fails the message is made visible again instead (which does
+  spend a receive).
+- **The attempt is a claim counter.** Because a handed-back message's
+  receive count restarts, the lease attempt (and so the output key
+  `renders/<job>-<attempt>.mp4`) can no longer be the receive count: the
+  claim increments `RenderJob.attempt` and the lease carries that. Retry
+  limits and backoff still use the receive count, so only real failures
+  count against `RENDER_MAX_ATTEMPTS`.
+- **Drain before stopping**: `RENDER_SHUTDOWN_DRAIN_SECONDS` (default 0)
+  lets the current render run that long after SIGTERM before it is stopped.
+  `RENDER_STOP_TIMEOUT_SECONDS` (default 30, ECS's default `stopTimeout`)
+  states how long the platform waits before SIGKILL, and the worker refuses
+  to start unless drain + 2 x `RENDER_ABORT_GRACE_SECONDS` (default 10) + 5
+  fits in it. The Helm chart sets 270 / 300 to match the worker's
+  `terminationGracePeriodSeconds: 300`, so a Kubernetes rollout lets most
+  renders finish. On ECS the task definition should state `stopTimeout = 30`
+  explicitly (it is the default today; see the PR for the Terraform line).
+- Attempt-scoped publish (`store.ts`) is unchanged.
 
 ## Consequences
 
-A timed-out or stopped attempt costs at most the grace (plus up to one
-grace per resource that refuses to release) before its job is retried, and
-the retry no longer shares the task with a zombie render. SIGTERM now stops
-the current render instead of letting it run: on Kubernetes, where the
-worker's `terminationGracePeriodSeconds` is 300, a rollout interrupts and
-re-queues an in-flight render that might have finished. SIGTERM on the
-last allowed attempt still spends that SQS receive, so the next receive
-dead-letters it; the receive count is not ours to give back. The webpack
+A timed-out or stopped attempt costs at most twice the grace before its
+job is retried, and the retry no longer shares the task with a zombie
+render. On ECS, SIGTERM stops the current render rather than letting it be
+killed mid-way 30 s later; on Kubernetes the drain lets it finish first.
+`RenderJob.attempt` now counts claims within a generation; a manual retry
+resets it to 0 (web), so output keys can repeat across generations, as they
+already could with the receive count. A changed `stopTimeout` must be
+mirrored in `RENDER_STOP_TIMEOUT_SECONDS`. The webpack
 bundle step and in-process transcription (onnxruntime) cannot be
 interrupted; they are bounded and leave no processes, and the attempt is
 reported after the grace regardless. W4 and later job kinds can reuse
@@ -78,6 +101,16 @@ reported after the grace regardless. W4 and later job kinds can reuse
 ## What was verified
 
 - `pnpm check` (lint, typecheck, all unit tests) passes.
+- Hand-back (`cancellation.test.ts`): three shutdowns in a row leave the job
+  QUEUED each time, each fresh message has receive count 1 and none is made
+  visible again, and the fourth delivery succeeds; the attempts were 1, 2,
+  3, 4 with four distinct output keys. A render that finishes within the
+  drain is published; one still running when the drain ends is stopped. No
+  heartbeat extend lands after the hand-back.
+- `lifecycle.test.ts`: four hanging releases close within one grace and
+  all start; work that finishes during the grace keeps its result; the
+  delayed `linkAbort` and its cancel. `config.test.ts`: the stop-timeout
+  check.
 - `apps/worker/tests/cancellation.test.ts`, against the real handler with a
   recording job store: a render that hangs and ignores its signal while
   holding a fake browser, a real child process and a real temp dir is

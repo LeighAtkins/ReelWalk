@@ -63,6 +63,45 @@ describe("runAttempt", () => {
     expect(released).toEqual(["second", "first"]);
   });
 
+  it("bounds the whole close by one grace, however many releases hang, and still starts each one", async () => {
+    const scope = createAttemptScope({ graceMs: 100, log: () => {} });
+    const started: number[] = [];
+    const budgets: number[] = [];
+    for (let i = 0; i < 4; i++) scope.own(`stuck ${i}`, (remainingMs) => { started.push(i); budgets.push(remainingMs); return new Promise(() => undefined); });
+    const before = Date.now();
+    await scope.close();
+    expect(Date.now() - before).toBeLessThan(180);
+    // Newest first; the first gets (about) the whole budget, the ones after it run out of time but are still started.
+    expect(started).toEqual([3, 2, 1, 0]);
+    expect(budgets[0]).toBeGreaterThan(90);
+    expect(budgets.slice(1).every((ms) => ms <= 10)).toBe(true);
+  });
+
+  it("returns the result of work that finishes during the grace instead of the stop reason", async () => {
+    const scope = createAttemptScope({ graceMs: 500, log: () => {} });
+    const result = runAttempt(scope, () => new Promise((resolve) => setTimeout(() => resolve("published"), 50)));
+    scope.abort(stop("shutdown"));
+    await expect(result).resolves.toBe("published");
+  });
+
+  it("delays a linked abort by the drain, and cancels it on unlink", async () => {
+    const scope = createAttemptScope({ log: () => {} });
+    const source = new AbortController();
+    const unlink = linkAbort(source.signal, scope, () => stop("shutdown"), 50);
+    source.abort();
+    expect(scope.signal.aborted).toBe(false);
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(scope.signal.aborted).toBe(true);
+    unlink();
+    const other = createAttemptScope({ log: () => {} });
+    const otherSource = new AbortController();
+    const unlinkOther = linkAbort(otherSource.signal, other, () => stop("shutdown"), 50);
+    otherSource.abort();
+    unlinkOther();
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(other.signal.aborted).toBe(false);
+  });
+
   it("does not let a release that hangs hold the attempt past the grace", async () => {
     const scope = createAttemptScope({ graceMs: 50, log: () => {} });
     scope.own("stuck", () => new Promise(() => undefined));

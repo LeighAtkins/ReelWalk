@@ -11,7 +11,7 @@ import { abortAfter, AttemptStopped, createAttemptScope, DEFAULT_GRACE_MS, linkA
 export type ClaimedJob = {
   id: string;
   generation: number;
-  /** The attempt this claim wrote (SQS receive count), part of the lease and of the output's key. */
+  /** The attempt this claim wrote (a per-job counter the claim increments), part of the lease and of the output's key. */
   attempt: number;
   kind: "TEMPLATE" | "EDITOR" | "REEL" | "PREVIEW";
   caption: string | null;
@@ -36,8 +36,14 @@ export type Lease = RenderJobMessage & { attempt: number };
 /** Database side of a job. Every write is conditional on the job still being this run's (its lease). */
 export interface JobStore {
   snapshot(jobId: string): Promise<JobSnapshot | null>;
-  /** QUEUED (or stale RUNNING) -> RUNNING. Returns null if another worker got there first. */
-  claim(message: RenderJobMessage, attempt: number, staleBefore: Date): Promise<ClaimedJob | null>;
+  /**
+   * QUEUED (or stale RUNNING) -> RUNNING, incrementing the job's attempt
+   * counter; the returned job carries the new attempt. Not the SQS receive
+   * count: a message handed back on shutdown is re-sent and its count starts
+   * again, and the attempt must still never repeat (it names the output).
+   * Returns null if another worker got there first.
+   */
+  claim(message: RenderJobMessage, staleBefore: Date): Promise<ClaimedJob | null>;
   heartbeat(lease: Lease, progress?: number): Promise<void>;
   /** Publishes the output and marks the job done; false when the lease was lost, in which case nothing was written. */
   succeed(lease: Lease, output: RenderResult): Promise<boolean>;
@@ -55,6 +61,12 @@ export interface Delivery {
   /** Hide the message for `seconds` more, counted from now. */
   extend(seconds: number): Promise<void>;
   delete(): Promise<void>;
+  /**
+   * Sends a fresh copy of the message (receive count 1) and deletes this one:
+   * hands a job back without spending one of its attempts. Optional; without
+   * it a hand-back makes the message visible again, which does spend one.
+   */
+  handBack?(): Promise<void>;
 }
 
 export type HandlerDeps = {
@@ -69,8 +81,10 @@ export type HandlerDeps = {
     retryBackoffSeconds: number;
     /** The most one attempt may take; past it the attempt fails and is retried or dead-lettered, instead of heartbeating forever. */
     jobTimeoutSeconds?: number;
-    /** How long a stopped attempt may take to release what it holds before it is killed. */
+    /** How long a stopped attempt may take to unwind, and then to release what it holds (each). */
     abortGraceSeconds?: number;
+    /** After SIGTERM, how long a running render may keep going before it is stopped (0: stop at once). */
+    shutdownDrainSeconds?: number;
   };
   /** Aborted when the worker is stopping (SIGTERM): the attempt is stopped and the job handed back. */
   shutdown?: AbortSignal;
@@ -119,10 +133,10 @@ export async function handleDelivery(deps: HandlerDeps, delivery: Delivery): Pro
     return "deferred";
   }
 
-  const job = await store.claim(message, delivery.receiveCount, new Date(now().getTime() - staleAfterMs));
+  const job = await store.claim(message, new Date(now().getTime() - staleAfterMs));
   if (!job) return "deferred";
-  log(`[${job.id}] claimed, attempt ${delivery.receiveCount}/${config.maxAttempts}`);
-  const lease: Lease = { ...message, attempt: delivery.receiveCount };
+  log(`[${job.id}] claimed, attempt ${job.attempt} (delivery ${delivery.receiveCount}/${config.maxAttempts})`);
+  const lease: Lease = { ...message, attempt: job.attempt };
 
   // While rendering, keep the message hidden and the row fresh so that no
   // other worker picks the job up. If this process dies, both lapse.
@@ -140,14 +154,14 @@ export async function handleDelivery(deps: HandlerDeps, delivery: Delivery): Pro
   const scope = createAttemptScope({ graceMs: (config.abortGraceSeconds ?? DEFAULT_GRACE_MS / 1000) * 1000, log });
   const timeoutMs = (config.jobTimeoutSeconds ?? 45 * 60) * 1000;
   const cancelDeadline = abortAfter(scope, timeoutMs, () => new AttemptStopped(`Render attempt exceeded ${timeoutMs < 60_000 ? `${timeoutMs / 1000} seconds` : `${Math.round(timeoutMs / 60_000)} minutes`}`, "deadline"));
-  const unlinkShutdown = linkAbort(deps.shutdown, scope, () => new AttemptStopped("The worker stopped during the render", "shutdown"));
+  const unlinkShutdown = linkAbort(deps.shutdown, scope, () => new AttemptStopped("The worker stopped during the render", "shutdown"), (config.shutdownDrainSeconds ?? 0) * 1000);
   try {
     const output = await runAttempt(scope, () => deps.render(job, (percent) => {
       if (percent >= progress + 5 || percent === 100) {
         progress = percent;
         store.heartbeat(lease, progress).catch((error) => log(`[${job.id}] could not write progress`, error));
       }
-    }, scope));
+    }, scope)).finally(() => clearInterval(heartbeat)); // a tick after this could re-hide a message just handed on
     if (!(await store.succeed(lease, output))) {
       // Another worker took the job over while this one rendered (it was declared stale, or the job was
       // re-queued). Its output stays unpublished and the message is theirs now.
@@ -159,10 +173,20 @@ export async function handleDelivery(deps: HandlerDeps, delivery: Delivery): Pro
     return "succeeded";
   } catch (error) {
     if (error instanceof AttemptStopped && error.why === "shutdown") {
-      // Not the job's fault: hand it straight back for another worker, without a backoff.
-      log(`[${job.id}] attempt ${delivery.receiveCount} interrupted by shutdown, re-queueing`);
+      // Not the job's fault: hand it straight back for another worker, without a backoff and without
+      // spending one of its deliveries (a fresh message), so rolling deploys cannot dead-letter it.
+      log(`[${job.id}] attempt ${job.attempt} interrupted by shutdown, handing it back`);
       await store.requeue(lease, errorMessage(error));
-      await delivery.extend(0);
+      if (!delivery.handBack) {
+        await delivery.extend(0);
+        return "interrupted";
+      }
+      try {
+        await delivery.handBack();
+      } catch (handBackError) {
+        log(`[${job.id}] could not hand the message back; making it visible again instead`, handBackError);
+        await delivery.extend(0);
+      }
       return "interrupted";
     }
     const failure = decideFailure({
@@ -171,7 +195,7 @@ export async function handleDelivery(deps: HandlerDeps, delivery: Delivery): Pro
       backoffBaseSeconds: config.retryBackoffSeconds,
     });
     if (failure.status === "QUEUED") {
-      log(`[${job.id}] attempt ${delivery.receiveCount} failed, retrying in ${failure.retryDelaySeconds}s`, error);
+      log(`[${job.id}] attempt ${job.attempt} failed, retrying in ${failure.retryDelaySeconds}s`, error);
       await store.requeue(lease, errorMessage(error));
       await delivery.extend(failure.retryDelaySeconds);
       return "retrying";

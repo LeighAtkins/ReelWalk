@@ -24,7 +24,8 @@ spec:
       serviceAccountName: {{ include "reelwalk.fullname" . }}
       securityContext:
         {{- include "reelwalk.podSecurityContext" . | nindent 8 }}
-      # On SIGTERM the worker stops polling and finishes its current render.
+      # On SIGTERM the worker stops polling, lets its render run for
+      # RENDER_SHUTDOWN_DRAIN_SECONDS, then stops it and hands the job back (ADR 0050).
       terminationGracePeriodSeconds: {{ .Values.worker.terminationGracePeriodSeconds }}
       containers:
         - name: worker

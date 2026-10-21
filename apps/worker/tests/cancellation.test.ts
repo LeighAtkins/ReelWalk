@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
-import type { JobSnapshot } from "@reelwalk/core";
+import { outputKeyFor, type JobSnapshot } from "@reelwalk/core";
 import { handleDelivery, type Delivery, type HandlerDeps, type JobStore, type Lease } from "../src/handler";
 import { AttemptStopped, OWN_PROCESS_GROUP, ownChild, type AttemptScope } from "../src/lifecycle";
 
@@ -17,10 +17,10 @@ function recordingStore(events: string[]) {
   const mine = (lease: Lease) => state.job.generation === lease.generation && state.attempt === lease.attempt && state.job.status === "RUNNING";
   const store: JobStore = {
     snapshot: async () => ({ ...state.job }),
-    claim: async (message, attempt) => {
+    claim: async (message) => {
       if (state.job.status !== "QUEUED") return null;
       state.job.status = "RUNNING";
-      state.attempt = attempt;
+      const attempt = ++state.attempt;
       return { id: message.jobId, generation: message.generation, attempt, kind: "REEL", caption: null, payload: null, inputKey: null, brand: null };
     },
     heartbeat: async () => {},
@@ -193,5 +193,112 @@ describe("cancelling a render attempt", () => {
     expect(existsSync(dir)).toBe(false);
     expect(events).toEqual(["browser closed", "succeed", "delete"]);
     expect(state.job.status).toBe("SUCCEEDED");
+  });
+});
+
+describe("handing a job back on shutdown", () => {
+  /** A delivery whose handBack queues a fresh message (receive count 1), as SQS SendMessage + DeleteMessage would. */
+  function queue(events: string[]) {
+    const fresh: Delivery[] = [];
+    const make = (receiveCount: number): Delivery => ({
+      body: JSON.stringify({ jobId: "job-1", generation: 1 }),
+      receiveCount,
+      extend: vi.fn(async (seconds: number) => { events.push(`extend ${seconds}`); }),
+      delete: vi.fn(async () => { events.push("delete"); }),
+      handBack: vi.fn(async () => {
+        events.push("hand back");
+        fresh.push(make(1));
+      }),
+    });
+    return { first: make(1), next: () => fresh.shift() };
+  }
+
+  it("survives three interruptions in a row without spending deliveries, with a new attempt and output key each time", async () => {
+    const events: string[] = [];
+    const { store, state } = recordingStore(events);
+    const { first, next } = queue(events);
+    const attempts: number[] = [];
+    const keys: string[] = [];
+    const hang: HandlerDeps["render"] = (job) => {
+      attempts.push(job.attempt);
+      keys.push(outputKeyFor(job.id, job.attempt));
+      return new Promise(() => undefined);
+    };
+
+    let delivery: Delivery | undefined = first;
+    for (let round = 0; round < 3; round++) {
+      const shutdown = new AbortController();
+      const outcome = handleDelivery({ store, render: hang, shutdown: shutdown.signal, config: { ...config, jobTimeoutSeconds: 60, abortGraceSeconds: 0.05 }, log: () => {} }, delivery!);
+      await vi.waitFor(() => expect(attempts).toHaveLength(round + 1));
+      shutdown.abort();
+      expect(await outcome).toBe("interrupted");
+      expect(state.job.status).toBe("QUEUED");
+      // Not made visible again (that would spend a receive), not deleted outright: handed back as a fresh message.
+      expect(delivery!.extend).not.toHaveBeenCalledWith(0);
+      delivery = next();
+      // The redrive limit is never approached: the job never gets near the dead-letter queue.
+      expect(delivery!.receiveCount).toBe(1);
+    }
+
+    const render: HandlerDeps["render"] = async (job) => {
+      attempts.push(job.attempt);
+      keys.push(outputKeyFor(job.id, job.attempt));
+      return { ...output, objectKey: outputKeyFor(job.id, job.attempt) };
+    };
+    expect(await handleDelivery({ store, render, config: { ...config, jobTimeoutSeconds: 60 }, log: () => {} }, delivery!)).toBe("succeeded");
+    expect(attempts).toEqual([1, 2, 3, 4]);
+    expect(new Set(keys).size).toBe(4);
+    expect(keys).toEqual(["renders/job-1.mp4", "renders/job-1-2.mp4", "renders/job-1-3.mp4", "renders/job-1-4.mp4"]);
+    expect(events.filter((event) => event === "hand back")).toHaveLength(3);
+  });
+
+  it("lets a render finish within the shutdown drain", async () => {
+    const events: string[] = [];
+    const { store, state } = recordingStore(events);
+    const { first } = queue(events);
+    const shutdown = new AbortController();
+    let signal: AbortSignal | undefined;
+    const render: HandlerDeps["render"] = async (_job, _progress, scope) => {
+      signal = scope.signal;
+      shutdown.abort();
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      return output;
+    };
+    const outcome = await handleDelivery({ store, render, shutdown: shutdown.signal, config: { ...config, jobTimeoutSeconds: 60, shutdownDrainSeconds: 1 }, log: () => {} }, first);
+    expect(outcome).toBe("succeeded");
+    expect(signal!.aborted).toBe(false);
+    expect(state.job.status).toBe("SUCCEEDED");
+  });
+
+  it("stops a render still running when the drain ends", async () => {
+    const events: string[] = [];
+    const { store } = recordingStore(events);
+    const { first } = queue(events);
+    const shutdown = new AbortController();
+    const started = Date.now();
+    const render: HandlerDeps["render"] = () => {
+      shutdown.abort();
+      return new Promise(() => undefined);
+    };
+    const outcome = await handleDelivery({ store, render, shutdown: shutdown.signal, config: { ...config, jobTimeoutSeconds: 60, shutdownDrainSeconds: 0.15, abortGraceSeconds: 0.05 }, log: () => {} }, first);
+    expect(outcome).toBe("interrupted");
+    expect(Date.now() - started).toBeGreaterThanOrEqual(140);
+  });
+
+  it("stops the heartbeat before handing the message back, so no tick re-hides it", async () => {
+    const events: string[] = [];
+    const { store } = recordingStore(events);
+    const { first } = queue(events);
+    const shutdown = new AbortController();
+    const render: HandlerDeps["render"] = () => new Promise(() => undefined);
+    // Heartbeat every 20 ms, a 200 ms grace: plenty of ticks while the attempt unwinds.
+    const outcome = handleDelivery({ store, render, shutdown: shutdown.signal, config: { ...config, heartbeatSeconds: 0.02, jobTimeoutSeconds: 60, abortGraceSeconds: 0.1 }, log: () => {} }, first);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    shutdown.abort();
+    expect(await outcome).toBe("interrupted");
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const handedBack = events.indexOf("hand back");
+    expect(events.slice(0, handedBack).some((event) => event === "extend 120")).toBe(true);
+    expect(events.slice(handedBack + 1).filter((event) => event.startsWith("extend"))).toEqual([]);
   });
 });

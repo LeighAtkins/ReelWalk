@@ -546,7 +546,7 @@ model RenderJob {
   status       RenderJobStatus @default(QUEUED)
   // 0-100, written by the worker while rendering.
   progress     Int             @default(0)
-  // Delivery attempt within the current generation (SQS ApproximateReceiveCount).
+  // Claims within the current generation: the worker increments it at each claim (ADR 0050).
   attempt      Int             @default(0)
   // Bumped on every manual retry; messages from older generations are ignored.
   generation   Int             @default(1)

@@ -12,14 +12,14 @@ function fakeStore(initial: JobSnapshot | null) {
   const mine = (lease: Lease) => state.job !== null && state.job.generation === lease.generation && state.attempt === lease.attempt;
   const store: JobStore = {
     snapshot: async () => (state.job ? { ...state.job } : null),
-    claim: async (message, attempt, staleBefore) => {
+    claim: async (message, staleBefore) => {
       const job = state.job;
       if (!job || job.generation !== message.generation) return null;
       const stale = job.status === "RUNNING" && (!job.heartbeatAt || job.heartbeatAt < staleBefore);
       if (job.status !== "QUEUED" && !stale) return null;
       job.status = "RUNNING";
       job.heartbeatAt = new Date();
-      state.attempt = attempt;
+      const attempt = ++state.attempt;
       return { id: message.jobId, generation: message.generation, attempt, kind: "TEMPLATE", caption: null, payload: null, inputKey: "uploads/p/a.jpg", brand: null };
     },
     heartbeat: async () => {},

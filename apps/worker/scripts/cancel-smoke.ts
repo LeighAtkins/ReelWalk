@@ -88,7 +88,8 @@ async function main() {
       console.log(`cancel-smoke: the render failed on its own, not at the deadline:`, error);
       process.exitCode = 3;
     }
-    console.log(`\ncancel-smoke: attempt settled ${Date.now() - armedAt} ms after the deadline was armed (deadline ${deadlineMs} ms, grace ${scope.graceMs} ms):${error instanceof Error ? `${error.name}: ${error.message}` : error}`);
+    const since = armedAt ? `${Date.now() - armedAt} ms after the deadline was armed` : `${Date.now() - started} ms after start (deadline never armed)`;
+    console.log(`\ncancel-smoke: attempt settled ${since} (deadline ${deadlineMs} ms, grace ${scope.graceMs} ms): ${error instanceof Error ? `${error.name}: ${error.message.split("\n")[0]}` : error}`);
   } finally {
     server.close();
   }

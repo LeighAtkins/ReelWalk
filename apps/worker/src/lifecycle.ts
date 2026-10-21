@@ -273,17 +273,23 @@ export const REMOTION_PROCESSES = /chrome|headless_shell|remotion/i;
  * (Remotion closes its Chrome fire-and-forget when a render is cancelled).
  * Finds this process's descendants whose command matches, SIGTERMs the whole
  * set at once (collected first, so children are not orphaned out of reach),
- * waits up to `graceMs`, then SIGKILLs what is left. Linux only; a no-op
- * where there is no /proc. Returns the pids it signalled.
+ * waits up to half of `graceMs`, then SIGKILLs what is left and waits the
+ * other half for it to go, so the SIGKILL lands inside a release bounded by
+ * the same grace. Linux only; a no-op where there is no /proc. Returns the
+ * pids it signalled.
  */
 export async function killDescendants(options: { match: RegExp; graceMs: number; root?: number; procRoot?: string }): Promise<number[]> {
   const targets = descendantsOf(options.root ?? process.pid, await listProcesses(options.procRoot))
     .filter((proc) => options.match.test(proc.command))
     .map((proc) => proc.pid);
   const signal = (pid: number, name: NodeJS.Signals) => { try { process.kill(pid, name); } catch { /* gone */ } };
+  const waitGone = async (ms: number) => {
+    const until = Date.now() + ms;
+    while (targets.some(alive) && Date.now() < until) await new Promise((resolve) => setTimeout(resolve, 50));
+  };
   for (const pid of targets) signal(pid, "SIGTERM");
-  const until = Date.now() + options.graceMs;
-  while (targets.some(alive) && Date.now() < until) await new Promise((resolve) => setTimeout(resolve, 100));
+  await waitGone(options.graceMs / 2);
   for (const pid of targets.filter(alive)) signal(pid, "SIGKILL");
+  await waitGone(options.graceMs / 2);
   return targets;
 }

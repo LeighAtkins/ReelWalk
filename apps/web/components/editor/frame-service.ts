@@ -17,12 +17,8 @@ export type FrameClip = { clip: Clip; media: { src: string; kind: string }; dura
 /** Composition-sized canvas for the loupe; analysis asks for its own smaller sizes. */
 export const FRAME_WIDTH = 1080, FRAME_HEIGHT = 1920;
 
-/**
- * "view" is what the viewer sees (the loupe); "analysis" is the picture alone on flat grey (frame-draw.ts);
- * "source" is the media's own frame at its own size, untouched (Inspect's Footage only, ADR 0057): the
- * requested width and height are ignored.
- */
-export type FramePurpose = "view" | "analysis" | "source";
+/** "view" is what the viewer sees (the loupe); "analysis" is the picture alone on flat grey (frame-draw.ts). */
+export type FramePurpose = "view" | "analysis";
 
 type Drawable = HTMLVideoElement | HTMLImageElement;
 
@@ -30,7 +26,7 @@ type Drawable = HTMLVideoElement | HTMLImageElement;
 const sizeOf = (media: Drawable) => ("videoWidth" in media ? { width: media.videoWidth, height: media.videoHeight } : { width: media.naturalWidth, height: media.naturalHeight });
 
 /** Draws `media` at its current frame as the composition shows `clip` at `moment`, for viewing or for analysis. */
-export function drawPresented(ctx: CanvasRenderingContext2D, media: Drawable, clip: Pick<Clip, "fit" | "zoom" | "motion" | "filter">, moment: ClipMoment, width: number, height: number, purpose: Exclude<FramePurpose, "source">): void {
+export function drawPresented(ctx: CanvasRenderingContext2D, media: Drawable, clip: Pick<Clip, "fit" | "zoom" | "motion" | "filter">, moment: ClipMoment, width: number, height: number, purpose: FramePurpose): void {
   drawClipFrame(ctx, media, sizeOf(media), clip, moment, width, height,
     purpose === "analysis" ? { kind: "analysis" } : { kind: "view", grade: FILTER_CSS[clip.filter] ?? "", canFilter: typeof ctx.filter === "string" });
 }
@@ -61,7 +57,7 @@ export function loadVideo(src: string, label = "The video"): Promise<HTMLVideoEl
   });
 }
 
-function loadImage(src: string): Promise<HTMLImageElement> {
+export function loadImage(src: string): Promise<HTMLImageElement> {
   const image = new Image();
   image.crossOrigin = "anonymous";
   return new Promise((resolve, reject) => {
@@ -119,9 +115,7 @@ export class FrameService {
    * frame `sourceMs` falls in, so it cannot land on the frame before.
    */
   frameAt(target: FrameClip, sourceMs: number, request: FrameRequest = {}): Promise<HTMLCanvasElement | null> {
-    const { purpose = "view", channel } = request;
-    // A source frame is the media's own size, known only once it loads.
-    const width = purpose === "source" ? 0 : request.width ?? FRAME_WIDTH, height = purpose === "source" ? 0 : request.height ?? FRAME_HEIGHT;
+    const { width = FRAME_WIDTH, height = FRAME_HEIGHT, purpose = "view", channel } = request;
     const seekMs = target.media.kind === "VIDEO" ? midFrameMs(sourceMs) : 0;
     const key = this.key(target, seekMs, width, height, purpose);
     const hit = this.frames.get(key);
@@ -180,15 +174,6 @@ export class FrameService {
       if (media instanceof HTMLVideoElement) await seekVideo(media, Math.max(0, Math.min(seekMs, media.duration * 1000 - 20)));
       if (channel && entry.latest.get(channel) !== ticket) return null;
       const canvas = document.createElement("canvas");
-      if (purpose === "source") {
-        const size = sizeOf(media);
-        if (!size.width || !size.height) return null;
-        canvas.width = size.width; canvas.height = size.height;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) return null;
-        ctx.drawImage(media, 0, 0);
-        return canvas;
-      }
       canvas.width = width; canvas.height = height;
       // Analysis reads its pixels back; the loupe only draws from it, which is faster on the GPU.
       const ctx = canvas.getContext("2d", purpose === "analysis" ? { willReadFrequently: true } : undefined);

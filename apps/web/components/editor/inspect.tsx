@@ -2,19 +2,19 @@
 
 import { useEffect, useMemo, useReducer, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { clipPicture, midFrameMs, onScreenAt, REEL_FORMAT, type ClipPicture, type Timeline, type ViewportRect, type XY } from "@reelwalk/core";
+import { clipPicture, onScreenAt, REEL_FORMAT, type ClipPicture, type Timeline, type ViewportRect, type XY } from "@reelwalk/core";
 import type { ReelAsset } from "@reelwalk/render/reel";
-import { frameService, timelineFrames } from "./frame-service";
+import { inspectSource } from "@/app/inspect-actions";
+import { loadImage, loadVideo, releaseVideo, seekVideo } from "./frame-service";
+import { SourceReader } from "./source-reader";
 import { useClock, type Clock } from "./clock";
 import {
   doubleTapView, drawSourceView, faceView, INITIAL_INSPECT, inspectFileName, inspectReducer, panBy, pinchView, smoothAt, stepFrameMs,
-  viewMatrix, visibleSourceRect, wheelView, zoomAbout, zoomLabel, type FaceHint, type InspectView, type StageSize,
+  viewMatrix, visibleSourceRect, wheelView, zoomAbout, zoomCap, zoomLabel, type FaceHint, type InspectAction, type InspectView, type StageSize,
 } from "./inspect-view";
 
-/** What Inspect knows about an asset beyond what the Player plays. */
+/** What Inspect knows about an asset beyond what the Player plays (the original's URL is asked for when Footage only opens). */
 export type InspectSource = {
-  /** The original file when the editor plays a preview rendition; Footage only reads it. */
-  original: string | null;
   width: number | null;
   height: number | null;
   /** An AI-generated take: the Face chip is offered on it. */
@@ -38,7 +38,13 @@ type Props = {
   onClose(): void;
 };
 
-type SourceFrame = { key: string; canvas: HTMLCanvasElement; picture: ClipPicture; src: string; seekMs: number; reelMs: number };
+type Media = HTMLVideoElement | HTMLImageElement;
+/** The frame on screen in Footage only: the reader's own element, at that frame, drawn from directly (no copy). */
+type SourceFrame = { key: string; media: Media; width: number; height: number; picture: ClipPicture; src: string; original: boolean; seekMs: number; reelMs: number };
+/** An asset's original for Footage only: asked for, a presigned URL (with when it was signed), or unavailable (the preview is used). */
+type Original = { state: "pending" } | { state: "ready"; url: string; at: number } | { state: "failed" };
+/** The presigned URL lasts 15 minutes; one older than this is asked for again rather than given up on. */
+const ORIGINAL_FRESH_MS = 10 * 60_000;
 
 /** Caps the canvas's backing store: a 412 px phone at 3× is 1236 px wide, enough for every source pixel at 8×. */
 const MAX_DPR = 3;
@@ -52,8 +58,14 @@ const TAP_SLOP = 8, DOUBLE_TAP_MS = 300, DOUBLE_TAP_PX = 30;
  * placed where the composition puts it); frame steps that keep the zoom.
  */
 export function InspectMode({ clock, timeline, assets, sources, frame, plane, host, totalMs, onSeek, onClose }: Props) {
-  const [state, dispatch] = useReducer(inspectReducer, INITIAL_INSPECT);
+  const [state, send] = useReducer(inspectReducer, INITIAL_INSPECT);
   const { view, layer } = state;
+  const layerRef = useRef(layer);
+  useEffect(() => { layerRef.current = layer; }, [layer]);
+  // Every view and layer change is held to the layer's zoom cap on this screen (Final stops at 4x on a 3x phone).
+  const capFor = (forLayer: typeof layer) => zoomCap(forLayer, typeof window === "undefined" ? 1 : window.devicePixelRatio || 1);
+  const dispatch = (action: InspectAction) =>
+    send(action.type === "view" ? { ...action, max: capFor(layerRef.current) } : action.type === "layer" ? { ...action, max: capFor(action.layer) } : action);
   const now = useClock(clock);
   const at = onScreenAt(timeline, now);
   const smooth = smoothAt(view.zoom, state.smoothing);
@@ -75,38 +87,62 @@ export function InspectMode({ clock, timeline, assets, sources, frame, plane, ho
     if (player) { player.style.transform = ""; player.style.transformOrigin = ""; player.style.imageRendering = ""; }
   }, [frame]);
 
-  // ── Footage only: the source frame at the playhead, from the frame service (ADR 0047), at the media's own size.
-  const frames = useMemo(() => timelineFrames(timeline, assets), [timeline, assets]);
-  const [failed, setFailed] = useState<Set<string>>(() => new Set());
+  // ── Footage only: the clip's source at its own resolution, read by Inspect's own element and drawn from it directly.
+  const reader = useMemo(() => new SourceReader<Media>({
+    open: (src, kind) => (kind === "IMAGE" ? loadImage(src) : loadVideo(src, "The original")),
+    seek: (media, ms) => (media instanceof HTMLVideoElement ? seekVideo(media, ms) : Promise.resolve()),
+    free: (media) => { if (media instanceof HTMLVideoElement) releaseVideo(media); },
+  }), []);
+  const [originals, setOriginals] = useState<Record<string, Original>>({});
   const clipId = at?.clip.id ?? null, mediaMs = at ? Number(at.mediaMs.toFixed(2)) : null;
-  const info = at ? sources[at.clip.assetId] : undefined;
-  const original = info?.original && !failed.has(info.original) ? info.original : null;
-  const src = at ? original ?? assets[at.clip.assetId]?.src ?? null : null;
+  const assetId = at?.clip.assetId ?? null;
+  const info = assetId ? sources[assetId] : undefined;
+  const kind = assetId ? assets[assetId]?.kind ?? null : null;
+  const wantSource = layer === "footage";
+  // The original's URL is asked for when Footage only first needs it: short-lived, presigned, for this studio only.
+  const original = assetId ? originals[assetId] : undefined;
+  useEffect(() => {
+    if (!wantSource || !assetId || original) return;
+    setOriginals((all) => ({ ...all, [assetId]: { state: "pending" } }));
+    inspectSource({ assetId })
+      .then((result) => setOriginals((all) => ({ ...all, [assetId]: result ? { state: "ready", url: result.url, at: Date.now() } : { state: "failed" } })))
+      .catch(() => setOriginals((all) => ({ ...all, [assetId]: { state: "failed" } })));
+  }, [wantSource, assetId, original]);
+  const src = !assetId || !original || original.state === "pending" ? null : original.state === "ready" ? original.url : assets[assetId]?.src ?? null;
   const key = `${clipId}|${mediaMs}|${src}`;
   const [loaded, setLoaded] = useState<SourceFrame | null>(null);
-  const wantSource = layer === "footage";
   useEffect(() => {
-    if (!wantSource || !clipId || mediaMs === null || !src) return;
-    const target = frames.target(clipId);
-    if (!target) return;
+    if (!wantSource || !clipId || mediaMs === null || !src || !kind || !assetId) return;
     let live = true;
-    const reelMs = now;
-    frameService.frameAt({ ...target, media: { src, kind: target.media.kind } }, mediaMs, { purpose: "source", channel: "inspect" }).then((source) => {
-      if (!live) return;
-      if (!source) {
-        // The original could not be read here (an old file, a blocked request): the preview rendition is the next best.
-        if (src === original) setFailed((set) => new Set(set).add(src));
-        else setNote(target.clip.pano && target.media.kind === "IMAGE" ? "A 360 photo has no flat frame to inspect; Final shows it." : "This frame could not be read.");
+    const reelMs = now, signed = original?.state === "ready" && original.url === src ? original : null;
+    reader.read(src, kind, mediaMs).then((result) => {
+      if (!live || result.status === "superseded") return;
+      if (result.status === "failed") {
+        if (signed) {
+          // A link past its life is asked for again; one that never worked gives way to the preview.
+          setOriginals((all) => {
+            const next = { ...all };
+            if (Date.now() - signed.at > ORIGINAL_FRESH_MS) delete next[assetId]; else next[assetId] = { state: "failed" };
+            return next;
+          });
+        } else setNote(kind === "IMAGE" && timeline.clips.find((c) => c.id === clipId)?.pano ? "A 360 photo has no flat frame to inspect; Final shows it." : "This frame could not be read.");
         return;
       }
-      const at = onScreenAt(timeline, reelMs);
-      if (!at) return;
+      const moment = onScreenAt(timeline, reelMs);
+      if (!moment) return;
       setNote(null);
-      setLoaded({ key, canvas: source, picture: clipPicture(at.clip, { width: source.width, height: source.height }, at.moment), src, seekMs: target.media.kind === "VIDEO" ? midFrameMs(mediaMs) : 0, reelMs });
+      setLoaded({ key, media: result.media, width: result.width, height: result.height, picture: clipPicture(moment.clip, { width: result.width, height: result.height }, moment.moment), src, original: Boolean(signed), seekMs: result.seekMs, reelMs });
     });
     return () => { live = false; };
-    // `now` is read for the frame's label only; the frame is fetched per clip, media time and file.
-  }, [wantSource, frames, clipId, mediaMs, src, key, original, timeline]);
+    // `now` labels the frame; the read itself depends on the clip, the media time and the file.
+  }, [wantSource, clipId, mediaMs, src, kind, assetId, key, reader, timeline]);
+
+  // Leaving Inspect frees the original's element and the canvas at once (iOS caps canvas memory and frees it lazily).
+  useEffect(() => () => {
+    reader.release();
+    const out = canvas.current;
+    if (out) { out.width = 0; out.height = 0; }
+  }, [reader]);
 
   // Draws the last frame that arrived, so stepping never flashes black; its own attributes say which it is.
   useEffect(() => {
@@ -118,8 +154,8 @@ export function InspectMode({ clock, timeline, assets, sources, frame, plane, ho
     if (out.height !== h) out.height = h;
     const ctx = out.getContext("2d");
     if (!ctx) return;
-    if (!loaded || !loaded.canvas.width) { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = "#000"; ctx.fillRect(0, 0, w, h); return; }
-    drawSourceView(ctx, loaded.canvas, loaded.picture, view, w, h, smooth);
+    if (!loaded) { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = "#000"; ctx.fillRect(0, 0, w, h); return; }
+    drawSourceView(ctx, loaded.media, loaded.picture, view, w, h, smooth);
   }, [loaded, view, smooth, stage?.width, stage?.height, wantSource]);
 
   // ── Gestures: one finger or the mouse pans, two fingers pinch (and pan), a double-tap toggles 1× ↔ 3×, the wheel zooms.
@@ -204,23 +240,24 @@ export function InspectMode({ clock, timeline, assets, sources, frame, plane, ho
   const step = (direction: -1 | 1) => onSeek(stepFrameMs(clock.get(), direction, totalMs, fps));
   const face = () => {
     if (!at || !info) return;
-    const size = loaded?.key.startsWith(`${at.clip.id}|`) ? { width: loaded.canvas.width, height: loaded.canvas.height } : { width: info.width ?? REEL_FORMAT.width, height: info.height ?? REEL_FORMAT.height };
+    const size = loaded?.key.startsWith(`${at.clip.id}|`) ? { width: loaded.width, height: loaded.height } : { width: info.width ?? REEL_FORMAT.width, height: info.height ?? REEL_FORMAT.height };
     dispatch({ type: "view", view: faceView(info.face, clipPicture(at.clip, size, at.moment)) });
   };
   const copy = async () => {
-    if (!stage || !clipId || mediaMs === null || !src) return;
-    const target = frames.target(clipId);
-    if (!target) return;
+    if (!stage || mediaMs === null || !kind) return;
+    // In Final the original may not have been asked for: the preview the editor plays is read instead.
+    const file = src ?? (assetId ? assets[assetId]?.src : null);
+    if (!file) return;
     setNote("Saving the frame…");
-    const source = loaded?.key === key ? loaded.canvas : await frameService.frameAt({ ...target, media: { src, kind: target.media.kind } }, mediaMs, { purpose: "source" });
+    const read = loaded?.key === key ? { status: "ready" as const, media: loaded.media, width: loaded.width, height: loaded.height } : await reader.read(file, kind, mediaMs);
     const moment = onScreenAt(timeline, now);
-    if (!source || !moment) { setNote("This frame could not be read."); return; }
+    if (read.status !== "ready" || !moment) { setNote("This frame could not be read."); return; }
     const dpr = Math.min(MAX_DPR, window.devicePixelRatio || 1);
     const out = document.createElement("canvas");
     out.width = Math.round(stage.width * dpr); out.height = Math.round(stage.height * dpr);
     const ctx = out.getContext("2d");
     if (!ctx) return;
-    drawSourceView(ctx, source, clipPicture(moment.clip, { width: source.width, height: source.height }, moment.moment), view, out.width, out.height, smooth);
+    drawSourceView(ctx, read.media, clipPicture(moment.clip, { width: read.width, height: read.height }, moment.moment), view, out.width, out.height, smooth);
     out.toBlob((blob) => {
       if (!blob) { setNote("The frame could not be saved."); return; }
       const url = URL.createObjectURL(blob);
@@ -234,7 +271,7 @@ export function InspectMode({ clock, timeline, assets, sources, frame, plane, ho
   };
 
   const sourceRect = loaded && wantSource ? visibleSourceRect(loaded.picture, view) : null;
-  const message = note ?? (wantSource ? (loaded && loaded.key !== key ? "Loading the frame…" : loaded ? `Footage only: ${loaded.src === info?.original ? "the original" : "the file"}, ${loaded.canvas.width}×${loaded.canvas.height}` : "Loading the frame…") : null);
+  const message = note ?? (wantSource ? (loaded && loaded.key !== key ? "Loading the frame…" : loaded ? `Footage only: ${loaded.original ? "the original" : "the editor's copy"}, ${loaded.width}×${loaded.height}` : "Loading the frame…") : null);
 
   const bars = (
     <>
@@ -251,7 +288,9 @@ export function InspectMode({ clock, timeline, assets, sources, frame, plane, ho
         {message ? <p className="inspect-note" role="status">{message}</p> : null}
         <div className="inspect-row">
           <button type="button" className="inspect-btn" aria-label="Previous frame" data-testid="inspect-prev" onClick={() => step(-1)}>◀</button>
-          <input type="range" className="inspect-scrub" aria-label="Scrub" data-testid="inspect-scrub" min={0} max={Math.max(0, totalMs - 1)} step="any" value={Math.min(now, Math.max(0, totalMs - 1))} onChange={(event) => onSeek(Number(event.target.value))} />
+          <input type="range" className="inspect-scrub" aria-label="Scrub" data-testid="inspect-scrub" min={0} max={Math.max(0, totalMs - 1)} step="any" value={Math.min(now, Math.max(0, totalMs - 1))} onChange={(event) => onSeek(Number(event.target.value))}
+            // Let go of the strip so the keys (I, +, -, 0) reach Inspect and the editor again.
+            onPointerUp={(event) => event.currentTarget.blur()} />
           <button type="button" className="inspect-btn" aria-label="Next frame" data-testid="inspect-next" onClick={() => step(1)}>▶</button>
         </div>
         <div className="inspect-row is-chips">
@@ -269,7 +308,7 @@ export function InspectMode({ clock, timeline, assets, sources, frame, plane, ho
       {wantSource ? (
         <canvas ref={canvas} className="inspect-canvas" data-testid="inspect-canvas" style={{ ...rect, imageRendering: smooth ? "auto" : "pixelated" }}
           data-src={loaded?.src} data-seek-ms={loaded?.seekMs.toFixed(3)} data-reel-ms={loaded?.reelMs.toFixed(3)}
-          data-source-size={loaded ? `${loaded.canvas.width},${loaded.canvas.height}` : undefined}
+          data-source-size={loaded ? `${loaded.width},${loaded.height}` : undefined} data-original={loaded ? String(loaded.original) : undefined}
           data-source-rect={sourceRect ? [sourceRect.sx, sourceRect.sy, sourceRect.sw, sourceRect.sh].map((n) => n.toFixed(3)).join(",") : undefined} />
       ) : null}
       <div ref={surface} className="inspect-surface" data-testid="inspect-surface" style={rect}

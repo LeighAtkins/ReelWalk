@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { clipPicture, sourceToComposition } from "@reelwalk/core";
 import {
   FULL_VIEW, INITIAL_INSPECT, clampView, compositionToStage, doubleTapView, drawSourceView, faceHintFromChecks, faceView, inspectFileName, inspectReducer,
-  panBy, pinchView, smoothAt, stageToComposition, stepFrameMs, toggleSmoothing, visibleRect, visibleSourceRect, viewMatrix, wheelView, zoomAbout, zoomLabel,
+  panBy, pinchView, smoothAt, stageToComposition, stepFrameMs, toggleSmoothing, visibleRect, visibleSourceRect, viewMatrix, wheelView, zoomAbout, zoomCap, zoomLabel,
   type InspectContext, type InspectView,
 } from "./inspect-view";
 
@@ -177,6 +177,27 @@ describe("drawing the source frame", () => {
     });
   }
 
+  it("reads only the visible region of the source, not the whole frame", () => {
+    const picture = clipPicture({ fit: "cover", zoom: 1, motion: "none" }, { width: 3840, height: 2160 }, still);
+    const { ctx, draws } = recorder();
+    drawSourceView(ctx, {} as CanvasImageSource, picture, { zoom: 8, cx: 0.3, cy: 0.7 }, 972, 1728, false);
+    const [sx, sy, sw, sh] = draws[0].args;
+    const shown = visibleSourceRect(picture, { zoom: 8, cx: 0.3, cy: 0.7 });
+    expect(sw).toBeLessThanOrEqual(shown.sw + 3); expect(sh).toBeLessThanOrEqual(shown.sh + 3);
+    expect(sx).toBeLessThanOrEqual(shown.sx); expect(sx + sw).toBeGreaterThanOrEqual(shown.sx + shown.sw);
+    expect(sy).toBeLessThanOrEqual(shown.sy); expect(sy + sh).toBeGreaterThanOrEqual(shown.sy + shown.sh);
+    // 1215×2160 source px are under Fill at 1×; at 8× about 152×270 are read.
+    expect(sw * sh).toBeLessThan((1215 * 2160) / 50);
+  });
+
+  it("caps Final at 4× on a 3× screen and leaves Footage only at 8×", () => {
+    expect(zoomCap("final", 3)).toBe(4); expect(zoomCap("final", 2.625)).toBe(8); expect(zoomCap("footage", 3)).toBe(8);
+    const at8 = inspectReducer({ ...INITIAL_INSPECT, layer: "footage" }, { type: "view", view: { zoom: 8, cx: 0.1, cy: 0.1 } });
+    const final = inspectReducer(at8, { type: "layer", layer: "final", max: zoomCap("final", 3) });
+    expect(final.view).toEqual({ zoom: 4, cx: 0.125, cy: 0.125 });
+    expect(inspectReducer(final, { type: "view", view: { zoom: 6, cx: 0.5, cy: 0.5 }, max: 4 }).view.zoom).toBe(4);
+  });
+
   it("at 4× under Fill a 1280×720 source shows a quarter of the 405 px it shows at 1×", () => {
     const picture = clipPicture({ fit: "cover", zoom: 1, motion: "none" }, { width: 1280, height: 720 }, still);
     expect(visibleSourceRect(picture, FULL_VIEW).sw).toBeCloseTo(405, 6);
@@ -190,9 +211,20 @@ describe("the presenter's face", () => {
     expect(faceHintFromChecks([{ end: "last", faceHeightPx: 300 }])).toBeNull();
     expect(faceHintFromChecks([{ end: "first", attempt: 1, samePerson: true, confidence: 0.82, faceHeightPx: 192 }]))
       .toEqual({ box: null, heightFraction: 0.1 });
-    const boxed = faceHintFromChecks([{ end: "first", attempt: 1, faceHeightPx: 100 }, { end: "first", attempt: 2, faceBox: [200, 400, 300, 600] }]);
+    // As the gate stores it (ai-video.ts IdentityCheck): locate attempts with boxes on the 0–1000 grid, y first.
+    const boxed = faceHintFromChecks([
+      { end: "first", attempt: 1, faceHeightPx: 100, locate: [{ mode: "grid", box: [100, 100, 150, 150] }] },
+      { end: "first", attempt: 2, faceHeightPx: 192, locate: [{ mode: "grid", box: [0, 0, 990, 990], rejected: "implausible-box" }, { mode: "pixels", box: [200, 400, 300, 600], faceHeightPx: 192 }] },
+      { end: "last", attempt: 1, locate: [{ mode: "grid", box: [500, 500, 600, 600] }] },
+    ]);
     expect(boxed?.box).toEqual({ x0: 0.4, y0: 0.2, x1: 0.6, y1: 0.3 });
     expect(boxed?.heightFraction).toBeCloseTo(0.1);
+    // A face only too small to judge is still where she is; a box rejected as no face is not used.
+    expect(faceHintFromChecks([{ end: "first", locate: [{ mode: "grid", box: [100, 450, 150, 550], rejected: "face-too-small" }] }])?.box).toEqual({ x0: 0.45, y0: 0.1, x1: 0.55, y1: 0.15 });
+    expect(faceHintFromChecks([{ end: "first", faceHeightPx: 96, locate: [{ mode: "grid", box: [100, 450, 150, 550], rejected: "face-not-in-crop" }] }]))
+      .toEqual({ box: null, heightFraction: 0.05 });
+    // A top-level faceBox is not something the gate writes, so it is not read.
+    expect(faceHintFromChecks([{ end: "first", faceBox: [200, 400, 300, 600] }])).toBeNull();
     expect(faceHintFromChecks([{ end: "first", faceHeightPx: null, reason: "no-face" }])).toBeNull();
   });
 

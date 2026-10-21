@@ -29,9 +29,9 @@ export const FULL_VIEW: InspectView = { zoom: 1, cx: 0.5, cy: 0.5 };
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
-/** Zoom within 1×–8× and the centre kept so the view never leaves the frame. */
-export function clampView(view: InspectView): InspectView {
-  const zoom = clamp(Number.isFinite(view.zoom) ? view.zoom : 1, MIN_ZOOM, MAX_ZOOM);
+/** Zoom within 1× and `max` (8× unless capped) and the centre kept so the view never leaves the frame. */
+export function clampView(view: InspectView, max: number = MAX_ZOOM): InspectView {
+  const zoom = clamp(Number.isFinite(view.zoom) ? view.zoom : 1, MIN_ZOOM, Math.min(MAX_ZOOM, max));
   const half = 0.5 / zoom;
   return { zoom, cx: clamp(view.cx, half, 1 - half), cy: clamp(view.cy, half, 1 - half) };
 }
@@ -124,13 +124,25 @@ export function stepFrameMs(ms: number, direction: -1 | 1, totalMs: number, fps:
   return (clamp(frame, 0, last) * 1000) / fps;
 }
 
+/**
+ * The deepest zoom a layer allows on this screen. Final magnifies the Player
+ * itself, so the browser rasterises a layer the zoomed size: at 8× on a 3×
+ * screen a 324 px stage is about 7800×13800 device px (more with a taller
+ * stage), past what phones give one layer. Final stops at 4× there; Footage
+ * only draws into a screen-sized canvas and keeps 8×.
+ */
+export function zoomCap(layer: InspectLayer, devicePixelRatio: number): number {
+  return layer === "final" && devicePixelRatio >= 3 ? 4 : MAX_ZOOM;
+}
+
 // ── State ───────────────────────────────────────────────────────
 
 export type InspectState = { view: InspectView; layer: InspectLayer; smoothing: Smoothing };
 export type InspectAction =
-  | { type: "view"; view: InspectView }
+  /** `max` is the layer's zoom cap on this screen (`zoomCap`). */
+  | { type: "view"; view: InspectView; max?: number }
   | { type: "reset" }
-  | { type: "layer"; layer: InspectLayer }
+  | { type: "layer"; layer: InspectLayer; max?: number }
   | { type: "smoothing" };
 
 export const INITIAL_INSPECT: InspectState = { view: FULL_VIEW, layer: "final", smoothing: "auto" };
@@ -141,9 +153,10 @@ export const INITIAL_INSPECT: InspectState = { view: FULL_VIEW, layer: "final", 
  */
 export function inspectReducer(state: InspectState, action: InspectAction): InspectState {
   switch (action.type) {
-    case "view": return { ...state, view: clampView(action.view) };
+    case "view": return { ...state, view: clampView(action.view, action.max) };
     case "reset": return { ...state, view: FULL_VIEW };
-    case "layer": return { ...state, layer: action.layer };
+    // Into a layer with a lower cap, the view comes down to it about its own centre.
+    case "layer": return { ...state, layer: action.layer, view: clampView(state.view, action.max) };
     case "smoothing": return { ...state, smoothing: toggleSmoothing(state.view.zoom, state.smoothing) };
   }
 }
@@ -163,7 +176,8 @@ export type InspectContext = Pick<CanvasRenderingContext2D, "setTransform" | "tr
  * zoom and camera move (ADR 0047's `pictureCanvasTransform`, the
  * composition's own placement), then the inspect zoom. The source is drawn
  * straight to the screen's pixels, so 8× shows the source's own detail, not
- * an enlarged 1080×1920 copy. Black where the frame shows no picture; no
+ * an enlarged 1080×1920 copy, and only the visible region is read, so 8×
+ * of a 4K frame costs a screen's worth of pixels. Black where the frame shows no picture; no
  * grade and no Fit backdrop: these are the pixels that were delivered.
  */
 export function drawSourceView(ctx: InspectContext, source: CanvasImageSource, picture: ClipPicture, view: InspectView, width: number, height: number, smooth: boolean): void {
@@ -175,7 +189,13 @@ export function drawSourceView(ctx: InspectContext, source: CanvasImageSource, p
   ctx.setTransform(...viewMatrix(view, width, height));
   ctx.transform(...pictureCanvasTransform(picture, width, height));
   const r = pictureRects(picture), k = width / picture.frame.width;
-  ctx.drawImage(source, r.sx, r.sy, r.sw, r.sh, r.dx * k, r.dy * k, r.dw * k, r.dh * k);
+  // Only the source px on screen (a pixel more each side for smoothing at the edges), scaled once to the screen.
+  const shown = visibleSourceRect(picture, view);
+  const x0 = Math.max(r.sx, Math.floor(shown.sx) - 1), y0 = Math.max(r.sy, Math.floor(shown.sy) - 1);
+  const x1 = Math.min(r.sx + r.sw, Math.ceil(shown.sx + shown.sw) + 1), y1 = Math.min(r.sy + r.sh, Math.ceil(shown.sy + shown.sh) + 1);
+  if (x1 <= x0 || y1 <= y0) return;
+  const fx = (r.dw * k) / r.sw, fy = (r.dh * k) / r.sh;
+  ctx.drawImage(source, x0, y0, x1 - x0, y1 - y0, r.dx * k + (x0 - r.sx) * fx, r.dy * k + (y0 - r.sy) * fy, (x1 - x0) * fx, (y1 - y0) * fy);
 }
 
 /** The source px on screen under `view`: the stage's top left maps to (sx, sy), its bottom right to (sx + sw, sy + sh). */

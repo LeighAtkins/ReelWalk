@@ -220,6 +220,36 @@ describe("titles across a split keep their length through later edits (review ro
   });
 });
 
+describe("the e2e timeline spec's scenario (timeline.spec.ts)", () => {
+  // exterior.jpg (3 s), walkthrough.mp4 (2 s), living-room.jpg (3 s); a text at 1.0–2.5 s over the first photo.
+  const start = () =>
+    parseTimeline({
+      version: 1,
+      clips: [
+        { id: "ext", assetId: "ext", kind: "IMAGE", sourceStartMs: 0, sourceEndMs: 3000 },
+        { id: "walk", assetId: "walk", kind: "VIDEO", sourceStartMs: 0, sourceEndMs: 2000 },
+        { id: "liv", assetId: "liv", kind: "IMAGE", sourceStartMs: 0, sourceEndMs: 3000 },
+      ],
+      texts: [{ id: "t", text: "Drag my edges", startMs: 1000, endMs: 2500 }],
+      music: null,
+    });
+
+  it("trimming the video's start leaves the photo's text alone; moving the photo after the video takes the text with it", () => {
+    const trimmed = applyCommand(start(), { type: "trimClip", clipId: "walk", window: { sourceStartMs: 500, sourceEndMs: 2000 } }, { generation: 0, sourceDurationsMs: { walk: 2000 } }).timeline;
+    expect(times(trimmed).t).toEqual([1000, 2500]);
+    // The filmstrip drops the photo at index 1 (it passes the video's middle, not the living room's).
+    const moved = apply(trimmed, { type: "moveClip", clipId: "ext", toIndex: 1 }).timeline;
+    expect(moved.clips.map((clip) => clip.id)).toEqual(["walk", "ext", "liv"]);
+    expect(times(moved).t).toEqual([2500, 4000]);
+  });
+
+  it("a text inside the first clip, when that clip is trimmed to end at 1.5 s, is kept inside it", () => {
+    const trimmed = apply(start(), { type: "trimClip", clipId: "ext", window: { sourceStartMs: 0, sourceEndMs: 1500 } }).timeline;
+    expect(times(trimmed).t).toEqual([1000, 1500]);
+    expect(textAttachment(trimmed, trimmed.texts[0])).toEqual({ kind: "clip", clipId: "ext" });
+  });
+});
+
 describe("more texts than a reel may have (review round 2)", () => {
   it("room labels never take the reel past the limit", () => {
     const clips = Array.from({ length: 12 }, (_, i) => ({ id: `c${i}`, assetId: `p${i}`, kind: "IMAGE", sourceStartMs: 0, sourceEndMs: 3000, room: `room ${i}` }));

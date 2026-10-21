@@ -37,14 +37,25 @@ the frame, never on it.
     (`pictureCanvasTransform`, the same matrix the composition uses) and then
     the inspect zoom. Each screen pixel samples the source directly, so 8×
     shows the source's own detail, not an enlarged 1080×1920 copy. No grade
-    and no Fit backdrop: these are the pixels that were delivered. The frame
-    comes from the frame service (ADR 0047) under a new purpose, `source`
-    (the media's own frame at its own size, untouched), on a latest-wins
-    channel, so stepping never queues stale seeks. The editor plays a 720p
-    preview rendition; Footage only reads the **original** file
-    (`LibraryAsset.originalUrl`, added; absent when the editor already plays
-    the original) and falls back to the preview if the original cannot be
-    read.
+    and no Fit backdrop: these are the pixels that were delivered.
+    **Memory (phones):** nothing is copied. Inspect owns one detached media
+    element (`source-reader.ts`), outside the frame service's shared cache
+    (which holds two sources and four composition-size frames for the stage
+    and the loupe, and would have evicted the loupe's file). A step seeks the
+    element (latest wins: reads made while one seeks are dropped before they
+    seek); every draw reads **only the visible source region** straight from
+    the element into the screen-sized canvas, so 8× of a 4K or 5.7K frame
+    costs one screen of pixels, not a 33–66 MB copy per step. Leaving Inspect
+    releases the element and zeroes the canvas at once.
+    **The original** is not sent with the library: the editor plays a 720p
+    preview rendition, and when Footage only first needs an asset it asks the
+    server (`inspectSource`, `app/inspect-actions.ts` over
+    `lib/inspect-source.ts`) for that asset, checked against the studio's
+    media scope, and gets a **presigned S3 URL that expires in 15 minutes**,
+    never the CDN's unsigned, never-expiring one. A link older than 10
+    minutes that fails is asked for again; one that fails fresh, or a refused
+    request, falls back to the preview, and the tray says which file is shown
+    ("the original" or "the editor's copy").
   - *Final* magnifies the Player itself with a CSS transform: titles, mattes
     and particles exactly as the composition draws them at that frame. The
     browser re-rasterises text and vector shapes at the zoomed size; video is
@@ -54,6 +65,15 @@ the frame, never on it.
     footage; to judge the footage itself, use Footage only. A full-resolution
     still of the composition exists only in the render (`renderReelStills`);
     wiring it to the editor is a follow-up.
+    **Final's zoom is capped at 4× on screens of devicePixelRatio 3 or more**
+    (`zoomCap`). Magnifying the Player makes the browser rasterise a layer of
+    the zoomed size: 8× of a 324 px stage on a 3× phone is about 7800×13800
+    device px (a taller stage nearer 9900×17600), past what phones give one
+    layer. Switching to Final from a deeper Footage only zoom brings the view
+    down to 4× about its centre. Footage only keeps 8×: it draws into a
+    screen-sized canvas whatever the zoom.
+- **Keys.** The scrub strip lets go of focus when the finger lifts, so `I`,
+  `+`, `−` and `0` work again straight after a drag.
 - **Pixels / Smooth.** Above 4× the source pixels are drawn as blocks
   (`imageSmoothingEnabled` off; `image-rendering: pixelated` on the Player in
   Final); the Pixels button flips it at any zoom.
@@ -64,13 +84,16 @@ the frame, never on it.
   not flash black. The editor's arrow keys still step frames; every other
   editing key is ignored while Inspect is open.
 - **Face.** On an AI-generated clip a Face chip zooms to the presenter. The
-  identity gate (ADR 0056) stores `identityChecks` with `faceHeightPx` but
-  **not the face box**; Inspect reads the latest first-frame check through
-  `faceHintFromChecks`, uses a `faceBox` if one is ever stored (the gate's
-  own `[ymin, xmin, ymax, xmax]` 0–1000 format), and otherwise centres on the
-  point the presenter kit frames her at (top-third centre, a quarter of the
-  way down) at the zoom that makes a face of the stored height fill 40% of the
-  view (4× with no height). The gate's logic is unchanged; it is only read.
+  identity gate (ADR 0056) keeps every locate attempt in `identityChecks`
+  (`locate[].box`, `[ymin, xmin, ymax, xmax]` on the 0–1000 grid of the
+  composed frame, y first). `faceHintFromChecks` (`lib/face-hint.ts`) reads
+  the newest first-frame check's last box that was not rejected as no face
+  (a face only too small to judge is still where she is), and zooms so it
+  fills 40% of the view. Only without any box does it guess: the point the
+  presenter kit frames her at (top-third centre, a quarter of the way down),
+  sized by the stored `faceHeightPx`, or 4×. The gate's logic is unchanged;
+  it is only read. The parser lives in `lib` because the worker image copies
+  `apps/web/lib` alone and loads the library code.
   MediaPipe's face detector was not added: its model is not one of the pinned
   matte models (ADR 0051) and pinning a new one belongs with the mattes.
 - **Copy.** Saves the zoomed view as a PNG download named with the reel time,
@@ -81,19 +104,30 @@ the frame, never on it.
 ## Consequences
 
 - Nothing saved changes and the composition is untouched. `LibraryAsset`
-  gains two optional fields (`originalUrl`, `face`); the frame service gains
-  a purpose; the transport row gains a column.
+  gains one optional field (`face`); there is one new server action
+  (`inspectSource`); the frame service only exports `loadImage`; the
+  transport row gains a column.
 - Footage only downloads the original on demand. A large original is read by
   range requests as the video element seeks, but on a slow phone the first
   frame can take seconds; the tray says "Loading the frame…" meanwhile.
-- Source frames are kept in the frame service's four-frame cache. A 4K
-  original is 33 MB a frame; that is the cache's existing bound.
+- Inspect holds one decoder and one screen-sized canvas (about 11 MB on a 3×
+  phone), whatever the source's size, and frees both on leaving.
 - Final's magnification is the preview rendition's resolution for footage.
   When that matters, Footage only is one tap away and shows the original.
 
 ## What was verified
 
-- `apps/web/components/editor/inspect-view.test.ts` (21 tests): clamping to
+- `apps/web/components/editor/source-reader.test.ts` (5): one open per file,
+  seeks to the frame's middle, earlier reads dropped before they seek, a read
+  made mid-seek reported superseded, a new file frees the old element,
+  release frees the current one and supersedes reads in flight, an
+  unreadable file reads as failed. `apps/web/lib/inspect-source.test.ts` (3):
+  the studio's own original presigned for 900 s with the media scope in the
+  query; another studio's asset, audio and malformed ids refused without
+  signing; the shared starter library allowed.
+- `apps/web/components/editor/inspect-view.test.ts` (23 tests): only the
+  visible source region is read (8× of a 3840×2160 frame reads under 1/50 of
+  the picture); Final capped at 4× on a 3× screen, Footage only not; clamping to
   the frame's edges, zoom about a point (the composition point under the
   finger stays under it), pans stopping at the edge, pinch (spread to zoom,
   midpoint kept, two fingers moving together pan, 1× and 8× limits),
@@ -104,8 +138,10 @@ the frame, never on it.
   Fill, under Fit zoomed and a 9:16 take with a zoom-in (every source pixel
   lands where `sourceToComposition` and the zoom say, and the visible source
   rect maps to the canvas corners); 405 → 101.25 source px across at 4× for
-  1280×720 under Fill; face hints from checks with and without a box; the
-  Face view; the file name.
+  1280×720 under Fill; the
+  Face view; face hints from the gate's `locate[].box` (newest first-frame
+  check, rejected boxes skipped, a too-small face still used, a top-level
+  `faceBox` ignored); the file name.
 - `e2e/tests/inspect.spec.ts` on the suite's Pixel 7 (412×915, touch through
   DevTools touch events), CI only (local Docker ports are broken): see the PR
   for the run. It opens Inspect from the control row, checks every control is

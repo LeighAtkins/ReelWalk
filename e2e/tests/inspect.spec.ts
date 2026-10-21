@@ -126,6 +126,9 @@ test("Inspect on a phone: pinch to 4×, step a frame, the canvas shows the sourc
   await page.getByTestId("inspect-footage").click();
   const canvas = page.getByTestId("inspect-canvas");
   await expect(canvas).toHaveAttribute("data-source-size", "1280,720", { timeout: 30_000 });
+  // The original, asked for on opening: a presigned S3 link that expires in 15 minutes, not a library-wide CDN URL.
+  await expect(canvas).toHaveAttribute("data-original", "true");
+  expect(await canvas.getAttribute("data-src")).toMatch(/X-Amz-Expires=900/);
   await expect(canvas).toHaveAttribute("data-reel-ms", "1500.000", { timeout: 30_000 });
   const wholeWidth = Number((await canvas.getAttribute("data-source-rect"))!.split(",")[2]);
   console.log(`1×: ${wholeWidth.toFixed(1)} source px across`);

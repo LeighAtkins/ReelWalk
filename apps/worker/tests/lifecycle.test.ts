@@ -33,6 +33,18 @@ describe("run", () => {
   it("returns output as before when nothing stops it", async () => {
     const { stdout } = await run(process.execPath, ["-e", "process.stdout.write('ok')"]);
     expect(stdout).toBe("ok");
+    const { stdout: bytes } = await run(process.execPath, ["-e", "process.stdout.write('ab')"], { encoding: "buffer" });
+    expect(Buffer.isBuffer(bytes) && bytes.toString()).toBe("ab");
+  });
+
+  it("rejects a failed command with its stderr attached, as execFile did", async () => {
+    await expect(run(process.execPath, ["-e", "process.stderr.write('no audio'); process.exit(3)"])).rejects.toMatchObject({ code: 3, stderr: "no audio" });
+  });
+
+  it.skipIf(process.platform === "win32")("starts the child in its own process group, so the group can be killed", async () => {
+    const { stdout } = await run(process.execPath, ["-e", "const s = require('fs').readFileSync('/proc/self/stat', 'utf8'); process.stdout.write(s.slice(s.lastIndexOf(')') + 2).split(' ')[2] + ' ' + process.pid)"]);
+    const [group, pid] = stdout.split(" ");
+    expect(group).toBe(pid);
   });
 });
 

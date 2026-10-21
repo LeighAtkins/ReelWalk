@@ -178,12 +178,27 @@ export function particleField(input: ParticleInput): ParticleField {
       particles.push({ x, y, rx: r, ry: r, angle: 0, opacity, color: "#fff4dc", depth, band, front });
     }
   }
+  // Whatever is drawn (the long radius, a halo, the shadow's offset, three blur deviations) fades out before it
+  // reaches the field's edge, where the SVG would cut it.
+  for (const p of particles) {
+    const extent = particleExtent(kind, p);
+    const room = Math.min(p.x, W - p.x, p.y, H - p.y) - extent;
+    const fit = Math.min(1, Math.max(0, room / extent));
+    p.opacity *= fit;
+    if (p.halo) p.halo.opacity *= fit;
+  }
   return { kind, width: W, height: H, marginX: margins.x, marginY: margins.y, particles };
 }
 
 /** Blur (stdDeviation, field px) of each soft group. */
 const SOFT_BLUR: Record<ParticleKind, number> = { snow: 1.25, embers: 0.8, dust: 0.9 };
 const HALO_BLUR = 3;
+
+/** How far from its centre a particle paints (field px): its long radius, halo and shadow offset, plus three blur deviations. */
+export function particleExtent(kind: ParticleKind, p: Pick<Particle, "rx" | "ry" | "band" | "halo" | "shadow">): number {
+  const body = Math.max(p.rx, p.ry) + (p.shadow ? 1.5 : 0) + (p.band === "near" ? 3 * SOFT_BLUR[kind] : 0);
+  return Math.max(body, p.halo ? p.halo.r + 3 * HALO_BLUR : 0);
+}
 
 const f1 = (v: number) => v.toFixed(1);
 const f3 = (v: number) => v.toFixed(3);

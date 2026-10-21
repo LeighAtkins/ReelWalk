@@ -183,7 +183,7 @@ export async function renderJob(
     if (job.kind === "REEL" || job.kind === "TEMPLATE") {
       // Remotion closes the Chrome it opened without waiting for it, also when cancelled: whatever is left
       // of it when the attempt ends is stopped then (SIGTERM, the grace, SIGKILL).
-      attempt.own("remotion processes", () => killDescendants({ match: REMOTION_PROCESSES, graceMs: attempt.graceMs }));
+      attempt.own("remotion processes", (remainingMs) => killDescendants({ match: REMOTION_PROCESSES, graceMs: remainingMs }));
     }
     if (job.kind === "REEL") {
       const payload = parseReelExportPayload(job.payload);

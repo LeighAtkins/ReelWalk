@@ -56,7 +56,7 @@ async function main() {
   });
   const assets = { walk: { src: `${url}/walk.mp4`, kind: "VIDEO" as const } };
 
-  scope.own("remotion processes", () => killDescendants({ match: REMOTION_PROCESSES, graceMs: scope.graceMs }));
+  scope.own("remotion processes", (remainingMs) => killDescendants({ match: REMOTION_PROCESSES, graceMs: remainingMs }));
   let sample: ReturnType<typeof setTimeout> | undefined;
   let armedAt = 0;
   const arm = () => {

@@ -282,6 +282,19 @@ export function evaluateTitle(input: TitleInput): TitlePlacement {
   };
 }
 
+/**
+ * Which stacking group a title belongs to (see sceneLayers): 0 behind the presenter, 1 in front of
+ * the presenter but behind its own tapped objects, 2 a plain title above every matte.
+ */
+export function titleGroup(text: Pick<TextOverlay, "behind" | "occluders">): 0 | 1 | 2 {
+  return text.behind ? 0 : text.occluders?.length ? 1 : 2;
+}
+
+/** Titles bottom to top in the order sceneLayers draws them: by group, saved order within a group. For hit targets that must match what is drawn on top. */
+export function stackTitles<T extends Pick<TextOverlay, "behind" | "occluders">>(texts: readonly T[]): T[] {
+  return texts.map((text, index) => ({ text, index })).sort((a, b) => titleGroup(a.text) - titleGroup(b.text) || a.index - b.index).map((entry) => entry.text);
+}
+
 export type SceneLayer =
   | { kind: "title"; text: TextOverlay; from: number; durationInFrames: number }
   /** The presenter matte of one clip, above every `behind` title on screen with it. */
@@ -308,9 +321,9 @@ export function sceneLayers(timeline: Timeline, fps: number = REEL_FORMAT.fps, h
     ? clips.filter((clip) => hasVideo(clip.clip) && overlaps(text, clip)).map((clip) => ({ kind: "object", text, clipIndex: clip.clipIndex, from: clip.from, durationInFrames: clip.durationInFrames }))
     : [];
   const title = (entry: (typeof plan.texts)[number]): SceneLayer => ({ kind: "title", text: entry.text, from: entry.from, durationInFrames: entry.durationInFrames });
-  const behind = plan.texts.filter((entry) => entry.text.behind);
-  const tapped = plan.texts.filter((entry) => !entry.text.behind && entry.text.occluders?.length);
-  const plain = plan.texts.filter((entry) => !entry.text.behind && !entry.text.occluders?.length);
+  const behind = plan.texts.filter((entry) => titleGroup(entry.text) === 0);
+  const tapped = plan.texts.filter((entry) => titleGroup(entry.text) === 1);
+  const plain = plan.texts.filter((entry) => titleGroup(entry.text) === 2);
   return [
     ...behind.flatMap((entry) => [title(entry), ...objects(entry.text)]),
     // Every behind text of the reel, not just those with a plan entry, as before: a matte is mounted for the clip it overlaps.

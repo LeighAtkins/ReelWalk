@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   applyHomography, endsBeforeShot, evaluateTitle, framePlan, homography, invertHomography, orientOrder, orientQuad, parseTimeline,
-  PINNED_ELSEWHERE, pinnedProgress, planarFitAndShift, sceneLayers, textPositionAt, textQuadAt,
+  PINNED_ELSEWHERE, pinnedProgress, planarFitAndShift, sceneLayers, stackTitles, textPositionAt, textQuadAt,
   type Measure, type Quad, type SurfacePlacement, type TextOverlay, type Timeline, type TitleFont,
 } from "../src";
 
@@ -251,7 +251,26 @@ describe("sceneLayers", () => {
     expect(layers(t)).toEqual(["title:a", "title:b", "title:c", "person:0"]);
   });
 
-  it("keeps the old order for a reel with one behind title and plain captions on other shots", () => {
+  it("draws the smoke reel's titles with the presenter matte right after its behind title", () => {
+    // On main the matte came after every title; the pixels match only because no other title shares clip 0.
     expect(layers(legacy)).toEqual(["title:w1", "person:0", "title:p1", "title:s1", "title:t2", "title:b1"]);
+  });
+
+  it("puts a tapped title that is not behind above the presenter, below its own objects", () => {
+    const t = reel([
+      { id: "behind", text: "WELCOME", startMs: 0, endMs: 2000, behind: true },
+      { id: "tapped", text: "VIEW", startMs: 0, endMs: 2000, occluders: [{ x: 0.5, y: 0.5 }] },
+    ]);
+    expect(layers(t)).toEqual(["title:behind", "person:0", "title:tapped", "object:tapped:0"]);
+  });
+
+  it("lets the group beat saved order: a plain caption saved first still draws over a behind title", () => {
+    const t = reel([
+      { id: "cap", text: "Caption", startMs: 0, endMs: 2000 },
+      { id: "tapped", text: "VIEW", startMs: 0, endMs: 2000, occluders: [{ x: 0.5, y: 0.5 }] },
+      { id: "behind", text: "WELCOME", startMs: 0, endMs: 2000, behind: true },
+    ]);
+    expect(layers(t).filter((l) => l.startsWith("title"))).toEqual(["title:behind", "title:tapped", "title:cap"]);
+    expect(stackTitles(t.texts).map((text) => text.id)).toEqual(["behind", "tapped", "cap"]);
   });
 });

@@ -62,11 +62,24 @@ for render and editor at the centre of the placement work.
 - The editor's handles can take the same placement (`plane`, `homography`,
   `rect`, `fitScale`) instead of re-deriving it; that is the next agent's work
   (apps/web/components/editor is untouched here).
-- Z-order among titles changes where titles overlap on screen: grouped by
-  their occluders rather than by saved order. A plain caption that overlapped
-  a `behind` title used to sit under the presenter; it now sits on top, which
-  is the point. Two overlapping titles in different groups swap if the plain
-  one was saved first.
+- Z-order among titles changes where titles overlap, on purpose. The rule is
+  per title: `behind` means the presenter passes in front of it, not `behind`
+  means it is in front of the presenter, and a title's tapped objects sit
+  directly above that title. Compared with main, where every matte sat above
+  every title in saved order:
+  - A plain caption on a shot with a `behind` title is now drawn over the
+    presenter rather than under it: it never asked to be behind anyone.
+  - (a) A tapped title that is not `behind` now draws over the presenter (main
+    drew the presenter over every title): its taps name the objects in front of
+    it, and the presenter is not one of them.
+  - (b) The group beats saved order: a plain caption saved before a `behind` or
+    tapped title now draws on top of it, because a caption in front of the
+    picture must not be cut by another title's occluders.
+  - (c) A `behind` title's tapped objects now sit below the presenter and below
+    later titles: they belong to that title's layer, so they cover that title
+    and nothing else.
+  The editor's tap targets (`preview.tsx`) are stacked the same way through
+  `stackTitles`, so a tap selects the title that is drawn on top.
 - The object matte still computes its own carried taps (`carriedTaps` in
   ObjectMatte.tsx, owned by the matte work); the evaluator's `carryTaps` gives
   the same points and is there for it to adopt.
@@ -74,6 +87,17 @@ for render and editor at the centre of the placement work.
   owning their own coordinate system and track, and the screen-space title's
   box measured rather than left to CSS wrapping. These need schema additions,
   which this change avoids.
+
+## Follow-ups (from the PR #195 review, not done here)
+
+- `occluderTaps`, `homography`, `restPlane` and `lineBox` are returned but not
+  yet consumed by the renderer; they are there for the editor handles and the
+  mattes.
+- ObjectMatte's `carriedTaps` duplicates `carryTaps`; the mattes work adopts it.
+- `packages/render/src/reel/measure.ts` duplicates core's `oneLineWidth`; the
+  latter goes when the editor stops calling it.
+- The editor still fits titles with `oneLineWidth` + `planarFitAndShift` on the
+  un-reordered `pin.quad`; the editor-handles work switches it to the evaluator.
 
 ## What was verified
 

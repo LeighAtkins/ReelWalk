@@ -109,8 +109,13 @@ for render and editor at the centre of the placement work.
   third frame of five legacy titles (identical numbers), plus a snapshot.
 - `pnpm check` passes (lint, typecheck of every package including apps/web,
   all tests).
-- Not verified: the render smoke and the frame-hash comparison. A worker image
-  of the base commit was built, but the frame-hash run in it produced no frame
-  in 27 minutes on a heavily loaded host and was stopped; the after-run was not
-  attempted. `packages/render/scripts/frame-hashes.ts` is in place to run
-  before/after in CI or the worker image.
+- CI's worker image job ran the render smoke on this branch: 15 frames drew,
+  MP4 4.91 s with video and audio.
+- Frame hashes (`packages/render/scripts/frame-hashes.ts`): worker images built
+  from origin/main (643bfac, with only the two scripts copied in) and from this
+  branch rendered the smoke reel's frames 10, 40, 75, 90, 110, 130, 146, 160,
+  200 and 230 as full-size PNGs. All ten SHA-256 hashes are identical, including
+  the pinned and surfaced titles with posts on frames 75-146 and the behind
+  title over the presenter matte on frames 10 and 40. The smoke reel has no
+  title overlap that the new layer order changes, so this proves placement
+  parity, not the new z-order (covered by the sceneLayers tests).

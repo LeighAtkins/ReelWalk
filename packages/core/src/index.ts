@@ -10,6 +10,7 @@ export * from "./ai";
 export * from "./ai-shots";
 export * from "./cinematic";
 export * from "./scene";
+export * from "./particles";
 export * from "./comment-replies";
 export * from "./beats";
 export * from "./drag";

@@ -40,6 +40,9 @@ export const TEXT_STYLES = ["plain", "box", "outline", "headline", "elegant", "t
  * letter, "rise" drifts up as it fades in, "none" is simply there.
  */
 export const TEXT_ANIMATIONS = ["auto", "pop", "fade", "rise", "type", "none"] as const;
+/** Particle kinds a title can carry (ADR 0055). */
+export const PARTICLE_KINDS = ["snow", "embers", "dust"] as const;
+export type ParticleKind = (typeof PARTICLE_KINDS)[number];
 /** Where a logo may sit. */
 export const CORNERS = ["top-left", "top-right", "bottom-left", "bottom-right"] as const;
 /** Where the status tag sits: the top of the safe area, above the hook. */
@@ -158,6 +161,18 @@ export const textSchema = z
     pin: z.object({ assetId: z.string().min(1), fromMs: ms, toMs: ms, /** The corners the text was laid on at pin time, matching each keyframe's `q`. */ quad: z.array(z.number().min(-2).max(3)).length(8).optional(), /** How the plane was turned and tilted into the wall's perspective, degrees. */ lean: z.object({ yaw: z.number().min(-60).max(60), pitch: z.number().min(-60).max(60) }).optional() }).optional(),
     /** People in the clips this text overlaps pass in front of it (ADR 0039). */
     behind: z.boolean().optional(),
+    /** Reel time (ms) at which the presenter passes in front of this title (ADR 0055): before it the words cover her, after it she covers them. Only read with `behind`. */
+    passMs: ms.optional(),
+    /** How long (ms) the crossing takes, from the words in front to her in front (default 160). */
+    passFadeMs: z.number().int().min(0).max(2000).optional(),
+    /** Particles that live on the title's plane (ADR 0055): snow, embers or dust, drawn in front of and behind the letters. */
+    particles: z.object({
+      kind: z.enum(PARTICLE_KINDS),
+      /** 0.2 (sparse) to 2 (thick); 1 by default. */
+      density: z.number().min(0.2).max(2).optional(),
+      /** Picks a different scatter of the same kind. */
+      seed: z.number().int().min(0).max(1_000_000).optional(),
+    }).optional(),
     /** An extruded, 3D-looking title. */
     depth: z.enum(["flat", "extruded"]).optional(),
     /** How the text meets the picture: `surface` lets the wall's light and texture show through, like paint on it (ADR 0039). */

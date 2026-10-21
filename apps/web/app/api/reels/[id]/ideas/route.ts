@@ -1,4 +1,4 @@
-import { hasDetails, parseTimeline } from "@reelwalk/core";
+import { draftScriptLines, hasDetails, parseTimeline, SCRIPT_LINE_MAX, SCRIPT_MAX_LINES } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
 import { getSessionUser } from "@/lib/auth";
 import { instagramSongs } from "@/lib/instagram-songs";
@@ -11,6 +11,13 @@ const CAPTION_SCHEMA = {
   additionalProperties: false,
   required: ["caption"],
   properties: { caption: { type: "string" } },
+} as const;
+
+const SCRIPT_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["lines"],
+  properties: { lines: { type: "array", items: { type: "string" }, description: "One per take, in playing order" } },
 } as const;
 
 const TEXT_SCHEMA = {
@@ -35,7 +42,32 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const { id } = await params;
   const reel = await prisma.reel.findFirst({ where: { id, workspaceId: user.workspaceId }, select: { id: true, title: true, timeline: true, caption: true } });
   if (!reel) return Response.json({ ok: false, message: "This reel was deleted." }, { status: 404 });
-  const body = (await request.json().catch(() => ({}))) as { kind?: unknown; text?: unknown; currentAudioId?: unknown; page?: unknown };
+  const body = (await request.json().catch(() => ({}))) as { kind?: unknown; text?: unknown; currentAudioId?: unknown; page?: unknown; count?: unknown; rooms?: unknown; titles?: unknown };
+
+  if (body.kind === "script") {
+    // The presenter's lines for Script mode (ADR 0060), from the rooms and titles on the reel as the editor has it now.
+    const strings = (value: unknown) => (Array.isArray(value) ? value : []).filter((item): item is string => typeof item === "string" && item.trim().length > 0).map((item) => item.trim().slice(0, 60)).slice(0, 12);
+    const count = typeof body.count === "number" ? Math.max(1, Math.min(SCRIPT_MAX_LINES, Math.round(body.count))) : 3;
+    const rooms = strings(body.rooms), titles = strings(body.titles);
+    if (!isAiConfigured()) return Response.json({ ok: true, lines: draftScriptLines(rooms, reel.title, count) });
+    try {
+      const answer = await structuredAnswer({
+        instructions:
+          `You write what an on-camera presenter says in a vertical real-estate listing reel. Write exactly ${count} lines, one per take, in the order they play: the first opens the reel and greets the viewer, the last closes it with a call to action (a private tour, a message), any between talk about the rooms named. Each line is something a person says aloud in one breath: 4 to 14 words, warm and plain, first person, no hashtags, no emoji, no prices, addresses or sizes unless they appear in the titles. Use only rooms and facts given.`,
+        input: `Reel "${reel.title}". Rooms in order: ${rooms.join(", ") || "unknown"}. Titles on the reel: ${titles.length ? titles.map((title) => `"${title}"`).join(", ") : "none"}.`,
+        schemaName: "presenter_script",
+        schema: SCRIPT_SCHEMA as unknown as Record<string, unknown>,
+        maxOutputTokens: 500,
+      });
+      const lines = (((answer.json as { lines?: unknown }).lines ?? []) as unknown[])
+        .filter((line): line is string => typeof line === "string" && line.trim().length >= 3)
+        .map((line) => line.trim().slice(0, SCRIPT_LINE_MAX))
+        .slice(0, count);
+      return lines.length ? Response.json({ ok: true, lines }) : Response.json({ ok: false, message: "No lines came back. Try again." });
+    } catch {
+      return Response.json({ ok: false, message: "No lines came back. Try again." });
+    }
+  }
 
   if (body.kind === "music") {
     const songs = await instagramSongs(user.workspaceId, 6);

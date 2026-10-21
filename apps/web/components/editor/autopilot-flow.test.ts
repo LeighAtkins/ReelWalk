@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseTimeline, type Timeline } from "@reelwalk/core";
-import { runAutopilot, type AutopilotCut } from "./autopilot-flow";
+import { polishDraft, runAutopilot, type AutopilotCut, type AutopilotDraft } from "./autopilot-flow";
 import { createDocumentStore, STALE_PROPOSAL } from "./document-store";
 import { landProposal, REJECTED_PROPOSAL } from "./proposals";
 
@@ -15,6 +15,7 @@ function harness() {
   const store = createDocumentStore(reel(["a", "b", "c"]));
   const events: string[] = [];
   const polishInputs: string[][] = [];
+  const drafts: AutopilotDraft[] = [];
   const steps = {
     snapshot: store.snapshot,
     // A cut by rule: the shots it was given, reversed.
@@ -27,12 +28,15 @@ function harness() {
   };
   const record = {
     fail: (message: string) => events.push(`fail: ${message}`),
-    draft: () => events.push("draft"),
+    draft: (draft: AutopilotDraft) => {
+      events.push("draft");
+      drafts.push(draft);
+    },
     polished: () => events.push("polished"),
     polishStale: () => events.push("polish stale"),
     polishFailed: (message: string) => events.push(`polish failed: ${message}`),
   };
-  return { store, events, polishInputs, steps, record };
+  return { store, events, polishInputs, drafts, steps, record };
 }
 
 describe("make it for me", () => {
@@ -90,5 +94,24 @@ describe("make it for me", () => {
     };
     await runAutopilot({ ...steps, quick }, record, STALE_PROPOSAL);
     expect(events).toEqual([`fail: ${STALE_PROPOSAL}`]);
+  });
+
+  it("polish later: only the rule cut runs; the polish lands when asked, and not over an edit", async () => {
+    const { store, events, polishInputs, drafts, steps, record } = harness();
+    await runAutopilot(steps, record, STALE_PROPOSAL, "later");
+    expect(events).toEqual(["draft"]);
+    expect(polishInputs).toEqual([]);
+    expect(ids(store.getState().history.present)).toEqual(["c", "b", "a"]);
+    await polishDraft(steps, drafts[0], record);
+    expect(events).toEqual(["draft", "polished"]);
+    expect(ids(store.getState().history.present)).toEqual(["a", "b", "c"]);
+
+    // Asked for after an edit: the studio's version stays.
+    const second = harness();
+    await runAutopilot(second.steps, second.record, STALE_PROPOSAL, "later");
+    second.store.runCommand({ type: "deleteClip", clipId: "a" });
+    await polishDraft(second.steps, second.drafts[0], second.record);
+    expect(second.events).toEqual(["draft", "polish stale"]);
+    expect(ids(second.store.getState().history.present)).toEqual(["c", "b"]);
   });
 });

@@ -284,3 +284,24 @@ export function DishIcon({ size }: IconProps) {
   );
 }
 
+
+// The two finishes and the Reel sheet (ADR 0064).
+export const PopIcon = ({ size }: IconProps) => (
+  <Icon size={size}>
+    <path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M5.6 18.4l2.8-2.8M15.6 8.4l2.8-2.8" />
+  </Icon>
+);
+export const PremiumIcon = ({ size }: IconProps) => (
+  <Icon size={size}>
+    <path d="M6 4h12l3 5-9 11L3 9z" />
+    <path d="M3 9h18M9 4l3 16M15 4l-3 16" />
+  </Icon>
+);
+export const ReelSettingsIcon = ({ size }: IconProps) => (
+  <Icon size={size}>
+    <path d="M4 7h10M18 7h2M4 17h4M12 17h8" />
+    <circle cx="16" cy="7" r="2" />
+    <circle cx="10" cy="17" r="2" />
+  </Icon>
+);
+export const SendIcon = ({ size }: IconProps) => <Icon size={size}><path d="M12 19V5M6 11l6-6 6 6" /></Icon>;

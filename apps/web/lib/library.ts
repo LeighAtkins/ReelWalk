@@ -10,6 +10,8 @@ export type LibraryAsset = {
   fileName: string;
   /** Confirmed by a completed generation record, independent of filename. */
   isAiGenerated?: boolean;
+  /** A generated take with the presenter in it (composed from her kit, or a script's take), not AI b-roll (ADR 0064). */
+  isPresenterTake?: boolean;
   url: string;
   /** For an AI take: where the identity gate found the presenter's face on the composed first frame (ADR 0056/0057). */
   face?: FaceHint | null;
@@ -66,7 +68,7 @@ type LibraryAssetInput = {
   transcript?: unknown;
 };
 
-async function serializeLibraryAsset(asset: LibraryAssetInput, generation: { checks: unknown } | undefined): Promise<LibraryAsset> {
+async function serializeLibraryAsset(asset: LibraryAssetInput, generation: { checks: unknown; presenter: boolean } | undefined): Promise<LibraryAsset> {
   const spot = spotSchema.safeParse(asset.spot);
   // The editor plays the light preview rendition when one exists; exports always use the original.
   const [url, thumbUrl] = await Promise.all([mediaUrl(asset.previewKey ?? asset.objectKey), asset.thumbKey ? mediaUrl(asset.thumbKey) : null]);
@@ -76,6 +78,7 @@ async function serializeLibraryAsset(asset: LibraryAssetInput, generation: { che
     kind: asset.kind,
     fileName: asset.fileName,
     isAiGenerated: Boolean(generation),
+    ...(generation?.presenter ? { isPresenterTake: true } : {}),
     url,
     ...(face ? { face } : {}),
     // A photo is its own thumbnail.
@@ -99,13 +102,20 @@ async function serializeLibraryAsset(asset: LibraryAssetInput, generation: { che
   };
 }
 
+/** Whether a generation's shot put the presenter in it: composed with her kit or reference, or a script's take. */
+function withPresenter(shot: unknown): boolean {
+  if (!shot || typeof shot !== "object") return false;
+  const { compose, script } = shot as { compose?: { presenterId?: unknown; presenter?: unknown } | null; script?: unknown };
+  return Boolean(script || compose?.presenterId || compose?.presenter);
+}
+
 /** Resolve provenance once for a library page, without one database query per clip. */
 export async function toLibraryAssets(assets: LibraryAssetInput[]): Promise<LibraryAsset[]> {
   const ids = assets.filter(asset => asset.kind === "VIDEO").map(asset => asset.id);
   const jobs = ids.length ? await prisma.aiGeneration.findMany({
-    where: { status: "SUCCEEDED", assetId: { in: ids } }, select: { assetId: true, identityChecks: true },
+    where: { status: "SUCCEEDED", assetId: { in: ids } }, select: { assetId: true, identityChecks: true, shot: true },
   }) : [];
-  const generated = new Map(jobs.map(job => [job.assetId, { checks: job.identityChecks }]));
+  const generated = new Map(jobs.map(job => [job.assetId, { checks: job.identityChecks, presenter: withPresenter(job.shot) }]));
   return Promise.all(assets.map(asset => serializeLibraryAsset(asset, generated.get(asset.id))));
 }
 

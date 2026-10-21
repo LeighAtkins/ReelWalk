@@ -50,6 +50,7 @@ export * from "./hooks";
 export * from "./text-timing";
 export * from "./commands";
 export * from "./script";
+export * from "./finishes";
 export * from "./occluder";
 export * from "./workflow";
 export * from "./shoot";

@@ -26,3 +26,8 @@ export function takePendingFiles(reelId: string): File[] {
   pending = null;
   return files;
 }
+
+/** Whether files picked on the home screen are waiting for this reel in this tab (a reload or a second tab has none). */
+export function hasPendingFiles(reelId: string): boolean {
+  return pending !== null && pending.reelId === reelId && pending.files.length > 0;
+}

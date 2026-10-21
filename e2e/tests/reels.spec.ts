@@ -5,7 +5,13 @@ import { expect, test, type Page } from "@playwright/test";
 const fixtures = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "fixtures");
 const fixture = (name: string) => path.join(fixtures, name);
 
-/** Starts a reel the way a user does: tap New reel and pick files. Returns the reel URL. */
+/** Opens a reel-wide setting: they live in the Reel sheet, reached from the toolbar with nothing selected (ADR 0064). */
+async function reelSetting(page: Page, name: string) {
+  await page.getByRole("button", { name: "Reel", exact: true }).click();
+  await page.getByRole("dialog", { name: "This reel" }).getByRole("button", { name, exact: true }).click();
+}
+
+/** Starts a reel from an empty timeline: "Edit it yourself" and pick files. Returns the reel URL. */
 async function newReel(page: Page, files: string[]): Promise<string> {
   await page.goto("/");
   await page.getByTestId("new-reel-input").setInputFiles(files.map(fixture));
@@ -104,9 +110,10 @@ test("Instagram's limits are checked before export", async ({ page }) => {
   await expect(page.getByTestId("confirm-export")).toBeDisabled();
   await page.keyboard.press("Escape");
 
-  // Captions over 30 hashtags are flagged as you type.
+  // Captions over 30 hashtags are flagged as you type. The caption is a reel-wide setting, in the Reel sheet (ADR 0064).
   await page.getByRole("button", { name: "Done" }).click();
-  await page.getByRole("button", { name: "Caption" }).click();
+  await page.getByRole("button", { name: "Reel", exact: true }).click();
+  await page.getByRole("dialog", { name: "This reel" }).getByRole("button", { name: "Caption" }).click();
   await page.getByRole("textbox", { name: "Post caption" }).fill(Array.from({ length: 31 }, (_, i) => `#home${i}`).join(" "));
   await expect(page.getByText("31/30 hashtags")).toHaveAttribute("data-over", "true");
 });
@@ -161,7 +168,8 @@ test("delete a reel", async ({ page }) => {
   await waitForSaved(page);
 
   page.once("dialog", (dialog) => void dialog.accept());
-  await page.getByRole("button", { name: "Delete reel" }).click();
+  await page.getByRole("button", { name: "Reel", exact: true }).click();
+  await page.getByRole("dialog", { name: "This reel" }).getByRole("button", { name: "Delete reel" }).click();
   await expect(page).toHaveURL(/\/$/);
   await expect(page.locator(`a[href="${new URL(url).pathname}"]`)).toHaveCount(0);
 });
@@ -210,7 +218,7 @@ test("property details are saved with the reel and can write the caption", async
   const url = await newReel(page, ["exterior.jpg"]);
   await expect(page.getByTestId("clip")).toHaveCount(1, { timeout: 60_000 });
 
-  await page.getByRole("button", { name: "Details", exact: true }).click();
+  await reelSetting(page, "Details");
   await page.getByLabel("Price").fill("¥48,000,000");
   await page.getByLabel("Beds").fill("3");
   await page.getByLabel("Baths").fill("2");
@@ -221,10 +229,10 @@ test("property details are saved with the reel and can write the caption", async
   await waitForSaved(page);
 
   await page.goto(url);
-  await page.getByRole("button", { name: "Details", exact: true }).click();
+  await reelSetting(page, "Details");
   await expect(page.getByLabel("Price")).toHaveValue("¥48,000,000");
   await expect(page.getByLabel("Size")).toHaveValue("92 m²");
   await page.keyboard.press("Escape");
-  await page.getByRole("button", { name: "Caption", exact: true }).click();
+  await reelSetting(page, "Caption");
   await expect(page.getByRole("textbox", { name: "Post caption" })).toHaveValue(/¥48,000,000 · Kanda, Chiyoda[\s\S]*3 bed · 2 bath · 92 m²/);
 });

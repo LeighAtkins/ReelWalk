@@ -15,10 +15,13 @@ export type AutopilotSteps<C extends AutopilotCut> = {
   takeIn(cut: C & { ok: true }, baseGeneration: number): Promise<Landed>;
 };
 
+/** The first cut that was accepted: the input it was made from and the generation it produced. */
+export type AutopilotDraft = { input: Timeline; generation: number };
+
 export type AutopilotEvents = {
   fail(message: string): void;
-  /** The first cut landed: open it in the review while the polish is made. */
-  draft(): void;
+  /** The first cut landed: open it (the polish follows now, or when the studio asks for it). */
+  draft(draft: AutopilotDraft): void;
   polished(): void;
   /** The reel changed after the first cut, so the polish was not applied. */
   polishStale(): void;
@@ -33,8 +36,17 @@ export type AutopilotEvents = {
  * and applied against that cut's generation, so anything the studio (or a
  * retry) changed before it arrives is never silently replaced.
  */
-export async function runAutopilot<C extends AutopilotCut>(steps: AutopilotSteps<C>, events: AutopilotEvents, staleMessage: string): Promise<void> {
-  let draft: { input: Timeline; generation: number } | null = null;
+export async function runAutopilot<C extends AutopilotCut>(
+  steps: AutopilotSteps<C>,
+  events: AutopilotEvents,
+  staleMessage: string,
+  /**
+   * "now": the model's polish is asked for straight away. "later": only the rule cut runs (it spends no
+   * AI allowance) and the polish waits for the studio to ask (`polishDraft`, ADR 0064).
+   */
+  polish: "now" | "later" = "now",
+): Promise<void> {
+  let draft: AutopilotDraft | null = null;
   for (let attempt = 0; attempt < 2 && !draft; attempt++) {
     const from = steps.snapshot();
     let quick: C;
@@ -50,7 +62,16 @@ export async function runAutopilot<C extends AutopilotCut>(steps: AutopilotSteps
     else if (result.reason === "rejected") return events.fail(result.message);
   }
   if (!draft) return events.fail(staleMessage);
-  events.draft();
+  events.draft(draft);
+  if (polish === "now") await polishDraft(steps, draft, events);
+}
+
+/**
+ * The model's polish of an accepted first cut: made from the same input and
+ * applied against that cut's generation, so a reel changed since keeps the
+ * studio's version (`polishStale`).
+ */
+export async function polishDraft<C extends AutopilotCut>(steps: Pick<AutopilotSteps<C>, "polish" | "takeIn">, draft: AutopilotDraft, events: Pick<AutopilotEvents, "polished" | "polishStale" | "polishFailed">): Promise<void> {
   try {
     const polished = await steps.polish(draft.input);
     if (!polished.ok) events.polishFailed(`The first cut stays: ${polished.message}`);

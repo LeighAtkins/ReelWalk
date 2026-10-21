@@ -12,6 +12,10 @@ import { CheckIcon, DishIcon, PanoIcon, PlusIcon, SparkIcon } from "./icons";
  * The way Instagram starts a reel: pick photos and videos first, then edit.
  * The editor opens straight away and uploads the files there, with progress
  * on the timeline.
+ *
+ * One entry (ADR 0064): the main tile goes from the picked shots straight to
+ * a finished first cut (music, titles, a hook), with no form; the editor opens
+ * on it. Editing from an empty timeline is the quieter way in.
  */
 export function NewReelPicker({ librarySize = 0, tours = [] }: { librarySize?: number; tours?: { id: string; name: string; rooms: number }[] }) {
   const router = useRouter();
@@ -76,14 +80,14 @@ export function NewReelPicker({ librarySize = 0, tours = [] }: { librarySize?: n
 
   return (
     <section className="start" aria-label="Start a reel">
-      {/* Make it for me (ADR 0021): pick the shots, and ReelWalk does the rest through to the render. */}
+      {/* One tap from the shots to a finished first cut (ADR 0021, 0024, 0064). */}
       <label className="start-primary start-auto" data-busy={busy}>
         <span className="viewfinder" aria-hidden="true">
           <SparkIcon size={22} />
         </span>
         <span className="start-text">
-          <span className="start-title">{busy ? "Opening…" : "Make it for me"}</span>
-          <span className="start-sub">Pick your shots. ReelWalk cuts them to music, adds the text and renders it.</span>
+          <span className="start-title">{busy ? "Opening…" : "New reel"}</span>
+          <span className="start-sub">Pick your shots. ReelWalk makes the first cut, with music, titles and a hook; change anything after.</span>
         </span>
         <input
           ref={autoInput}
@@ -91,7 +95,7 @@ export function NewReelPicker({ librarySize = 0, tours = [] }: { librarySize?: n
           multiple
           accept={acceptFor(["IMAGE", "VIDEO"])}
           disabled={busy}
-          aria-label="Make it for me: pick photos and videos"
+          aria-label="New reel: pick photos and videos for a finished first cut"
           data-testid="autopilot-input"
           onChange={(event) => {
             const files = Array.from(event.target.files ?? []);
@@ -107,8 +111,8 @@ export function NewReelPicker({ librarySize = 0, tours = [] }: { librarySize?: n
           <PlusIcon size={22} />
         </span>
         <span className="start-text">
-          <span className="start-title">{busy ? "Opening…" : "New reel"}</span>
-          <span className="start-sub">Pick photos and videos and edit them yourself</span>
+          <span className="start-title">{busy ? "Opening…" : "Edit it yourself"}</span>
+          <span className="start-sub">Pick photos and videos and start from an empty timeline</span>
         </span>
         <input
           ref={input}
@@ -116,7 +120,7 @@ export function NewReelPicker({ librarySize = 0, tours = [] }: { librarySize?: n
           multiple
           accept={acceptFor(["IMAGE", "VIDEO"])}
           disabled={busy}
-          aria-label="New reel: pick photos and videos"
+          aria-label="Edit it yourself: pick photos and videos"
           data-testid="new-reel-input"
           onChange={(event) => {
             const files = Array.from(event.target.files ?? []);

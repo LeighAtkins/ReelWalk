@@ -146,11 +146,14 @@ export function MediaSheet({
   onUpload,
   onPick,
   onClose,
+  replace = false,
 }: {
   library: LibraryAsset[];
   onUpload(files: File[]): void;
   onPick(assets: LibraryAsset[]): void;
   onClose(): void;
+  /** Replacing the selected clip (ADR 0064): one tap on a photo or video picks it. */
+  replace?: boolean;
 }) {
   const [picked, setPicked] = useState<string[]>([]);
   const [filter, setFilter] = useState<LibraryFilter>("all");
@@ -158,10 +161,20 @@ export function MediaSheet({
   const typeOf = (asset: LibraryAsset): LibraryFilter => (asset.isPano ? "360" : asset.kind === "VIDEO" ? "video" : "photo");
   const visual = filter === "all" ? everything : everything.filter((asset) => typeOf(asset) === filter);
   const filters = (["all", "360", "video", "photo"] as const).filter((name) => name === "all" || everything.some((asset) => typeOf(asset) === name));
-  const toggle = (id: string) => setPicked((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]));
+  const toggle = (id: string) => {
+    if (replace) {
+      const asset = everything.find((item) => item.id === id);
+      if (asset) onPick([asset]);
+      return;
+    }
+    setPicked((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]));
+  };
 
   return (
-    <Sheet title="Add photos and videos" onClose={onClose}>
+    <Sheet title={replace ? "Replace this clip" : "Add photos and videos"} onClose={onClose}>
+      {replace ? (
+        <p className="muted small">Tap what this clip should show. It keeps its place, length and look. To use something new, add it with Add media first.</p>
+      ) : (
       <label className="btn btn-block picker-btn">
         <PlusIcon size={18} />
         Choose from your phone
@@ -177,9 +190,10 @@ export function MediaSheet({
           }}
         />
       </label>
+      )}
       {everything.length > 0 ? (
         <>
-          <p className="muted small">Or pick from your library. Tap in the order you want them.</p>
+          {replace ? null : <p className="muted small">Or pick from your library. Tap in the order you want them.</p>}
           {filters.length > 2 ? (
             <Segmented<LibraryFilter>
               label="Show"
@@ -210,14 +224,14 @@ export function MediaSheet({
               );
             })}
           </div>
-          <button
+          {replace ? null : <button
             type="button"
             className="btn btn-block sheet-sticky"
             disabled={picked.length === 0}
             onClick={() => onPick(picked.map((id) => everything.find((asset) => asset.id === id)!))}
           >
             {picked.length === 0 ? "Select media to add" : `Add ${picked.length} to the reel`}
-          </button>
+          </button>}
         </>
       ) : null}
     </Sheet>
@@ -727,10 +741,13 @@ export function TextSheet({
   playheadNow,
   title,
   music,
+  focus,
   onSave,
   onClose,
 }: {
   initial: TextDraft | null;
+  /** Opened from the title's Particles or Walk-through control (ADR 0064): that part of the sheet is brought into view. */
+  focus?: "particles" | "walk-through";
   /** Reads the reel time on screen behind the sheet when called: "Use this frame" sets the crossing there (ADR 0055). */
   playheadNow?(): number;
   /** The text's time on the reel, when editing one: where its motion's start is measured from (ADR 0061). */
@@ -742,6 +759,13 @@ export function TextSheet({
 }) {
   const [draft, setDraft] = useState<TextDraft>(initial ?? { text: "", style: "plain", color: "#ffffff", size: 1, animation: "auto" });
   const previewCss = textTreatmentCss(draft);
+  const focusRef = useRef<HTMLDivElement>(null);
+  // After the sheet focused its first field: a control opened for one part goes there instead (no keyboard over it).
+  useEffect(() => {
+    if (!focus || !focusRef.current) return;
+    focusRef.current.scrollIntoView({ block: "center" });
+    focusRef.current.querySelector<HTMLElement>("input, button")?.focus({ preventScroll: true });
+  }, []);
 
   return (
     <Sheet title={initial ? (initial.callout ? "Edit callout" : "Edit text") : "Add text"} onClose={onClose}>
@@ -818,6 +842,7 @@ export function TextSheet({
         }}><option value="still">Still</option>{draft.path ? <option value="path">Keep current motion path</option> : null}<option value="left">Drift left</option><option value="right">Drift right</option></select></label>
         <Segmented label="Depth" options={["flat", "extruded"] as const} value={draft.depth ?? "flat"} onChange={depth => setDraft({ ...draft, depth })} format={depth => ({ flat: "Flat", extruded: "Extruded 3D" })[depth]} />
         <Segmented label="Meets the picture" options={["plain", "surface"] as const} value={draft.blend ?? "plain"} onChange={blend => setDraft({ ...draft, blend: blend === "plain" ? undefined : blend })} format={blend => ({ plain: "On top", surface: "Painted on the surface" })[blend]} />
+        <div ref={focus === "walk-through" ? focusRef : undefined} className={focus === "walk-through" ? "sheet-focus" : undefined} data-testid="text-walk-through">
         <label className="field small"><input type="checkbox" checked={Boolean(draft.behind)} onChange={event => setDraft({ ...draft, behind: event.target.checked || undefined, ...(event.target.checked ? {} : { passMs: undefined, passFadeMs: undefined }) })} /> People in the shot pass in front of this text</label>
         {draft.behind ? (
           // Walks through the words (ADR 0055): in front of her until this moment, behind her after it.
@@ -829,6 +854,8 @@ export function TextSheet({
             </div>
           </div>
         ) : null}
+        </div>
+        <div ref={focus === "particles" ? focusRef : undefined} className={focus === "particles" ? "sheet-focus" : undefined} data-testid="text-particles">
         <Segmented label="Particles" options={["none", "snow", "embers", "dust"] as const} value={draft.particles?.kind ?? "none"}
           onChange={kind => setDraft({ ...draft, particles: kind === "none" ? undefined : { ...draft.particles, kind } })}
           format={kind => ({ none: "No particles", snow: "Snow", embers: "Embers", dust: "Dust" })[kind]} />
@@ -837,6 +864,7 @@ export function TextSheet({
             onChange={density => setDraft({ ...draft, particles: { ...draft.particles!, density } })}
             format={density => ({ 0.5: "Light", 1: "Medium", 1.8: "Thick" })[density as 0.5 | 1 | 1.8]} />
         ) : null}
+        </div>
       </>)}
       {/* A callout and word-by-word or from-behind type bring the words in themselves. */}
       {draft.callout || (draft.kinetic && draft.kinetic.preset !== "count") ? null : (
@@ -1499,6 +1527,8 @@ export function AskSheet({
   onSaveBrief,
   onDeleteBrief,
   onClose,
+  initialRequest = "",
+  autoSubmit = false,
 }: {
   onDirector?: () => void;
   briefs: Brief[];
@@ -1508,8 +1538,12 @@ export function AskSheet({
   onSaveBrief(name: string, text: string): Promise<{ ok: true } | { ok: false; message: string }>;
   onDeleteBrief(id: string): Promise<void>;
   onClose(): void;
+  /** Words typed in the always-there Ask box (ADR 0064). */
+  initialRequest?: string;
+  /** Run them as soon as the sheet opens. */
+  autoSubmit?: boolean;
 }) {
-  const [request, setRequest] = useState("");
+  const [request, setRequest] = useState(initialRequest);
   const [busy, setBusy] = useState(false);
   const [outcome, setOutcome] = useState<AskOutcome | null>(null);
   const [answers, setAnswers] = useState<Record<string, string>>({});
@@ -1533,6 +1567,15 @@ export function AskSheet({
       setBusy(false);
     }
   }
+
+  // Sent from the Ask box: run once, on open.
+  const autoSent = useRef(false);
+  useEffect(() => {
+    if (!autoSubmit || autoSent.current) return;
+    autoSent.current = true;
+    void submit();
+    // Once, when the sheet opens.
+  }, []);
 
   async function keep() {
     const name = window.prompt("Name this preset", "")?.trim();

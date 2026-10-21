@@ -16,8 +16,13 @@ test("the ten asks: sticker, ending text, logo, zoom, typing, strip, caption, ex
   await expect(page.getByTestId("clip")).toHaveCount(3, { timeout: 60_000 });
   await expect(page.getByTestId("save-state")).toHaveAttribute("data-status", "saved", { timeout: 60_000 });
 
-  const ask = page.getByRole("button", { name: "Ask", exact: true });
-  test.skip((await ask.count()) === 0, "this stack has no model and no stand-in (OPENAI_API_KEY or DEV_FAKE_AI)");
+  // Asking starts from the Ask box under the picture (ADR 0064); reel-wide settings are in the Reel sheet.
+  const box = page.getByTestId("ask-box");
+  test.skip((await box.count()) === 0, "this stack has no model and no stand-in (OPENAI_API_KEY or DEV_FAKE_AI)");
+  const reelSetting = async (name: string) => {
+    await page.getByRole("button", { name: "Reel", exact: true }).click();
+    await page.getByRole("dialog", { name: "This reel" }).getByRole("button", { name, exact: true }).click();
+  };
   const sheet = page.getByRole("dialog", { name: /Ask for a change|Cut it for me/ });
   // The answer comes from a background job the editor polls (ADR 0021). Wait
   // for that job's answer and check it, rather than for a toast: the toast
@@ -25,8 +30,7 @@ test("the ten asks: sticker, ending text, logo, zoom, typing, strip, caption, ex
   // first", the cause of every first-attempt failure before ADR 0054) used to
   // show up as a 30 s timeout on the previous ask's toast.
   const askFor = async (request: string, note: RegExp) => {
-    await ask.click();
-    await sheet.getByTestId("ask-input").fill(request);
+    await box.fill(request);
     const answered = page.waitForResponse(
       async (response) => {
         if (!response.url().includes("/api/ai-jobs/")) return false;
@@ -35,7 +39,8 @@ test("the ten asks: sticker, ending text, logo, zoom, typing, strip, caption, ex
       },
       { timeout: 30_000 },
     );
-    await sheet.getByTestId("ask-submit").click();
+    // Sending opens the Ask sheet with the words and runs them.
+    await page.getByTestId("ask-box-send").click();
     const job = (await (await answered).json()) as { status: string; error?: string; result?: { note: string; applied: string[] } };
     expect(job.status, job.error).toBe("DONE");
     expect(job.result?.note).toMatch(note);
@@ -54,7 +59,7 @@ test("the ten asks: sticker, ending text, logo, zoom, typing, strip, caption, ex
   await expect(page.getByTestId("text-bar").filter({ hasText: "DM for a tour" })).toHaveCount(1);
 
   // The logo: uploaded in its sheet, then moved by asking.
-  await page.getByRole("button", { name: "Logo", exact: true }).click();
+  await reelSetting("Logo");
   const logoSheet = page.getByRole("dialog", { name: "Logo" });
   await logoSheet.getByTestId("logo-input").setInputFiles(fixture("logo.png"));
   await expect(logoSheet.getByRole("button", { name: "Remove the logo" })).toBeVisible({ timeout: 60_000 });
@@ -64,14 +69,14 @@ test("the ten asks: sticker, ending text, logo, zoom, typing, strip, caption, ex
   // A closer crop of the kitchen, then the title typing in, then the facts strip.
   await askFor("zoom in a bit", /cropped closer/);
   await askFor("make the title type in letter by letter", /arrives with a type/);
-  await page.getByRole("button", { name: "Details", exact: true }).click();
+  await reelSetting("Details");
   const details = page.getByRole("dialog", { name: "Property details" });
   await details.getByPlaceholder("¥48,000,000").fill("$899,000");
   await details.getByRole("button", { name: "Strip, whole reel" }).click();
   await details.getByRole("button", { name: /close/i }).click();
 
   // The caption, written for you.
-  await page.getByRole("button", { name: "Caption", exact: true }).click();
+  await reelSetting("Caption");
   const caption = page.getByRole("dialog", { name: "Post caption" });
   await caption.getByTestId("caption-write").click();
   await expect(caption.locator("textarea")).toHaveValue(/#realestate/, { timeout: 30_000 });

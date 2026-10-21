@@ -35,7 +35,7 @@
  * Pure arithmetic on `Gray` frames (Float32 luminance 0–255) in pixels;
  * deterministic (the only randomness is RANSAC's seeded generator).
  */
-import { applyHomography, homography, invertHomography, robustFit, smoothKeyframes, type Gray, type PlaneModel, type Quad } from "./motion";
+import { applyHomography, homography, invertHomography, robustFit, type Gray, type PlaneModel, type Quad } from "./motion";
 
 export type Point = [number, number];
 
@@ -377,13 +377,19 @@ function robust(model: PlaneModel, from: Point[], to: Point[], tolerance: number
 
 /**
  * The simplest plane motion the tracked points support between two frames.
- * A similarity first (a wall through a pan scales, turns and slides); an
- * affine only when it explains clearly more points or much better; a
- * homography only with plenty of well-spread points. Each candidate must pass
- * the degeneracy gates (per-step scale, rotation, shear and aspect change, and
- * the moved quad must stay a sane convex plane); a failing candidate falls
- * back to the simpler model, and if even the similarity fails the step is
- * refused as degenerate rather than applied.
+ * Similarity, affine (n ≥ 10) and homography (n ≥ 16) are each fitted on
+ * their own, and each is judged on its own inliers: enough of them, spread
+ * enough for that model, and a step inside the degeneracy gates (per-step
+ * scale, rotation, shear and aspect change; the moved quad a sane convex
+ * plane). Of the candidates that pass, a richer one replaces a simpler one
+ * only when it explains clearly more points, or the same points clearly
+ * better. A similarity that fails (a 4% stretch leaves only a line of points
+ * agreeing with it) does not block an affine that fits everything.
+ *
+ * If a richer model explains the points clearly better than the chosen one
+ * but is refused by the gates, the step is refused as degenerate rather than
+ * falling back to a simpler model that only explains a subset; and a model
+ * explaining under half the followed points is refused as a guess.
  */
 export function selectModel(from: Point[], to: Point[], quad: Quad, options: ModelOptions = {}): ModelSelection {
   const { tolerance = 1, minInliers = 6, seed = 7, maxScaleStep = 0.15, maxRotationStep = 6, maxShearStep = 4, maxAspectStep = 0.1 } = options;
@@ -398,32 +404,29 @@ export function selectModel(from: Point[], to: Point[], quad: Quad, options: Mod
     return Math.abs(Math.log(s.scale)) <= Math.log(1 + maxScaleStep) && Math.abs(s.rotation) <= maxRotationStep && Math.abs(s.shear) <= maxShearStep && Math.abs(Math.log(s.aspect)) <= Math.log(1 + maxAspectStep) && quadIsSane(mapQuad(h, quad));
   };
   // A richer model must explain clearly more points, or the same points clearly better (by a margin that is not noise).
-  const better = (a: { inliers: number[]; error: number }, b: { inliers: number[]; error: number }) =>
+  type Fit = { model: PlaneModel; h: number[]; inliers: number[]; error: number };
+  const better = (a: Fit, b: Fit) =>
     a.inliers.length >= b.inliers.length + Math.max(2, Math.ceil(0.1 * n)) || (a.inliers.length >= b.inliers.length && a.error < 0.7 * b.error && b.error - a.error > 0.1 * tolerance);
-  // Whether a richer model was turned away by the gates: then "most points disagree" means degenerate motion, not a lost plane.
-  let refusedShape = false;
-  const sim = robust("similarity", from.slice(0, n), to.slice(0, n), tolerance, seed);
-  if (!sim || sim.inliers.length < minInliers) return { ok: false, reason: "too-few-features", detail: `only ${sim?.inliers.length ?? 0} of ${n} points agree on one motion` };
-  if (!spreadOk("similarity", sim.inliers)) return { ok: false, reason: "degenerate-motion", detail: "the points that agree are bunched in one place or along one line" };
-  let best: { model: PlaneModel; h: number[]; inliers: number[]; error: number } = { model: "similarity", ...sim };
-  if (n >= 10) {
-    const aff = robust("affine", from.slice(0, n), to.slice(0, n), tolerance, seed);
-    if (aff && aff.inliers.length >= minInliers && better(aff, best) && spreadOk("affine", aff.inliers)) {
-      if (shapeOk(aff.h)) best = { model: "affine", ...aff }; else refusedShape = true;
-    }
+  const models: PlaneModel[] = ["similarity", ...(n >= 10 ? ["affine" as const] : []), ...(n >= 16 ? ["homography" as const] : [])];
+  const fits: (Fit & { status: "ok" | "few" | "spread" | "shape" })[] = [];
+  for (const model of models) {
+    const fit = robust(model, from.slice(0, n), to.slice(0, n), tolerance, seed);
+    if (!fit) continue;
+    const status = fit.inliers.length < minInliers ? "few" : !spreadOk(model, fit.inliers) ? "spread" : !shapeOk(fit.h) ? "shape" : "ok";
+    fits.push({ model, ...fit, status });
   }
-  if (n >= 16) {
-    const hom = robust("homography", from.slice(0, n), to.slice(0, n), tolerance, seed);
-    if (hom && hom.inliers.length >= minInliers && better(hom, best) && spreadOk("homography", hom.inliers)) {
-      if (shapeOk(hom.h)) best = { model: "homography", ...hom }; else refusedShape = true;
-    }
+  let best: Fit | null = null;
+  for (const fit of fits) if (fit.status === "ok" && (!best || better(fit, best))) best = fit;
+  // A candidate turned away only by the shape gates that would have beaten the choice: the motion is degenerate.
+  const refused = fits.find((f) => f.status === "shape" && (!best || better(f, best)));
+  if (refused) return { ok: false, reason: "degenerate-motion", detail: "the points move in a way only a sheared, stretched or collapsed plane explains" };
+  if (!best) {
+    if (fits.some((f) => f.status === "spread")) return { ok: false, reason: "degenerate-motion", detail: "the points that agree are bunched in one place or along one line" };
+    const most = Math.max(0, ...fits.map((f) => f.inliers.length));
+    return { ok: false, reason: "too-few-features", detail: `only ${most} of ${n} points agree on one motion` };
   }
-  // A richer model explained the points clearly better but the gates refused it: falling back to a simpler
-  // model that explains fewer of them would be a guess, so the step is refused.
-  if (refusedShape) return { ok: false, reason: "degenerate-motion", detail: "the points move in a way only a sheared or collapsed plane explains" };
   // Most of the followed points must move with the plane; a model that explains a minority is a guess.
   if (best.inliers.length < 0.5 * n) return { ok: false, reason: "too-few-features", detail: `only ${best.inliers.length} of ${n} points agree on one motion` };
-  if (!shapeOk(best.h)) return { ok: false, reason: "degenerate-motion", detail: "the step would stretch, shear or turn the surface more than a camera can between two frames" };
   return { ok: true, ...best };
 }
 
@@ -559,8 +562,10 @@ function score(points: Point[], quad: Quad, error: number, inliers: number, widt
 const round = (v: number, d: number) => Number(v.toFixed(d));
 
 /** One run from an anchor in one direction, up to and including `end`. */
-function runFrom(frames: Gray[], start: number, end: number, quad0: Quad, o: Resolved, pyramids: (i: number) => Level[], progress: () => void):
-  { frames: Map<number, TrackFrame>; lostAt: number | null; reacquiredAt?: number | null; lostReason: TrackFailure | null; detail: string; stats: TrackStats; failure?: { reason: TrackFailure; detail: string } } {
+type RunResult = { frames: Map<number, TrackFrame>; lostAt: number | null; reacquiredAt?: number | null; lostReason: TrackFailure | null; detail: string; stats: TrackStats; failure?: { reason: TrackFailure; detail: string } };
+
+/** Yields after every frame step (the progress so far), so a caller can hand the thread back between steps. */
+function* runFrom(frames: Gray[], start: number, end: number, quad0: Quad, o: Resolved, pyramids: (i: number) => Level[], progress: () => number): Generator<number, RunResult, void> {
   const dir = end >= start ? 1 : -1;
   const { width, height } = frames[start];
   const refLevels = pyramids(start);
@@ -614,7 +619,7 @@ function runFrom(frames: Gray[], start: number, end: number, quad0: Quad, o: Res
         stats.held++;
         out.set(k, { index: k, quad: mapQuad(H, quad0), confidence: 0, attachment: 0, coverage: 0, error: Infinity, uncertaintyPx: null, inliers: 0, model: null, held: true, lost: true, registered: false, anchor: false });
       }
-      progress();
+      yield progress();
       continue;
     }
     const gap = Math.abs(k - anchorIdx);
@@ -653,7 +658,7 @@ function runFrom(frames: Gray[], start: number, end: number, quad0: Quad, o: Res
         lostAt = first;
         for (let j = first; j !== k + dir; j += dir) out.set(j, { ...out.get(j)!, lost: true });
       }
-      progress();
+      yield progress();
       continue;
     }
     const nextQuad = mapQuad(candidate, quad0);
@@ -669,7 +674,7 @@ function runFrom(frames: Gray[], start: number, end: number, quad0: Quad, o: Res
     out.set(k, { index: k, quad: nextQuad, confidence: s.confidence, attachment: s.attachment, coverage: s.coverage, error: Number.isFinite(error) ? error : o.tolerance * 2, uncertaintyPx: s.uncertaintyPx, inliers: evidence.length, model: sel.ok ? sel.model : "homography", held: false, lost: false, registered: !!registered?.ok, anchor: false });
     // Carry the agreeing points on; top up from the current frame, inside the current quad only.
     anchorIdx = k; anchorPts = freshPoints(k, nextQuad, sel.ok ? stepInliers : (registered as { inliers: Point[] }).inliers);
-    progress();
+    yield progress();
   }
   stats.meanInliers = measured ? inlierSum / measured : 0;
   return { frames: out, lostAt: firstLost, reacquiredAt, lostReason: firstLost !== null ? lostReason ?? "plane-lost" : null, detail, stats };
@@ -685,6 +690,32 @@ function runFrom(frames: Gray[], start: number, end: number, quad0: Quad, o: Res
  * frames that were already right.
  */
 export function trackSurface(frames: Gray[], anchors: { index: number; quad: Quad }[], options: TrackOptions = {}): TrackResult {
+  const steps = trackSteps(frames, anchors, options);
+  for (let step = steps.next(); ; step = steps.next()) {
+    if (step.done) return step.value;
+    options.onProgress?.(step.value);
+  }
+}
+
+/**
+ * `trackSurface` that hands the thread back every `yieldEvery` frame steps
+ * (by awaiting `yieldTo`, a macrotask by default), so the editor can paint
+ * progress and stay responsive. The arithmetic and the result are identical
+ * to `trackSurface`; only the scheduling differs.
+ */
+export async function trackSurfaceAsync(frames: Gray[], anchors: { index: number; quad: Quad }[], options: TrackOptions & { yieldEvery?: number; yieldTo?: () => Promise<void> } = {}): Promise<TrackResult> {
+  const { yieldEvery = 2, yieldTo = () => new Promise<void>((resolve) => setTimeout(resolve, 0)) } = options;
+  const steps = trackSteps(frames, anchors, options);
+  let count = 0;
+  for (let step = steps.next(); ; step = steps.next()) {
+    if (step.done) return step.value;
+    options.onProgress?.(step.value);
+    if (++count % Math.max(1, yieldEvery) === 0) await yieldTo();
+  }
+}
+
+/** The tracker as a generator: yields progress (0-1) after every frame step and returns the result. */
+export function* trackSteps(frames: Gray[], anchors: { index: number; quad: Quad }[], options: TrackOptions = {}): Generator<number, TrackResult, void> {
   if (!frames.length || !anchors.length) return { ok: false, reason: "too-few-features", frame: 0, message: MESSAGES["too-few-features"]("no frames or no surface") };
   const o = resolve(options, frames[0].width);
   const sorted = [...new Map(anchors.filter((a) => a.index >= 0 && a.index < frames.length).map((a) => [a.index, a])).values()].sort((a, b) => a.index - b.index);
@@ -701,16 +732,16 @@ export function trackSurface(frames: Gray[], anchors: { index: number; quad: Qua
   };
   let done = 0;
   const totalSteps = Math.max(1, frames.length - 1 + sorted.slice(1).reduce((s, a, i) => s + a.index - sorted[i].index, 0));
-  const progress = () => { done++; options.onProgress?.(Math.min(1, done / totalSteps)); };
-  type Run = ReturnType<typeof runFrom>;
+  const progress = () => Math.min(1, ++done / totalSteps);
+  type Run = RunResult;
   const forward: Run[] = [], backward: Run[] = [];
   for (let a = 0; a < sorted.length; a++) {
     const { index, quad } = sorted[a];
     const nextAnchor = a + 1 < sorted.length ? sorted[a + 1].index : frames.length - 1;
     const prevAnchor = a > 0 ? sorted[a - 1].index : 0;
-    const f = runFrom(frames, index, nextAnchor, quad, o, pyramids, progress);
+    const f = yield* runFrom(frames, index, nextAnchor, quad, o, pyramids, progress);
     if (f.failure) return { ok: false, reason: f.failure.reason, frame: index, message: MESSAGES[f.failure.reason](f.failure.detail) };
-    const b = index > prevAnchor ? runFrom(frames, index, prevAnchor, quad, o, pyramids, progress) : null;
+    const b = index > prevAnchor ? yield* runFrom(frames, index, prevAnchor, quad, o, pyramids, progress) : null;
     forward.push(f);
     backward.push(b ?? { frames: new Map(), lostAt: null, lostReason: null, detail: "", stats: { points: 0, meanInliers: 0, held: 0, steps: 0, corrections: 0 } });
   }
@@ -770,18 +801,94 @@ export function trackSurface(frames: Gray[], anchors: { index: number; quad: Qua
 }
 
 /**
- * `smoothKeyframes` within each run of live (not lost) keyframes only, so a
- * frame where the surface was found again is not averaged with the stale,
- * held corners before it. Lost keyframes pass through unchanged.
+ * Smooth the measured corners without lag and without lying (ADR 0052):
+ * `passes` of a centred 1-2-1 average over each corner, only within runs of
+ * measured frames. Held and lost frames are never part of a run, and the end
+ * points of a run stay where they were measured. Afterwards each frame's
+ * corners may sit at most its own `uncertaintyPx` from the measurement, so
+ * smoothing cannot carry a confident frame off its surface (a real camera
+ * jolt stays a jolt); author anchors do not move at all.
  */
-export function smoothLive<T extends { t: number; x: number; y: number; s?: number; r?: number; q?: number[] }>(points: T[], live: boolean[], passes = 2): T[] {
-  const out: T[] = [];
-  for (let i = 0; i < points.length;) {
+export function smoothTrack(frames: TrackFrame[], passes = 2): TrackFrame[] {
+  const out = frames.map((f) => ({ ...f, quad: [...f.quad] as Quad }));
+  const measured = (f: TrackFrame) => !f.held && !f.lost;
+  for (let i = 0; i < frames.length;) {
+    if (!measured(frames[i])) { i++; continue; }
     let j = i;
-    while (j < points.length && live[j] === live[i]) j++;
-    const run = points.slice(i, j);
-    out.push(...(live[i] ? smoothKeyframes(run, passes) : run));
+    while (j < frames.length && measured(frames[j])) j++;
+    if (j - i >= 3) {
+      const quads = frames.slice(i, j).map((f) => [...f.quad]);
+      for (let pass = 0; pass < passes; pass++) {
+        const prior = quads.map((q) => [...q]);
+        for (let k = 1; k < quads.length - 1; k++) for (let c = 0; c < 8; c++) quads[k][c] = (prior[k - 1][c] + 2 * prior[k][c] + prior[k + 1][c]) / 4;
+      }
+      quads.forEach((q, k) => {
+        const raw = frames[i + k];
+        const bound = raw.anchor ? 0 : Math.max(0, raw.uncertaintyPx ?? 0);
+        out[i + k].quad = q.map((v, c) => raw.quad[c] + Math.max(-bound, Math.min(bound, v - raw.quad[c]))) as Quad;
+      });
+    }
     i = j;
   }
   return out;
+}
+
+export type TrackPathPoint = { t: number; x: number; y: number; s: number; r: number; q: number[]; o?: number };
+
+/**
+ * The keyframes the editor saves for a track (ADR 0039 path format, ADR
+ * 0052 rules), from tracked frames sampled at source `times` (ms):
+ *
+ * - `t` runs over the pin's interval (`pin.fromMs` to `pin.toMs`), the same
+ *   interval `pinnedProgress` plays it over, with a held end point at t = 1
+ *   when the last sample falls short;
+ * - lost frames are hidden (o = 0) and carry the corners of the nearest
+ *   measured frame on their side of the gap (the last one before the loss
+ *   for the first half, the re-found one after), so nothing stale is drawn
+ *   while the title fades out or back in; measured frames are fully opaque;
+ * - held (refused) frames inside a track take corners interpolated between
+ *   the measured frames either side rather than repeating stale ones;
+ * - `confidence[i]` is the tracker's confidence for keyframe i (0 when lost).
+ */
+export function trackPath(frames: TrackFrame[], times: number[], pin: { fromMs: number; toMs: number }, text: { x: number; y: number }, size: { width: number; height: number }): { path: TrackPathPoint[]; confidence: number[] } {
+  const { width, height } = size;
+  const span = Math.max(1, pin.toMs - pin.fromMs);
+  const tOf = (i: number) => Math.max(0, Math.min(1, (times[i] - pin.fromMs) / span));
+  const live = frames.flatMap((f, i) => (f.held || f.lost ? [] : [i]));
+  const quads = frames.map((f, i) => {
+    if (!f.held && !f.lost) return f.quad;
+    let before: number | undefined, after: number | undefined;
+    for (const j of live) { if (j < i) before = j; else if (j > i && after === undefined) after = j; }
+    if (f.lost) {
+      if (before === undefined) return after !== undefined ? frames[after].quad : f.quad;
+      if (after === undefined) return frames[before].quad;
+      return i - before <= after - i ? frames[before].quad : frames[after].quad;
+    }
+    if (before === undefined || after === undefined) return frames[before ?? after ?? i].quad;
+    const w = (i - before) / (after - before);
+    return frames[before].quad.map((v, c) => v + (frames[after!].quad[c] - v) * w) as Quad;
+  });
+  const base = quads[0];
+  const baseDistance = Math.hypot(base[2] - base[0], base[3] - base[1]) || 1;
+  const baseAngle = Math.atan2(base[3] - base[1], base[2] - base[0]);
+  const points = frames.map((frame, i) => {
+    const [tlx, tly, trx, try_, brx, bry, blx, bly] = quads[i];
+    const mid = { x: (tlx + trx + brx + blx) / 4, y: (tly + try_ + bry + bly) / 4 };
+    const point: TrackPathPoint = {
+      t: Number(tOf(i).toFixed(4)),
+      x: Number(Math.max(-0.5, Math.min(0.5, mid.x / width - text.x)).toFixed(4)),
+      y: Number(Math.max(-0.5, Math.min(0.5, mid.y / height - text.y)).toFixed(4)),
+      s: Number(Math.max(0.2, Math.min(5, Math.hypot(trx - tlx, try_ - tly) / baseDistance)).toFixed(3)),
+      r: Number(Math.max(-180, Math.min(180, ((Math.atan2(try_ - tly, trx - tlx) - baseAngle) * 180) / Math.PI)).toFixed(2)),
+      q: quads[i].map((v, k) => Number(Math.max(-2, Math.min(3, k % 2 === 0 ? v / width : v / height)).toFixed(4))),
+      ...(frame.lost ? { o: 0 } : {}),
+    };
+    return { point, c: frame.lost ? 0 : frame.confidence };
+  });
+  // Strictly increasing t from 0, ending at 1 (the last sample held to the end of the pin).
+  const kept = points.filter((p, i) => i === 0 || p.point.t > points[i - 1].point.t);
+  kept[0] = { ...kept[0], point: { ...kept[0].point, t: 0 } };
+  const last = kept[kept.length - 1];
+  if (last.point.t < 1) kept.push({ point: { ...last.point, t: 1 }, c: last.c });
+  return { path: kept.map((k) => k.point), confidence: kept.map((k) => k.c) };
 }

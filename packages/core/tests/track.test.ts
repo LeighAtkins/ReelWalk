@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   applyHomography, buildPyramid, cornerScore, downsample, homography, insideQuad, localShape, lkTrack, mapQuad, minorSpread, quadCoverage, quadIsSane,
-  register, selectModel, smoothLive, supportPoints, trackForwardBackward, trackSurface, warpGray, type Gray, type Point, type Quad,
+  register, selectModel, smoothTrack, supportPoints, trackForwardBackward, trackPath, trackSurface, trackSurfaceAsync, warpGray, IDENTITY, type Gray, type Point, type Quad, type TrackFrame,
 } from "../src";
 import { cornerError, scenarios, texturedFrame } from "./track-bench/synth";
 
@@ -147,6 +147,16 @@ describe("model selection", () => {
     expect(selectModel(grid, moved(shear), QUAD)).toMatchObject({ ok: false, reason: "degenerate-motion" });
   });
 
+  it("takes an affine for a 4% stretch even though the similarity's agreeing points are a line (regression)", () => {
+    // 56 well-spread exact correspondences, stretched 4% horizontally about the quad's centre.
+    const pts: Point[] = [];
+    for (let y = 0; y < 7; y++) for (let x = 0; x < 8; x++) pts.push([45 + x * 8, 87 + y * 7]);
+    const stretch = [1.04, 0, -0.04 * 72, 0, 1, 0, 0, 0, 1];
+    const sel = selectModel(pts, moved(stretch, pts), QUAD);
+    expect(sel.ok).toBe(true);
+    if (sel.ok) { expect(sel.model).not.toBe("similarity"); expect(sel.inliers.length).toBe(56); }
+  });
+
   it("refuses too few points", () => {
     expect(selectModel(grid.slice(0, 4), moved(shift(1, 0), grid.slice(0, 4)), QUAD)).toMatchObject({ ok: false, reason: "too-few-features" });
   });
@@ -170,6 +180,15 @@ describe("drift correction", () => {
     const fixed = register(ref, frame, drifted);
     expect(fixed.ok).toBe(true);
     if (fixed.ok) expect(cornerError(mapQuad(fixed.h, QUAD), mapQuad(truth, QUAD))).toBeLessThan(0.25);
+  });
+
+  it("re-registers a 4% stretch from an unstretched prediction (same selector, regression)", () => {
+    const levels = buildPyramid(texturedFrame(W, H), 3);
+    const ref = { levels, points: supportPoints(levels[0], QUAD), quad: QUAD };
+    const stretch = [1.04, 0, -0.04 * 72, 0, 1, 0, 0, 0, 1];
+    const fixed = register(ref, texturedFrame(W, H, stretch), IDENTITY);
+    expect(fixed.ok).toBe(true);
+    if (fixed.ok) expect(cornerError(mapQuad(fixed.h, QUAD), mapQuad(stretch, QUAD))).toBeLessThan(0.3);
   });
 
   it("warps a frame back into the reference", () => {
@@ -278,14 +297,98 @@ describe("manual correction keyframes", () => {
   });
 });
 
+const trackFrame = (index: number, quad: Quad, extra: Partial<TrackFrame> = {}): TrackFrame => ({
+  index, quad, confidence: 1, attachment: 1, coverage: 1, error: 0.1, uncertaintyPx: 0.05, inliers: 40, model: "similarity", held: false, lost: false, registered: false, anchor: false, ...extra,
+});
+const at = (x: number): Quad => [x, 10, x + 50, 10, x + 50, 40, x, 40];
+
 describe("smoothing", () => {
-  it("smooths each followed run on its own, never across held corners", () => {
-    const pts = [0, 0, 0, 9, 9, 3, 3, 3].map((x, i) => ({ t: i / 7, x, y: 0 }));
-    const live = [true, true, true, false, false, true, true, true];
-    const out = smoothLive(pts, live);
-    expect(out.slice(3, 5).map((p) => p.x)).toEqual([9, 9]);
-    expect(out[5].x).toBe(3); // the re-found frame keeps its measured value (an end of its run)
-    expect(out.slice(0, 3).map((p) => p.x)).toEqual([0, 0, 0]);
+  it("keeps a real camera jolt: a confident frame moves no further than its own uncertainty (regression)", () => {
+    // Textured frames translated by [0, 0, 0, 10, 0, 0, 0] px: the jolt at frame 3 is real and measured exactly.
+    const offsets = [0, 0, 0, 10, 0, 0, 0];
+    const frames = offsets.map((dx) => texturedFrame(360, 640, shift(dx, 0)));
+    const quad: Quad = [108, 211, 252, 211, 252, 326, 108, 326];
+    const truth = offsets.map((dx) => quad.map((v, i) => (i % 2 === 0 ? v + dx : v)) as Quad);
+    const raw = trackSurface(frames, [{ index: 0, quad }]);
+    expect(raw.ok).toBe(true);
+    if (!raw.ok) return;
+    expect(cornerError(raw.frames[3].quad, truth[3])).toBeLessThan(0.1);
+    expect(raw.frames[3].confidence).toBeGreaterThan(0.5);
+    const smooth = smoothTrack(raw.frames);
+    for (let i = 0; i < smooth.length; i++) {
+      expect(cornerError(smooth[i].quad, truth[i]), `frame ${i}`).toBeLessThan(0.1 + (raw.frames[i].uncertaintyPx ?? 0));
+    }
+    // An unbounded 1-2-1 smoother would have carried frame 3 most of the way back (the review measured 6.25 px).
+    expect(cornerError(smooth[3].quad, truth[3])).toBeLessThan(0.2);
+  });
+
+  it("never moves an author anchor, even inside a run", () => {
+    const frames = [0, 0, 8, 0, 0].map((x, i) => trackFrame(i, at(x), { uncertaintyPx: 10, anchor: i === 2 }));
+    const out = smoothTrack(frames);
+    expect(out[2].quad).toEqual(at(8));
+    expect(out[1].quad[0]).toBeGreaterThan(0); // its neighbours, with a wide bound, are smoothed towards it
+  });
+
+  it("keeps held and lost frames out of measured runs", () => {
+    const frames = [0, 0, 0, 30, 3, 3, 3].map((x, i) => trackFrame(i, at(x), { uncertaintyPx: 10, held: i === 3 }));
+    const out = smoothTrack(frames);
+    expect(out[3].quad).toEqual(at(30));
+    expect(out.slice(0, 3).map((f) => f.quad[0])).toEqual([0, 0, 0]);
+    expect(out.slice(4).map((f) => f.quad[0])).toEqual([3, 3, 3]);
+  });
+
+  it("bounds smoothing by uncertainty: a jittery track is smoothed only as far as its error bars allow", () => {
+    const frames = [0, 2, 0, 2, 0].map((x, i) => trackFrame(i, at(x), { uncertaintyPx: 0.3 }));
+    const out = smoothTrack(frames);
+    out.forEach((f, i) => expect(Math.abs(f.quad[0] - frames[i].quad[0])).toBeLessThanOrEqual(0.3 + 1e-9));
+  });
+});
+
+describe("saved path", () => {
+  const size = { width: 100, height: 100 };
+
+  it("hides stale geometry: lost frames are o = 0 at the nearest measured corners, the re-found frame is opaque (regression)", () => {
+    const frames = [
+      trackFrame(0, at(0), { anchor: true }), trackFrame(1, at(1)),
+      trackFrame(2, at(1), { lost: true, held: true, confidence: 0 }), trackFrame(3, at(1), { lost: true, held: true, confidence: 0 }), trackFrame(4, at(1), { lost: true, held: true, confidence: 0 }),
+      trackFrame(5, at(9), { registered: true }), trackFrame(6, at(10)),
+    ];
+    const { path, confidence } = trackPath(frames, [0, 100, 200, 300, 400, 500, 600], { fromMs: 0, toMs: 600 }, { x: 0.25, y: 0.25 }, size);
+    expect(path.map((p) => p.o ?? 1)).toEqual([1, 1, 0, 0, 0, 1, 1]);
+    expect(confidence.slice(2, 5)).toEqual([0, 0, 0]);
+    // First half of the gap keeps the last measured corners, second half already carries the re-found ones.
+    expect(path[2].q[0]).toBeCloseTo(0.01, 4);
+    expect(path[3].q[0]).toBeCloseTo(0.01, 4);
+    expect(path[4].q[0]).toBeCloseTo(0.09, 4);
+    expect(path[5].q[0]).toBeCloseTo(0.09, 4);
+  });
+
+  it("interpolates a held (refused) frame instead of repeating stale corners", () => {
+    const frames = [trackFrame(0, at(0), { anchor: true }), trackFrame(1, at(0), { held: true, confidence: 0 }), trackFrame(2, at(4))];
+    const { path } = trackPath(frames, [0, 100, 200], { fromMs: 0, toMs: 200 }, { x: 0.25, y: 0.25 }, size);
+    expect(path[1].q[0]).toBeCloseTo(0.02, 4);
+    expect(path[1].o).toBeUndefined();
+  });
+
+  it("times keyframes over the pin's interval and holds the end point (regression)", () => {
+    // A 250 ms pin sampled at 0, 100, 200 ms: t must be 0, 0.4, 0.8 then a held point at 1, not 0, 0.5, 1.
+    const frames = [0, 1, 2].map((i) => trackFrame(i, at(i), { anchor: i === 0 }));
+    const { path } = trackPath(frames, [0, 100, 200], { fromMs: 0, toMs: 250 }, { x: 0.25, y: 0.25 }, size);
+    expect(path.map((p) => p.t)).toEqual([0, 0.4, 0.8, 1]);
+    expect(path[3].q).toEqual(path[2].q);
+  });
+});
+
+describe("scheduling", () => {
+  it("gives the same result asynchronously, handing the thread back between steps", async () => {
+    const s = scenarios(W, H, 8)[0];
+    const sync = trackSurface(s.frames, [{ index: 0, quad: s.quad }]);
+    let yields = 0;
+    const progress: number[] = [];
+    const async = await trackSurfaceAsync(s.frames, [{ index: 0, quad: s.quad }], { yieldEvery: 1, yieldTo: async () => { yields++; }, onProgress: (f) => progress.push(f) });
+    expect(JSON.stringify(async)).toBe(JSON.stringify(sync));
+    expect(yields).toBe(7);
+    expect(progress.at(-1)).toBe(1);
   });
 });
 

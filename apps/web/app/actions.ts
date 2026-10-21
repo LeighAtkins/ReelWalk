@@ -5,34 +5,28 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import {
-  buildReelExportPayload,
   buildTourReel,
   captionForVibe,
-  canExport,
   emptyTimeline,
-  instagramIssues,
   isEquirect,
   MAX_UPLOAD_BYTES,
-  parseTimeline,
   planSchema,
-  referencedAssetIds,
   resolveUploadType,
   spotSchema,
   vibeById,
   thumbKeyFor,
   uploadKeyFor,
-  type Issue,
 } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
 import { toLibraryAsset, toLibraryAssets, type LibraryAsset } from "@/lib/library";
 import { saveReelFor, type SaveResult } from "@/lib/save-reel";
-import { workspacePlan } from "@/lib/plans";
-import { exportBlockedReason, retryBlockedReason, storageBlockedReason } from "@/lib/quotas";
+import { retryBlockedReason, storageBlockedReason } from "@/lib/quotas";
 import { ensureWorkerRunning } from "@/lib/render-capacity";
 import { flushOutbox, queueRenderJob } from "@/lib/render-jobs";
 import { abortMultipartUpload, completeMultipartUpload, headObject, presignUpload, startMultipartUpload, UPLOAD_PART_BYTES } from "@/lib/storage";
 import { getCurrentUser, mediaScope } from "@/lib/workspace";
 import { appUrl } from "@/lib/app-url";
+import { queueReelExport, type ExportResult as QueuedExportResult } from "@/lib/export-reel";
 
 // ── Reels ───────────────────────────────────────────────────────
 
@@ -157,54 +151,15 @@ export async function setShareLink(input: { id: string; enabled: boolean }): Pro
   return { url: shareToken ? `${await appUrl()}/r/${shareToken}` : null };
 }
 
-export type ExportResult = { ok: false; issues: Issue[]; message?: string; /** A bigger plan would lift the limit that stopped it. */ upgrade?: boolean };
+export type ExportResult = QueuedExportResult;
 
-/**
- * Freezes the current timeline into a render job and queues it. The checks
- * run again here, on the server, whatever the browser showed. The job row and
- * its queue message are written in one transaction (the outbox).
- */
+/** Queues the reel's export (`queueReelExport`) and opens the export screen. */
 export async function exportReel(input: { id: string }): Promise<ExportResult> {
   const user = await getCurrentUser();
-  const reel = await prisma.reel.findFirst({ where: { id: input.id, workspaceId: user.workspaceId } });
-  if (!reel) return { ok: false, issues: [], message: "This reel was deleted." };
-
-  const timeline = parseTimeline(reel.timeline);
-  const issues = instagramIssues(timeline, reel.caption);
-  if (!canExport(issues)) return { ok: false, issues };
-  const blocked = await exportBlockedReason(user.workspaceId);
-  if (blocked) return { ok: false, issues: [], message: blocked.message, upgrade: blocked.upgrade };
-
-  const library = await prisma.mediaAsset.findMany({
-    where: { id: { in: referencedAssetIds(timeline) }, ...mediaScope(user.workspaceId) },
-    // instagramAudioId marks an Instagram sound's copy, which the render leaves out (ADR 0019).
-    select: { id: true, objectKey: true, kind: true, instagramAudioId: true, transcript: true },
-  });
-  const { plan } = await workspacePlan(user.workspaceId);
-  let payload;
-  try {
-    payload = buildReelExportPayload(timeline, library, { width: plan.outputWidth, watermark: plan.watermark });
-  } catch (error) {
-    return { ok: false, issues: [], message: error instanceof Error ? error.message : "Could not export." };
-  }
-
-  await prisma.$transaction(async (tx) => {
-    const job = await tx.renderJob.create({
-      data: {
-        workspaceId: user.workspaceId,
-        createdById: user.id,
-        reelId: reel.id,
-        kind: "REEL",
-        payload,
-        caption: reel.title,
-      },
-    });
-    await queueRenderJob(tx, job);
-  });
-  await flushOutbox();
-  await ensureWorkerRunning();
+  const result = await queueReelExport(user, input.id);
+  if (!result.ok) return result;
   revalidatePath("/exports");
-  redirect(`/reels/${reel.id}/export`);
+  redirect(`/reels/${input.id}/export`);
 }
 
 export async function retryRenderJob(formData: FormData): Promise<void> {
@@ -339,6 +294,8 @@ const confirmSchema = z.object({
   /** Tempo of a song, detected in the browser. */
   bpm: z.number().min(40).max(240).nullable().optional(),
   beatOffsetMs: z.number().int().min(0).nullable().optional(),
+  /** The room the shot list says this was filmed as (ADR 0063). */
+  room: z.string().trim().toLowerCase().min(1).max(40).nullable().optional(),
 });
 
 export type ConfirmResult = { ok: true; asset: LibraryAsset } | { ok: false; error: string };
@@ -377,6 +334,7 @@ export async function confirmUpload(input: z.input<typeof confirmSchema>): Promi
       height: data.height,
       bpm: resolved.kind === "AUDIO" ? (data.bpm ?? null) : null,
       beatOffsetMs: resolved.kind === "AUDIO" ? (data.beatOffsetMs ?? null) : null,
+      room: resolved.kind === "AUDIO" ? null : (data.room ?? null),
     },
   });
 

@@ -144,6 +144,10 @@ export default async function ExportPage({
                 <Link className="btn btn-quiet" href={`/reels/${reel.id}`} prefetch={false}>
                   Keep editing
                 </Link>
+                {/* Variants (ADR 0063): three openings at 15 and 30 s, to post and compare. */}
+                <Link className="btn btn-quiet" href={`/reels/${reel.id}/variants`} prefetch={false} data-testid="variants-link">
+                  Variants
+                </Link>
               </div>
             </>
           ) : job.status === "FAILED" ? (

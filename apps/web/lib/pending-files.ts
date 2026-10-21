@@ -5,8 +5,19 @@
  */
 let pending: { reelId: string; files: File[] } | null = null;
 
-export function setPendingFiles(reelId: string, files: File[]): void {
+/** The room each file was filmed as, from the shot list (ADR 0063); the upload records it on the asset, so the clip knows its room. */
+const roomHints = new WeakMap<File, string>();
+
+export function setPendingFiles(reelId: string, files: File[], rooms: (string | null)[] = []): void {
   pending = { reelId, files };
+  files.forEach((file, index) => {
+    const room = rooms[index];
+    if (room) roomHints.set(file, room);
+  });
+}
+
+export function roomHintFor(file: File): string | null {
+  return roomHints.get(file) ?? null;
 }
 
 export function takePendingFiles(reelId: string): File[] {

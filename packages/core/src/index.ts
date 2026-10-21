@@ -46,3 +46,5 @@ export * from "./commands";
 export * from "./script";
 export * from "./occluder";
 export * from "./workflow";
+export * from "./shoot";
+export * from "./variants";

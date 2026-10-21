@@ -1,6 +1,7 @@
 import { BEAT_SAMPLE_RATE, detectBeats, mediaKindFor, resolveUploadType, type BeatGrid, type MediaKind } from "@reelwalk/core";
 import { abortUpload, completeUpload, confirmUpload, createUpload } from "@/app/actions";
 import type { LibraryAsset } from "@/lib/library";
+import { roomHintFor } from "@/lib/pending-files";
 import { shrinkVideo } from "./shrink";
 
 type Probe = { kind: MediaKind; durationMs: number | null; width: number | null; height: number | null; thumb: Blob | null };
@@ -274,6 +275,8 @@ export async function uploadFile(original: File, onProgress: (fraction: number) 
     height: info.height,
     bpm: beat?.bpm ?? null,
     beatOffsetMs: beat?.offsetMs ?? null,
+    // The shot it was filmed as, when it came from the shot list (ADR 0063).
+    room: roomHintFor(original),
   }));
   if (!confirmed.ok) throw new Error(confirmed.error);
   return confirmed.asset;

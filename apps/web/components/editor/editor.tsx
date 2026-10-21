@@ -1708,7 +1708,8 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
       {sheet === "export" ? (
         <ExportSheet
           // The critic's safe-zone check measures each title's box, so the export check's centre-point warning would repeat it.
-          issues={issues.filter((issue) => issue.code !== "text-unsafe")}
+          // Room labels are the exception: the critic leaves them to the editor, which redraws them.
+          issues={critic.failed ? issues : issues.filter((issue) => issue.code !== "text-unsafe" || issue.textId?.startsWith("room-"))}
           findingCount={critic.findings.length}
           critic={
             <CriticPanel findings={critic.findings} thumbs={critic.thumbs} checking={critic.checking} safeCount={criticSafeCount}

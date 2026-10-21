@@ -32,7 +32,8 @@ const SAMPLE_WIDTH = 72, SAMPLE_HEIGHT = 128;
 /** Frames kept between runs (each about 37 KB of luma plus a small JPEG). */
 const MAX_CACHED = 160;
 
-export type CriticState = { findings: CriticFinding[]; checking: boolean; thumbs: Record<string, string> };
+/** `failed` when the checks themselves threw: the sheet then keeps the export check's own warnings. */
+export type CriticState = { findings: CriticFinding[]; checking: boolean; thumbs: Record<string, string>; failed?: boolean };
 
 /** A title's font as the renderer styles it. */
 function titleFont(text: TextOverlay): TitleFont {
@@ -91,7 +92,17 @@ export function useCritic({ timeline, library, active, headline, sourceDurations
       return thumb ? [[finding.id, thumb]] : [];
     }));
     const missing = samples.filter((sample) => !cache.has(frameKey(timeline, sample)));
-    const first = critique({ ...input, frames: known() });
+    // The critic is advice: if it fails, the Export sheet works as it did without it.
+    const check = () => {
+      try {
+        return critique({ ...input, frames: known() });
+      } catch (error) {
+        console.warn("critic failed", error);
+        return null;
+      }
+    };
+    const first = check();
+    if (!first) { setState({ findings: [], checking: false, thumbs: {}, failed: true }); return; }
     setState({ findings: first, checking: missing.length > 0, thumbs: thumbsFor(first) });
 
     const service = timelineFrames(timeline, assets);
@@ -119,7 +130,8 @@ export function useCritic({ timeline, library, active, headline, sourceDurations
         await read(sample);
       }
       if (!live) return;
-      const findings = critique({ ...input, frames: known() });
+      const findings = check();
+      if (!findings) { setState({ findings: [], checking: false, thumbs: {}, failed: true }); return; }
       // Every finding gets a picture of its moment.
       for (const finding of findings) {
         if (!live) return;

@@ -1938,6 +1938,11 @@ input[type="range"] {
   font-size: 14px;
 }
 
+.critic-more {
+  justify-self: start;
+  min-height: var(--tap);
+}
+
 .critic-clear {
   margin: 4px 0 12px;
   color: var(--ok);

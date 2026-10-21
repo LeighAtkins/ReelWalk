@@ -110,7 +110,7 @@ export function DirectorSheet({ reelId, timeline, generation, library, onApply, 
       const data = await response.json() as { jobs: { id: string; status: string; asset: LibraryAsset | null }[] };
       const job = data.jobs.find(j => j.id === id);
       if (job?.status === "SUCCEEDED" && job.asset) return job.asset;
-      if (job && ["FAILED", "CANCELLED"].includes(job.status)) return null;
+      if (job && ["FAILED", "CANCELLED", "UNRESOLVED"].includes(job.status)) return null;
     }
     return null;
   }

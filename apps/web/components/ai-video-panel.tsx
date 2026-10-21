@@ -194,7 +194,7 @@ export function AiVideoPanel({ photos, clips = [], selectedClip, reelId, beforeG
       {state?.jobs.map(job => <article className="ai-video-result" key={job.id}>
         <p className="small">{aiShotSchema.safeParse(job.shot).success ? `${AI_SHOT_LABELS[(job.shot as AiShot).mode]} · ${AI_SHOT_STYLE_LABELS[aiShotStyle(job.shot as AiShot)]}` : job.prompt}</p>
         {active(job) ? <p className="muted small" role="status">{job.status === "QUEUED" ? "Waiting to start…" : "Generating your shot…"} You can leave and return later.</p> : null}
-        {job.status === "FAILED" ? <p className="error small">{job.error}</p> : null}
+        {job.status === "FAILED" || job.status === "UNRESOLVED" ? <p className="error small">{job.error}</p> : null}
         {job.asset ? <>
           <video src={job.asset.url} controls playsInline preload="metadata" aria-label="Generated AI clip" />
           <p className="muted small">AI-generated · saved in your media library</p>

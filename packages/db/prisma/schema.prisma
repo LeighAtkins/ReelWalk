@@ -132,6 +132,9 @@ model AiGeneration {
   identityChecks Json?
   // A machine-readable reason for a failure, e.g. "identity_rejected".
   failureCode   String?
+  // Set under the lease fence just before the paid provider call (ADR 0056): a stale row with it set
+  // may have been submitted, so it is never refunded automatically (UNRESOLVED), only one without it.
+  submitStartedAt DateTime?
 
   @@unique([workspaceId, requestId])
   @@index([status, nextPollAt])
@@ -155,6 +158,7 @@ model Presenter {
   faceCropError   String?
   // Attempts at the crop, so a broken still is not retried forever.
   faceCropTries   Int       @default(0)
+  leaseToken      String?
   leaseUntil      DateTime?
   voice           String?
   isDefault       Boolean   @default(false)

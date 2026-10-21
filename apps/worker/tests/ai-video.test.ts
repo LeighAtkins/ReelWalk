@@ -28,6 +28,7 @@ const s3 = { config: {}, send: vi.fn() } as unknown as S3Client;
 beforeEach(() => {
   vi.clearAllMocks();
   db.aiGeneration.findFirst.mockResolvedValue(null);
+  db.aiGeneration.updateMany.mockResolvedValue({ count: 1 });
   tx.aiGeneration.updateMany.mockResolvedValue({ count: 1 });
   db.$transaction.mockImplementation(async fn => fn(tx));
   frames.mockResolvedValue([{ bytesBase64Encoded: "first", mimeType: "image/jpeg" }, { bytesBase64Encoded: "last", mimeType: "image/jpeg" }]);
@@ -43,7 +44,45 @@ describe("AI shot worker", () => {
     claim.mockResolvedValue(job);
     await processAiVideo(s3, "media");
     expect(submit).toHaveBeenCalledWith("veo", 8, "Move", { bytesBase64Encoded: "first", mimeType: "image/jpeg" }, { bytesBase64Encoded: "last", mimeType: "image/jpeg" }, false);
-    expect(db.aiGeneration.updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "one", leaseToken: "mine", status: "SUBMITTING" }, data: expect.objectContaining({ operationName: "operation-one" }) }));
+    expect(db.aiGeneration.updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "one", leaseToken: "mine", status: { in: ["SUBMITTING", "UNRESOLVED"] } }, data: expect.objectContaining({ operationName: "operation-one" }) }));
+  });
+  // Review P1: a refunded generation must never reach Veo, and a submitted one must never be refunded by recovery.
+  it("fences the paid call: records submitStartedAt under the lease, then submits", async () => {
+    claim.mockResolvedValue(job);
+    await processAiVideo(s3, "media");
+    const calls = db.aiGeneration.updateMany.mock.calls, at = calls.findIndex(([args]) => args.data.submitStartedAt);
+    expect(calls[at][0].where).toEqual({ id: "one", leaseToken: "mine", status: "SUBMITTING", submitStartedAt: null });
+    expect(db.aiGeneration.updateMany.mock.invocationCallOrder[at]).toBeLessThan(submit.mock.invocationCallOrder[0]);
+  });
+  it("refund then submit: once recovery has refunded the row, the original worker does not submit", async () => {
+    claim.mockResolvedValue(job);
+    db.aiGeneration.updateMany.mockResolvedValue({ count: 0 }); // the fence finds the row FAILED
+    await processAiVideo(s3, "media");
+    expect(submit).not.toHaveBeenCalled();
+    expect(fail).not.toHaveBeenCalled();
+  });
+  it("refund during preparation: a lost lease stops the compose and check loop before more spend", async () => {
+    claim.mockResolvedValue(job); frames.mockResolvedValueOnce(kit);
+    compose.mockResolvedValue({ bytesBase64Encoded: "composed", mimeType: "image/jpeg" });
+    identity.mockResolvedValueOnce({ samePerson: false, confidence: 0.2, faceHeightPx: 200 });
+    db.aiGeneration.updateMany.mockResolvedValue({ count: 0 }); // the renewal finds the row refunded
+    await processAiVideo(s3, "media");
+    expect(compose).toHaveBeenCalledTimes(1);
+    expect(submit).not.toHaveBeenCalled();
+    expect(fail).not.toHaveBeenCalled();
+    compose.mockReset();
+  });
+  it("submit then recovery: a stale row past the fence is UNRESOLVED, never refunded", async () => {
+    db.aiGeneration.findFirst.mockResolvedValueOnce({ id: "sent", status: "SUBMITTING", submitStartedAt: new Date() });
+    await processAiVideo(s3, "media");
+    expect(fail).not.toHaveBeenCalled();
+    expect(db.aiGeneration.updateMany).toHaveBeenCalledWith({ where: expect.objectContaining({ id: "sent", status: "SUBMITTING", submitStartedAt: { not: null } }), data: expect.objectContaining({ status: "UNRESOLVED" }) });
+    expect(claim).not.toHaveBeenCalled();
+  });
+  it("recovery refunds a stale row still being prepared, only if it is still unsent and lapsed", async () => {
+    db.aiGeneration.findFirst.mockResolvedValueOnce({ id: "prep", status: "SUBMITTING", submitStartedAt: null });
+    await processAiVideo(s3, "media");
+    expect(fail).toHaveBeenCalledWith(db, "prep", expect.stringContaining("interrupted"), false, { onlyIf: { status: "SUBMITTING", submitStartedAt: null, leaseUntil: { lt: expect.any(Date) } } });
   });
   const composed = [{ bytesBase64Encoded: "first", mimeType: "image/jpeg", role: "first", compose: "At the door, head below the lintel." }, { bytesBase64Encoded: "last", mimeType: "image/jpeg", role: "last" }, { bytesBase64Encoded: "her", mimeType: "image/jpeg", role: "presenter" }];
   it("composes a described start still with the presenter before submitting, and keeps a copy", async () => {
@@ -138,7 +177,7 @@ describe("AI shot worker", () => {
     claim.mockResolvedValue(job); frames.mockRejectedValueOnce(new Error("decode"));
     await processAiVideo(s3, "media");
     expect(submit).not.toHaveBeenCalled();
-    expect(fail).toHaveBeenCalledWith(db, "one", expect.stringContaining("frames"), true);
+    expect(fail).toHaveBeenCalledWith(db, "one", expect.stringContaining("frames"), true, { onlyIf: { leaseToken: "mine", submitStartedAt: null } });
   });
   it("atomically saves a private promo draft without writing to the original reel", async () => {
     claim.mockResolvedValue({ ...job, status: "RUNNING" });

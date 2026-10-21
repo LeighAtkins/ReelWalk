@@ -112,13 +112,16 @@ export async function reserveAiGeneration(db: PrismaClient, input: {
 /** Refund once. Monthly refunds retain the original expiry, even across renewal. */
 export async function failAiGeneration(db: PrismaClient, id: string, error: string, releaseBudget = false,
   /** Why, for queries (e.g. "identity_rejected"), and the identity gate's scores (ADR 0056). */
-  details: { failureCode?: string; identityScore?: number; identityChecks?: Prisma.InputJsonValue } = {}) {
+  details: { failureCode?: string; identityScore?: number; identityChecks?: Prisma.InputJsonValue;
+    /** Refund only while the row still matches this, e.g. its lease token and "not yet submitted" (ADR 0056). */
+    onlyIf?: Prisma.AiGenerationWhereInput } = {}) {
+  const { onlyIf, ...recorded } = details;
   return db.$transaction(async (tx) => {
     const job = await tx.aiGeneration.findUniqueOrThrow({ where: { id } });
     await tx.$queryRaw`SELECT "id" FROM "Workspace" WHERE "id" = ${job.workspaceId} FOR UPDATE`;
     const changed = await tx.aiGeneration.updateMany({
-      where: { id, status: { notIn: ["SUCCEEDED", "FAILED"] } },
-      data: { status: "FAILED", error: error.slice(0, 400), finishedAt: new Date(), leaseUntil: null, leaseToken: null, ...details },
+      where: { id, status: { notIn: ["SUCCEEDED", "FAILED"] }, ...onlyIf },
+      data: { status: "FAILED", error: error.slice(0, 400), finishedAt: new Date(), leaseUntil: null, leaseToken: null, ...recorded },
     });
     if (!changed.count) return;
     const debits = (job.grantDebits as { grantId: string; credits: number }[] | null) ?? [{ grantId: job.grantId, credits: job.credits }];

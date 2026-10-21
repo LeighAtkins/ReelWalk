@@ -9,6 +9,7 @@ CREATE TABLE "Presenter" (
     "faceHeightPx" INTEGER,
     "faceCropError" TEXT,
     "faceCropTries" INTEGER NOT NULL DEFAULT 0,
+    "leaseToken" TEXT,
     "leaseUntil" TIMESTAMP(3),
     "voice" TEXT,
     "isDefault" BOOLEAN NOT NULL DEFAULT false,
@@ -25,4 +26,5 @@ ALTER TABLE "AiGeneration" ADD COLUMN "presenterId" TEXT,
 ADD COLUMN "referenceDepth" INTEGER,
 ADD COLUMN "identityScore" DOUBLE PRECISION,
 ADD COLUMN "identityChecks" JSONB,
-ADD COLUMN "failureCode" TEXT;
+ADD COLUMN "failureCode" TEXT,
+ADD COLUMN "submitStartedAt" TIMESTAMP(3);

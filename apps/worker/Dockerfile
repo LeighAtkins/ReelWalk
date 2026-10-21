@@ -4,6 +4,9 @@ FROM node:22-bookworm-slim AS runtime
 # Security updates, then ffmpeg plus the shared libraries Chrome Headless Shell needs,
 # and pg_dump 17 (from the PostgreSQL project's repository, matching Supabase's
 # server) for the nightly backup task.
+# The upgrade layer is rebuilt whenever this ARG changes: bump the date when Debian ships
+# fixes that CI's cached layer lacks (2026-10-21: libssh 0.10.6-0+deb12u3).
+ARG BASE_REFRESH=2026-10-21
 RUN apt-get update \
   && apt-get upgrade -y \
   && apt-get install -y --no-install-recommends ca-certificates curl \

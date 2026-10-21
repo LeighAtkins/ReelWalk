@@ -25,7 +25,8 @@ import { instagramSongs } from "@/lib/instagram-songs";
 import { labelRooms } from "@/lib/room-labels";
 import { aimPano } from "@/lib/pano-aim";
 import { toLibraryAssets, type LibraryAsset } from "@/lib/library";
-import { mediaScope } from "@/lib/workspace";
+import { mediaScope } from "@/lib/media-scope";
+import { insideProviderGate } from "@/lib/provider-gate";
 
 /** Library entries for media a new timeline uses that the old one did not: a song the AI picked plays at once. */
 export async function newAssets(workspaceId: string, before: Timeline, after: Timeline): Promise<LibraryAsset[]> {
@@ -173,8 +174,9 @@ export async function askForChange(input: {
       });
     let answer;
     try {
-      // A dropped connection or a busy provider gets one more go before the user is told.
-      answer = await ask().catch((error) => (error instanceof AiError && error.transient ? ask() : Promise.reject(error)));
+      // A dropped connection or a busy provider gets one more go before the user is told, except in the
+      // durable worker: there an unanswered request is never sent again (ADR 0049); the step is unresolved.
+      answer = await ask().catch((error) => (error instanceof AiError && error.transient && !insideProviderGate() ? ask() : Promise.reject(error)));
     } catch (error) {
       if (error instanceof AiError) {
         console.error("ai edit:", error.message);

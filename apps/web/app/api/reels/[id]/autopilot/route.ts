@@ -3,7 +3,9 @@ import { prisma } from "@reelwalk/db";
 import { getSessionUser } from "@/lib/auth";
 import { newAssets } from "@/lib/ai-edit";
 import { startAiJob } from "@/lib/ai-jobs";
-import { makeItForMe, quickDraft } from "@/lib/autopilot";
+import { runAiStep } from "@/lib/ai-steps";
+import { quickDraft } from "@/lib/autopilot";
+import { durableAiJobs, startSingleStepRun } from "@/lib/workflows";
 import { mediaScope } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
@@ -23,7 +25,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const user = await getSessionUser();
   if (!user) return Response.json({ ok: false, message: "You were signed out. Sign in again." }, { status: 401 });
 
-  let body: { timeline?: unknown; style?: unknown; info?: Record<string, unknown>; quick?: unknown };
+  let body: { timeline?: unknown; style?: unknown; info?: Record<string, unknown>; quick?: unknown; requestId?: unknown };
   try {
     body = (await request.json()) as typeof body;
   } catch {
@@ -54,10 +56,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const result = await quickDraft({ user, timeline, styleId, info });
     return Response.json(result.ok ? { ...result, assets: await newAssets(user.workspaceId, timeline, result.timeline) } : result);
   }
+  const payload = { timeline, styleId, info: info as Record<string, string> };
+  const requestId = typeof body.requestId === "string" && /^[0-9a-f-]{36}$/i.test(body.requestId) ? body.requestId : crypto.randomUUID();
+  // Durable path (ADR 0049): the worker runs it under a lease, so a web restart loses nothing.
+  if (durableAiJobs()) {
+    const started = await startSingleStepRun({ user, reelId: reel.id, kind: "autopilot", stepKind: "autopilot", requestId, payload, baseline: timeline });
+    return started.ok ? Response.json({ ok: true, jobId: started.jobId }) : Response.json({ ok: false, message: started.message }, { status: started.status });
+  }
   // Over a minute of work: run it in the background and let the browser check back (lib/ai-jobs.ts).
-  const jobId = await startAiJob({ workspaceId: user.workspaceId, reelId: reel.id, kind: "autopilot" }, async () => {
-    const result = await makeItForMe({ user, reel, timeline, styleId, info });
-    return result.ok ? { ...result, assets: await newAssets(user.workspaceId, timeline, result.timeline) } : result;
-  });
+  const jobId = await startAiJob({ workspaceId: user.workspaceId, reelId: reel.id, kind: "autopilot", requestId }, () => runAiStep({ kind: "autopilot", user, reelId: reel.id, payload }));
   return Response.json({ ok: true, jobId });
 }

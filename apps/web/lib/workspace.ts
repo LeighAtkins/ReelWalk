@@ -12,10 +12,4 @@ export const getCurrentUser = cache(async () => {
   return user;
 });
 
-/**
- * Media a workspace may use: its own uploads plus the open starter library,
- * which is imported once and shared by every workspace.
- */
-export function mediaScope(workspaceId: string) {
-  return { OR: [{ workspaceId }, { shared: true }] };
-}
+export { mediaScope } from "./media-scope";

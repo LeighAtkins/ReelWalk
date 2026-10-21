@@ -5,7 +5,7 @@ import { DIRECTOR_INSTRUCTIONS, DIRECTOR_PLAN_JSON_SCHEMA, AI_EDIT_SYSTEM_PROMPT
 import { prisma } from "@reelwalk/db";
 import { aiEditBlockedReason, context, newAssets } from "./ai-edit";
 import { aiModel, aiProvider, structuredAnswer } from "./openai";
-import { mediaScope } from "./workspace";
+import { mediaScope } from "./media-scope";
 
 export const directorInput = z.object({
   requestId: z.string().uuid(), request: z.string().trim().min(3).max(4000),

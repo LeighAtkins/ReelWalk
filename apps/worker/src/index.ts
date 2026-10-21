@@ -15,6 +15,9 @@ import { handleDeadLetter, handleDelivery, type Delivery } from "./handler";
 import { renderJob } from "./render";
 import { createJobStore } from "./store";
 import { processAiVideo } from "./ai-video";
+import { AI_STEP_QUEUE_RETENTION_MS, AI_STEP_REAP_AFTER_MS } from "@reelwalk/core";
+import { createAiStepStore, type AiStepDeps } from "./ai-jobs";
+import { aiStepExecutor } from "./ai-executor";
 
 const config = getConfig();
 
@@ -36,6 +39,8 @@ const s3 = new S3Client({
 });
 
 const store = createJobStore(prisma);
+// Durable AI steps (ADR 0049) arrive on the render queue and use the same lease settings.
+const aiSteps: AiStepDeps = { store: createAiStepStore(prisma), executor: aiStepExecutor, config: { ...config, aiStepTimeoutSeconds: Number(process.env.AI_STEP_TIMEOUT_SECONDS ?? 600) } };
 
 let stopping = false;
 let lastTickAt = Date.now();
@@ -111,6 +116,23 @@ async function pollLoop(name: string, queueUrl: string, handle: (delivery: Deliv
  * loop sends whatever is left: messages whose first send failed, or whose web
  * process died between the commit and the send.
  */
+// AI steps whose queue message may be gone (ADR 0049) are re-enqueued or settled here, at most once a minute,
+// by every worker. Not in a worker's first five minutes: messages waiting for it are delivered first.
+let lastReapAt = Date.now() + 4 * 60_000;
+async function reapAiSteps() {
+  if (Date.now() - lastReapAt < 60_000) return;
+  lastReapAt = Date.now();
+  try {
+    const { requeued, failed, unresolved } = await aiSteps.store.reapAbandoned(new Date(), {
+      maxAgeMs: Number(process.env.AI_STEP_REAP_SECONDS ?? AI_STEP_REAP_AFTER_MS / 1000) * 1000,
+      retentionMs: Number(process.env.AI_STEP_QUEUE_RETENTION_SECONDS ?? AI_STEP_QUEUE_RETENTION_MS / 1000) * 1000,
+    });
+    if (requeued || failed || unresolved) console.log(`ai-steps: re-enqueued ${requeued}, reaped ${failed} failed, ${unresolved} unresolved`);
+  } catch (error) {
+    console.error("ai-steps: reaper error", error);
+  }
+}
+
 async function outboxLoop() {
   console.log(`outbox: relaying to ${config.queueUrl}`);
   while (!stopping) {
@@ -128,6 +150,7 @@ async function outboxLoop() {
       if (stopping) break;
       console.error("outbox: relay error", error);
     }
+    await reapAiSteps();
     await sleep(config.outboxPollSeconds * 1000, undefined, { signal: shutdown.signal }).catch(() => {});
   }
   console.log("outbox: stopped");
@@ -179,6 +202,7 @@ const loops = [
         {
           store,
           config,
+          aiSteps,
           shutdown: shutdown.signal,
           render: (job, onProgress, scope) => renderJob(job, s3, config.s3Bucket, onProgress, config.renderConcurrency, scope),
         },
@@ -189,7 +213,7 @@ const loops = [
   ),
 ];
 if (config.deadLetterQueueUrl) {
-  loops.push(pollLoop("dead-letter-queue", config.deadLetterQueueUrl, (delivery) => handleDeadLetter({ store, config }, delivery)));
+  loops.push(pollLoop("dead-letter-queue", config.deadLetterQueueUrl, (delivery) => handleDeadLetter({ store, config, aiSteps }, delivery)));
 }
 
 Promise.all(loops)

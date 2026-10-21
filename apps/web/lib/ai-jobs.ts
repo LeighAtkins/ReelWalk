@@ -8,8 +8,21 @@ import { prisma } from "@reelwalk/db";
  * browser asks /api/ai-jobs/<id> every couple of seconds until it is done.
  * Those check-ins also keep the instance's CPU awake while it works.
  */
-export async function startAiJob(input: { workspaceId: string; reelId: string; kind: "ask" | "autopilot" }, work: () => Promise<unknown>): Promise<string> {
-  const job = await prisma.aiJob.create({ data: { workspaceId: input.workspaceId, reelId: input.reelId, kind: input.kind }, select: { id: true } });
+export async function startAiJob(input: { workspaceId: string; reelId: string; kind: "ask" | "autopilot"; requestId?: string }, work: () => Promise<unknown>): Promise<string> {
+  // A retried start (same request id from the browser) resumes the job instead of running the work twice.
+  const id = input.requestId ? `${input.kind}-${input.requestId}` : undefined;
+  if (id) {
+    const existing = await prisma.aiJob.findFirst({ where: { id, workspaceId: input.workspaceId }, select: { id: true } });
+    if (existing) return existing.id;
+  }
+  let job: { id: string };
+  try {
+    job = await prisma.aiJob.create({ data: { ...(id ? { id } : {}), workspaceId: input.workspaceId, reelId: input.reelId, kind: input.kind }, select: { id: true } });
+  } catch (error) {
+    const raced = id ? await prisma.aiJob.findFirst({ where: { id, workspaceId: input.workspaceId }, select: { id: true } }) : null;
+    if (raced) return raced.id;
+    throw error;
+  }
   void (async () => {
     try {
       const result = await work();

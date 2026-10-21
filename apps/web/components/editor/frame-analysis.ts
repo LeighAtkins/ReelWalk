@@ -1,46 +1,39 @@
-import { defaultTolerance, findSurfaceQuad, leanQuad, pickMatchingFrame, smoothTrack, trackPath, trackSurfaceAsync, type Clip, type Gray, type Quad, type TextOverlay, type TrackFailure } from "@reelwalk/core";
+import { clipMomentAtSource, defaultTolerance, findSurfaceQuad, leanQuad, pickMatchingFrame, smoothTrack, trackPath, trackSurfaceAsync, type Clip, type Gray, type Quad, type TextOverlay, type TrackFailure } from "@reelwalk/core";
 import type { LibraryAsset } from "@/lib/library";
+import { drawPresented, frameService, loadVideo, luminance, releaseVideo, seekVideo } from "./frame-service";
 
-/** Browser side of @reelwalk/core's motion module: small grayscale frames from a video element. */
+/**
+ * Browser side of @reelwalk/core's motion module: small grayscale frames from
+ * a video element. A video opened for a clip is read through the clip's
+ * presentation (ADR 0047), so the analysis works in composition fractions,
+ * the space text x/y and surfaces are stored in, for any fit, zoom or move.
+ */
 
 export const ANALYSIS_WIDTH = 48;
 export const ANALYSIS_HEIGHT = 85;
 
 let scratch: HTMLCanvasElement | null = null;
+/** The clip each analysis video is presented as; a video without one is read whole (frame matching compares raw sources). */
+const presentedAs = new WeakMap<HTMLVideoElement, Clip>();
 
-/** The video's current frame as luminance at the analysis size. */
+/** The video's current frame as luminance at the analysis size, drawn as the composition places its clip (the picture alone, on flat grey). */
 export function grayFrame(video: HTMLVideoElement, width = ANALYSIS_WIDTH, height = ANALYSIS_HEIGHT): Gray {
   scratch ??= document.createElement("canvas");
   scratch.width = width; scratch.height = height;
   const ctx = scratch.getContext("2d", { willReadFrequently: true });
   if (!ctx) throw new Error("Frame analysis is unavailable in this browser.");
-  ctx.drawImage(video, 0, 0, width, height);
-  const { data } = ctx.getImageData(0, 0, width, height);
-  const gray = new Float32Array(width * height);
-  for (let i = 0; i < gray.length; i++) gray[i] = 0.299 * data[i * 4] + 0.587 * data[i * 4 + 1] + 0.114 * data[i * 4 + 2];
-  return { data: gray, width, height };
+  const clip = presentedAs.get(video);
+  if (clip) drawPresented(ctx, video, clip, clipMomentAtSource(clip, video.currentTime * 1000), width, height, "analysis");
+  else ctx.drawImage(video, 0, 0, width, height);
+  return luminance(scratch);
 }
 
-function seek(video: HTMLVideoElement, ms: number): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => { cleanup(); reject(new Error("The video could not be read.")); }, 15_000);
-    const done = () => { cleanup(); resolve(); };
-    const failed = () => { cleanup(); reject(new Error("The video could not be read.")); };
-    const cleanup = () => { clearTimeout(timer); video.removeEventListener("seeked", done); video.removeEventListener("error", failed); };
-    video.addEventListener("seeked", done, { once: true }); video.addEventListener("error", failed, { once: true });
-    video.currentTime = ms / 1000;
-  });
-}
+const seek = seekVideo;
 
-async function load(asset: LibraryAsset): Promise<HTMLVideoElement> {
-  const video = document.createElement("video");
-  video.crossOrigin = "anonymous"; video.preload = "auto"; video.muted = true;
-  await new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`${asset.fileName} could not be read.`)), 20_000);
-    video.addEventListener("loadeddata", () => { clearTimeout(timer); resolve(); }, { once: true });
-    video.addEventListener("error", () => { clearTimeout(timer); reject(new Error(`${asset.fileName} could not be read.`)); }, { once: true });
-    video.src = asset.url; video.load();
-  });
+/** Opens the asset's video; given the clip it plays in, frames read from it are that clip's composition frames. */
+async function load(asset: LibraryAsset, clip?: Clip): Promise<HTMLVideoElement> {
+  const video = await loadVideo(asset.url, asset.fileName);
+  if (clip) presentedAs.set(video, clip);
   return video;
 }
 
@@ -122,7 +115,7 @@ export async function trackTextPathDetailed(
   const quad0: Quad = surface ?? toPx(leanQuad(toFraction(flat), lean.yaw, lean.pitch));
   let video: HTMLVideoElement | null = null;
   try {
-    video = await load(asset);
+    video = await load(asset, clip);
     // Sample the shot evenly from its first to its true last frame (at most 63 samples, at most stepMs apart),
     // so keyframe t lines up with the pin's interval; then track. Reading frames is the slow part.
     const fromMs = Math.round(firstSource), toMs = Math.round(lastSource);
@@ -160,7 +153,7 @@ export async function trackTextPathDetailed(
   } catch {
     return { error: "The video could not be read." };
   } finally {
-    if (video) { video.removeAttribute("src"); video.load(); }
+    if (video) releaseVideo(video);
   }
 }
 
@@ -192,29 +185,28 @@ export async function findMatchingCut(
   } catch {
     return null;
   } finally {
-    for (const video of [a, b]) if (video) { video.removeAttribute("src"); video.load(); }
+    for (const video of [a, b]) if (video) releaseVideo(video);
   }
 }
 
 /**
  * The flat surface under a text at the frame it starts on (ADR 0043): the
- * strongest edges left, right, above and below it, as four corners in frame
- * fractions, or null when the picture has no usable edges there.
+ * strongest edges left, right, above and below it, as four corners in
+ * composition fractions, or null when the picture has no usable edges there.
+ * Reads the frame the composition shows (ADR 0047), so landscape footage
+ * under Fill or Fit is measured where it is on screen, not stretched.
  */
 export async function detectSurface(asset: LibraryAsset, clip: Clip, clipStartMs: number, text: Pick<TextOverlay, "x" | "y" | "startMs">): Promise<{ quad: number[]; weakest: number } | null> {
   const speed = clip.speed || 1;
   const sourceMs = clip.sourceStartMs + Math.max(0, text.startMs - clipStartMs) * speed;
-  let video: HTMLVideoElement | null = null;
   try {
-    video = await load(asset);
-    await seek(video, Math.min(sourceMs, Math.max(0, clip.sourceEndMs - 40)));
-    const gray = grayFrame(video, TRACK_WIDTH * 2, TRACK_HEIGHT * 2);
+    const frame = await frameService.frameAt({ clip, media: { src: asset.url, kind: asset.kind } }, Math.min(sourceMs, Math.max(0, clip.sourceEndMs - 40)), { width: TRACK_WIDTH * 2, height: TRACK_HEIGHT * 2, purpose: "analysis" });
+    if (!frame) return null;
+    const gray = luminance(frame);
     const found = findSurfaceQuad(gray, text.x * gray.width, text.y * gray.height);
     if (!found) return null;
     return { quad: found.quad.map((v, i) => Number((i % 2 === 0 ? v / gray.width : v / gray.height).toFixed(4))), weakest: Math.min(found.sides.left, found.sides.right, found.sides.top, found.sides.bottom) };
   } catch {
     return null;
-  } finally {
-    if (video) { video.removeAttribute("src"); video.load(); }
   }
 }

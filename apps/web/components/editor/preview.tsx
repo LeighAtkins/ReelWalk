@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Player, type PlayerRef } from "@remotion/player";
 import { prefetch } from "remotion";
-import { applyHomography, homography, INSTAGRAM, minTextSize, oneLineWidth, pinnedProgress, PLANAR_MAX_WIDTH, planarFitAndShift, REEL_FORMAT, TEXT_SIZE_MAX, textsAt, textPositionAt, textQuadAt, tapSourceMs, type TextOverlay, type Timeline } from "@reelwalk/core";
+import { compositionScale, emptyTimeline, INSTAGRAM, mapPoints, minTextSize, onScreenAt, pinnedProgress, PLANAR_MAX_WIDTH, planeFrame, planeMotion, REEL_FORMAT, stageRect, STILL_PLANE, storedFraction, TEXT_SIZE_MAX, textsAt, textPositionAt, textQuadAt, tapSourceMs, viewportToComposition, type PlaneMotion, type TextOverlay, type Timeline, type ViewportRect, type XY } from "@reelwalk/core";
 import { ReelComposition, reelDurationInFrames, textTreatmentCss, type ReelAsset } from "@reelwalk/render/reel";
+import { timelineFrames } from "./frame-service";
+import { pinnedLineFit } from "./title-metrics";
 import { PlayIcon } from "../icons";
 import { useClock, type Clock } from "./clock";
 
@@ -62,39 +64,70 @@ function snap(value: number): number {
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
-/** Drags a point in frame fractions, calling `onMove` with the pointer's position inside the frame while the pointer is down. */
+/**
+ * Takes a pointer's viewport px; returns composition fraction. `plane` is the
+ * element laid exactly over the composition (the Player's contain-fit inside
+ * the stage, ADR 0047), so its box is the stage rect.
+ */
+function pointerToComposition(plane: HTMLElement, clientX: number, clientY: number): XY {
+  const r = plane.getBoundingClientRect();
+  return viewportToComposition({ left: r.left, top: r.top, width: r.width, height: r.height }, clientX, clientY);
+}
+
+/** Drags a point in composition fractions, calling `onMove` with the pointer's position on the composition while the pointer is down. */
 function dragPoint(event: React.PointerEvent<HTMLButtonElement>, frame: RefObject<HTMLDivElement | null>, onMove: (x: number, y: number) => void, onEnd?: () => void) {
   if (event.button !== 0 || !frame.current) return;
   event.stopPropagation();
   event.currentTarget.setPointerCapture(event.pointerId);
   const move = (e: PointerEvent) => {
-    const rect = frame.current!.getBoundingClientRect();
-    onMove(Math.max(-0.5, Math.min(1.5, (e.clientX - rect.left) / rect.width)), Math.max(-0.5, Math.min(1.5, (e.clientY - rect.top) / rect.height)));
+    const [x, y] = pointerToComposition(frame.current!, e.clientX, e.clientY);
+    onMove(clamp(x, -0.5, 1.5), clamp(y, -0.5, 1.5));
   };
   const up = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); onEnd?.(); };
   window.addEventListener("pointermove", move); window.addEventListener("pointerup", up);
 }
 
-/** Where the plane's first-frame coordinates are on this frame (`to`) and back (`from`); identity on the first frame or without a pin. */
-type PlaneView = { to(x: number, y: number): [number, number]; from(x: number, y: number): [number, number] };
-const IDENTITY_VIEW: PlaneView = { to: (x, y) => [x, y], from: (x, y) => [x, y] };
-function planeView(first: readonly number[] | undefined, now: readonly number[] | null): PlaneView {
-  if (!first || !now) return IDENTITY_VIEW;
-  const H = homography(first as [number, number, number, number, number, number, number, number], now as [number, number, number, number, number, number, number, number]);
-  const back = H ? homography(now as [number, number, number, number, number, number, number, number], first as [number, number, number, number, number, number, number, number]) : null;
-  if (!H || !back) return IDENTITY_VIEW;
-  return { to: (x, y) => applyHomography(H, x, y), from: (x, y) => applyHomography(back, x, y) };
-}
-const viewPoints = (points: readonly number[], view: PlaneView): number[] => Array.from({ length: points.length / 2 }, (_, i) => view.to(points[i * 2], points[i * 2 + 1])).flat();
+/** Displayed points (this frame) back to stored ones (the plane's first frame), rounded as the timeline keeps them. */
+const toStored = (view: PlaneMotion, x: number, y: number): XY => view.toFirst(x, y).map(storedFraction) as XY;
 
 const quadPoints = (quad: readonly number[]) => `${quad[0] * 100},${quad[1] * 100} ${quad[2] * 100},${quad[3] * 100} ${quad[4] * 100},${quad[5] * 100} ${quad[6] * 100},${quad[7] * 100}`;
 
-/** The <video> the stage is showing now: the one with a picture and a size on screen. */
-function visibleVideo(frame: HTMLElement): HTMLVideoElement | null {
-  for (const video of Array.from(frame.querySelectorAll("video"))) {
-    if (video.videoWidth > 0 && video.readyState >= 2 && video.getBoundingClientRect().width > 0) return video;
-  }
-  return null;
+/**
+ * Where the selected title's plane is on screen at `now`: its tracked corners
+ * on this frame, or null (the stored first-frame plane) when unpinned or on
+ * another shot.
+ *
+ * SEAM (ADR 0047): W1's scene evaluator (packages/core/src/scene.ts) will
+ * evaluate the placement ReelComposition draws. When it lands, return its
+ * evaluated `plane` for this text at `now` here, so the handles and the
+ * composition read one evaluation instead of two.
+ */
+function displayedPlane(timeline: Timeline, text: TextOverlay, now: number): number[] | null {
+  return text.pin ? textQuadAt(text, pinnedProgress(timeline, text, now)) : null;
+}
+
+/**
+ * The composition's picture at the playhead, from the frame service (ADR
+ * 0047): the clip on screen drawn through its fit, zoom and move at the
+ * media time the stage's own video is at. Null while it loads.
+ */
+const EMPTY_TIMELINE = emptyTimeline();
+type StageMoment = { timeline: Timeline; assets: Record<string, ReelAsset>; now: number };
+function useStageFrame({ timeline, assets, now }: StageMoment): HTMLCanvasElement | null {
+  const frames = useMemo(() => timelineFrames(timeline, assets), [timeline, assets]);
+  const at = onScreenAt(timeline, now);
+  const clipId = at?.clip.id ?? null, mediaMs = at ? Number(at.mediaMs.toFixed(2)) : null;
+  const [picture, setPicture] = useState<{ key: string; canvas: HTMLCanvasElement | null } | null>(null);
+  const key = `${clipId}|${mediaMs}`;
+  useEffect(() => {
+    if (!clipId || mediaMs === null) return;
+    let live = true;
+    // Latest wins: dragging across a scrub never queues stale seeks behind the frame wanted now.
+    frames.frameAt(clipId, mediaMs, { channel: "loupe" }).then((canvas) => { if (live) setPicture({ key, canvas }); });
+    return () => { live = false; };
+  }, [frames, clipId, mediaMs, key]);
+  // A frame for another moment is never shown: the loupe stays black until this one is drawn.
+  return picture?.key === key ? picture.canvas : null;
 }
 
 const LOUPE_SIZE = 150, LOUPE_ZOOM = 2.5;
@@ -102,34 +135,34 @@ const LOUPE_SIZE = 150, LOUPE_ZOOM = 2.5;
 /**
  * A magnifier above the finger while a corner is dragged (ADR 0044): the
  * footage around the point at two and a half times, with a cross-hair, so a
- * corner can be put on a wall's edge on a phone. Draws straight from the
- * stage's <video> through the same cover geometry the picture is shown with.
+ * corner can be put on a wall's edge on a phone. Reads the frame service's
+ * picture of the composition (ADR 0047), so a composition fraction is simply
+ * a pixel of it, whatever the clip's fit, zoom or move.
  */
-function Loupe({ frame, x, y }: { frame: RefObject<HTMLDivElement | null>; x: number; y: number }) {
+function Loupe({ stage, frame, x, y }: { stage: StageMoment | null; frame: RefObject<HTMLDivElement | null>; x: number; y: number }) {
+  // Mounted only while a point is held, so a frame is decoded only then (ADR 0047: phones).
+  const picture = useStageFrame(stage ?? { timeline: EMPTY_TIMELINE, assets: {}, now: 0 });
   const canvas = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
-    const stage = frame.current, out = canvas.current;
-    if (!stage || !out) return;
+    const out = canvas.current, plane = frame.current;
+    if (!out || !plane) return;
     const ctx = out.getContext("2d");
     if (!ctx) return;
     ctx.fillStyle = "#000"; ctx.fillRect(0, 0, LOUPE_SIZE, LOUPE_SIZE);
-    const video = visibleVideo(stage);
-    const rect = stage.getBoundingClientRect();
-    if (video && rect.width > 0) {
-      // object-fit: cover; the picture is scaled to fill the frame and centred.
-      const scale = Math.max(rect.width / video.videoWidth, rect.height / video.videoHeight);
-      const ox = (rect.width - video.videoWidth * scale) / 2, oy = (rect.height - video.videoHeight * scale) / 2;
-      const px = (x * rect.width - ox) / scale, py = (y * rect.height - oy) / scale;
-      const span = LOUPE_SIZE / LOUPE_ZOOM / scale;
-      try { ctx.drawImage(video, px - span / 2, py - span / 2, span, span, 0, 0, LOUPE_SIZE, LOUPE_SIZE); } catch { /* a frame mid-decode: the black stays */ }
+    const width = plane.getBoundingClientRect().width;
+    if (picture && width > 0) {
+      // Picture px per on-screen px; the picture and the plane are both the composition, so one ratio serves both axes.
+      const span = (LOUPE_SIZE / LOUPE_ZOOM) * (picture.width / width);
+      ctx.imageSmoothingQuality = "high";
+      try { ctx.drawImage(picture, x * picture.width - span / 2, y * picture.height - span / 2, span, span, 0, 0, LOUPE_SIZE, LOUPE_SIZE); } catch { /* a frame freed by the cache: the black stays */ }
     }
     ctx.strokeStyle = "rgba(255,90,95,0.95)"; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(LOUPE_SIZE / 2, 0); ctx.lineTo(LOUPE_SIZE / 2, LOUPE_SIZE); ctx.moveTo(0, LOUPE_SIZE / 2); ctx.lineTo(LOUPE_SIZE, LOUPE_SIZE / 2); ctx.stroke();
-  }, [frame, x, y]);
+  }, [picture, frame, x, y]);
   // Above the finger, kept inside the frame; below it near the top edge.
   const above = y > 0.22;
   return (
-    <canvas ref={canvas} className="loupe" width={LOUPE_SIZE} height={LOUPE_SIZE} aria-hidden="true"
+    <canvas ref={canvas} className="loupe" data-testid="loupe" width={LOUPE_SIZE} height={LOUPE_SIZE} aria-hidden="true"
       style={{ left: `calc(${Math.min(0.999, Math.max(0.001, x)) * 100}% - ${LOUPE_SIZE / 2}px)`, top: above ? `calc(${y * 100}% - ${LOUPE_SIZE + 48}px)` : `calc(${y * 100}% + 48px)` }} />
   );
 }
@@ -140,9 +173,9 @@ function Loupe({ frame, x, y }: { frame: RefObject<HTMLDivElement | null>; x: nu
  * so a corner that makes the words warp thin shows as a grid that does.
  */
 function PerspectiveGrid({ quad }: { quad: number[] }) {
-  const H = homography([0, 0, 1, 0, 1, 1, 0, 1], quad as [number, number, number, number, number, number, number, number]);
-  if (!H) return null;
-  const at = (u: number, v: number) => { const [x, y] = applyHomography(H, u, v); return `${x * 100},${y * 100}`; };
+  const plane = planeFrame(quad);
+  if (!plane) return null;
+  const at = (s: number, t: number) => { const [x, y] = plane.toComposition(s, t); return `${x * 100},${y * 100}`; };
   const lines: string[] = [];
   for (let i = 1; i < 4; i++) {
     lines.push(`${at(i / 4, 0)} ${at(i / 4, 1)}`);
@@ -158,13 +191,13 @@ function PerspectiveGrid({ quad }: { quad: number[] }) {
  * cross-hair through it helps land it on the wall's edge. Posts in front of
  * the surface (a mullion, a pole) are strips whose two edges drag sideways.
  */
-function SurfaceHandles({ quad: stored, bars: storedBars = [], frame, onChange, onBars, large = false, view = IDENTITY_VIEW }: { quad: number[]; bars?: number[][]; frame: RefObject<HTMLDivElement | null>; onChange(quad: number[], gesture: string): void; onBars?(bars: number[][], gesture: string): void; large?: boolean; view?: PlaneView }) {
+function SurfaceHandles({ quad: stored, bars: storedBars = [], frame, onChange, onBars, large = false, view = STILL_PLANE, stage = null }: { quad: number[]; bars?: number[][]; frame: RefObject<HTMLDivElement | null>; onChange(quad: number[], gesture: string): void; onBars?(bars: number[][], gesture: string): void; large?: boolean; view?: PlaneMotion; stage?: StageMoment | null }) {
   const [active, setActive] = useState<{ x: number; y: number } | null>(null);
   // Shown where the plane is on this frame; stored (and edited) in the first frame's coordinates.
-  const quad = viewPoints(stored, view), bars = storedBars.map((bar) => viewPoints(bar, view));
+  const quad = mapPoints(stored, view.toNow), bars = storedBars.map((bar) => mapPoints(bar, view.toNow));
   return (
     <>
-      {large && active ? <Loupe frame={frame} x={active.x} y={active.y} /> : null}
+      {large && active ? <Loupe stage={stage} frame={frame} x={active.x} y={active.y} /> : null}
       <svg className="surface-outline" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" }}>
         <polygon points={quadPoints(quad)} fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.85)" strokeWidth={0.4} strokeDasharray="1.2 0.8" vectorEffect="non-scaling-stroke" />
         {large ? <PerspectiveGrid quad={quad} /> : null}
@@ -185,10 +218,10 @@ function SurfaceHandles({ quad: stored, bars: storedBars = [], frame, onChange, 
           onPointerDown={(event) => {
             const gesture = `drag:surface-${i}:${Date.now()}`;
             dragPoint(event, frame, (x, y) => {
-              const [fx, fy] = view.from(x, y);
+              const [fx, fy] = toStored(view, x, y);
               const next = [...stored]; next[i * 2] = fx; next[i * 2 + 1] = fy;
               setActive({ x, y });
-              onChange(next.map((v) => Number(v.toFixed(4))), gesture);
+              onChange(next, gesture);
             }, () => setActive(null));
           }}
         >{i + 1}</button>
@@ -206,9 +239,10 @@ function SurfaceHandles({ quad: stored, bars: storedBars = [], frame, onChange, 
                   dragPoint(event, frame, (x, y) => {
                     const next = storedBars.map((q) => [...q]);
                     // The edge keeps its own top and bottom; only its x moves, taken back to the first frame at each end.
-                    next[b][top] = view.from(x, y)[0]; next[b][bottom] = view.from(x, y)[0];
+                    const [fx] = toStored(view, x, y);
+                    next[b][top] = fx; next[b][bottom] = fx;
                     setActive({ x, y });
-                    onBars(next.map((q) => q.map((v) => Number(v.toFixed(4)))), gesture);
+                    onBars(next, gesture);
                   }, () => setActive(null));
                 }} />
             );
@@ -228,18 +262,17 @@ const polygonPoints = (points: readonly number[]) => Array.from({ length: points
  * new one is built by tapping its points in order; existing points drag, with
  * the loupe. Finish needs three points; the title is cut out inside each.
  */
-function CutoutEditor({ cutouts: stored, frame, onChange, view = IDENTITY_VIEW }: { cutouts: number[][]; frame: RefObject<HTMLDivElement | null>; onChange(cutouts: number[][], gesture: string): void; view?: PlaneView }) {
+function CutoutEditor({ cutouts: stored, frame, onChange, view = STILL_PLANE, stage = null }: { cutouts: number[][]; frame: RefObject<HTMLDivElement | null>; onChange(cutouts: number[][], gesture: string): void; view?: PlaneMotion; stage?: StageMoment | null }) {
   // Drafts are kept in first-frame coordinates too, so a shape begun on one frame reads right on another.
   const [draft, setDraft] = useState<number[] | null>(null);
   const [active, setActive] = useState<{ x: number; y: number } | null>(null);
   const drafting = draft !== null;
-  const cutouts = stored.map((shape) => viewPoints(shape, view));
-  const draftShown = draft ? viewPoints(draft, view) : null;
+  const cutouts = stored.map((shape) => mapPoints(shape, view.toNow));
+  const draftShown = draft ? mapPoints(draft, view.toNow) : null;
   const place = (event: React.PointerEvent<HTMLDivElement>) => {
     if (!drafting || !frame.current || event.button !== 0) return;
-    const rect = frame.current.getBoundingClientRect();
-    const [x, y] = view.from((event.clientX - rect.left) / rect.width, (event.clientY - rect.top) / rect.height);
-    setDraft([...(draft ?? []), Number(x.toFixed(4)), Number(y.toFixed(4))]);
+    const [x, y] = toStored(view, ...pointerToComposition(frame.current, event.clientX, event.clientY));
+    setDraft([...(draft ?? []), x, y]);
   };
   const finish = () => {
     if (!draft || draft.length < 6) return;
@@ -248,7 +281,7 @@ function CutoutEditor({ cutouts: stored, frame, onChange, view = IDENTITY_VIEW }
   };
   return (
     <>
-      {active ? <Loupe frame={frame} x={active.x} y={active.y} /> : null}
+      {active ? <Loupe stage={stage} frame={frame} x={active.x} y={active.y} /> : null}
       {drafting ? <div className="cutout-canvas" data-testid="cutout-canvas" onPointerDown={place} /> : null}
       <svg className="surface-outline" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" }}>
         {cutouts.map((shape, i) => <polygon key={i} points={polygonPoints(shape)} fill="rgba(20,20,20,0.45)" stroke="rgba(120,200,255,0.95)" strokeWidth={0.4} vectorEffect="non-scaling-stroke" />)}
@@ -262,11 +295,11 @@ function CutoutEditor({ cutouts: stored, frame, onChange, view = IDENTITY_VIEW }
               onPointerDown={(event) => {
                 const gesture = `drag:cutout-${c}-${i}:${Date.now()}`;
                 dragPoint(event, frame, (x, y) => {
-                  const [fx, fy] = view.from(x, y);
+                  const [fx, fy] = toStored(view, x, y);
                   const next = stored.map((q) => [...q]);
                   next[c][i * 2] = fx; next[c][i * 2 + 1] = fy;
                   setActive({ x, y });
-                  onChange(next.map((q) => q.map((v) => Number(v.toFixed(4)))), gesture);
+                  onChange(next, gesture);
                 }, () => setActive(null));
               }} />
           ))}
@@ -299,18 +332,17 @@ function CutoutEditor({ cutouts: stored, frame, onChange, view = IDENTITY_VIEW }
  * are stored in first-frame coordinates and shown where the plane carries
  * them. Drawing a shape by hand remains for what the segmenter cannot find.
  */
-function OccluderEditor({ text, frame, view, atMs, onOccluders, onCutouts, onBehind }: { text: TextOverlay; frame: RefObject<HTMLDivElement | null>; view: PlaneView; /** The pinned source time on screen: where the tracker starts from (ADR 0051). */ atMs: number | null; onOccluders(occluders: NonNullable<TextOverlay["occluders"]>, gesture: string): void; onCutouts?(cutouts: number[][], gesture: string): void; onBehind?(behind: boolean): void }) {
+function OccluderEditor({ text, frame, view, atMs, stage, onOccluders, onCutouts, onBehind }: { text: TextOverlay; frame: RefObject<HTMLDivElement | null>; view: PlaneMotion; /** The pinned source time on screen: where the tracker starts from (ADR 0051). */ atMs: number | null; stage: StageMoment; onOccluders(occluders: NonNullable<TextOverlay["occluders"]>, gesture: string): void; onCutouts?(cutouts: number[][], gesture: string): void; onBehind?(behind: boolean): void }) {
   const [byHand, setByHand] = useState(false);
   const taps = text.occluders ?? [];
   const tap = (event: React.PointerEvent<HTMLDivElement>) => {
     if (!frame.current || event.button !== 0 || taps.length >= 4) return;
-    const rect = frame.current.getBoundingClientRect();
-    const [x, y] = view.from((event.clientX - rect.left) / rect.width, (event.clientY - rect.top) / rect.height);
-    onOccluders([...taps, { x: Number(x.toFixed(4)), y: Number(y.toFixed(4)), ...(atMs === null ? {} : { atMs }) }], `occluder-add-${Date.now()}`);
+    const [x, y] = toStored(view, ...pointerToComposition(frame.current, event.clientX, event.clientY));
+    onOccluders([...taps, { x, y, ...(atMs === null ? {} : { atMs }) }], `occluder-add-${Date.now()}`);
   };
   if (byHand && onCutouts) {
     return (<>
-      <CutoutEditor cutouts={text.cutouts ?? []} frame={frame} onChange={onCutouts} view={view} />
+      <CutoutEditor cutouts={text.cutouts ?? []} frame={frame} onChange={onCutouts} view={view} stage={stage} />
       <button type="button" className="btn btn-quiet occluder-mode" onClick={() => setByHand(false)}>Back to tapping</button>
     </>);
   }
@@ -318,7 +350,7 @@ function OccluderEditor({ text, frame, view, atMs, onOccluders, onCutouts, onBeh
     <>
       <div className="cutout-canvas" data-testid="occluder-canvas" onPointerDown={tap} />
       {taps.map((point, i) => {
-        const [x, y] = view.to(point.x, point.y);
+        const [x, y] = view.toNow(point.x, point.y);
         return (
           <button key={i} type="button" className="occluder-tap" data-testid="occluder-tap" aria-label={`Remove tap ${i + 1}`} style={{ left: `${x * 100}%`, top: `${y * 100}%` }}
             onPointerDown={(event) => event.stopPropagation()} onClick={() => onOccluders(taps.filter((_, k) => k !== i), `occluder-remove-${Date.now()}`)}>×</button>
@@ -339,24 +371,26 @@ function OccluderEditor({ text, frame, view, atMs, onOccluders, onCutouts, onBeh
  * editable there. A drag is taken back to the first frame's coordinates
  * through the plane's motion, so one move on any frame moves the whole track.
  */
-function PlacingOverlay({ clock, timeline, text, frame, tool, onSurface, onBars, onCutouts, onOccluders, onBehind }: { clock: Clock; timeline: Timeline; text: TextOverlay; frame: RefObject<HTMLDivElement | null>; tool: "corners" | "cutouts"; onSurface(quad: number[], gesture: string): void; onBars?(bars: number[][], gesture: string): void; onCutouts?(cutouts: number[][], gesture: string): void; onOccluders?(occluders: { x: number; y: number }[], gesture: string): void; onBehind?(behind: boolean): void }) {
+function PlacingOverlay({ clock, timeline, assets, text, frame, tool, onSurface, onBars, onCutouts, onOccluders, onBehind }: { clock: Clock; timeline: Timeline; assets: Record<string, ReelAsset>; text: TextOverlay; frame: RefObject<HTMLDivElement | null>; tool: "corners" | "cutouts"; onSurface(quad: number[], gesture: string): void; onBars?(bars: number[][], gesture: string): void; onCutouts?(cutouts: number[][], gesture: string): void; onOccluders?(occluders: { x: number; y: number }[], gesture: string): void; onBehind?(behind: boolean): void }) {
   const now = useClock(clock);
-  const tracked = text.pin ? textQuadAt(text, pinnedProgress(timeline, text, now)) : null;
+  const stage: StageMoment = { timeline, assets, now };
+  const tracked = displayedPlane(timeline, text, now);
   // ADR 0052: while the tracked surface is lost (o = 0) its corners are not measured; no handles to drag through them.
+  // Keep this after every hook (ADR 0047): returning before one crashes React when scrubbing into a lost stretch.
   if (tracked && textPositionAt(text, pinnedProgress(timeline, text, now)).opacity <= 0) return null;
-  const view = planeView(text.pin?.quad, tracked);
+  const view = planeMotion(text.pin?.quad, tracked);
   if (tool === "cutouts") {
-    if (onOccluders) return <OccluderEditor text={text} frame={frame} view={view} atMs={tapSourceMs(timeline, text, now)} onOccluders={onOccluders} onCutouts={onCutouts} onBehind={onBehind} />;
-    return onCutouts ? <CutoutEditor cutouts={text.cutouts ?? []} frame={frame} onChange={onCutouts} view={view} /> : null;
+    if (onOccluders) return <OccluderEditor text={text} frame={frame} view={view} atMs={tapSourceMs(timeline, text, now)} stage={stage} onOccluders={onOccluders} onCutouts={onCutouts} onBehind={onBehind} />;
+    return onCutouts ? <CutoutEditor cutouts={text.cutouts ?? []} frame={frame} onChange={onCutouts} view={view} stage={stage} /> : null;
   }
-  return <SurfaceHandles large quad={text.surface!} bars={text.bars} frame={frame} onChange={onSurface} onBars={onBars} view={view} />;
+  return <SurfaceHandles large quad={text.surface!} bars={text.bars} frame={frame} onChange={onSurface} onBars={onBars} view={view} stage={stage} />;
 }
 
 /** Check mode: every title on screen now, its surface (tracked where it is pinned) outlined, so a drift or a miss shows at full size before an export (ADR 0044). */
 function SurfaceOutlines({ clock, timeline }: { clock: Clock; timeline: Timeline }) {
   const now = useClock(clock);
   const shapes = textsAt(timeline, now).flatMap((text) => {
-    const quad = text.pin ? textQuadAt(text, pinnedProgress(timeline, text, now)) : null;
+    const quad = displayedPlane(timeline, text, now);
     // ADR 0052: a lost stretch of a track (o = 0) has no measured corners to outline.
     if (quad && textPositionAt(text, pinnedProgress(timeline, text, now)).opacity <= 0) return [];
     const outline = quad ?? text.surface;
@@ -392,7 +426,7 @@ function Ghost({ text, scale }: { text: TextOverlay; scale: number }) {
     // As wide as the words, up to the width the reel wraps text at, so the box hugs the text.
     // A pinned title never wraps and is shrunk to the frame instead, so its box is its one line at that scale.
     <span style={{ display: "block", zoom: scale, width: "max-content", maxWidth: text.pin ? REEL_FORMAT.width * PLANAR_MAX_WIDTH : REEL_FORMAT.width * 0.86, pointerEvents: "none" }}>
-      <span style={{ ...css, display: "inline-block", color: "transparent", background: "transparent", textShadow: "none", WebkitTextStroke: "0", ...(text.pin ? { whiteSpace: "nowrap", transform: `scale(${text.pin.quad ? planarFitAndShift(text.pin.quad, oneLineWidth(text.text, { fontFamily: String(css.fontFamily ?? ""), fontWeight: css.fontWeight, fontSize: Number(css.fontSize) || 64, letterSpacing: text.tracking, fontStretch: css.fontStretch ? String(css.fontStretch) : undefined })).fit : 1})`, transformOrigin: "0 0" } : {}) }}>
+      <span style={{ ...css, display: "inline-block", color: "transparent", background: "transparent", textShadow: "none", WebkitTextStroke: "0", ...(text.pin ? { whiteSpace: "nowrap", transform: `scale(${pinnedLineFit(text)})`, transformOrigin: "0 0" } : {}) }}>
         {text.text}
       </span>
     </span>
@@ -432,19 +466,19 @@ function TextHandle({
       onDoubleClick={onEdit}
       onPointerDown={(event) => {
         if (event.button !== 0 || !frame.current) return;
-        const rect = frame.current.getBoundingClientRect();
+        const [x, y] = pointerToComposition(frame.current, event.clientX, event.clientY);
         grab.current = {
-          dx: (event.clientX - rect.left) / rect.width - text.x,
-          dy: (event.clientY - rect.top) / rect.height - text.y,
+          dx: x - text.x,
+          dy: y - text.y,
           gesture: `drag:move-${text.id}:${Date.now()}`,
         };
         event.currentTarget.setPointerCapture(event.pointerId);
       }}
       onPointerMove={(event) => {
         if (!grab.current || !event.currentTarget.hasPointerCapture(event.pointerId) || !frame.current) return;
-        const rect = frame.current.getBoundingClientRect();
-        const x = clamp((event.clientX - rect.left) / rect.width - grab.current.dx, 0.05, 0.95);
-        const y = clamp((event.clientY - rect.top) / rect.height - grab.current.dy, 0.05, 0.95);
+        const [px, py] = pointerToComposition(frame.current, event.clientX, event.clientY);
+        const x = clamp(px - grab.current.dx, 0.05, 0.95);
+        const y = clamp(py - grab.current.dy, 0.05, 0.95);
         onMove(snap(x), y, grab.current.gesture);
       }}
       onPointerUp={() => (grab.current = null)}
@@ -563,7 +597,11 @@ export function Preview({
   placing = null,
 }: PreviewProps) {
   const frame = useRef<HTMLDivElement>(null);
-  const [scale, setScale] = useState(0.3);
+  // The composition's own rectangle inside the stage (ADR 0047): the Player contain-fits 9:16 into the
+  // stage box, which is not 9:16 in full screen on a phone. Every handle is placed in this rectangle.
+  const plane = useRef<HTMLDivElement>(null);
+  const [planeRect, setPlaneRect] = useState<ViewportRect | null>(null);
+  const scale = planeRect ? compositionScale(planeRect) : 0.3;
   // Which full-screen tool is up: the corners (and posts), or the cut-outs. Starts on what opened it.
   const [tool, setTool] = useState<"corners" | "cutouts">("corners");
   useEffect(() => { if (corners) setTool(corners); }, [corners]);
@@ -571,7 +609,7 @@ export function Preview({
   useEffect(() => {
     const element = frame.current;
     if (!element) return;
-    const observer = new ResizeObserver(([entry]) => setScale(entry.contentRect.width / REEL_FORMAT.width));
+    const observer = new ResizeObserver(([entry]) => setPlaneRect(stageRect({ left: 0, top: 0, width: entry.contentRect.width, height: entry.contentRect.height })));
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
@@ -702,48 +740,50 @@ export function Preview({
           <div className="stage-empty">{empty}</div>
         )}
 
-        {guides && !theater ? (
-          <div className="guides" aria-hidden="true">
-            <span className="g-top" style={{ height: `${(zone.top / REEL_FORMAT.height) * 100}%` }} />
-            <span className="g-bottom" style={{ height: `${(zone.bottom / REEL_FORMAT.height) * 100}%` }} />
-            <span
-              className="g-right"
-              style={{
-                top: `${(zone.top / REEL_FORMAT.height) * 100}%`,
-                bottom: `${(zone.bottom / REEL_FORMAT.height) * 100}%`,
-                width: `${(zone.right / REEL_FORMAT.width) * 100}%`,
-              }}
-            />
-            <p>Instagram covers the shaded areas</p>
-          </div>
-        ) : null}
-
-        {hasClips && !playing && !theater ? (
-          <TextTargets clock={clock} timeline={timeline} selectedId={selectedText?.id ?? null} scale={scale} onSelect={onSelectText} onEdit={onEditText} />
-        ) : null}
-        {theater && corners && selectedText?.surface && onSurfaceText ? (
-          <PlacingOverlay clock={clock} timeline={timeline} text={selectedText} frame={frame} tool={tool}
-            onSurface={(quad, gesture) => onSurfaceText(selectedText.id, quad, gesture)}
-            onBars={onBarsText ? (bars, gesture) => onBarsText(selectedText.id, bars, gesture) : undefined}
-            onCutouts={onCutoutsText ? (cutouts, gesture) => onCutoutsText(selectedText.id, cutouts, gesture) : undefined}
-            onOccluders={onOccludersText ? (occluders, gesture) => onOccludersText(selectedText.id, occluders, gesture) : undefined}
-            onBehind={onBehindText ? (behind) => onBehindText(selectedText.id, behind) : undefined} />
-        ) : null}
-        {selectedText && !playing && !theater ? (<>
-          <TextHandle
-            text={selectedText}
-            clock={clock}
-            scale={scale}
-            frame={frame}
-            onMove={(x, y, gesture) => onMoveText(selectedText.id, x, y, gesture)}
-            onResize={(size, gesture) => onResizeText(selectedText.id, size, gesture)}
-            onEdit={() => onEditText(selectedText.id)}
-          />
-          {selectedText.surface && onSurfaceText ? (
-            <SurfaceHandles quad={selectedText.surface} bars={selectedText.bars} frame={frame} onChange={(quad, gesture) => onSurfaceText(selectedText.id, quad, gesture)} onBars={onBarsText ? (bars, gesture) => onBarsText(selectedText.id, bars, gesture) : undefined} />
+        <div className="stage-plane" ref={plane} data-testid="stage-plane" style={planeRect ? { left: planeRect.left, top: planeRect.top, width: planeRect.width, height: planeRect.height } : { inset: 0 }}>
+          {guides && !theater ? (
+            <div className="guides" aria-hidden="true">
+              <span className="g-top" style={{ height: `${(zone.top / REEL_FORMAT.height) * 100}%` }} />
+              <span className="g-bottom" style={{ height: `${(zone.bottom / REEL_FORMAT.height) * 100}%` }} />
+              <span
+                className="g-right"
+                style={{
+                  top: `${(zone.top / REEL_FORMAT.height) * 100}%`,
+                  bottom: `${(zone.bottom / REEL_FORMAT.height) * 100}%`,
+                  width: `${(zone.right / REEL_FORMAT.width) * 100}%`,
+                }}
+              />
+              <p>Instagram covers the shaded areas</p>
+            </div>
           ) : null}
-        </>) : null}
-        {theater && check ? <SurfaceOutlines clock={clock} timeline={timeline} /> : null}
+
+          {hasClips && !playing && !theater ? (
+            <TextTargets clock={clock} timeline={timeline} selectedId={selectedText?.id ?? null} scale={scale} onSelect={onSelectText} onEdit={onEditText} />
+          ) : null}
+          {theater && corners && selectedText?.surface && onSurfaceText ? (
+            <PlacingOverlay clock={clock} timeline={timeline} assets={assets} text={selectedText} frame={plane} tool={tool}
+              onSurface={(quad, gesture) => onSurfaceText(selectedText.id, quad, gesture)}
+              onBars={onBarsText ? (bars, gesture) => onBarsText(selectedText.id, bars, gesture) : undefined}
+              onCutouts={onCutoutsText ? (cutouts, gesture) => onCutoutsText(selectedText.id, cutouts, gesture) : undefined}
+              onOccluders={onOccludersText ? (occluders, gesture) => onOccludersText(selectedText.id, occluders, gesture) : undefined}
+              onBehind={onBehindText ? (behind) => onBehindText(selectedText.id, behind) : undefined} />
+          ) : null}
+          {selectedText && !playing && !theater ? (<>
+            <TextHandle
+              text={selectedText}
+              clock={clock}
+              scale={scale}
+              frame={plane}
+              onMove={(x, y, gesture) => onMoveText(selectedText.id, x, y, gesture)}
+              onResize={(size, gesture) => onResizeText(selectedText.id, size, gesture)}
+              onEdit={() => onEditText(selectedText.id)}
+            />
+            {selectedText.surface && onSurfaceText ? (
+              <SurfaceHandles quad={selectedText.surface} bars={selectedText.bars} frame={plane} onChange={(quad, gesture) => onSurfaceText(selectedText.id, quad, gesture)} onBars={onBarsText ? (bars, gesture) => onBarsText(selectedText.id, bars, gesture) : undefined} />
+            ) : null}
+          </>) : null}
+          {theater && check ? <SurfaceOutlines clock={clock} timeline={timeline} /> : null}
+        </div>
       </div>
     </div>
   );

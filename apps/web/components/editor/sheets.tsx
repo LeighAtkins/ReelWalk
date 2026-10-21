@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useId, useRef, useState, type CSSProperties } from "react";
 import { HOOK_DESCRIPTIONS, HOOK_FONTS, HOOK_LABELS, type Hook, type HookKind,
   acceptFor,
   canExport,
@@ -42,7 +42,7 @@ import { HOOK_DESCRIPTIONS, HOOK_FONTS, HOOK_LABELS, type Hook, type HookKind,
   type PlanOverlay,
   type TextAnimation,
   type TextOverlay,
-  type TextStyle, oneLineWidth, planarFitAndShift, orientQuad } from "@reelwalk/core";
+  type TextStyle, orientQuad } from "@reelwalk/core";
 import { ClipSourceInfo } from "./clip-source-info";
 import { ELEGANT_FONT_FAMILY, FILTER_CSS, FILTER_LABELS, TEXT_ANIMATION_LABELS, TEXT_STYLE_LABELS, textTreatmentCss } from "@reelwalk/render/reel";
 import { formatDuration } from "@/lib/format";
@@ -53,6 +53,7 @@ import { CaptionEditor } from "../caption-editor";
 import { AlertIcon, CloseIcon, InstagramIcon, PlusIcon } from "../icons";
 import { InstagramSoundBrowser } from "../instagram-sound-picker";
 import { detectSurface, findMatchingCut, trackTextPathDetailed } from "./frame-analysis";
+import { planarShift } from "./title-metrics";
 import { Sheet } from "../sheet";
 
 // ── Shell ───────────────────────────────────────────────────────
@@ -823,26 +824,25 @@ export function HookSheet({ hook, hasPerson, onChange, onWords, onClose }: {
   );
 }
 
-/** How far to move a pinned title's centre so its line, warped onto the tracked plane, starts 3% inside both frame edges. */
-function planarShift(text: Pick<TextOverlay, "text" | "style" | "color" | "size" | "font" | "tracking" | "shadow">, quad0: readonly number[]): number {
-  const css = textTreatmentCss(text);
-  const width = oneLineWidth(text.text, { fontFamily: String(css.fontFamily ?? ""), fontWeight: css.fontWeight, fontSize: Number(css.fontSize) || 64, letterSpacing: text.tracking, fontStretch: css.fontStretch ? String(css.fontStretch) : undefined });
-  return planarFitAndShift(quad0, width).shift;
-}
-
 /** Pin a text to the surface under it so it moves with the camera (ADR 0039). */
 /**
  * Tracks the surface under a title through its shot and returns what to store
  * (ADR 0039/0044). Shared by the Pin sheet and the full-screen placing mode's
  * Track button, so both follow the same rules.
  */
-export async function pinTitle({ text, clip, asset, clipStartMs, wholeShot, lean, onProgress }: {
+export async function pinTitle({ text, clip, asset, clipStartMs, wholeShot, lean, onProgress, signal }: {
   text: TextOverlay; clip: Clip; asset: LibraryAsset; clipStartMs: number; wholeShot: boolean; lean: { yaw: number; pitch: number }; onProgress?(fraction: number): void;
-}): Promise<{ pinned: { path: TextOverlay["path"]; pin: TextOverlay["pin"] }; patch: { startMs?: number; endMs?: number; x?: number }; status: string } | { error: string }> {
+  /** Aborting stops the track at its next step (ADR 0047); the result is then `{ error, cancelled: true }`. */
+  signal?: AbortSignal;
+}): Promise<{ pinned: { path: TextOverlay["path"]; pin: TextOverlay["pin"] }; patch: { startMs?: number; endMs?: number; x?: number }; status: string } | { error: string; cancelled?: boolean }> {
   const timing = wholeShot ? { startMs: clipStartMs, endMs: clipStartMs + clipDurationMs(clip) } : { startMs: text.startMs, endMs: text.endMs };
   // Corners may have been placed in any order: the plane is tracked, and stored, upright.
   const upright = text.surface ? { ...text, surface: orientQuad(text.surface).map(v => Number(v.toFixed(4))) } : text;
-  const tracked = await trackTextPathDetailed(asset, clip, clipStartMs, { ...upright, ...timing }, onProgress, lean);
+  // The tracker reports after every step; a cancelled track throws there, which ends it like a failed read.
+  const progress = (fraction: number) => { if (signal?.aborted) throw new DOMException("Tracking was cancelled.", "AbortError"); onProgress?.(fraction); };
+  if (signal?.aborted) return { error: "Tracking was cancelled.", cancelled: true };
+  const tracked = await trackTextPathDetailed(asset, clip, clipStartMs, { ...upright, ...timing }, progress, lean);
+  if (signal?.aborted) return { error: "Tracking was cancelled.", cancelled: true };
   // The tracker says why it refused (too few features inside the surface, lost at a frame, degenerate motion; ADR 0052).
   if ("error" in tracked) return { error: tracked.error };
   // A title that starts cut off at the frame edge never reads as being on the wall: with the plane
@@ -867,8 +867,10 @@ export async function pinTitle({ text, clip, asset, clipStartMs, wholeShot, lean
   };
 }
 
-export function PinSheet({ text, clip, asset, clipStartMs, onPath, onSurface, onBars, onCheck, onPlaceCorners, onDrawCutout, onClose }: {
+export function PinSheet({ text, clip, asset, clipStartMs, placementVersionNow, onPath, onSurface, onBars, onCheck, onPlaceCorners, onDrawCutout, onClose }: {
   text: TextOverlay; clip: Clip | null; asset: LibraryAsset | undefined; clipStartMs: number;
+  /** The title's placement version in the current timeline (core `placementVersion`), read when a track starts and when it ends. */
+  placementVersionNow?(): string;
   onPath(pinned: { path: TextOverlay["path"]; pin: TextOverlay["pin"] } | undefined, patch?: { startMs?: number; endMs?: number; x?: number }): void;
   /** The surface the title is painted on was set, found or cleared (also drops any pin, which must be redone on the new plane). */
   onSurface?(surface: number[] | undefined): void;
@@ -890,12 +892,27 @@ export function PinSheet({ text, clip, asset, clipStartMs, onPath, onSurface, on
   const [yaw, setYaw] = useState(text.pin?.lean?.yaw ?? 0);
   const [pitch, setPitch] = useState(text.pin?.lean?.pitch ?? 0);
   const canTrack = Boolean(clip && clip.kind === "VIDEO" && asset);
+  // A track answers for the placement it started from (ADR 0047): closing the sheet cancels it, and a
+  // result for corners or a shot changed meanwhile is dropped rather than written over the new placement.
+  const tracking = useRef<AbortController | null>(null);
+  const lean = useRef({ yaw, pitch });
+  lean.current = { yaw, pitch };
+  useEffect(() => () => tracking.current?.abort(), []);
   async function pin() {
     if (!clip || !asset) return;
+    tracking.current?.abort();
+    const controller = new AbortController();
+    tracking.current = controller;
+    // The lean set here is part of the placement too, until it is stored with the pin.
+    const versionNow = () => `${placementVersionNow?.() ?? ""}|${lean.current.yaw}|${lean.current.pitch}`;
+    const version = versionNow();
     setBusy(true); setStatus("Following the surface under the text…");
-    const result = await pinTitle({ text, clip, asset, clipStartMs, wholeShot, lean: { yaw, pitch }, onProgress: fraction => setStatus(`Following the surface under the text… ${Math.round(fraction * 100)}%`) });
+    const result = await pinTitle({ text, clip, asset, clipStartMs, wholeShot, lean: { yaw, pitch }, signal: controller.signal, onProgress: fraction => setStatus(`Following the surface under the text… ${Math.round(fraction * 100)}%`) });
+    if (controller.signal.aborted) return;
+    tracking.current = null;
     setBusy(false);
     if ("error" in result) { setStatus(result.error); return; }
+    if (versionNow() !== version) { setStatus("The title or its shot changed while tracking, so that track was discarded. Pin again."); return; }
     onPath(result.pinned, result.patch);
     setStatus(result.status);
   }

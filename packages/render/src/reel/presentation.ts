@@ -56,17 +56,8 @@ export function clipPresentation(clip: Clip, frame: number, fps: number, duratio
 }
 
 /**
- * Where a video of `sourceWidth`×`sourceHeight` lands in a `width`×`height`
- * frame under `object-fit`, as the source rectangle to draw and the
- * destination rectangle to draw it into. The matte draws the person through
- * the same geometry as the footage, so neither is stretched.
+ * Where a video lands in a frame under `object-fit`. Moved to
+ * `@reelwalk/core` view.ts (ADR 0047) so analysis, the editor's handles and
+ * the composition share one implementation; re-exported here unchanged.
  */
-export function fitRects(sourceWidth: number, sourceHeight: number, width: number, height: number, fit: "cover" | "contain"): { sx: number; sy: number; sw: number; sh: number; dx: number; dy: number; dw: number; dh: number } {
-  const scale = fit === "cover" ? Math.max(width / sourceWidth, height / sourceHeight) : Math.min(width / sourceWidth, height / sourceHeight);
-  const dw = sourceWidth * scale, dh = sourceHeight * scale;
-  if (fit === "cover") {
-    const sw = width / scale, sh = height / scale;
-    return { sx: (sourceWidth - sw) / 2, sy: (sourceHeight - sh) / 2, sw, sh, dx: 0, dy: 0, dw: width, dh: height };
-  }
-  return { sx: 0, sy: 0, sw: sourceWidth, sh: sourceHeight, dx: (width - dw) / 2, dy: (height - dh) / 2, dw, dh };
-}
+export { fitRects } from "@reelwalk/core";

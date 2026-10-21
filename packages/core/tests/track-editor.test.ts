@@ -14,6 +14,8 @@ class FakeVideo {
   private listeners: Record<string, (() => void)[]> = {};
   private time = 0;
   crossOrigin = ""; preload = ""; muted = false; src = ""; duration = 10;
+  // A 9:16 source at the tracking size: under Fill at zoom 1 the composition shows it exactly (ADR 0047 draws frames through the clip's presentation).
+  videoWidth = 360; videoHeight = 640; playsInline = false;
   addEventListener(type: string, fn: () => void) { (this.listeners[type] ??= []).push(fn); }
   removeEventListener(type: string, fn: () => void) { this.listeners[type] = (this.listeners[type] ?? []).filter((f) => f !== fn); }
   removeAttribute() { this.src = ""; }
@@ -29,6 +31,7 @@ function stubDocument() {
     width: 0, height: 0,
     getContext: () => ({
       drawImage: (video: FakeVideo) => { shown = video; },
+      setTransform: () => undefined, fillRect: () => undefined, save: () => undefined, restore: () => undefined, filter: "none", fillStyle: "#000",
       getImageData: (_x: number, _y: number, w: number, h: number) => {
         const gray = texturedFrame(w, h, [1, 0, (shown?.currentTime ?? 0) * 1000 * SPEED, 0, 1, 0, 0, 0, 1]);
         const data = new Uint8ClampedArray(w * h * 4);

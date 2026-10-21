@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import type { PlayerRef } from "@remotion/player";
-import { setHook, wordsBehindHook, locate, orientQuad, reshapePin,
+import { setHook, wordsBehindHook, locate, orientQuad, reshapePin, placementVersion, storedFraction,
   addClips,
   insertAiShot,
   luxuryFinish,
@@ -742,14 +742,33 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
     const marks = [0, 0.25, 0.5, 0.75, 1].map((share, k) => ({ label: ["start", "¼", "½", "¾", "end"][k], ms: Math.round(start + Math.min(Math.max(share * length, frameMs), Math.max(frameMs, length - frameMs))) }));
     return { clip, clipStartMs: selectedText.startMs - at.offsetMs, marks };
   }, [selectedText, timeline]);
+  // A track is versioned and cancellable (ADR 0047): it captures the title's placement version when it
+  // starts, and its result is applied only if the placement is unchanged when it arrives. Leaving the
+  // placing screen cancels it.
+  const timelineNow = useRef(timeline);
+  timelineNow.current = timeline;
+  const placingTrack = useRef<AbortController | null>(null);
+  useEffect(() => { if (!placing) { placingTrack.current?.abort(); placingTrack.current = null; } }, [placing]);
   const trackInPlace = useCallback(async () => {
     if (!selectedText || !placingShot) return;
     const asset = library[placingShot.clip.assetId];
     if (!asset || placingShot.clip.kind !== "VIDEO") { setPlacingStatus({ text: "Tracking needs the title to start on a video clip.", busy: false }); return; }
+    placingTrack.current?.abort();
+    const controller = new AbortController();
+    placingTrack.current = controller;
+    const id = selectedText.id;
+    const version = placementVersion(timelineNow.current, id);
     setPlacingStatus({ text: "Following the surface through the shot…", busy: true });
-    const result = await pinTitle({ text: selectedText, clip: placingShot.clip, asset, clipStartMs: placingShot.clipStartMs, wholeShot: true, lean: { yaw: selectedText.pin?.lean?.yaw ?? 0, pitch: selectedText.pin?.lean?.pitch ?? 0 }, onProgress: (fraction) => setPlacingStatus({ text: `Following the surface through the shot… ${Math.round(fraction * 100)}%`, busy: true }) });
+    const result = await pinTitle({ text: selectedText, clip: placingShot.clip, asset, clipStartMs: placingShot.clipStartMs, wholeShot: true, lean: { yaw: selectedText.pin?.lean?.yaw ?? 0, pitch: selectedText.pin?.lean?.pitch ?? 0 }, signal: controller.signal, onProgress: (fraction) => setPlacingStatus({ text: `Following the surface through the shot… ${Math.round(fraction * 100)}%`, busy: true }) });
+    if (controller.signal.aborted) return;
+    placingTrack.current = null;
     if ("error" in result) { setPlacingStatus({ text: result.error, busy: false }); return; }
-    apply((current) => updateText(current, selectedText.id, { path: result.pinned.path, pin: result.pinned.pin, ...result.patch }), `pin-${selectedText.id}`);
+    if (placementVersion(timelineNow.current, id) !== version) {
+      setPlacingStatus({ text: "The corners or the shot changed while tracking, so that track was discarded. Press Track again.", busy: false });
+      return;
+    }
+    // Checked again against the timeline the edit actually lands on.
+    apply((current) => placementVersion(current, id) === version ? updateText(current, id, { path: result.pinned.path, pin: result.pinned.pin, ...result.patch }) : current, `pin-${id}`);
     setPlacingStatus({ text: `${result.status} Step through the shot below.`, busy: false });
   }, [selectedText, placingShot, library, apply]);
 
@@ -1174,7 +1193,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         clock={clock}
         onMoveText={(id, x, y, gesture) => apply((current) => updateText(current, id, { x, y }), gesture)}
         onSurfaceText={(id, quad, gesture) => apply((current) => {
-          const surface = orientQuad(quad).map((v) => Number(v.toFixed(4)));
+          const surface = orientQuad(quad).map(storedFraction);
           const text = current.texts.find((item) => item.id === id);
           // Pinned: the plane and every keyframe move with the corner, no re-tracking (ADR 0044).
           const reshaped = text ? reshapePin(text, surface) : null;
@@ -1409,6 +1428,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         const at = locate(timeline, selectedText.startMs);
         const clip = at ? timeline.clips[at.index] : null;
         return <PinSheet text={selectedText} clip={clip} asset={clip ? library[clip.assetId] : undefined} clipStartMs={at ? selectedText.startMs - at.offsetMs : 0}
+          placementVersionNow={() => placementVersion(timelineNow.current, selectedText.id)}
           onPath={(pinned, patch) => apply((current) => updateText(current, selectedText.id, { path: pinned?.path, pin: pinned?.pin, ...(patch ?? {}) }), `pin-${selectedText.id}`)}
           onSurface={(surface) => apply((current) => updateText(current, selectedText.id, { surface, path: undefined, pin: undefined, ...(surface ? {} : { bars: undefined, cutouts: undefined, occluders: undefined }) }), `surface-${selectedText.id}`)}
           onBars={(bars) => apply((current) => updateText(current, selectedText.id, { bars: bars.length ? bars : undefined }), `bars-${selectedText.id}`)}

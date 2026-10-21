@@ -110,13 +110,10 @@ async function openPlacing(page: Page) {
   await page.waitForTimeout(500);
 }
 
-// Found by this spec's first CI run (2026-10-21): in placing mode the stage is about 418 px wide from x = 30
-// on a 412 px screen, so the right-hand corners sit 6 px from the edge and paint 30 px of their 44 (and the
-// right 36 px of the picture are off screen). Recorded in PR #193 rather than fixed here: the layout belongs to
-// the editor, which this harness measures and does not change. `test.fail` keeps the check running and turns
-// it red the day the layout is fixed, as the cue to delete that line.
+// Found by this spec's first CI run (2026-10-21): in placing mode the stage was about 418 px wide from x = 30
+// on a 412 px screen, so the right-hand corners sat 6 px from the edge and painted 30 px of their 44. Fixed in
+// PR #196 (ADR 0047): the placing frame fits the screen at 9:16 with a 44 px gutter each side.
 test("corner placing at phone size: the stage and every corner handle fit the screen, thumb-sized", async ({ page, browser }) => {
-  test.fail(true, "known defect: the corner-placing stage overflows a 412 px screen (PR #193)");
   await openPlacing(page);
   const stage = (await page.getByTestId("preview").boundingBox())!;
   const screen = page.viewportSize()!;

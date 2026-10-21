@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { aiClipCredits, DIRECTOR_LOOP_MAX_ROUNDS, directorLoopBrief, directorLoopStep, sameTimeline, type DirectorPlan, type InstagramAudioTrack, type Timeline } from "@reelwalk/core";
+import { aiClipCredits, DIRECTOR_LOOP_MAX_ROUNDS, isGeneratedAssetId, directorLoopBrief, directorLoopStep, sameTimeline, type DirectorPlan, type InstagramAudioTrack, type Timeline } from "@reelwalk/core";
 import type { LibraryAsset } from "@/lib/library";
 import type { PublicDirectorRun } from "@/lib/workflows";
 import { runAiJob, waitForAiJob } from "@/lib/ai-jobs-client";
 import { captureDirectorEvidence } from "./director-evidence";
 import { Sheet } from "../sheet";
+import { PresenterPicker } from "./presenter-kit";
 
 const VERDICTS = { ready: "Opus thinks this reel is ready", "changes-proposed": "Opus suggests some changes", "needs-generation": "Opus suggests new AI shots" } as const;
 const CHECKS: Record<string, string> = { scale: "Presenter's size", cameraContinuity: "Camera flow", presenterContinuity: "Presenter stays on screen", propertyIdentity: "House matches the real one" };
@@ -44,6 +45,18 @@ export function DirectorSheet({ reelId, timeline, generation, library, onApply, 
   /** Why the server refused the last review start ("busy", "reviewed": another tab has this round). */
   const refused = useRef<string | null>(null);
   const media = [...new Map([...library, ...extra].map(a => [a.id, a])).values()];
+  // Who she is in composed shots (ADR 0056): the picked presenter kit, sent with every approval.
+  const [presenterId, setPresenterId] = useState<string | null>(null);
+  const withPresenter = presenterId ? { presenterId } : {};
+  // How many generated hops each AI take is from a real reference, to warn before a chained shot is made.
+  const [depths, setDepths] = useState<Record<string, number>>({});
+  useEffect(() => {
+    void fetch("/api/ai/generations", { cache: "no-store" }).then(response => response.ok ? response.json() : null).then((data: { jobs: { asset: { id: string } | null; referenceDepth: number | null }[] } | null) => {
+      if (data) setDepths(Object.fromEntries(data.jobs.flatMap(job => job.asset ? [[job.asset.id, job.referenceDepth ?? 0]] : [])));
+    }).catch(() => undefined);
+  }, []);
+  /** The reference depth a proposal would have: 0 with a kit or real footage, else one more than the take it names. */
+  const proposalDepth = (shot: DirectorPlan["shots"][number]) => !shot.compose || presenterId || !shot.compose.presenter || !isGeneratedAssetId(shot.compose.presenter.assetId) ? 0 : (depths[shot.compose.presenter.assetId] ?? 0) + 1;
   async function reloadHistory() {
     const response = await fetch(`/api/reels/${reelId}/director`, { cache: "no-store" });
     if (!response.ok) throw new Error("Could not load saved direction.");
@@ -120,7 +133,7 @@ export function DirectorSheet({ reelId, timeline, generation, library, onApply, 
         if (step.kind === "done") { setMessage(step.reason); return; }
         const shot = result.plan.shots[step.index];
         setBusy(true);
-        const response = await fetch(`/api/reels/${reelId}/director/generate`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ editId: result.editId, index: step.index, quotedCredits: step.credits, approved: true, auto: { runId: state.runId, budgetCredits: budget } }) });
+        const response = await fetch(`/api/reels/${reelId}/director/generate`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ editId: result.editId, index: step.index, quotedCredits: step.credits, approved: true, auto: { runId: state.runId, budgetCredits: budget }, ...withPresenter }) });
         const data = await response.json(); if (!response.ok) throw new Error(data.error ?? "Generation did not start.");
         state.spent += step.credits; state.round += 1;
         setGenerated(g => ({ ...g, [`${result.editId}:${step.index}`]: data.id }));
@@ -224,7 +237,7 @@ export function DirectorSheet({ reelId, timeline, generation, library, onApply, 
         const review = result;
         setBusy(true);
         // Approving the same review and shot again reuses its generation (ADR 0034), so a resumed run never pays twice.
-        const response = await fetch(`/api/reels/${reelId}/director/generate`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ editId: review.editId, index: step.index, quotedCredits: step.credits, approved: true, auto: { runId: run.state.firstEditId ?? review.editId, budgetCredits: run.budgetCredits } }) });
+        const response = await fetch(`/api/reels/${reelId}/director/generate`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ editId: review.editId, index: step.index, quotedCredits: step.credits, approved: true, auto: { runId: run.state.firstEditId ?? review.editId, budgetCredits: run.budgetCredits }, ...withPresenter }) });
         const data = await response.json(); setBusy(false); if (!response.ok) throw new Error(data.error ?? "Generation did not start.");
         setGenerated(g => ({ ...g, [`${review.editId}:${step.index}`]: data.id }));
         run = await runPost(run.id, { action: "advance", stepId: reviewStep.id, index: step.index, generationId: data.id, applied: changes });
@@ -245,7 +258,7 @@ export function DirectorSheet({ reelId, timeline, generation, library, onApply, 
   async function generate(index: number) {
     if (!review) return; setApproving(index); setMessage("");
     try {
-      const response = await fetch(`/api/reels/${reelId}/director/generate`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ editId: review.editId, index, quotedCredits: aiClipCredits(review.plan.shots[index].durationSeconds, Boolean(review.plan.shots[index].voice)), approved: true }) });
+      const response = await fetch(`/api/reels/${reelId}/director/generate`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ editId: review.editId, index, quotedCredits: aiClipCredits(review.plan.shots[index].durationSeconds, Boolean(review.plan.shots[index].voice)), approved: true, ...withPresenter }) });
       const data = await response.json(); if (!response.ok) throw new Error(data.error ?? "Generation did not start.");
       setGenerated(g => ({ ...g, [`${review.editId}:${index}`]: data.id }));
       setMessage("Making the shot. It takes a few minutes; ask Opus again once it is ready and it will check the result. Tapping again will not charge twice.");
@@ -272,6 +285,7 @@ export function DirectorSheet({ reelId, timeline, generation, library, onApply, 
     {running
       ? <button type="button" className="btn btn-quiet btn-block" onClick={() => { void stopRun(); }}>Stop the run</button>
       : <button type="button" className="btn btn-signal btn-block" disabled={busy || brief.trim().length < 3} onClick={() => { void (mode === "auto" ? (durable ? runSaved(null) : run()) : direct()); }}>{busy ? "Opus is working…" : mode === "auto" ? `Make it for me · up to ${budget} ${budget === 1 ? "credit" : "credits"}` : "Ask Opus"}</button>}
+    <PresenterPicker library={media} value={presenterId} onChange={setPresenterId} onAssets={assets => { setExtra(prev => [...prev, ...assets]); onAssets?.(assets); }} disabled={busy || running} />
     {message ? <p role="status" className="small">{message}</p> : null}
     {history.length > 0 ? <details><summary>Earlier suggestions ({history.length})</summary>{history.map(h => <button key={h.editId} type="button" className="btn btn-quiet btn-block" disabled={busy} onClick={() => setReview(h)}>{h.plan.note.slice(0, 110)}</button>)}</details> : null}
     {review ? <section aria-label="Opus direction">
@@ -282,8 +296,8 @@ export function DirectorSheet({ reelId, timeline, generation, library, onApply, 
       <details><summary>What Opus looked at</summary><p className="small">{review.evidence.length} clips, {review.evidence.reduce((n, e) => n + e.timesMs.length, 0)} frames. Opus sees still frames, not sound or the finished playback.</p></details>
       {review.applied.length > 0 || review.plan.edit.caption ? <><details><summary>What Opus would change</summary><ul>{review.applied.map((s, i) => <li key={i}>{s}</li>)}</ul>{review.skipped.map((s, i) => <p key={i}>{s}</p>)}{review.plan.edit.caption ? <p style={{ whiteSpace: "pre-wrap" }}>Post caption: {review.plan.edit.caption}</p> : null}</details><button type="button" className="btn btn-signal btn-block" disabled={!current || busy} onClick={() => { void onApply(review).then((applied) => setMessage(applied.ok ? "Applied as one editable, undoable step." : applied.reason === "stale" ? "The timeline changed. Ask Opus to review the current edit." : applied.message)); }}>Apply these changes</button>{!current ? <p className="small">You have edited the reel since. Ask Opus again before applying.</p> : null}</> : null}
       {review.plan.shots.map((s, i) => <article key={`${review.editId}:${i}`}>
-        <h3>{s.title}</h3><p>{s.reason}</p>{s.line ? <p className="small">She says: “{s.line}” · {s.voice === "veo" ? "Veo's own voice" : "the presenter voice, lip-synced"}</p> : null}<p className="small">New {s.durationSeconds}-second AI shot · {aiClipCredits(s.durationSeconds, Boolean(s.voice))} {aiClipCredits(s.durationSeconds, Boolean(s.voice)) === 1 ? "credit" : "credits"}</p>
-        <details><summary>Opus's instructions for this shot</summary><p style={{ whiteSpace: "pre-wrap" }}>{s.prompt}</p><p className="small">First: {s.first ? `${media.find(a => a.id === s.first!.assetId)?.fileName ?? s.first.assetId} at ${(s.first.atMs / 1000).toFixed(2)}s` : "None"}<br />Last: {s.last ? `${media.find(a => a.id === s.last!.assetId)?.fileName ?? s.last.assetId} at ${(s.last.atMs / 1000).toFixed(2)}s` : "None"}{s.compose ? <><br />Start and end stills are composed first, placing the presenter from {media.find(a => a.id === s.compose!.presenter.assetId)?.fileName ?? s.compose.presenter.assetId} into the real frame at human scale.</> : null}</p></details>
+        <h3>{s.title}</h3><p>{s.reason}</p>{s.line ? <p className="small">She says: “{s.line}” · {s.voice === "veo" ? "Veo's own voice" : "the presenter voice, lip-synced"}</p> : null}{proposalDepth(s) > 0 ? <p className="small"><span className="badge badge-running">Made from an AI take · {proposalDepth(s)} {proposalDepth(s) === 1 ? "hop" : "hops"} from her real photos</span> Faces drift when takes are chained. Pick a presenter above so her face comes from the kit.</p> : null}{s.compose && !presenterId && !s.compose.presenter ? <p className="small"><span className="badge badge-failed">Needs a presenter</span> Set one up above before making this shot.</p> : null}<p className="small">New {s.durationSeconds}-second AI shot · {aiClipCredits(s.durationSeconds, Boolean(s.voice))} {aiClipCredits(s.durationSeconds, Boolean(s.voice)) === 1 ? "credit" : "credits"}</p>
+        <details><summary>Opus's instructions for this shot</summary><p style={{ whiteSpace: "pre-wrap" }}>{s.prompt}</p><p className="small">First: {s.first ? `${media.find(a => a.id === s.first!.assetId)?.fileName ?? s.first.assetId} at ${(s.first.atMs / 1000).toFixed(2)}s` : "None"}<br />Last: {s.last ? `${media.find(a => a.id === s.last!.assetId)?.fileName ?? s.last.assetId} at ${(s.last.atMs / 1000).toFixed(2)}s` : "None"}{s.compose ? <><br />Start and end stills are composed first ({s.compose.framing} framing), placing the presenter from {presenterId || !s.compose.presenter ? "your presenter kit" : media.find(a => a.id === s.compose!.presenter!.assetId)?.fileName ?? s.compose.presenter.assetId} into the real frame at human scale, and her face is checked against the kit before any credit is spent on Veo.</> : null}</p></details>
         <button type="button" className="btn btn-quiet btn-block" disabled={approving !== null || busy || Boolean(generated[`${review.editId}:${i}`])} onClick={() => generate(i)}>{generated[`${review.editId}:${i}`] ? "Making the shot…" : approving === i ? "Starting…" : `Make this shot · ${aiClipCredits(s.durationSeconds, Boolean(s.voice))} ${aiClipCredits(s.durationSeconds, Boolean(s.voice)) === 1 ? "credit" : "credits"}`}</button>
       </article>)}
     </section> : null}

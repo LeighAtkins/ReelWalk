@@ -17,7 +17,9 @@ export default defineConfig({
   // the app); Linux CI is not affected. Override with E2E_WORKERS.
   workers: Number(process.env.E2E_WORKERS ?? 2),
   retries: process.env.CI ? 1 : 0,
-  reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : "list",
+  // In CI the JSON report feeds report-flaky.mjs, which lists in the job
+  // summary every test that passed only on its retry (ADR 0054).
+  reporter: process.env.CI ? [["list"], ["html", { open: "never" }], ["json", { outputFile: "test-results/results.json" }]] : "list",
   use: {
     baseURL: process.env.E2E_BASE_URL ?? "http://localhost:8080",
     trace: "retain-on-failure",

@@ -286,6 +286,11 @@ jobs:
         if: env.RUN == 'true'
         env:
           CI: "true"
+      # Retries stay at one, but a pass on the retry is not silent: each such
+      # test is listed as "flaky: <spec>" in the job summary (ADR 0054).
+      - name: List flaky tests
+        if: always() && env.RUN == 'true'
+        run: node e2e/report-flaky.mjs e2e/test-results/results.json
       - name: Collect logs
         if: failure()
         run: docker compose logs --no-color > compose-logs.txt

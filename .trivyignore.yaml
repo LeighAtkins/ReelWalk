@@ -54,13 +54,6 @@ misconfigurations:
       them: the security group admits no inbound traffic.
 
 vulnerabilities:
-  - id: CVE-2026-0966
-    expired_at: 2026-11-30
-    statement: >-
-      libssh-gcrypt-4 in the worker image comes in as a dependency of the
-      Debian ffmpeg package; nothing in the worker opens SSH connections.
-      Debian's fix (0.10.6-0+deb12u3) is picked up by the next image build
-      that runs apt-get upgrade; this entry keeps main deployable meanwhile.
   # tinypool 1.1.1 is vendored (pre-compiled) into @rspack/core, which
   # @remotion/bundler depends on, so it cannot be bumped with a pnpm override.
   # The gadget needs attacker-controlled worker/run() options; rspack passes

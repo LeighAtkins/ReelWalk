@@ -198,6 +198,14 @@ describe("the stand-in planner knows the ten asks", () => {
     expect(plan("write the caption").caption).toContain("#realestate");
     expect(plan("make it look like golden hour").ops[0]).toMatchObject({ op: "look", filter: "golden" });
   });
+
+  // The e2e flow uploads the logo in its sheet (so it is on the reel, not unused) and then asks to move it.
+  it("moves the logo the reel already has, even when no unused logo is left", () => {
+    const withLogo = run([op({ op: "logo", assetId: "logo", corner: "top-right" })]).timeline;
+    const moved = fakeAiEditPlan("move the logo to the bottom left", withLogo, songs, []);
+    expect(moved.ops[0]).toMatchObject({ op: "logo", assetId: "logo", corner: "bottom-left" });
+    expect(run(moved.ops, withLogo).timeline.logo).toMatchObject({ assetId: "logo", corner: "bottom-left" });
+  });
 });
 
 describe("nothing hides behind the details card", () => {

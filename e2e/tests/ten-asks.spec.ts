@@ -19,12 +19,30 @@ test("the ten asks: sticker, ending text, logo, zoom, typing, strip, caption, ex
   const ask = page.getByRole("button", { name: "Ask", exact: true });
   test.skip((await ask.count()) === 0, "this stack has no model and no stand-in (OPENAI_API_KEY or DEV_FAKE_AI)");
   const sheet = page.getByRole("dialog", { name: /Ask for a change|Cut it for me/ });
-  const askFor = async (request: string, toast: RegExp) => {
+  // The answer comes from a background job the editor polls (ADR 0021). Wait
+  // for that job's answer and check it, rather than for a toast: the toast
+  // only appears when something was applied, so a refusal ("upload your logo
+  // first", the cause of every first-attempt failure before ADR 0054) used to
+  // show up as a 30 s timeout on the previous ask's toast.
+  const askFor = async (request: string, note: RegExp) => {
     await ask.click();
     await sheet.getByTestId("ask-input").fill(request);
+    const answered = page.waitForResponse(
+      async (response) => {
+        if (!response.url().includes("/api/ai-jobs/")) return false;
+        const job = (await response.json().catch(() => null)) as { status?: string } | null;
+        return job?.status === "DONE" || job?.status === "FAILED";
+      },
+      { timeout: 30_000 },
+    );
     await sheet.getByTestId("ask-submit").click();
-    await expect(page.locator(".toast")).toContainText(toast, { timeout: 30_000 });
+    const job = (await (await answered).json()) as { status: string; error?: string; result?: { note: string; applied: string[] } };
+    expect(job.status, job.error).toBe("DONE");
+    expect(job.result?.note).toMatch(note);
+    expect(job.result?.applied.length, job.result?.note).toBeGreaterThan(0);
+    // Applied, the editor closes the sheet and shows the note.
     await expect(sheet).toHaveCount(0);
+    await expect(page.locator(".toast")).toContainText(note);
   };
 
   // A status sticker, in capitals, over the first shot.

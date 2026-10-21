@@ -11,5 +11,5 @@
     // The AI steps are the web app's own module (src/ai-executor.ts, ADR 0049).
     "paths": { "@/*": ["../web/*"] }
   },
-  "include": ["src", "tests"]
+  "include": ["src", "tests", "scripts"]
 }

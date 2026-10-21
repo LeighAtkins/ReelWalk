@@ -136,46 +136,71 @@ score = Σ over playlists [ ln(1 + followers) × 1/log2(position + 1) ]
 - A playlist found by two mood searches counts once, with the moods merged.
 - A track listed twice in one playlist counts at its best position.
 - **Dedupe:** by ISRC, otherwise by normalised title plus first artist.
-  Normalising removes accents, "feat.", "- Remastered", "(Radio Edit)" and
-  similar, but a remix stays a separate song. The two keys are linked, so a
-  copy with an ISRC and one without merge.
+  Normalising removes accents, credits ("feat.", "with", "From …") and
+  bracketed or " - " notes that only name a release of the same recording
+  ("Remastered 2011", "2009 Remaster", "Radio Edit", "Original Mix",
+  "Album Version"). Everything that makes another recording stays in the
+  title: sped up, slowed, reverb, live, instrumental, acoustic, remix,
+  extended. The two keys are linked, so a copy with an ISRC and one without
+  merge.
 
-**Matching** (`matchInstagramSound`, deliberately strict):
+**Matching** (`matchInstagramSound`, deliberately strict; review of
+2026-10-21 tightened it):
 
-- **"track"**: an Instagram `music` sound with title similarity ≥ 0.92 and
-  first-artist similarity ≥ 0.85 (normalised Levenshtein), or the same
-  ISRC.
-- **"cover"**: an `original_sound` whose title, once cover words and the
-  artist's name are removed, matches the song's title at ≥ 0.95. The title
-  must also contain a cover word (piano, cover, version, instrumental, …)
-  or name the artist. A one-word song title ("Experience", "Home") also
-  requires the artist's name.
+- **"track"**: an Instagram `music` sound with the same variant words as
+  the song (so "Flowers (Instrumental Version)", "Die With A Smile (Sped Up
+  Version)" and "Someone Like You - Live at the Royal Albert Hall" never
+  match the studio song), title similarity ≥ 0.92 and first-artist
+  similarity ≥ 0.85 (normalised Levenshtein), or the same ISRC.
+- **"cover"**: an `original_sound` whose title carries an explicit cover
+  word ("cover", an instrument such as "piano", or "acoustic/instrumental
+  version by") and, once those words, a trailing "cover by X" credit and
+  the artist's name are removed, matches the song's title at ≥ 0.95. The
+  artist's name is never enough on its own: "Shape of You Ed Sheeran" is
+  usually a rip of the record, which Instagram mutes. A sped-up, slowed,
+  live or remixed cover does not match the song. A one-word song title
+  ("Experience", "Home") also needs the artist's name.
 - "Original audio" never matches, and sounds under 15 s (snippets) are
   skipped.
 - Instagram is searched by title alone, since its search matches titles;
   the matcher checks the artist. Fixtures in the tests pin both the true
-  and false positives.
+  and false positives, including the four from the review.
 
 **The job** (`apps/worker/src/music-chart.ts`, run by
 `scripts/music-chart.ts`) does the following, in order:
 
 1. Scores the snapshot and keeps the top 1000 songs.
 2. Looks up on Instagram the best 12 songs of each mood, at most 60 in
-   all, through the given workspace's connected account. It searches
-   `music` first and `original_sound` only when no recording matched. The
-   calls are 1.5 s apart, about 120 per run, and a failed search is
-   skipped.
+   all. It searches `music` first and `original_sound` only when no
+   recording matched, 1.5 s apart, about 120 calls per run.
+   - **House account only.** The token is the house workspace's
+     (`MUSIC_HOUSE_WORKSPACE_ID`), and its connected account must be
+     @reelwalking (`MUSIC_HOUSE_IG_USERNAME` to override). There is no
+     option to name a workspace; `--workspace` is refused, and so is a house
+     workspace connected to any other account.
+   - **A failed search keeps the stored match.** A song is "checked" only
+     when every search it needed answered (or a recording was found). A
+     song with a failed search gets no new result, and its stored match is
+     carried over. Only a song searched fully and not found loses its
+     match.
+   - **Rate limiting stops the run.** A 429 or Graph code 4, 17, 32 or 613,
+     on any search including the trending lists, ends the run at once with
+     nothing written (exit code 2). The stored chart is unchanged.
 3. Records each sound's rank in Instagram's trending lists.
 4. Copies the tempo of any copy of the sound someone has already analysed.
-5. Upserts the songs as `MusicCandidate` rows. Songs it looked up and could
-   not match have their old match cleared. Rows not in the snapshot are
-   deleted: a snapshot replaces the chart.
+5. Replaces the chart in **one transaction** under a Postgres advisory lock
+   (`pg_try_advisory_xact_lock`). A second run saving at the same time is
+   refused and told to try again. Inside the transaction it reads the
+   stored rows, refuses a snapshot with **under half as many songs as are
+   stored** unless `--force` is given, carries over stored matches for
+   songs not checked this run, then deletes the old rows and inserts the
+   new ones. Readers see the old chart or the new one, never a mix.
 
 `--dry-run` prints the top picks per mood. With `DEV_FAKE_INSTAGRAM=true`
 it searches the local pretend library.
 
 **Storage.** `MusicCandidate` is one global table, not per workspace,
-added by migration `20261021030000_music_candidates`:
+added by migration `20261021040000_music_candidates`:
 
 - the song: `key` (unique), `isrc`, `title`, `artist`, `score`, `moods`,
   `playlists`, `source`;
@@ -189,6 +214,9 @@ The migration is additive only.
 **The picks** (`pickPopularSounds`, behind `popularSounds` in
 `apps/web/lib/music-picks.ts`):
 
+- It reads only matched rows from snapshots at most 45 days old
+  (`CHART_MAX_AGE_DAYS`): a stale chart is not "popular now", and the row
+  disappears rather than show it.
 - For the reel's moods, it ranks matched rows by score plus a trending
   bonus (`4 / log2(rank + 1)`). The second mood is weighted 0.8, and a
   sound shorter than the reel 0.5.
@@ -244,30 +272,49 @@ the chart for a minute.
    needed or used.
 2. Apply the migration (`prisma migrate deploy`); ship.sh does not apply
    it.
-3. Run the job against prod with the @reelwalking workspace (its connected
-   Instagram business account does the searches):
-   `DATABASE_URL=… pnpm --filter @reelwalk/worker music-chart --snapshot <file|https URL> --workspace <id>`.
-   Use `--dry-run` first to read the picks.
+3. Set `MUSIC_HOUSE_WORKSPACE_ID` to the @reelwalking workspace for the run.
+   It is a workspace id, not a secret. Then run:
+   `DATABASE_URL=… MUSIC_HOUSE_WORKSPACE_ID=… pnpm --filter @reelwalk/worker music-chart --snapshot <file|https URL>`.
+   Use `--dry-run` first to read the picks. Rerun at least every 45 days,
+   or the row disappears.
 
 ## What was verified
 
 - Unit tests:
-  - `packages/core/tests/music-picks.test.ts` (28 tests): scoring maths,
-    playlist and position dedupe, ISRC and title merging, normalisation, 12
-    matcher fixtures (6 true and 6 false positives) plus strictness cases,
-    best-match order, `matchCandidates` with a mocked search including
-    failures, moods from words, looks and a timeline, and the picks and why
-    line.
-  - `apps/worker/tests/music-chart.test.ts` (5 tests): the job with mocked
-    Instagram and store, the no-account and dry-run cases, a malformed
-    snapshot, and pacing.
+  - `packages/core/tests/music-picks.test.ts` (43 tests):
+    - scoring maths, playlist and position dedupe, ISRC and title merging;
+    - normalisation, including which version words stay;
+    - matcher fixtures: 7 true positives, 9 false positives, and 7 "another
+      version is not the song" cases (the review's four among them), plus
+      strictness cases;
+    - best-match order;
+    - `matchCandidates` with a mocked search: checked vs failed songs, and
+      stopping on rate limiting;
+    - Graph rate-limit detection;
+    - the 45-day cut-off;
+    - moods from words, looks and a timeline;
+    - the picks and why line.
+  - `apps/worker/tests/music-chart.test.ts` (12 tests):
+    - the job with mocked Instagram and store;
+    - a stored match kept when its search fails;
+    - rate limiting stopping the run with nothing written, including on the
+      trending lists;
+    - the no-account and dry-run cases, and a malformed snapshot;
+    - the shrink guard and `--force`;
+    - merging stored matches;
+    - reading stored rows back;
+    - the house-account check;
+    - pacing.
 - The job's command line was run as a dry run against the local pretend
-  Instagram, with a two-playlist snapshot and no database reachable. It
-  matched 3 of 4 songs and printed picks per mood, and the tempo lookup
-  failed without stopping the run.
+  Instagram, with no database reachable. It matched 2 of 3 songs, printed
+  picks per mood, and the tempo lookup failed without stopping the run.
+  `--workspace` was refused.
 - `prisma migrate diff --from-empty` generates the same columns and indexes
   as the hand-written migration.
 - Not verified:
   - The row in a browser (no local stack was running).
   - Any call to the real Instagram API with these searches.
   - Any real snapshot.
+  - The database store's transaction, advisory lock and swap against a
+    real Postgres (no database was running). They are typechecked against
+    the generated client only.

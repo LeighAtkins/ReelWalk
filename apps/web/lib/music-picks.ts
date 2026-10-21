@@ -1,4 +1,4 @@
-import { pickPopularSounds, popularSoundRowFromStored, type MusicMoodId, type PopularPick, type PopularSoundRow } from "@reelwalk/core";
+import { chartFreshSince, pickPopularSounds, popularSoundRowFromStored, type MusicMoodId, type PopularPick, type PopularSoundRow } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
 
 /**
@@ -17,7 +17,8 @@ let cache: { at: number; rows: PopularSoundRow[] } | null = null;
 async function matchedRows(now: number): Promise<PopularSoundRow[]> {
   if (cache && now - cache.at < CACHE_TTL_MS) return cache.rows;
   const stored = await prisma.musicCandidate.findMany({
-    where: { igAudioId: { not: null } },
+    // A chart from a snapshot over 45 days old is not offered at all (CHART_MAX_AGE_DAYS).
+    where: { igAudioId: { not: null }, fetchedAt: { gte: chartFreshSince(new Date(now)) } },
     orderBy: { score: "desc" },
     take: ROWS,
     select: {

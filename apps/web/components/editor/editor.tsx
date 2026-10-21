@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import type { PlayerRef } from "@remotion/player";
-import { setHook, wordsBehindHook, locate, orientQuad, reshapePin, placementVersion, storedFraction,
+import { canExport, fixAllCommand, safeFixes, type CriticFinding, type CriticFix,
+  setHook, wordsBehindHook, locate, orientQuad, reshapePin, placementVersion, storedFraction,
   addClips,
   insertAiShot,
   luxuryFinish,
@@ -96,6 +97,8 @@ import { DirectorSheet } from "./director-sheet";
 import { ScriptSheet, useScriptRun } from "./script-sheet";
 import { Filmstrip, type PendingUpload, type Selection } from "./filmstrip";
 import { STALE_PROPOSAL, useDocument } from "./use-document";
+import { useCritic } from "./use-critic";
+import { CriticPanel } from "./critic-panel";
 import { runAutopilot } from "./autopilot-flow";
 import { landProposal, reviewGeneration } from "./proposals";
 import { HookSheet, PinSheet,
@@ -962,6 +965,38 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
     return [...new Set(srcs)];
   }, [timeline.clips, timeline.music, library]);
   const issues = useMemo(() => exportState.issues ?? instagramIssues(timeline, caption), [exportState.issues, timeline, caption]);
+
+  // ── The critic before export (ADR 0062) ────────────────────
+  // Runs while the Export sheet is open; every fix is one command, one undo step.
+  const headline = useMemo(() => {
+    const name = title.split(":")[0].trim();
+    return name && !/^reel \d+$/i.test(name) ? name : null;
+  }, [title]);
+  const critic = useCritic({ timeline, library, active: sheet === "export", headline, sourceDurationsMs: sourceDurations });
+  const criticSafeCount = useMemo(() => safeFixes(critic.findings).length, [critic.findings]);
+  const applyCriticFix = useCallback((_finding: CriticFinding, fix: CriticFix) => {
+    if (fix.kind === "open") {
+      // A new AI take costs a credit: open the AI sheet on that shot rather than starting one.
+      setSelection({ kind: "clip", id: fix.clipId });
+      setSheet(fix.sheet);
+      return;
+    }
+    const result = runCommand(fix.command);
+    if (!result.rejected && result.changes.length) showToast("Fixed. Undo puts it back.");
+  }, [runCommand, showToast]);
+  const fixAllCritic = useCallback(() => {
+    const command = fixAllCommand(critic.findings);
+    if (!command) return;
+    const result = runCommand(command);
+    if (!result.rejected && result.changes.length) showToast("Fixed. One undo puts it all back.");
+  }, [critic.findings, runCommand, showToast]);
+  const showFinding = useCallback((finding: CriticFinding) => {
+    playerRef.current?.pause();
+    setSheet(null);
+    if (finding.textId) selectAndShow({ kind: "text", id: finding.textId });
+    else if (finding.clipId) setSelection({ kind: "clip", id: finding.clipId });
+    seek(finding.atMs);
+  }, [selectAndShow, seek]);
   const libraryList = useMemo(() => Object.values(library), [library]);
   const musicInstagram = timeline.music ? (library[timeline.music.assetId]?.instagram ?? null) : null;
 
@@ -1699,7 +1734,15 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
 
       {sheet === "export" ? (
         <ExportSheet
-          issues={issues}
+          // The critic's safe-zone check measures each title's box, so the export check's centre-point warning would repeat it.
+          // Room labels are the exception: the critic leaves them to the editor, which redraws them.
+          // Only while the panel shows (a reel that can export): with a blocking problem the panel is hidden and the warning stays.
+          issues={critic.failed || !canExport(issues) ? issues : issues.filter((issue) => issue.code !== "text-unsafe" || issue.textId?.startsWith("room-"))}
+          findingCount={critic.findings.length}
+          critic={
+            <CriticPanel findings={critic.findings} thumbs={critic.thumbs} checking={critic.checking} safeCount={criticSafeCount}
+              onFix={applyCriticFix} onFixAll={fixAllCritic} onShow={showFinding} />
+          }
           durationMs={totalMs}
           busy={exportState.busy}
           error={exportState.error}

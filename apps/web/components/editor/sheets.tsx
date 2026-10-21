@@ -1405,6 +1405,8 @@ export function ExportSheet({
   error,
   upgrade = false,
   instagramSound = null,
+  critic = null,
+  findingCount = 0,
   onExport,
   onShowIssue,
   onClose,
@@ -1417,13 +1419,17 @@ export function ExportSheet({
   upgrade?: boolean;
   /** "Title · Artist" when the reel is edited to an Instagram sound, which the video file leaves out. */
   instagramSound?: string | null;
+  /** The critic's findings (ADR 0062), shown above the export button. */
+  critic?: React.ReactNode;
+  findingCount?: number;
   onExport(): void;
   onShowIssue(issue: Issue): void;
   onClose(): void;
 }) {
   const ready = canExport(issues);
+  const toFix = ready && findingCount > 0;
   return (
-    <Sheet title={ready ? "Export for Instagram" : "Not ready to export"} onClose={onClose}>
+    <Sheet title={!ready ? "Not ready to export" : toFix ? `${findingCount} ${findingCount === 1 ? "thing" : "things"} to fix` : "Export for Instagram"} onClose={onClose}>
       <p className="muted">
         {formatDuration(durationMs, true)} reel, rendered as a 1080×1920 MP4 at 30 fps. Usually ready in about {renderMinutes(durationMs)}; you can
         keep editing while it renders.
@@ -1453,6 +1459,7 @@ export function ExportSheet({
           ))}
         </ul>
       ) : null}
+      {ready ? critic : null}
       {error ? <p className="error" role="alert">{error}</p> : null}
       {error && upgrade ? (
         <Link href="/pricing" className="btn btn-block" data-testid="upgrade-link">
@@ -1460,7 +1467,7 @@ export function ExportSheet({
         </Link>
       ) : null}
       <button type="button" className="btn btn-signal btn-block" disabled={!ready || busy} onClick={onExport} data-testid="confirm-export">
-        {busy ? "Starting export…" : "Export video"}
+        {busy ? "Starting export…" : toFix ? "Export anyway" : "Export video"}
       </button>
     </Sheet>
   );

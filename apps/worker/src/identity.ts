@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { z } from "zod";
-import { FACE_CROP_PX } from "@reelwalk/core";
+import { FACE_CROP_PX, MIN_GATE_FACE_PX, MIN_SPEAKING_FACE_PX, minFacePx } from "@reelwalk/core";
 
 const run = promisify(execFile);
 
@@ -16,17 +16,8 @@ const run = promisify(execFile);
 /** Below this the composite is recomposed, then refunded. */
 export const IDENTITY_MIN_CONFIDENCE = 0.6;
 
-/**
- * The smallest face the gate will judge, hairline to chin at 1080×1920:
- * below this the identity is the image model's invention, which is the
- * defect (ADR 0056). A speaking take needs more: Veo and lip sync animate
- * the eyes and mouth. Calibrated on production: cmvi3jstp's start frame,
- * whose take came back with good eyes and mouth, has her face 180 px
- * hairline to chin; the floor sits a little below it.
- */
-export const MIN_GATE_FACE_PX = 120;
-export const MIN_SPEAKING_FACE_PX = 165;
-export const minFacePx = (speaking: boolean) => speaking ? MIN_SPEAKING_FACE_PX : MIN_GATE_FACE_PX;
+/** The gate's face floors live in core (presenter.ts) so the editor's critic reads the same numbers (ADR 0062). */
+export { MIN_GATE_FACE_PX, MIN_SPEAKING_FACE_PX, minFacePx };
 
 /**
  * Whether an end of a voiced take is held to the speaking floor and composed

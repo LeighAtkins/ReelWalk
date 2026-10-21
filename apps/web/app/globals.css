@@ -1842,6 +1842,113 @@ input[type="range"] {
   color: var(--warn);
 }
 
+/* The critic before export (ADR 0062): a picture of the moment, why, and the fix as one tap. */
+.critic {
+  display: grid;
+  gap: 8px;
+  margin: 4px 0 12px;
+}
+
+.critic-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: var(--tap);
+}
+
+.critic-fix-all {
+  min-height: var(--tap);
+}
+
+.critic-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.critic-item {
+  display: grid;
+  grid-template-columns: 54px 1fr;
+  gap: 12px;
+  align-items: start;
+  padding: 10px 12px 10px 10px;
+  border-radius: var(--radius-m);
+  background: var(--panel);
+  border-left: 3px solid var(--rule);
+}
+
+.critic-item[data-severity="high"] {
+  border-left-color: var(--signal);
+}
+
+.critic-item[data-severity="medium"] {
+  border-left-color: var(--warn);
+}
+
+.critic-thumb {
+  position: relative;
+  width: 54px;
+  aspect-ratio: 9 / 16;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-s);
+  overflow: hidden;
+  background: var(--ink);
+  cursor: pointer;
+}
+
+.critic-thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.critic-box {
+  position: absolute;
+  border: 1.5px solid var(--warn);
+  border-radius: 2px;
+  pointer-events: none;
+}
+
+.critic-body {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.critic-reason {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.critic-fixes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.critic-fix {
+  min-height: var(--tap);
+  padding: 0 14px;
+  font-size: 14px;
+}
+
+.critic-more {
+  justify-self: start;
+  min-height: var(--tap);
+}
+
+.critic-clear {
+  margin: 4px 0 12px;
+  color: var(--ok);
+  font-size: 14px;
+}
+
 .banner {
   display: flex;
   align-items: center;

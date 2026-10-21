@@ -35,7 +35,16 @@ metrics are written in `packages/render/scripts/acceptance/`.
    chosen frames with the composition and the same props as `renderReel`.
    The smoke, with `SMOKE_COMPARE=1`, compares five frames of every
    exported shot with stills of those frames: SSIM ≥ 0.90 and worst block
-   ≤ 24.
+   ≤ 24. Those whole-frame scores cannot see a missing title: a review of
+   this PR removed "BY THE FIRE" from four frames and they still passed
+   (SSIM 0.965–0.976, worst block 17–22), because the letters are a few
+   percent of the frame and of every block they cross. So each planar title
+   is also checked over its own letters (the inside of the probe's mask,
+   below), at 540 wide: no more than 10% of those pixels may differ in luma
+   by more than 32 between the export and the still with the title, and the
+   still *without* the title must differ by more than that at every frame
+   where the title is visible, or the check reports itself blind. On the
+   smoke: 0.0–3.5% with the title, 21–99% without.
 3. **Motion attachment.** For every planar title (pinned or surfaced) the
    smoke takes five frames of its life on its plane and draws each twice:
    with a *probe* of the title (the same title in solid magenta, without
@@ -49,9 +58,25 @@ metrics are written in `packages/render/scripts/acceptance/`.
    more than 4 px (at 540 wide) off the plane (off the rectangle for a
    surfaced title, which is clipped; above or below it for one that may
    overflow sideways, which must also stay centred), and its box in the
-   rectangle drifts no more than 4 px across the frames. A built-in control
+   rectangle travels no more than 4 px across the frames (the largest less
+   the smallest position of each edge; a first version measured from the
+   median and let 8 px of travel through as 4). A built-in control
    re-judges the same glyphs against a plane that slides 1.5% of the frame
    further on each frame; if that passes, the check is blind and fails.
+   A bounding box cannot tell letters from their mirror image or from
+   thinner ones, so the glyph mask is also *rectified*: sampled through the
+   plane's homography into the plane's own rectangle. Every full-strength
+   frame's rectified letters must overlap the first's (within 2 cells,
+   F-score ≥ 0.8); against an approved reference mask
+   (`fixtures/baseline/rectified-<id>.png`), the ink profile across (and,
+   where the reference is not symmetric that way, down) must correlate with
+   the reference better than with its reversal by 0.15, and the mean stroke
+   width (area over half the perimeter) must be within 0.75 px or 4% of the
+   reference's. Two more controls must fail: the same masks rectified
+   through the plane's corners in mirrored order, and the masks eroded by a
+   pixel. A visible title that drew no pixels, a title never at full
+   strength, and a planar title with no frame on its plane are failures,
+   not skips.
 4. **Real footage.** `packages/render/fixtures/reader.mp4`: four seconds of
    a woman reading by a fire under a window (Pexels 6984912, 540×960,
    290 KB, see `fixtures/SOURCE.md`) is the smoke's walking shot, so the
@@ -89,6 +114,11 @@ roughly three to five minutes on a laptop; the CI step's limit rises to 25
 minutes.
 
 What it does not cover, said plainly:
+
+- **Stills are drawn at 540 wide; the export at 1080.** The still is a
+  half-scale render of the same composition, compared with the export's
+  frames scaled down; a defect that only shows at full size (a hairline, a
+  one-pixel seam) can pass.
 
 - **The editor's Player is not the renderer.** In the editor
   `ReelComposition` plays footage through `<Html5Video>`; stills and the
@@ -130,6 +160,12 @@ On Windows 10 with Remotion 4.0.534's Chrome Headless Shell, host ffmpeg
   it fails them: SSIM 0.35–0.73, worst block 49–230.
 - 13 vitest cases for the metrics, the attachment judge (including a title
   that stays put while its plane moves) and the placement reader.
+- After the review of this PR: the title-region, shape and drift fixes
+  were calibrated on the smoke's own stills and export (figures above),
+  and 7 more vitest cases cover the 0/2/4/6/8 px drift boundary, a title
+  drawn through mirrored corners (which the bounding-box check alone
+  passes), letters a pixel thinner, a mid-shot change of weight, a
+  missing reference, and the letter-region measure on a missing title.
 - The phone spec type-checks; it has **not run** locally: Docker
   Desktop's port forwarding on this machine accepted and closed every
   published port (5432, 8080, 8081, 3000), so no stack was reachable. Its

@@ -342,6 +342,8 @@ function OccluderEditor({ text, frame, view, onOccluders, onCutouts, onBehind }:
 function PlacingOverlay({ clock, timeline, text, frame, tool, onSurface, onBars, onCutouts, onOccluders, onBehind }: { clock: Clock; timeline: Timeline; text: TextOverlay; frame: RefObject<HTMLDivElement | null>; tool: "corners" | "cutouts"; onSurface(quad: number[], gesture: string): void; onBars?(bars: number[][], gesture: string): void; onCutouts?(cutouts: number[][], gesture: string): void; onOccluders?(occluders: { x: number; y: number }[], gesture: string): void; onBehind?(behind: boolean): void }) {
   const now = useClock(clock);
   const tracked = text.pin ? textQuadAt(text, pinnedProgress(timeline, text, now)) : null;
+  // ADR 0052: while the tracked surface is lost (o = 0) its corners are not measured; no handles to drag through them.
+  if (tracked && textPositionAt(text, pinnedProgress(timeline, text, now)).opacity <= 0) return null;
   const view = planeView(text.pin?.quad, tracked);
   if (tool === "cutouts") {
     if (onOccluders) return <OccluderEditor text={text} frame={frame} view={view} onOccluders={onOccluders} onCutouts={onCutouts} onBehind={onBehind} />;
@@ -355,6 +357,8 @@ function SurfaceOutlines({ clock, timeline }: { clock: Clock; timeline: Timeline
   const now = useClock(clock);
   const shapes = textsAt(timeline, now).flatMap((text) => {
     const quad = text.pin ? textQuadAt(text, pinnedProgress(timeline, text, now)) : null;
+    // ADR 0052: a lost stretch of a track (o = 0) has no measured corners to outline.
+    if (quad && textPositionAt(text, pinnedProgress(timeline, text, now)).opacity <= 0) return [];
     const outline = quad ?? text.surface;
     return outline ? [{ id: text.id, outline, tracked: Boolean(quad) }] : [];
   });

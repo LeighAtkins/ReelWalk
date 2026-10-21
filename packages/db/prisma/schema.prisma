@@ -59,6 +59,7 @@ model Workspace {
   aiCreditGrants AiCreditGrant[]
   aiGenerations AiGeneration[]
   workflowRuns WorkflowRun[]
+  presenters Presenter[]
 
   // Set by the Stripe webhook from the subscription (plans in @reelwalk/core).
   plan                 Plan      @default(FREE)
@@ -121,9 +122,45 @@ model AiGeneration {
   nextPollAt    DateTime @default(now())
   createdAt     DateTime @default(now())
   finishedAt    DateTime?
+  // Presenter identity (ADR 0056). The kit the composed stills were made from, if any.
+  presenterId   String?
+  // 0 = composed from the kit or real footage; n = from a generated take n hops from a real reference. Null when nothing was composed.
+  referenceDepth Int?
+  // The identity gate's confidence that the composed face is the kit's person (lowest across composed ends), 0..1.
+  identityScore Float?
+  // Every gate verdict: [{ end, attempt, samePerson, confidence, faceHeightPx }].
+  identityChecks Json?
+  // A machine-readable reason for a failure, e.g. "identity_rejected".
+  failureCode   String?
 
   @@unique([workspaceId, requestId])
   @@index([status, nextPollAt])
+  @@index([workspaceId, createdAt])
+}
+
+// A workspace's presenter (ADR 0056): the real stills every composed AI take is made from,
+// so takes never use another generated take as the face reference.
+model Presenter {
+  id              String    @id @default(cuid())
+  workspaceId     String
+  workspace       Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name            String
+  // Head-and-shoulders still (face ideally 400 px tall or more) and a clean full-length still; owned uploads.
+  portraitAssetId String
+  fullBodyAssetId String
+  // The worker's 768x768 PNG of the face, cut from the portrait. Null until it is made.
+  faceCropKey     String?
+  // Face height in the portrait, measured when the crop was made.
+  faceHeightPx    Int?
+  faceCropError   String?
+  // Attempts at the crop, so a broken still is not retried forever.
+  faceCropTries   Int       @default(0)
+  leaseUntil      DateTime?
+  voice           String?
+  isDefault       Boolean   @default(false)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
   @@index([workspaceId, createdAt])
 }
 

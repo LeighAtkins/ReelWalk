@@ -59,6 +59,8 @@ export async function reserveAiGeneration(db: PrismaClient, input: {
   shot?: Prisma.InputJsonValue; frameSources?: Prisma.InputJsonValue;
   /** A spoken line: one credit more (ADR 0038). */
   voiced?: boolean;
+  /** The presenter kit the composed stills use, and how many generated hops the face reference is from a real one (ADR 0056). */
+  presenterId?: string; referenceDepth?: number;
 }, now = new Date()) {
   return db.$transaction(async (tx) => {
     await lockBillingAccount(tx, input.workspaceId, now);
@@ -102,18 +104,21 @@ export async function reserveAiGeneration(db: PrismaClient, input: {
       shot: input.shot, frameSources: input.frameSources,
       model: input.model, grantId: debits[0].grantId, costCents: input.costCents,
       durationSeconds: input.durationSeconds, credits, grantDebits: debits.length > 1 ? debits : undefined,
+      presenterId: input.presenterId, referenceDepth: input.referenceDepth,
     } });
   });
 }
 
 /** Refund once. Monthly refunds retain the original expiry, even across renewal. */
-export async function failAiGeneration(db: PrismaClient, id: string, error: string, releaseBudget = false) {
+export async function failAiGeneration(db: PrismaClient, id: string, error: string, releaseBudget = false,
+  /** Why, for queries (e.g. "identity_rejected"), and the identity gate's scores (ADR 0056). */
+  details: { failureCode?: string; identityScore?: number; identityChecks?: Prisma.InputJsonValue } = {}) {
   return db.$transaction(async (tx) => {
     const job = await tx.aiGeneration.findUniqueOrThrow({ where: { id } });
     await tx.$queryRaw`SELECT "id" FROM "Workspace" WHERE "id" = ${job.workspaceId} FOR UPDATE`;
     const changed = await tx.aiGeneration.updateMany({
       where: { id, status: { notIn: ["SUCCEEDED", "FAILED"] } },
-      data: { status: "FAILED", error: error.slice(0, 400), finishedAt: new Date(), leaseUntil: null, leaseToken: null },
+      data: { status: "FAILED", error: error.slice(0, 400), finishedAt: new Date(), leaseUntil: null, leaseToken: null, ...details },
     });
     if (!changed.count) return;
     const debits = (job.grantDebits as { grantId: string; credits: number }[] | null) ?? [{ grantId: job.grantId, credits: job.credits }];

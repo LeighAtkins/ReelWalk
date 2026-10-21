@@ -3360,3 +3360,94 @@ video:-webkit-full-screen {
   top: calc(env(safe-area-inset-top) + 84px);
   z-index: 6;
 }
+
+/* ── Shoot assist and variants (ADR 0063) ─────────────────────── */
+
+.shoot {
+  display: grid;
+  gap: 14px;
+  margin-bottom: 26px;
+}
+
+.shot-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.shot {
+  position: relative;
+  display: grid;
+  grid-template-columns: 28px 1fr;
+  gap: 12px;
+  align-items: start;
+  min-height: 56px;
+  padding: 12px;
+  border-radius: var(--radius-m);
+  background: var(--panel);
+  cursor: pointer;
+}
+
+.shot input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.shot:focus-within {
+  outline: 2px solid var(--paper);
+  outline-offset: 2px;
+}
+
+.shot-box {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-s);
+  box-shadow: inset 0 0 0 1.5px var(--line-strong);
+  color: transparent;
+}
+
+.shot[data-done] .shot-box {
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.shot[data-done] .shot-text {
+  opacity: 0.55;
+}
+
+.shot-text {
+  display: grid;
+  gap: 4px;
+  line-height: 1.4;
+}
+
+.shot-title {
+  font-weight: 700;
+}
+
+.variant-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.variant-grid .reel-card[data-winner] {
+  outline: 2px solid var(--ok);
+  outline-offset: 3px;
+}
+
+.variant-numbers {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}

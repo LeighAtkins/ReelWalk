@@ -339,6 +339,8 @@ const confirmSchema = z.object({
   /** Tempo of a song, detected in the browser. */
   bpm: z.number().min(40).max(240).nullable().optional(),
   beatOffsetMs: z.number().int().min(0).nullable().optional(),
+  /** The room the shot list says this was filmed as (ADR 0063). */
+  room: z.string().trim().toLowerCase().min(1).max(40).nullable().optional(),
 });
 
 export type ConfirmResult = { ok: true; asset: LibraryAsset } | { ok: false; error: string };
@@ -377,6 +379,7 @@ export async function confirmUpload(input: z.input<typeof confirmSchema>): Promi
       height: data.height,
       bpm: resolved.kind === "AUDIO" ? (data.bpm ?? null) : null,
       beatOffsetMs: resolved.kind === "AUDIO" ? (data.beatOffsetMs ?? null) : null,
+      room: resolved.kind === "AUDIO" ? null : (data.room ?? null),
     },
   });
 

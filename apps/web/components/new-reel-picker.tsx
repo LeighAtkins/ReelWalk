@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { acceptFor, vibeById, VIBES } from "@reelwalk/core";
 import { createReel, createReelFromTour } from "@/app/actions";
 import { setPendingFiles } from "@/lib/pending-files";
-import { DishIcon, PanoIcon, PlusIcon, SparkIcon } from "./icons";
+import { CheckIcon, DishIcon, PanoIcon, PlusIcon, SparkIcon } from "./icons";
 
 /**
  * The way Instagram starts a reel: pick photos and videos first, then edit.
@@ -127,6 +127,12 @@ export function NewReelPicker({ librarySize = 0, tours = [] }: { librarySize?: n
       </label>
 
       <div className="start-more">
+        {/* Shoot assist (ADR 0063): an optional shot list before anything is filmed. */}
+        <Link href="/new/shoot" className="start-tile" prefetch={false} data-testid="plan-shoot">
+          <CheckIcon size={20} />
+          <span className="start-tile-title">Plan my shoot</span>
+          <span className="start-tile-sub">A shot list to film from</span>
+        </Link>
         {librarySize > 0 ? (
           <button type="button" className="start-tile" disabled={busy} onClick={startFromLibrary} data-testid="start-from-library">
             <PanoIcon size={20} />

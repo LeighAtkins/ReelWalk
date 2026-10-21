@@ -1,4 +1,4 @@
-import { AI_VIDEO_MODEL, aiClipCostCents, aiDefaultClipSeconds, aiShotSchema, aiShotPrompt, isEquirect } from "@reelwalk/core";
+import { AI_VIDEO_MODEL, CHAINED_REFERENCE_MESSAGE, aiClipCostCents, aiDefaultClipSeconds, aiShotSchema, aiShotPrompt, isEquirect, isGeneratedAssetId, referenceDepthOf } from "@reelwalk/core";
 import { aiCreditSummary, prisma, reserveAiGeneration } from "@reelwalk/db";
 import { z } from "zod";
 import { mediaScope } from "./workspace";
@@ -37,7 +37,20 @@ export async function createAiGeneration(user: { id: string; workspaceId: string
   }
   // Resolve IDs here, never accept storage keys or URLs from a browser.
   const frames = [];
-  const wanted: ["first" | "last" | "presenter", { assetId: string; atMs: number } | undefined][] = [["first", input.shot?.first], ["last", input.shot?.last], ["presenter", input.shot?.compose?.presenter]];
+  const compose = input.shot?.compose;
+  // Who she is (ADR 0056): the kit's real stills, never a generated take unless the caller explicitly allows it.
+  const kit = compose?.presenterId ? await presenterKit(user.workspaceId, compose.presenterId) : null;
+  let referenceDepth: number | undefined;
+  if (kit) {
+    frames.push({ key: kit.fullBody.objectKey, kind: "IMAGE", atMs: 0, role: "presenter" }, { key: kit.faceCropKey, kind: "IMAGE", atMs: 0, role: "face" });
+    referenceDepth = referenceDepthOf({ kit: true });
+  } else if (compose?.presenter) {
+    if (isGeneratedAssetId(compose.presenter.assetId) && !compose.allowGeneratedReference) throw new Error(CHAINED_REFERENCE_MESSAGE);
+    const source = isGeneratedAssetId(compose.presenter.assetId)
+      ? await prisma.aiGeneration.findFirst({ where: { assetId: compose.presenter.assetId, workspaceId: user.workspaceId }, select: { referenceDepth: true } }) : null;
+    referenceDepth = referenceDepthOf({ assetId: compose.presenter.assetId, sourceDepth: source?.referenceDepth });
+  }
+  const wanted: ["first" | "last" | "presenter", { assetId: string; atMs: number } | undefined][] = [["first", input.shot?.first], ["last", input.shot?.last], ["presenter", kit ? undefined : compose?.presenter]];
   for (const [role, frame] of wanted) {
     if (!frame) continue;
     const asset = await prisma.mediaAsset.findFirst({ where: { id: frame.assetId, ...mediaScope(user.workspaceId) } });
@@ -53,8 +66,8 @@ export async function createAiGeneration(user: { id: string; workspaceId: string
     if (role !== "presenter" && (input.shot?.mode === "gimbal" || input.shot?.mode === "drone") && asset.kind !== "IMAGE") {
       throw new Error("Choose a photo for this camera move.");
     }
-    const compose = role === "first" ? input.shot?.compose?.first : role === "last" ? input.shot?.compose?.last : undefined;
-    frames.push({ key: asset.objectKey, kind: asset.kind, atMs: asset.kind === "IMAGE" ? 0 : frame.atMs, role, ...(compose ? { compose } : {}) });
+    const described = role === "first" ? compose?.first : role === "last" ? compose?.last : undefined;
+    frames.push({ key: asset.objectKey, kind: asset.kind, atMs: asset.kind === "IMAGE" ? 0 : frame.atMs, role, ...(described ? { compose: described, framing: compose?.framing ?? "medium" } : {}) });
   }
   const voiced = Boolean(input.shot?.voice);
   if (voiced && !aiVoiceConfigured()) throw new Error("Voiced shots are being connected. Please check back soon.");
@@ -67,7 +80,18 @@ export async function createAiGeneration(user: { id: string; workspaceId: string
     shot: input.shot, frameSources: frames.length ? frames : undefined,
     referenceKey: reference?.objectKey, referenceType: reference?.contentType,
     model: AI_VIDEO_MODEL, durationSeconds, costCents: aiClipCostCents(durationSeconds, voiced), budgetCents, voiced,
+    presenterId: kit?.id, referenceDepth,
   });
+}
+
+/** A ready presenter kit of this workspace, with its full-length still; the browser only ever names it by id. */
+export async function presenterKit(workspaceId: string, id: string) {
+  const kit = await prisma.presenter.findFirst({ where: { id, workspaceId } });
+  if (!kit) throw new Error("That presenter is not in your workspace.");
+  if (!kit.faceCropKey) throw new Error(kit.faceCropError ?? "Her face reference is still being prepared. Try again in a minute.");
+  const fullBody = await prisma.mediaAsset.findFirst({ where: { id: kit.fullBodyAssetId, workspaceId, kind: "IMAGE" } });
+  if (!fullBody) throw new Error("The presenter's full-length photo is no longer in your library. Choose another in Set up presenter.");
+  return { id: kit.id, faceCropKey: kit.faceCropKey, fullBody };
 }
 
 export const getAiBalance = (workspaceId: string) => aiCreditSummary(prisma, workspaceId);

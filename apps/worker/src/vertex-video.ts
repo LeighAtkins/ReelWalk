@@ -22,7 +22,16 @@ export function federatedVideoAuth(credentials: AwsCredentials, audience: string
 }
 
 export class VertexError extends Error {
-  constructor(message: string, public readonly status: number) { super(message); }
+  /** Google's canonical error code from the response (e.g. "INVALID_ARGUMENT"), when it sent one; the body itself is never kept. */
+  constructor(message: string, public readonly status: number, public readonly reason?: string) { super(message); }
+}
+
+/** Canonical codes that mean Google refused the request outright, so no operation can exist (ADR 0056). */
+const REJECTED = new Set(["INVALID_ARGUMENT", "FAILED_PRECONDITION", "PERMISSION_DENIED", "UNAUTHENTICATED", "NOT_FOUND", "RESOURCE_EXHAUSTED", "OUT_OF_RANGE"]);
+/** True only for a definite refusal: an HTTP 4xx (not a timeout) whose body names a rejection code. */
+export function definitelyRejected(error: unknown): boolean {
+  return error instanceof VertexError && error.status >= 400 && error.status < 500 && error.status !== 408
+    && error.reason !== undefined && REJECTED.has(error.reason);
 }
 
 export function vertexVideoParameters(durationSeconds: number, generateAudio = false) {
@@ -60,8 +69,9 @@ export class VertexVideo {
       body: JSON.stringify(body), signal: AbortSignal.timeout(90_000),
     });
     if (!response.ok) {
-      // Never persist provider bodies: they may contain request data or credentials.
-      throw new VertexError(`Google video service returned HTTP ${response.status}.`, response.status);
+      // Never persist provider bodies: they may contain request data or credentials. Only the canonical code is read.
+      const reason = await response.json().then((body: { error?: { status?: unknown } }) => typeof body?.error?.status === "string" ? body.error.status : undefined, () => undefined);
+      throw new VertexError(`Google video service returned HTTP ${response.status}${reason ? ` (${reason})` : ""}.`, response.status, reason);
     }
     return response.json();
   }

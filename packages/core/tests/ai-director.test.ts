@@ -31,12 +31,16 @@ describe("in-app Opus direction", () => {
     expect(parse({ line: "Worth dropping in.", voice: null })).toMatchObject({ voice: "lipsync" });
     expect(parse({ line: null, voice: "lipsync" })).toMatchObject({ line: null, voice: null });
   });
-  it("keeps a composed keyframe only for an end that has a real frame and a presenter", () => {
+  it("keeps a composed keyframe only for an end that has a real frame; a null presenter means the presenter kit", () => {
     const base = plan().shots[0];
     const parse = (compose: unknown, last: unknown = base.last) => directorPlanSchema.parse({ ...plan(), shots: [{ ...base, last, compose }] }).shots[0].compose;
-    expect(parse({ presenter: { assetId: "room", atMs: 0 }, first: "At the front door, head below the lintel.", last: null })).toEqual({ presenter: { assetId: "room", atMs: 0 }, first: "At the front door, head below the lintel.", last: null });
+    expect(parse({ presenter: { assetId: "room", atMs: 0 }, first: "At the front door, head below the lintel.", last: null })).toEqual({ presenter: { assetId: "room", atMs: 0 }, first: "At the front door, head below the lintel.", last: null, framing: "medium" });
     expect(parse({ presenter: { assetId: "room", atMs: 0 }, first: null, last: "On the sofa, seat height." }, null)).toBeNull();
-    expect(parse({ presenter: null, first: "At the front door, head below the lintel.", last: null })).toBeNull();
+    // ADR 0056: Opus leaves the presenter null and the app uses the workspace's kit at approval.
+    expect(parse({ presenter: null, first: "At the front door, head below the lintel.", last: null })).toEqual({ presenter: null, first: "At the front door, head below the lintel.", last: null, framing: "medium" });
+    expect(parse({ presenter: null, first: "Wide: a small figure at the gate, below the lintel.", last: null })?.framing).toBe("wide");
+    expect(parse({ presenter: null, first: "At the front door, head below the lintel.", last: null, framing: "wide" })?.framing).toBe("wide");
+    expect(parse({ presenter: null, first: null, last: null })).toBeNull();
     expect(parse(null)).toBeNull();
     expect(() => validateDirectorReferences(directorPlanSchema.parse({ ...plan(), shots: [{ ...base, compose: { presenter: { assetId: "nobody", atMs: 0 }, first: "At the front door, head below the lintel.", last: null } }] }), assets)).toThrow("unavailable");
   });

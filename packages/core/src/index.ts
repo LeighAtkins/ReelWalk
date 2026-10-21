@@ -8,6 +8,7 @@ export * from "./review";
 export * from "./autobuild";
 export * from "./ai";
 export * from "./ai-shots";
+export * from "./presenter";
 export * from "./cinematic";
 export * from "./scene";
 export * from "./particles";

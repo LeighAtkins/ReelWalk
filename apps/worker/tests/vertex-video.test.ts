@@ -4,7 +4,7 @@ vi.mock("google-auth-library", () => ({
   GoogleAuth: class { async getAccessToken() { return "test-token"; } },
   AwsClient: class { constructor(options: unknown) { awsOptions(options); } async getAccessToken() { return { token: "federated-token" }; } },
 }));
-import { federatedVideoAuth, VertexVideo, vertexVideoParameters } from "../src/vertex-video";
+import { definitelyRejected, federatedVideoAuth, VertexError, VertexVideo, vertexVideoParameters } from "../src/vertex-video";
 
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 describe("Vertex video", () => {
@@ -49,5 +49,23 @@ describe("Vertex video", () => {
   it("returns a filtered result as a refundable failure", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ done: true, response: { raiMediaFilteredCount: 1, videos: [] } })));
     expect(await new VertexVideo("test-project").poll("veo-3.1-fast-generate-001", "operations/test")).toMatchObject({ done: true, error: expect.stringContaining("credit was returned") });
+  });
+});
+
+describe("submit failure classification (ADR 0056)", () => {
+  it("reads only Google's canonical code from an error body", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ error: { status: "INVALID_ARGUMENT", message: "prompt contains private text" } }, { status: 400 })));
+    const error = await new VertexVideo("test-project").submit("veo", 8, "Prompt").catch(e => e);
+    expect(error).toBeInstanceOf(VertexError);
+    expect(error).toMatchObject({ status: 400, reason: "INVALID_ARGUMENT" });
+    expect(error.message).not.toContain("private");
+  });
+  it("calls only a 4xx with a rejection code a definite refusal", () => {
+    expect(definitelyRejected(new VertexError("x", 400, "INVALID_ARGUMENT"))).toBe(true);
+    expect(definitelyRejected(new VertexError("x", 429, "RESOURCE_EXHAUSTED"))).toBe(true);
+    expect(definitelyRejected(new VertexError("x", 400))).toBe(false);
+    expect(definitelyRejected(new VertexError("x", 408, "DEADLINE_EXCEEDED"))).toBe(false);
+    expect(definitelyRejected(new VertexError("x", 503, "UNAVAILABLE"))).toBe(false);
+    expect(definitelyRejected(new DOMException("timed out", "TimeoutError"))).toBe(false);
   });
 });

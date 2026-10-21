@@ -3,6 +3,7 @@ import { aiVideoConfigured, createAiGeneration, generationInput, getAiBalance } 
 import { ensureWorkerRunning } from "@/lib/render-capacity";
 import { toLibraryAssets } from "@/lib/library";
 import { prisma } from "@reelwalk/db";
+import { CHAINED_REFERENCE_MESSAGE } from "@reelwalk/core";
 
 export const runtime = "nodejs";
 
@@ -20,6 +21,7 @@ export async function GET() {
   if (jobs.some(j => ["QUEUED", "SUBMITTING", "RUNNING"].includes(j.status))) await ensureWorkerRunning();
   return Response.json({ enabled: aiVideoConfigured(), balance, jobs: jobs.map(j => ({
     id: j.id, prompt: j.prompt, status: j.status, error: j.error, shot: j.shot,
+    referenceDepth: j.referenceDepth, identityScore: j.identityScore, failureCode: j.failureCode,
     draftId: draftIds.has(`ai-promo-${j.id}`) ? `ai-promo-${j.id}` : null,
     createdAt: j.createdAt.toISOString(), asset: j.assetId ? library.get(j.assetId) ?? null : null,
   })) }, { headers: { "Cache-Control": "private, no-store" } });
@@ -31,7 +33,11 @@ export async function POST(request: Request) {
   const origin = request.headers.get("origin");
   if (!origin || origin !== new URL(process.env.APP_URL || request.url).origin) return Response.json({ error: "Invalid request origin." }, { status: 403 });
   const input = generationInput.safeParse(await request.json().catch(() => null));
-  if (!input.success) return Response.json({ error: "Describe your shot in 10–2,000 characters." }, { status: 400 });
+  if (!input.success) {
+    // A chained reference has its own answer (ADR 0056); everything else is the usual description error.
+    const chained = input.error.issues.some(issue => issue.message === CHAINED_REFERENCE_MESSAGE);
+    return Response.json({ error: chained ? CHAINED_REFERENCE_MESSAGE : "Describe your shot in 10–2,000 characters." }, { status: 400 });
+  }
   try {
     const job = await createAiGeneration(user, input.data);
     await ensureWorkerRunning();

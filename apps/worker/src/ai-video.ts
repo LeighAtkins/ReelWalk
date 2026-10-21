@@ -4,13 +4,14 @@ import path from "node:path";
 import { GetObjectCommand, PutObjectCommand, type S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { claimAiGeneration, failAiGeneration, prisma } from "@reelwalk/db";
-import { VertexError, VertexVideo } from "./vertex-video";
+import { VertexError, VertexVideo, definitelyRejected } from "./vertex-video";
 import { aiThumbnail } from "./ai-thumbnail";
 import { aiFrames, keyframes, type DecodedFrame } from "./ai-frames";
 import { VertexImages, type InlineImage } from "./vertex-images";
 import { fetchVideo, lipsyncConfigured, pollLipsync, startLipsync, synthesiseLine, voicedPrompt } from "./voice";
 import { transcribeVideo, transcriptionAvailable } from "./transcribe";
-import { aiShotSchema, clipSchema, insertAiShot, timelineSchema, type AiShot } from "@reelwalk/core";
+import { clipSchema, insertAiShot, parseStoredAiShot, timelineSchema, type AiShot } from "@reelwalk/core";
+import { identityDecision, type IdentityVerdict } from "./identity";
 
 let provider: VertexVideo | undefined;
 let images: VertexImages | undefined;
@@ -23,64 +24,100 @@ function voiceOf(shot: AiShot | undefined): { line: string; mode: "lipsync" | "v
   return shot?.line && shot.voice ? { line: shot.line, mode: shot.voice } : null;
 }
 
+/** A submission's claim; renewed while its stills are prepared (ADR 0056). */
+export const AI_SUBMIT_LEASE_MS = 300_000;
+const HEARTBEAT_MS = 30_000;
+export const UNRESOLVED_MESSAGE = "We couldn't confirm whether this take was made. Your credit is held; it won't be charged twice.";
+/** Waits between attempts to save an operation Google returned; tests set them to zero. */
+export const aiVideoTiming = { saveBackoffMs: [1000, 3000, 9000] };
+
 export async function processAiVideo(s3: S3Client, bucket: string): Promise<boolean> {
-  // Recover an interrupted submission conservatively: don't submit it again.
-  const stale = await prisma.aiGeneration.findFirst({ where: { status: "SUBMITTING", leaseUntil: { lt: new Date() } } });
+  // Recover an interrupted submission conservatively: never submit it again. One still being prepared
+  // (no submitStartedAt) was never sent and is refunded; one past the fence may have been sent and is
+  // left UNRESOLVED without a refund (ADR 0049's rule). Both updates are conditional, so a worker that
+  // renewed its lease or reached the fence in the meantime keeps the job.
+  const now = new Date();
+  const stale = await prisma.aiGeneration.findFirst({ where: { status: "SUBMITTING", leaseUntil: { lt: now } } });
   if (stale) {
-    await failAiGeneration(prisma, stale.id, "Generation was interrupted. Your credit was returned; please try again.");
+    if (stale.submitStartedAt) {
+      await prisma.aiGeneration.updateMany({ where: { id: stale.id, status: "SUBMITTING", leaseUntil: { lt: now }, submitStartedAt: { not: null } }, data: { status: "UNRESOLVED", error: UNRESOLVED_MESSAGE } });
+    } else {
+      // Provably never sent: return the credit and the budget reservation.
+      await failAiGeneration(prisma, stale.id, "Generation was interrupted. Your credit was returned; please try again.", true,
+        { onlyIf: { status: "SUBMITTING", submitStartedAt: null, leaseUntil: { lt: now } } });
+    }
     return true;
   }
   const job = await claimAiGeneration(prisma);
   if (!job) return false;
-  const shot = aiShotSchema.safeParse(job.shot);
+  const shot = parseStoredAiShot(job.shot);
   const voice = voiceOf(shot.success ? shot.data : undefined);
+  let heartbeat: ReturnType<typeof setInterval> | undefined;
+  /** Past the fence: from here an error may follow a paid submission and is never a refund. */
+  let sent = false;
   try {
     provider ??= new VertexVideo(undefined, undefined, s3.config.credentials);
     if (job.status === "SUBMITTING") {
+      // Keep the claim alive while stills are decoded, composed and checked; a lost claim never reaches Veo.
+      heartbeat = setInterval(() => { void renewLease(job).catch(() => undefined); }, HEARTBEAT_MS);
+      heartbeat.unref?.();
       let image: InlineImage | undefined, lastFrame: InlineImage | undefined;
+      let identity: { identityScore: number; identityChecks: IdentityCheck[] } | undefined;
       if (job.frameSources) {
         let frames: ReturnType<typeof keyframes>;
         try {
           frames = keyframes(await aiFrames(s3, bucket, job.frameSources));
         } catch {
-          await failAiGeneration(prisma, job.id, "The source frames could not be read. Your credit was returned.", true);
+          await refund(job, "The source frames could not be read. Your credit was returned.");
           return true;
         }
         image = inline(frames.image); lastFrame = inline(frames.lastFrame);
-        // Composed keyframes (ADR 0036): the presenter placed into the real frame before Veo sees it.
+        // Composed keyframes (ADR 0036): the presenter placed into the real frame before Veo sees it,
+        // and (ADR 0056) checked against her face before anything is paid.
         if (frames.presenter && (frames.image?.compose || frames.lastFrame?.compose)) {
-          try {
-            images ??= new VertexImages(undefined, undefined, s3.config.credentials);
-            for (const [end, frame] of [["first", frames.image], ["last", frames.lastFrame]] as const) {
-              if (!frame?.compose) continue;
-              const composed = await images.compose(end, frame.compose, inline(frame)!, inline(frames.presenter)!);
-              // Kept beside the take so the studio can see what Veo was given.
-              await s3.send(new PutObjectCommand({ Bucket: bucket, Key: `workspaces/${job.workspaceId}/ai/${job.id}-${end}.jpg`, Body: Buffer.from(composed.bytesBase64Encoded, "base64"), ContentType: "image/jpeg" }));
-              if (end === "first") image = composed; else lastFrame = composed;
-            }
-          } catch {
-            await failAiGeneration(prisma, job.id, "The start and end stills could not be composed. Your credit was returned.", true);
-            return true;
-          }
+          const outcome = await composeAndGate(s3, bucket, job, frames);
+          if (!outcome.ok) return true;
+          image = outcome.image ?? image; lastFrame = outcome.lastFrame ?? lastFrame;
+          identity = outcome.identity;
         }
       } else if (job.referenceKey) {
         const result = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: job.referenceKey }));
         if (!result.Body || (result.ContentLength ?? 0) > 20 * 1024 * 1024) {
-          await failAiGeneration(prisma, job.id, "That photo could not be read. Your credit was returned.", true);
+          await refund(job, "That photo could not be read. Your credit was returned.");
           return true;
         }
         const bytes = await result.Body.transformToByteArray();
         image = { bytesBase64Encoded: Buffer.from(bytes).toString("base64"), mimeType: job.referenceType! };
       }
       if (voice?.mode === "lipsync" && !lipsyncConfigured()) {
-        await failAiGeneration(prisma, job.id, "Voiced shots are not available yet. Your credit was returned.", true);
+        await refund(job, "Voiced shots are not available yet. Your credit was returned.");
         return true;
       }
       const prompt = voice ? voicedPrompt(job.prompt, voice.line, voice.mode) : job.prompt;
-      const operationName = await provider.submit(job.model, job.durationSeconds, prompt, image, lastFrame, voice?.mode === "veo");
-      await prisma.aiGeneration.updateMany({ where: { id: job.id, leaseToken: job.leaseToken, status: "SUBMITTING" }, data: {
-        status: "RUNNING", operationName, nextPollAt: new Date(Date.now() + 15_000), leaseToken: null, leaseUntil: null,
-      } });
+      clearInterval(heartbeat); heartbeat = undefined;
+      // The fence: only the lease holder of a row nobody has refunded may pay, and it says so before it does.
+      const fenced = await prisma.aiGeneration.updateMany({ where: { id: job.id, leaseToken: job.leaseToken, status: "SUBMITTING", submitStartedAt: null },
+        data: { submitStartedAt: new Date(), leaseUntil: new Date(Date.now() + AI_SUBMIT_LEASE_MS) } });
+      if (fenced.count !== 1) {
+        console.warn(`ai-video: ${job.id}: claim lost before submitting; not sent`);
+        return true;
+      }
+      sent = true;
+      let operationName: string;
+      try {
+        operationName = await provider.submit(job.model, job.durationSeconds, prompt, image, lastFrame, voice?.mode === "veo");
+      } catch (error) {
+        if (definitelyRejected(error)) {
+          // Google refused it outright: nothing was made, so the credit and budget go back.
+          await failAiGeneration(prisma, job.id, "The video service could not start this shot. Your credit was returned.", true, { onlyIf: { leaseToken: job.leaseToken } });
+        } else {
+          // A timeout, network error, 5xx or abort may have started a paid operation: hold, never refund or resend.
+          await markUnresolved(job);
+        }
+        console.error(`ai-video: ${job.id}: submit ${definitelyRejected(error) ? "rejected" : "outcome unknown"}: ${error instanceof Error ? error.message : "unknown"}`);
+        return true;
+      }
+      await saveOperation(job, operationName, identity);
     } else {
       if (!job.operationName) throw new Error("Missing video operation.");
       if (Date.now() - job.createdAt.getTime() > 60 * 60_000) {
@@ -117,9 +154,11 @@ export async function processAiVideo(s3: S3Client, bucket: string): Promise<bool
       }
     }
   } catch (error) {
-    if (job.status === "SUBMITTING") {
-      await failAiGeneration(prisma, job.id, "The video service could not start this shot. Your credit was returned.",
-        error instanceof VertexError && error.status >= 400 && error.status < 500 && error.status !== 408);
+    if (job.status === "SUBMITTING" && sent) {
+      await markUnresolved(job).catch(() => undefined);
+    } else if (job.status === "SUBMITTING") {
+      // Before the fence nothing was sent: refund while it is still this worker's.
+      await refund(job, "The video service could not start this shot. Your credit was returned.");
     } else {
       // Poll/import failures retry the saved operation, never a new generation.
       await prisma.aiGeneration.updateMany({ where: { id: job.id, leaseToken: job.leaseToken }, data: {
@@ -127,8 +166,111 @@ export async function processAiVideo(s3: S3Client, bucket: string): Promise<bool
       } });
     }
     console.error(`ai-video: ${job.id}: ${error instanceof VertexError ? error.message : "temporary processing error"}`);
+  } finally {
+    clearInterval(heartbeat);
   }
   return true;
+}
+
+/** Hold a submission whose outcome is unknown (ADR 0049's rule): no refund, no resend. */
+async function markUnresolved(job: Job, operationName?: string) {
+  await prisma.aiGeneration.updateMany({ where: { id: job.id, leaseToken: job.leaseToken, status: { in: ["SUBMITTING", "UNRESOLVED"] } },
+    data: { status: "UNRESOLVED", error: UNRESOLVED_MESSAGE, ...(operationName ? { operationName } : {}) } });
+}
+
+/**
+ * Save the operation Google returned so the take is polled. It is never
+ * submitted again: a failed save is retried with backoff, and if it still
+ * fails the row is held UNRESOLVED with the operation name logged (and
+ * stored if the database allows) so it can be reconciled.
+ */
+async function saveOperation(job: Job, operationName: string, identity: { identityScore: number; identityChecks: unknown[] } | undefined) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      // An UNRESOLVED row is this submission seen by recovery after a long call: saving the operation resolves it.
+      await prisma.aiGeneration.updateMany({ where: { id: job.id, leaseToken: job.leaseToken, status: { in: ["SUBMITTING", "UNRESOLVED"] } }, data: {
+        status: "RUNNING", error: null, operationName, nextPollAt: new Date(Date.now() + 15_000), leaseToken: null, leaseUntil: null,
+        ...(identity ? { identityScore: identity.identityScore, identityChecks: identity.identityChecks as never } : {}),
+      } });
+      return;
+    } catch (error) {
+      const wait = aiVideoTiming.saveBackoffMs[attempt];
+      if (wait === undefined) {
+        console.error(`ai-video: ${job.id}: operation ${operationName} was started but could not be saved (${error instanceof Error ? error.message : "unknown"}); held UNRESOLVED for reconciliation`);
+        await markUnresolved(job, operationName).catch(() => console.error(`ai-video: ${job.id}: could not mark UNRESOLVED; reconcile operation ${operationName} by hand`));
+        return;
+      }
+      await new Promise(resolve => setTimeout(resolve, wait));
+    }
+  }
+}
+
+/** Extend a submission's claim while it is still being prepared; false once it is no longer this worker's. */
+async function renewLease(job: Job): Promise<boolean> {
+  const renewed = await prisma.aiGeneration.updateMany({ where: { id: job.id, leaseToken: job.leaseToken, status: "SUBMITTING", submitStartedAt: null },
+    data: { leaseUntil: new Date(Date.now() + AI_SUBMIT_LEASE_MS) } });
+  return renewed.count === 1;
+}
+
+/** Refund a submission this worker still holds and has not sent (ADR 0056); a no-op if recovery already settled it. */
+function refund(job: Job, message: string, details: Omit<NonNullable<Parameters<typeof failAiGeneration>[4]>, "onlyIf"> = {}) {
+  return failAiGeneration(prisma, job.id, message, true, { ...details, onlyIf: { leaseToken: job.leaseToken, submitStartedAt: null } });
+}
+
+type IdentityCheck = { end: "first" | "last"; attempt: 1 | 2; samePerson: boolean | null; confidence: number | null; faceHeightPx: number | null; reason?: "no-face" | "face-too-small" };
+
+/**
+ * Compose each described end and check her face before Veo is paid (ADR 0056).
+ * A miss is recomposed once with a stronger instruction; a second miss
+ * refunds the credit and records identity_rejected with both scores.
+ */
+async function composeAndGate(s3: S3Client, bucket: string, job: Job, frames: ReturnType<typeof keyframes>): Promise<
+  { ok: true; image?: InlineImage; lastFrame?: InlineImage; identity: { identityScore: number; identityChecks: IdentityCheck[] } } | { ok: false }> {
+  const presenter = inline(frames.presenter)!, face = inline(frames.face);
+  // Who she should be: the kit's face crop, or for an older frame-only request the presenter frame itself.
+  const reference = face ?? presenter;
+  const checks: IdentityCheck[] = [];
+  const result: { image?: InlineImage; lastFrame?: InlineImage } = {};
+  images ??= new VertexImages(undefined, undefined, s3.config.credentials);
+  for (const [end, frame] of [["first", frames.image], ["last", frames.lastFrame]] as const) {
+    if (!frame?.compose) continue;
+    let accepted: InlineImage | null = null;
+    let previous: IdentityVerdict | null = null;
+    for (const attempt of [1, 2] as const) {
+      let composed: InlineImage;
+      try {
+        // A face too small to judge is recomposed closer (medium, face at least 220 px), whatever framing was asked.
+        const closer = attempt === 2 && previous?.reason === "face-too-small";
+        composed = await images.compose(end, frame.compose, inline(frame)!, presenter, face, { framing: closer ? "medium" : frame.framing ?? "medium", stronger: attempt === 2, ...(closer ? { closer: true } : {}) });
+      } catch {
+        await refund(job, "The start and end stills could not be composed. Your credit was returned.", { identityChecks: checks });
+        return { ok: false };
+      }
+      let verdict: IdentityVerdict | null = null;
+      try { verdict = await images.checkIdentity(composed, reference); } catch { verdict = null; }
+      checks.push({ end, attempt, samePerson: verdict?.samePerson ?? null, confidence: verdict?.confidence ?? null, faceHeightPx: verdict?.faceHeightPx ?? null, ...(verdict?.reason ? { reason: verdict.reason } : {}) });
+      console.log(`ai-video: ${job.id}: identity ${end} attempt ${attempt}: ${verdict ? `${verdict.samePerson ? "same" : "different"} person, confidence ${verdict.confidence.toFixed(2)}, face ${verdict.faceHeightPx ?? "?"} px` : "check unavailable"}`);
+      // Kept beside the take so the studio can see what Veo was (or would have been) given.
+      await s3.send(new PutObjectCommand({ Bucket: bucket, Key: `workspaces/${job.workspaceId}/ai/${job.id}-${end}${attempt === 2 ? "-retry" : ""}.jpg`, Body: Buffer.from(composed.bytesBase64Encoded, "base64"), ContentType: "image/jpeg" }));
+      // Each attempt is a few slow calls: stop as soon as the claim is gone, before any more spend.
+      if (!await renewLease(job)) { console.warn(`ai-video: ${job.id}: claim lost while composing; not sent`); return { ok: false }; }
+      const decision = identityDecision(attempt, verdict);
+      previous = verdict;
+      if (decision === "pass") { accepted = composed; break; }
+      if (decision === "reject") {
+        const scores = checks.filter(check => check.end === end).map(check => check.confidence === null ? "unchecked" : check.confidence.toFixed(2));
+        const lowest = Math.min(...checks.map(check => check.confidence ?? 0));
+        await refund(job, `Her face did not match the presenter in the composed ${end === "first" ? "start" : "end"} still after two tries (scores ${scores.join(", ")}), so the shot was not made. Your credit was returned.`,
+          { failureCode: "identity_rejected", identityScore: lowest, identityChecks: checks });
+        return { ok: false };
+      }
+    }
+    if (end === "first") result.image = accepted!; else result.lastFrame = accepted!;
+  }
+  // The lowest accepted score across the composed ends (each end's last check passed): drift shows up here over time.
+  const finals = (["first", "last"] as const).flatMap(end => checks.filter(check => check.end === end).slice(-1).map(check => check.confidence ?? 0));
+  const identityScore = Math.min(...finals);
+  return { ok: true, ...result, identity: { identityScore, identityChecks: checks } };
 }
 
 /** Speak the line in the fixed voice, hand the silent take and the audio to sync.so, and poll it like Veo. */

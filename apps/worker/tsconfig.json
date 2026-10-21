@@ -7,7 +7,9 @@
     "strict": true,
     "skipLibCheck": true,
     "noEmit": true,
-    "types": ["node"]
+    "types": ["node"],
+    // The AI steps are the web app's own module (src/ai-executor.ts, ADR 0049).
+    "paths": { "@/*": ["../web/*"] }
   },
   "include": ["src", "tests"]
 }

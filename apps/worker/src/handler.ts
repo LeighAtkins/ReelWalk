@@ -1,12 +1,14 @@
 import {
   decideDelivery,
   decideFailure,
+  isAiStepMessage,
   parseRenderJobMessage,
   shouldFailFromDeadLetter,
   type JobSnapshot,
   type RenderJobMessage,
 } from "@reelwalk/core";
 import { abortAfter, AttemptStopped, createAttemptScope, DEFAULT_GRACE_MS, linkAbort, runAttempt, type AttemptScope } from "./lifecycle";
+import { handleAiStepDeadLetter, handleAiStepDelivery, type AiStepDeps } from "./ai-jobs";
 
 export type ClaimedJob = {
   id: string;
@@ -90,6 +92,8 @@ export type HandlerDeps = {
   shutdown?: AbortSignal;
   now?: () => Date;
   log?: (message: string, error?: unknown) => void;
+  /** Durable AI steps share the render queue (ADR 0049); without these deps their messages are left for the DLQ. */
+  aiSteps?: AiStepDeps;
 };
 
 export type Outcome = "succeeded" | "retrying" | "interrupted" | "failed" | "discarded" | "deferred" | "poison";
@@ -108,6 +112,7 @@ export async function handleDelivery(deps: HandlerDeps, delivery: Delivery): Pro
   const now = deps.now ?? (() => new Date());
   const log = deps.log ?? ((message, error) => (error ? console.error(message, error) : console.log(message)));
 
+  if (deps.aiSteps && isAiStepMessage(delivery.body)) return handleAiStepDelivery({ ...deps.aiSteps, shutdown: deps.shutdown }, delivery);
   let message: RenderJobMessage;
   try {
     message = parseRenderJobMessage(delivery.body);
@@ -218,9 +223,10 @@ export async function handleDelivery(deps: HandlerDeps, delivery: Delivery): Pro
  * loss), nothing ever wrote FAILED, so it is done here.
  */
 export async function handleDeadLetter(
-  deps: Pick<HandlerDeps, "store" | "log" | "now"> & { config: Pick<HandlerDeps["config"], "staleSeconds"> },
+  deps: Pick<HandlerDeps, "store" | "log" | "now" | "aiSteps"> & { config: Pick<HandlerDeps["config"], "staleSeconds"> },
   delivery: Pick<Delivery, "body" | "delete">,
 ): Promise<"failed" | "ignored" | "poison"> {
+  if (deps.aiSteps && isAiStepMessage(delivery.body)) return handleAiStepDeadLetter({ ...deps.aiSteps, config: deps.config }, delivery);
   const log = deps.log ?? ((message, error) => (error ? console.error(message, error) : console.log(message)));
   const now = deps.now ?? (() => new Date());
 

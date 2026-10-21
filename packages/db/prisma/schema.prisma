@@ -58,6 +58,7 @@ model Workspace {
   commentTriggers CommentTrigger[]
   aiCreditGrants AiCreditGrant[]
   aiGenerations AiGeneration[]
+  workflowRuns WorkflowRun[]
 
   // Set by the Stripe webhook from the subscription (plans in @reelwalk/core).
   plan                 Plan      @default(FREE)
@@ -499,6 +500,103 @@ model AiJob {
   updatedAt   DateTime  @updatedAt
 
   @@index([workspaceId, createdAt])
+}
+
+// Durable AI workflows (ADR 0049). A run is what the studio asked for (one
+// Ask, one autopilot polish, one Director review, or a whole Director
+// "make it for me" run); its steps are the units the worker executes, each
+// under a lease. Request identity (requestId + requestHash) belongs to the
+// run and never changes; execution attempts belong to the step.
+enum WorkflowStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+  // A paid provider request may or may not have been submitted (the worker
+  // died, or the connection broke after sending). Never retried automatically.
+  UNRESOLVED
+}
+
+model WorkflowRun {
+  id              String         @id @default(cuid())
+  workspaceId     String
+  workspace       Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  userId          String
+  reelId          String?
+  // "ask", "autopilot", "director" (one review) or "director-run" (ADR 0037 loop).
+  kind            String
+  // The browser's id for this request and a hash of what it asked; the same
+  // id with a different payload is refused, the same payload resumes.
+  requestId       String
+  requestHash     String
+  status          WorkflowStatus @default(QUEUED)
+  // Set by Stop. A queued step that has not reached the provider ends FAILED;
+  // a step already submitted finishes and is kept, and no further round starts.
+  cancelRequested Boolean        @default(false)
+  // timelineGeneration() of the timeline the run started from, and of the
+  // timeline the next step must start from (the last applied proposal).
+  baselineGeneration String?
+  expectedBaseline   String?
+  // Explicit consent for spending credits without asking each time (director-run).
+  approvedAt      DateTime?
+  // Credit budget for the run, credits already committed to generations, and
+  // credits held for a generation being started. Credits themselves are still
+  // charged by the existing AI credit ledger; these only bound the run.
+  budgetCredits   Int?
+  spentCredits    Int            @default(0)
+  reservedCredits Int            @default(0)
+  // Director loop position: rounds done and the limit.
+  round           Int            @default(0)
+  maxRounds       Int?
+  // Free-form view state for the sheet: the run's AiEdit id, the generation
+  // being waited for, the last message.
+  state           Json?
+  result          Json?
+  error           String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  finishedAt      DateTime?
+  steps           WorkflowStep[]
+
+  @@unique([workspaceId, kind, requestId])
+  @@index([workspaceId, reelId, createdAt])
+}
+
+model WorkflowStep {
+  id          String         @id @default(cuid())
+  runId       String
+  run         WorkflowRun    @relation(fields: [runId], references: [id], onDelete: Cascade)
+  index       Int
+  // "ask", "autopilot" or "director-review".
+  kind        String
+  // Each step has its own request identity too (a Director round's review id).
+  requestId   String
+  requestHash String
+  status      WorkflowStatus @default(QUEUED)
+  // Bumped when a person explicitly re-queues the step; stale messages carry the old one.
+  generation  Int            @default(1)
+  // The queue receive count of the claim that holds the lease.
+  attempt     Int            @default(0)
+  heartbeatAt DateTime?
+  startedAt   DateTime?
+  // Written under the lease immediately before a paid provider request. Once
+  // set, the step is never executed again: a lost lease becomes UNRESOLVED.
+  submittedAt DateTime?
+  // timelineGeneration() of the timeline this step read.
+  baselineGeneration String?
+  // The validated input. Review frame images are removed once the step ends.
+  payload     Json
+  result      Json?
+  error       String?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  finishedAt  DateTime?
+
+  @@unique([runId, index])
+  @@unique([runId, requestId])
+  // The Director sheet's pending reviews, and the reaper's scan.
+  @@index([kind, status])
+  @@index([status, updatedAt])
 }
 
 // A saved way of cutting a reel (ADR 0020): the words a studio gives the

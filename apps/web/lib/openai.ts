@@ -1,6 +1,8 @@
 /** Server-only structured editing answers. Claude is selected when configured;
  * the existing OpenAI transport remains available for explicit rollback. */
 
+import { beforeProviderRequest, providerAnswered, providerSignal } from "./provider-gate";
+
 export const DEFAULT_AI_MODEL = "gpt-6-luna";
 
 export const DEFAULT_CLAUDE_MODEL = "claude-opus-5-5";
@@ -111,6 +113,7 @@ export async function structuredAnswer(options: {
   // Luna is sent no reasoning setting, in case it does not take one.
   if (/gpt-6(\.\d+)?-(sol|astra)/.test(model)) body.reasoning = { effort: "low" };
 
+  await beforeProviderRequest();
   let response: Response;
   try {
     response = await fetch(`${aiBaseUrl()}/responses`, {
@@ -118,11 +121,12 @@ export async function structuredAnswer(options: {
       // The last two headers are OpenRouter's attribution; OpenAI ignores them.
       headers: { authorization: `Bearer ${key}`, "content-type": "application/json", "http-referer": "https://reelwalking.com", "x-title": "ReelWalk" },
       body: JSON.stringify(body),
-      signal: options.signal ?? AbortSignal.timeout(60_000),
+      signal: providerSignal(options.signal ?? AbortSignal.timeout(60_000)),
     });
   } catch (error) {
     throw new AiError(`Could not reach the model: ${error instanceof Error ? error.message : String(error)}`, true);
   }
+  providerAnswered();
   const data = (await response.json().catch(() => ({}))) as ResponsesOutput;
   if (!response.ok) {
     const message = data.error?.message ?? `HTTP ${response.status}`;
@@ -213,6 +217,7 @@ async function claudeAnswer(options: AnswerOptions): Promise<{ json: unknown; us
     if (!match) throw new AiError("The editing image is not a supported image data URL.", false);
     return { type: "image", source: { type: "base64", media_type: match[1], data: match[2] } };
   });
+  await beforeProviderRequest();
   let response: Response;
   try {
     response = await fetch("https://api.anthropic.com/v1/messages", {
@@ -226,11 +231,12 @@ async function claudeAnswer(options: AnswerOptions): Promise<{ json: unknown; us
         messages: [{ role: "user", content: [{ type: "text", text: options.input }, ...images] }],
         output_config: { effort: "medium", format: { type: "json_schema", schema: wire?.schema ?? options.schema } },
       }),
-      signal: options.signal ?? AbortSignal.timeout(60_000),
+      signal: providerSignal(options.signal ?? AbortSignal.timeout(60_000)),
     });
   } catch {
     throw new AiError("Could not reach Claude.", true);
   }
+  providerAnswered();
   const data = await response.json().catch(() => ({})) as {
     stop_reason?: string; model?: string; content?: Array<{ type?: string; text?: string }>;
     usage?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number };

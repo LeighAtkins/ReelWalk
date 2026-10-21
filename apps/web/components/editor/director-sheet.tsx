@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { aiClipCredits, DIRECTOR_LOOP_MAX_ROUNDS, directorLoopBrief, directorLoopStep, sameTimeline, type DirectorPlan, type InstagramAudioTrack, type Timeline } from "@reelwalk/core";
 import type { LibraryAsset } from "@/lib/library";
+import type { PublicDirectorRun } from "@/lib/workflows";
 import { runAiJob, waitForAiJob } from "@/lib/ai-jobs-client";
 import { captureDirectorEvidence } from "./director-evidence";
 import { Sheet } from "../sheet";
@@ -36,11 +37,18 @@ export function DirectorSheet({ reelId, timeline, generation, library, onApply, 
   const [budget, setBudget] = useState(2);
   const [running, setRunning] = useState(false);
   const loop = useRef<{ runId: string | null; spent: number; round: number; stop: boolean } | null>(null);
+  // With AI_JOBS_DURABLE the run's round, spend and stop flag are saved (ADR 0049): this sheet is a view of it.
+  const [durable, setDurable] = useState(false);
+  const [savedRun, setSavedRun] = useState<PublicDirectorRun | null>(null);
+  const stopSaved = useRef(false);
+  /** Why the server refused the last review start ("busy", "reviewed": another tab has this round). */
+  const refused = useRef<string | null>(null);
   const media = [...new Map([...library, ...extra].map(a => [a.id, a])).values()];
   async function reloadHistory() {
     const response = await fetch(`/api/reels/${reelId}/director`, { cache: "no-store" });
     if (!response.ok) throw new Error("Could not load saved direction.");
     const data = await response.json(); setHistory(data.records); setPending(data.pending ?? []);
+    setDurable(Boolean(data.durable)); if (data.run !== undefined) setSavedRun(data.run);
   }
   useEffect(() => { void reloadHistory().catch(() => setMessage("Saved reviews could not be loaded. Refresh before starting another request.")); }, [reelId]);
   async function acceptResult(result: Review | { ok: false; message: string }) {
@@ -56,22 +64,23 @@ export function DirectorSheet({ reelId, timeline, generation, library, onApply, 
     const used = new Set(base.clips.map(c => c.assetId));
     return { ids: assets.filter(a => !used.has(a.id) && a.kind === "VIDEO").map(a => a.id).slice(0, 4), assets };
   }
-  async function direct(request = brief, base = timeline, runId: string | null = null, baseGeneration = generation): Promise<Review | null> {
+  async function direct(request = brief, base = timeline, runId: string | null = null, baseGeneration = generation, workflowRunId: string | null = null): Promise<Review | null> {
     setBusy(true); setMessage("Opus is getting your clips ready…");
     try {
-      const key = JSON.stringify({ request, base, runId });
+      const key = JSON.stringify({ request, base, runId, workflowRunId });
       if (retry.current?.key !== key) {
         const takes = await unusedTakes(base);
         setExtra(prev => [...new Map([...prev, ...takes.assets].map(a => [a.id, a])).values()]);
         if (takes.assets.length) onAssets?.(takes.assets);
         const candidates = takes.ids;
         const evidence = await captureDirectorEvidence(base, [...media, ...takes.assets], candidates, setMessage);
-        retry.current = { key, body: { requestId: crypto.randomUUID(), request, timeline: base, candidates, evidence, ...(runId ? { runId } : {}) } };
+        retry.current = { key, body: { requestId: crypto.randomUUID(), request, timeline: base, candidates, evidence, ...(runId ? { runId } : {}), ...(workflowRunId ? { workflowRunId } : {}) } };
       }
       setMessage("Opus is watching the frames and working out what to change. This takes a minute or two…");
       const answer = await runAiJob<Review>(`/api/reels/${reelId}/director`, retry.current.body);
       const result = answer.ok ? { ...answer, generation: baseGeneration } : answer;
       // A failed request keeps its id on the server, so asking again with the same brief would only fetch the same failure back.
+      refused.current = result.ok ? null : ((result as { reason?: string }).reason ?? null);
       if (!result.ok) retry.current = null;
       await acceptResult(result);
       return result.ok ? result : null;
@@ -126,6 +135,109 @@ export function DirectorSheet({ reelId, timeline, generation, library, onApply, 
     } catch (error) { setMessage(error instanceof Error ? error.message : "The run stopped. Check saved reviews before starting another."); }
     finally { loop.current = null; setRunning(false); setBusy(false); }
   }
+  async function runPost(runId: string, body: unknown): Promise<PublicDirectorRun> {
+    const response = await fetch(`/api/reels/${reelId}/director/runs/${runId}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    const data = await response.json();
+    if (!response.ok || !data.ok) throw new Error(data.message ?? "The run could not be updated.");
+    setSavedRun(data.run.status === "RUNNING" || data.run.status === "QUEUED" ? data.run : null);
+    return data.run;
+  }
+  /**
+   * "Make it for me" on a saved run (ADR 0049). Each pass reads where the run
+   * is from the server (round, credits used, the shot it waits for, its last
+   * review), so the same code starts a run and continues one after a reload
+   * or a web restart. Frames are still sampled here, in the editor tab.
+   */
+  async function runSaved(existing: PublicDirectorRun | null) {
+    stopSaved.current = false; setRunning(true);
+    let run = existing;
+    // "succeeded" only when the loop decided it was done; every other ending is recorded as the failure it is.
+    const end = async (text: string, outcome: "succeeded" | "failed" = "failed") => { setMessage(text); if (run) await runPost(run.id, { action: "finish", message: text, outcome }).catch(() => undefined); };
+    try {
+      if (!run) {
+        const response = await fetch(`/api/reels/${reelId}/director/runs`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ requestId: crypto.randomUUID(), brief, budgetCredits: budget }) });
+        const data = await response.json(); if (!response.ok || !data.ok) throw new Error(data.message ?? "The run could not start.");
+        run = data.run as PublicDirectorRun; setSavedRun(run);
+      }
+      const original = run.state.brief ?? brief;
+      // The editor's document generation the next review is asked against (ADR 0048): now, then after each apply.
+      let baseGeneration = generation;
+      for (let resumed = Boolean(existing), follow = false; ; resumed = follow, follow = false) {
+        if (stopSaved.current || run.cancelRequested) return;
+        const last = run.steps.at(-1);
+        let result: Review | null;
+        if (last && run.steps.length === run.round + 1) {
+          // This round's review exists: wait for it or read it.
+          if (last.status === "QUEUED" || last.status === "RUNNING") {
+            setBusy(true); setMessage("Opus is still reviewing this round…");
+            const answer = await waitForAiJob<Review>(last.id).finally(() => setBusy(false));
+            await acceptResult(answer);
+            if (!answer.ok) { await end(answer.message); return; }
+            result = answer;
+            run = await runPost(run.id, { action: "note", message: "Opus reviewed this round." });
+          } else if (last.status === "SUCCEEDED" && last.result) { result = last.result as Review; setReview(result); }
+          else { await end(last.error ?? "Opus could not finish this round, so the run stopped."); return; }
+        } else {
+          // The next review: the first from the brief, later ones check the take the last round made.
+          let request = original, base = timeline;
+          const previous = last?.result as Review | null | undefined;
+          if (previous) {
+            // The run expects the next review to start from what the last one left (its edit if it had one).
+            base = previous.applied.length > 0 || previous.plan.edit.caption ? previous.timeline : previous.baseline;
+            const awaiting = run.state.awaiting;
+            if (awaiting) {
+              setMessage(`Waiting for "${awaiting.title}"…`);
+              const asset = await waitForTake(awaiting.generationId, { get stop() { return stopSaved.current; } });
+              if (stopSaved.current) return;
+              if (!asset) { await end(`"${awaiting.title}" did not come out, so the run stopped. A failed shot's credit is returned.`); return; }
+              setExtra(prev => [...prev, asset]); onAssets?.([asset]);
+              request = directorLoopBrief(original, run.round, { title: awaiting.title, fileName: asset.fileName });
+            }
+          }
+          result = await direct(request, base, run.state.firstEditId ?? null, baseGeneration, run.id);
+          if (!result && (refused.current === "busy" || refused.current === "reviewed")) {
+            // Another tab started this round's review first: follow it rather than ending the run under it.
+            setMessage("This run is going on in another tab; following it…");
+            const response = await fetch(`/api/reels/${reelId}/director/runs/${run.id}`, { cache: "no-store" });
+            const data = await response.json(); if (!response.ok || !data.ok) throw new Error(data.message ?? "The run could not be read.");
+            run = data.run as PublicDirectorRun; setSavedRun(run);
+            follow = true; // like a resume: the other tab may already have applied what it gets
+            continue;
+          }
+          if (!result) { await end("Opus could not finish this round, so the run stopped. Check saved reviews before starting another."); return; }
+          run = await runPost(run.id, { action: "note", message: "Opus reviewed this round." });
+        }
+        if (stopSaved.current) return;
+        // Apply the review once: after a reload the editor may already show it.
+        const changes = result.applied.length > 0 || Boolean(result.plan.edit.caption);
+        const alreadyApplied = resumed && sameTimeline(result.timeline, timeline);
+        if (changes && !alreadyApplied) {
+          const applied = await onApply(result);
+          if (!applied.ok) { await end(applied.reason === "stale" ? "The timeline changed while Opus was working, so the run stopped before making anything." : `The run stopped before making anything: ${applied.message}`); return; }
+          baseGeneration = applied.generation;
+        }
+        const reviewStep = run.steps.at(-1)!;
+        if (changes) run = await runPost(run.id, { action: "note", appliedStepId: reviewStep.id });
+        const step = directorLoopStep(result.plan, { round: run.round, maxRounds: run.maxRounds, budgetCredits: run.budgetCredits, spentCredits: run.spentCredits });
+        if (step.kind === "done") { await end(step.reason, "succeeded"); return; }
+        const shot = result.plan.shots[step.index];
+        const review = result;
+        setBusy(true);
+        // Approving the same review and shot again reuses its generation (ADR 0034), so a resumed run never pays twice.
+        const response = await fetch(`/api/reels/${reelId}/director/generate`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ editId: review.editId, index: step.index, quotedCredits: step.credits, approved: true, auto: { runId: run.state.firstEditId ?? review.editId, budgetCredits: run.budgetCredits } }) });
+        const data = await response.json(); setBusy(false); if (!response.ok) throw new Error(data.error ?? "Generation did not start.");
+        setGenerated(g => ({ ...g, [`${review.editId}:${step.index}`]: data.id }));
+        run = await runPost(run.id, { action: "advance", stepId: reviewStep.id, index: step.index, generationId: data.id, applied: changes });
+        setMessage(`Making "${shot.title}" · ${run.spentCredits} of ${run.budgetCredits} credits used. Opus will check it when it is ready, in a few minutes…`);
+      }
+    } catch (error) { setMessage(error instanceof Error ? error.message : "The run stopped. Its progress is saved; check it before starting another."); }
+    finally { setRunning(false); setBusy(false); }
+  }
+  async function stopRun() {
+    stopSaved.current = true; if (loop.current) loop.current.stop = true;
+    setMessage("Stopping after the current step…");
+    if (savedRun) await runPost(savedRun.id, { action: "stop", message: "Stopped." }).catch(() => undefined);
+  }
   async function resume(id: string) {
     setBusy(true); setMessage("Opus is still working on your last request…");
     try { await acceptResult(await waitForAiJob<Review>(id)); } finally { setBusy(false); }
@@ -143,6 +255,12 @@ export function DirectorSheet({ reelId, timeline, generation, library, onApply, 
   const current = review && (review.generation !== undefined ? review.generation === generation : sameTimeline(review.baseline, timeline));
   return <Sheet title="Ask Opus" onClose={onClose}>
     <p className="muted">Tell Opus what you think, the way you would tell an editor. It looks through every clip, including AI takes you have not used, and suggests fixes. Nothing changes until you tap Apply, and new AI shots always ask first.</p>
+    {savedRun && !running ? <section aria-label="Saved run">
+      <p className="small"><strong>A “make it for me” run is in progress</strong> · round {savedRun.round + 1} of {savedRun.maxRounds + 1} · {savedRun.spentCredits} of {savedRun.budgetCredits} credits used{savedRun.state.awaiting ? ` · waiting for “${savedRun.state.awaiting.title}”` : ""}</p>
+      {savedRun.state.message ? <p className="muted small">{savedRun.state.message}</p> : null}
+      <button type="button" className="btn btn-signal btn-block" disabled={busy} onClick={() => { void runSaved(savedRun); }}>Continue the run</button>
+      <button type="button" className="btn btn-quiet btn-block" disabled={busy} onClick={() => { void stopRun(); }}>Stop the run</button>
+    </section> : null}
     {pending.map(j => <button key={j.id} type="button" className="btn btn-quiet btn-block" disabled={busy} onClick={() => resume(j.id)}>Opus is still working on your last request · show it</button>)}
     <label className="field">What do you think?<textarea className="text-area" rows={5} maxLength={4000} value={brief} onChange={e => setBrief(e.target.value)} disabled={busy} placeholder="For example: the skydive looks fake, she vanishes between shots, and she looks huge next to the house." /></label>
     <fieldset className="field" disabled={busy}>
@@ -152,8 +270,8 @@ export function DirectorSheet({ reelId, timeline, generation, library, onApply, 
       {mode === "auto" ? <span className="muted small">Opus applies its changes, makes one shot at a time, checks each result, and stops when it is happy, when the budget cannot cover the next shot, or after {DIRECTOR_LOOP_MAX_ROUNDS} rounds. You can stop it at any point; shots already made stay in your media.</span> : null}
     </fieldset>
     {running
-      ? <button type="button" className="btn btn-quiet btn-block" onClick={() => { if (loop.current) loop.current.stop = true; setMessage("Stopping after the current step…"); }}>Stop the run</button>
-      : <button type="button" className="btn btn-signal btn-block" disabled={busy || brief.trim().length < 3} onClick={() => { void (mode === "auto" ? run() : direct()); }}>{busy ? "Opus is working…" : mode === "auto" ? `Make it for me · up to ${budget} ${budget === 1 ? "credit" : "credits"}` : "Ask Opus"}</button>}
+      ? <button type="button" className="btn btn-quiet btn-block" onClick={() => { void stopRun(); }}>Stop the run</button>
+      : <button type="button" className="btn btn-signal btn-block" disabled={busy || brief.trim().length < 3} onClick={() => { void (mode === "auto" ? (durable ? runSaved(null) : run()) : direct()); }}>{busy ? "Opus is working…" : mode === "auto" ? `Make it for me · up to ${budget} ${budget === 1 ? "credit" : "credits"}` : "Ask Opus"}</button>}
     {message ? <p role="status" className="small">{message}</p> : null}
     {history.length > 0 ? <details><summary>Earlier suggestions ({history.length})</summary>{history.map(h => <button key={h.editId} type="button" className="btn btn-quiet btn-block" disabled={busy} onClick={() => setReview(h)}>{h.plan.note.slice(0, 110)}</button>)}</details> : null}
     {review ? <section aria-label="Opus direction">

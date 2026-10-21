@@ -5,6 +5,7 @@ import { directorInput, directReel } from "@/lib/ai-director";
 import { newAssets } from "@/lib/ai-edit";
 import { parseTimeline } from "@reelwalk/core";
 import { aiModel, aiProvider } from "@/lib/openai";
+import { activeDirectorRun, addDirectorReview, durableAiJobs, startSingleStepRun } from "@/lib/workflows";
 
 export const runtime = "nodejs";
 
@@ -13,12 +14,16 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   if (!user) return Response.json({ error: "Sign in to view direction." }, { status: 401 });
   const { id } = await params;
   const records = await prisma.aiEdit.findMany({ where: { workspaceId: user.workspaceId, reelId: id, plan: { path: ["kind"], equals: "director" } }, orderBy: { createdAt: "desc" }, take: 5, select: { id: true, model: true, createdAt: true, plan: true, applied: true, skipped: true } });
-  const pending = await prisma.aiJob.findMany({ where: { workspaceId: user.workspaceId, reelId: id, kind: "director", status: "RUNNING" }, orderBy: { createdAt: "desc" }, take: 5, select: { id: true, status: true } });
+  const legacy = await prisma.aiJob.findMany({ where: { workspaceId: user.workspaceId, reelId: id, kind: "director", status: "RUNNING" }, orderBy: { createdAt: "desc" }, take: 5, select: { id: true, status: true } });
+  // Durable reviews (ADR 0049) still queued or running, and the "make it for me" run in progress, if any.
+  const steps = await prisma.workflowStep.findMany({ where: { kind: "director-review", status: { in: ["QUEUED", "RUNNING"] }, run: { workspaceId: user.workspaceId, reelId: id } }, orderBy: { createdAt: "desc" }, take: 5, select: { id: true, status: true } });
+  const pending = [...steps, ...legacy];
+  const run = await activeDirectorRun(user.workspaceId, id);
   const reviews = await Promise.all(records.map(async record => {
     const stored = record.plan as unknown as { plan: unknown; baseline: unknown; timeline: unknown };
     return { ...stored, ok: true, editId: record.id, model: record.model, applied: record.applied, skipped: record.skipped, assets: await newAssets(user.workspaceId, parseTimeline(stored.baseline), parseTimeline(stored.timeline)) };
   }));
-  return Response.json({ records: reviews, pending }, { headers: { "Cache-Control": "private, no-store" } });
+  return Response.json({ records: reviews, pending, run, durable: durableAiJobs() }, { headers: { "Cache-Control": "private, no-store" } });
 }
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -36,6 +41,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const { id } = await params;
   const reel = await prisma.reel.findFirst({ where: { id, workspaceId: user.workspaceId }, select: { id: true, title: true } });
   if (!reel) return Response.json({ ok: false, message: "Reel not found." }, { status: 404 });
+  if (durableAiJobs()) {
+    // The worker runs the review under a lease (ADR 0049); a round of a "make it for me" run joins that run.
+    const runId = (body as { workflowRunId?: unknown }).workflowRunId;
+    const started = typeof runId === "string" && runId
+      ? await addDirectorReview({ user, reelId: id, runId, requestId: parsed.data.requestId, payload: parsed.data, baseline: parsed.data.timeline })
+      : await startSingleStepRun({ user, reelId: id, kind: "director", stepKind: "director-review", requestId: parsed.data.requestId, payload: parsed.data, baseline: parsed.data.timeline });
+    return started.ok ? Response.json({ ok: true, jobId: started.jobId }, { status: started.resumed ? 200 : 202 }) : Response.json({ ok: false, message: started.message, reason: started.reason }, { status: started.status });
+  }
   const jobId = `director-${parsed.data.requestId}`, requestHash = createHash("sha256").update(JSON.stringify(parsed.data)).digest("hex");
   const existing = await prisma.aiJob.findUnique({ where: { id: jobId }, select: { workspaceId: true, reelId: true, kind: true, result: true } });
   if (existing) {

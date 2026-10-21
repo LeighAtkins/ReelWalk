@@ -38,6 +38,10 @@ COPY apps/worker apps/worker
 COPY packages/core packages/core
 COPY packages/db packages/db
 COPY packages/render packages/render
+# Durable AI steps (ADR 0049) run the web app's own step module. Only lib/ is
+# needed; its imports resolve through the worker's dependencies.
+COPY apps/web/lib apps/web/lib
+RUN ln -s ../worker/node_modules apps/web/node_modules
 
 RUN pnpm --filter @reelwalk/db db:generate
 

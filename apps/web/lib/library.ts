@@ -1,7 +1,7 @@
 import { isEquirect, spotSchema, transcriptSchema, type MediaKind, type Spot, type Transcript } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
 import { mediaUrl } from "./storage";
-import { faceHintFromChecks, type FaceHint } from "../components/editor/inspect-view";
+import { faceHintFromChecks, type FaceHint } from "./face-hint";
 
 /** A media asset as the editor sees it: what it is and where the browser can load it. */
 export type LibraryAsset = {

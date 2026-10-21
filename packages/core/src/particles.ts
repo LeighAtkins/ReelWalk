@@ -66,7 +66,20 @@ export type ParticleInput = {
   seed?: number;
   timeMs: number;
   box: { width: number; height: number };
+  /** Reel time (ms) of a burst (ADR 0059): for `BURST_MS` after it the field puffs out from its centre and brightens. Absent: no burst, the field exactly as before. */
+  burstMs?: number;
 };
+
+/** How long a burst lasts, ms: a quick swell (the first 120 ms) and a slower settle. */
+export const BURST_MS = 900;
+
+/** The burst's strength at `timeMs`, 0–1: 0 before it and after it has settled. */
+export function burstAmount(burstMs: number | undefined, timeMs: number): number {
+  if (burstMs === undefined) return 0;
+  const age = timeMs - burstMs;
+  if (age < 0 || age >= BURST_MS) return 0;
+  return age < 120 ? smoothstep(0, 120, age) : 1 - smoothstep(120, BURST_MS, age);
+}
 
 /** Particles at density 1 (Medium); Thick (1.8) carries 1.8×. */
 export const PARTICLE_BASE: Record<ParticleKind, number> = { snow: 70, embers: 50, dust: 35 };
@@ -176,6 +189,20 @@ export function particleField(input: ParticleInput): ParticleField {
       const r = 1.5 + 1.5 * size;
       const opacity = (0.35 + 0.15 * u(6)) * edgeFade(x, W) * edgeFade(y, H);
       particles.push({ x, y, rx: r, ry: r, angle: 0, opacity, color: "#fff4dc", depth, band, front });
+    }
+  }
+  // A burst pushes every particle out from the field's centre (nearer ones further) and brightens it, then lets it settle back.
+  const burst = burstAmount(input.burstMs, timeMs);
+  if (burst > 0) {
+    const reach = 0.18 * Math.min(W, H);
+    for (const p of particles) {
+      const dx = p.x - W / 2, dy = p.y - H / 2;
+      const length = Math.hypot(dx, dy) || 1;
+      const push = burst * reach * (0.5 + p.depth);
+      p.x = Math.min(W, Math.max(0, p.x + (dx / length) * push));
+      p.y = Math.min(H, Math.max(0, p.y + (dy / length) * push));
+      p.opacity = Math.min(1, p.opacity * (1 + 0.7 * burst));
+      if (p.halo) p.halo.opacity = Math.min(1, p.halo.opacity * (1 + 0.7 * burst));
     }
   }
   // Whatever is drawn (the long radius, a halo, the shadow's offset, three blur deviations) fades out before it

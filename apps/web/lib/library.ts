@@ -1,4 +1,4 @@
-import { isEquirect, spotSchema, transcriptSchema, type MediaKind, type Spot, type Transcript } from "@reelwalk/core";
+import { isEquirect, parseSongMap, spotSchema, transcriptSchema, type MediaKind, type SongMap, type Spot, type Transcript } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
 import { mediaUrl } from "./storage";
 import { faceHintFromChecks, type FaceHint } from "./face-hint";
@@ -28,6 +28,8 @@ export type LibraryAsset = {
   /** For music: tempo and first beat, when detected. */
   bpm: number | null;
   beatOffsetMs: number | null;
+  /** For music: where its bars start and its intro/build/drop/outro (ADR 0059), when analysed. */
+  songMap: SongMap | null;
   /** A video whose light preview is still being made; url is the original until then. */
   previewPending: boolean;
   /**
@@ -57,6 +59,7 @@ type LibraryAssetInput = {
   room?: string | null;
   bpm?: number | null;
   beatOffsetMs?: number | null;
+  songMap?: unknown;
   instagramAudioId?: string | null;
   instagramTitle?: string | null;
   instagramArtist?: string | null;
@@ -87,6 +90,7 @@ async function serializeLibraryAsset(asset: LibraryAssetInput, generation: { che
     room: asset.room ?? null,
     bpm: asset.bpm ?? null,
     beatOffsetMs: asset.beatOffsetMs ?? null,
+    songMap: asset.kind === "AUDIO" ? parseSongMap(asset.songMap) : null,
     previewPending: asset.kind === "VIDEO" && asset.previewKey === null,
     instagram: asset.instagramAudioId
       ? { audioId: asset.instagramAudioId, title: asset.instagramTitle ?? asset.fileName, artist: asset.instagramArtist ?? null }

@@ -1,4 +1,4 @@
-import { BEAT_SAMPLE_RATE, detectBeats, mediaKindFor, resolveUploadType, type BeatGrid, type MediaKind } from "@reelwalk/core";
+import { analyseSong, BEAT_SAMPLE_RATE, detectBeats, mediaKindFor, resolveUploadType, type BeatGrid, type MediaKind, type SongMap } from "@reelwalk/core";
 import { abortUpload, completeUpload, confirmUpload, createUpload } from "@/app/actions";
 import type { LibraryAsset } from "@/lib/library";
 import { roomHintFor } from "@/lib/pending-files";
@@ -144,12 +144,16 @@ function put(url: string, body: Blob, contentType: string | null, onProgress?: (
  * Tempo of a song, found in the browser: decode the file, resample the first
  * 90 seconds to mono, and run the same detector the importer uses.
  */
-async function detectTempo(file: File): Promise<BeatGrid | null> {
-  return (await analyseAudio(await file.arrayBuffer())).beat;
+async function detectTempo(file: File): Promise<{ beat: BeatGrid | null; songMap: SongMap | null }> {
+  const { beat, songMap } = await analyseAudio(await file.arrayBuffer());
+  return { beat, songMap };
 }
 
+export type AudioAnalysis = { durationMs: number | null; beat: BeatGrid | null; /** Bars and sections (ADR 0059), when it has a tempo. */ songMap: SongMap | null };
+const UNREADABLE: AudioAnalysis = { durationMs: null, beat: null, songMap: null };
+
 /** Decodes a song and finds its length and tempo. Both are null when the browser cannot decode it. */
-async function analyseAudio(data: ArrayBuffer): Promise<{ durationMs: number | null; beat: BeatGrid | null }> {
+async function analyseAudio(data: ArrayBuffer): Promise<AudioAnalysis> {
   try {
     const context = new AudioContext();
     const decoded = await context.decodeAudioData(data);
@@ -161,10 +165,12 @@ async function analyseAudio(data: ArrayBuffer): Promise<{ durationMs: number | n
     source.connect(offline.destination);
     source.start();
     const rendered = await offline.startRendering();
-    return { durationMs: Math.round(decoded.duration * 1000), beat: detectBeats(rendered.getChannelData(0)) };
+    const samples = rendered.getChannelData(0);
+    const beat = detectBeats(samples);
+    return { durationMs: Math.round(decoded.duration * 1000), beat, songMap: beat ? analyseSong(samples, beat) : null };
   } catch {
     // Not decodable here: the song still works, just without beat snapping.
-    return { durationMs: null, beat: null };
+    return UNREADABLE;
   }
 }
 
@@ -173,13 +179,13 @@ async function analyseAudio(data: ArrayBuffer): Promise<{ durationMs: number | n
  * copy, ADR 0019): fetched from its presigned storage URL, which answers
  * CORS, never from Instagram's CDN, which does not.
  */
-export async function analyseStoredAudio(url: string): Promise<{ durationMs: number | null; beat: BeatGrid | null }> {
+export async function analyseStoredAudio(url: string): Promise<AudioAnalysis> {
   try {
     const response = await fetch(url);
-    if (!response.ok) return { durationMs: null, beat: null };
+    if (!response.ok) return UNREADABLE;
     return await analyseAudio(await response.arrayBuffer());
   } catch {
-    return { durationMs: null, beat: null };
+    return UNREADABLE;
   }
 }
 
@@ -237,7 +243,7 @@ export async function uploadFile(original: File, onProgress: (fraction: number) 
   const report = shrunk ? (fraction: number) => onProgress(0.6 + fraction * 0.4) : onProgress;
   const info = await probe(file);
   if (!info) throw new Error(`${file.name} is not a supported photo, video or audio file.`);
-  const beat = info.kind === "AUDIO" ? await detectTempo(file) : null;
+  const { beat, songMap } = info.kind === "AUDIO" ? await detectTempo(file) : { beat: null, songMap: null };
 
   const ticket = await withRetry(() =>
     createUpload({
@@ -277,6 +283,7 @@ export async function uploadFile(original: File, onProgress: (fraction: number) 
     beatOffsetMs: beat?.offsetMs ?? null,
     // The shot it was filmed as, when it came from the shot list (ADR 0063).
     room: roomHintFor(original),
+    songMap,
   }));
   if (!confirmed.ok) throw new Error(confirmed.error);
   return confirmed.asset;

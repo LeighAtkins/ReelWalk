@@ -7,7 +7,7 @@ import { pipeline } from "node:stream/promises";
 import { DEFAULT_USER_EMAIL, prisma } from "@reelwalk/db";
 import { INCOMPETECH, LIBRARY, MIXKIT, POLY_HAVEN, type LibraryItem } from "./library/manifest";
 import { sampleReels, type AssetIndex } from "./library/sample-reels";
-import { analyseBeats, panoThumbnail, probe, run, upload } from "./library/tools";
+import { analyseMusic, panoThumbnail, probe, run, upload } from "./library/tools";
 
 /**
  * Fills the workspace's media library with openly licensed 360 photos and
@@ -119,9 +119,9 @@ async function importItem(item: LibraryItem, workspaceId: string, workdir: strin
     // Recordings differ a lot in level. Bring each to the loudness Instagram plays back at
     // (about -14 LUFS), so every song sits at the same volume in a reel.
     await run("ffmpeg", ["-v", "error", "-y", "-i", original, "-af", "loudnorm=I=-14:TP=-1.5:LRA=11", "-ar", "44100", "-c:a", "libmp3lame", "-q:a", "2", media]);
-    const [{ stdout }, beat, sizeBytes] = await Promise.all([
+    const [{ stdout }, { beat, songMap }, sizeBytes] = await Promise.all([
       run("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", media]),
-      analyseBeats(media),
+      analyseMusic(media),
       upload(info.objectKey, media, info.contentType),
     ]);
     const asset = await prisma.mediaAsset.create({
@@ -137,6 +137,7 @@ async function importItem(item: LibraryItem, workspaceId: string, workdir: strin
         durationMs: Math.round(Number(stdout) * 1000) || null,
         bpm: beat?.bpm ?? null,
         beatOffsetMs: beat?.offsetMs ?? null,
+        ...(songMap ? { songMap } : {}),
         sourceUrl: info.sourceUrl,
         license: info.license,
         attribution: info.attribution,

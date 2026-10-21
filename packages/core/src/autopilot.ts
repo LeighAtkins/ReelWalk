@@ -200,7 +200,8 @@ export function finishAutopilot(
       added.push(`music: ${song.title} from Instagram`);
     } else if (song) {
       const asset = context.assets[song.id];
-      current = setMusic(current, { assetId: song.id, sourceStartMs: 0, volume: 0.8, bpm: song.bpm ?? asset?.bpm ?? null, beatOffsetMs: asset?.beatOffsetMs ?? null });
+      // A new reel's song has "On the beat" on (ADR 0059).
+      current = setMusic(current, { assetId: song.id, sourceStartMs: 0, volume: 0.8, bpm: song.bpm ?? asset?.bpm ?? null, beatOffsetMs: asset?.beatOffsetMs ?? null, onBeat: true });
       current = snapCutsToBeats(current, durations(context.assets));
       added.push(`music: ${song.title}, cuts on the beat`);
     }

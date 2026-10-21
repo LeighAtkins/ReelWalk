@@ -1,0 +1,1 @@
+ALTER TABLE "MediaAsset" ADD COLUMN "songMap" JSONB;

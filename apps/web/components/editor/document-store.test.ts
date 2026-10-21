@@ -136,3 +136,32 @@ describe("async proposals", () => {
     expect(store.getState().history.past).toHaveLength(1);
   });
 });
+
+describe("the Energy control (ADR 0059)", () => {
+  const paced = () =>
+    parseTimeline({
+      version: 1,
+      clips: ["a", "b", "c", "d"].map((id) => ({ id, assetId: `v-${id}`, kind: "VIDEO", sourceStartMs: 1000, sourceEndMs: 4000 })),
+      texts: [{ id: "t", text: "Hall", startMs: 3500, endMs: 4500 }],
+      music: { assetId: "song", sourceStartMs: 0, bpm: 120, beatOffsetMs: 0, sections: [{ kind: "intro", startMs: 0, endMs: 4000 }, { kind: "drop", startMs: 4000, endMs: 20000 }] },
+    });
+  const lengths = () => ({ "v-a": 20000, "v-b": 20000, "v-c": 20000, "v-d": 20000 });
+
+  it("a drag across the stops is one undo step back to the reel as it was", () => {
+    const store = createDocumentStore(paced(), lengths);
+    const before = store.getState().history.present;
+    for (const energy of [0.25, 0.5, 1, 0.75]) store.runCommand({ type: "pace", energy, clipEnergy: { a: 0.2, b: 0.9, c: 0.3, d: 0.4 }, speechAssetIds: [] }, "pace");
+    expect(store.getState().history.past).toHaveLength(1);
+    expect(store.getState().history.present.music?.energy).toBe(0.75);
+    // The last stop is planned from the reel before the drag, not from the step before it.
+    const direct = createDocumentStore(paced(), lengths);
+    direct.runCommand({ type: "pace", energy: 0.75, clipEnergy: { a: 0.2, b: 0.9, c: 0.3, d: 0.4 }, speechAssetIds: [] }, "pace");
+    expect(store.getState().history.present).toEqual(direct.getState().history.present);
+    // The cut really changed (no clip has speech): b, which moves most, is the hero on the drop at 4 s.
+    const cut = store.getState().history.present;
+    expect(cut.clips).not.toEqual(before.clips);
+    expect(cut.music?.pace?.heroClipId).toBe("b");
+    store.dispatch({ type: "undo" });
+    expect(store.getState().history.present).toBe(before);
+  });
+});

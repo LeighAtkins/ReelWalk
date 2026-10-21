@@ -180,6 +180,8 @@ export const textSchema = z
       density: z.number().min(0.2).max(2).optional(),
       /** Picks a different scatter of the same kind. */
       seed: z.number().int().min(0).max(1_000_000).optional(),
+      /** Reel time (ms) of a burst: the field puffs out and brightens for a moment there (ADR 0059), for a title that lands on the beat. */
+      burstMs: ms.optional(),
     }).optional(),
     /**
      * Light on the type (ADR 0061), drawn in the title's own plane so it warps and travels with a tracked surface.
@@ -235,6 +237,15 @@ export const textSchema = z
   .refine((text) => text.endMs > text.startMs, { message: "Text must be on screen for a positive time" })
   .refine((text) => text.size >= minTextSize(text.style), { message: "Text is too small for this style", path: ["size"] });
 
+/** A song's sections (ADR 0059), found by `analyseSong`. */
+export const SECTION_KINDS = ["intro", "build", "drop", "outro"] as const;
+export type SectionKind = (typeof SECTION_KINDS)[number];
+export const songSectionSchema = z.object({ kind: z.enum(SECTION_KINDS), startMs: ms, endMs: ms });
+export type SongSection = z.infer<typeof songSectionSchema>;
+/** At most this many downbeats are kept: about six minutes at 160 bpm. */
+export const MAX_DOWNBEATS = 512;
+export const MAX_SECTIONS = 64;
+
 export const musicSchema = z
   .object({
     assetId: z.string().min(1),
@@ -251,6 +262,24 @@ export const musicSchema = z
      * when the reel is posted, always from its start.
      */
     instagramAudioId: z.string().min(1).max(64).nullish(),
+    /** Song time (ms) of the first beat of every bar, when the song was analysed (ADR 0059). Absent on older reels: the bars are then counted from the first beat. */
+    downbeats: z.array(ms).max(MAX_DOWNBEATS).optional(),
+    /** The song's intro, build, drop and outro in song time (ADR 0059), when found. */
+    sections: z.array(songSectionSchema).max(MAX_SECTIONS).optional(),
+    /** Where the Energy control was last set for this song, 0 (chill) to 1 (hype) (ADR 0059). */
+    energy: unit.optional(),
+    /**
+     * What the last Energy change cut from (ADR 0059): the clips' order and windows before pacing, a key of the cut it
+     * made, and the hero it put on the drop. While the reel's clips still match `resultKey`, the next Energy change
+     * plans from `base` again, so the order does not churn and going back to a stop gives back its cut.
+     */
+    pace: z.object({
+      base: z.array(z.object({ id: z.string().min(1), sourceStartMs: ms, sourceEndMs: ms })).max(100),
+      resultKey: z.string().min(1).max(32),
+      heroClipId: z.string().min(1).nullable(),
+    }).optional(),
+    /** "On the beat" (ADR 0059): title entrances, particle bursts and whips go onto the bar when the cut changes. Absent (older reels) is off. */
+    onBeat: z.boolean().optional(),
   })
   // Instagram has no start offset for an attached sound, so neither does the edit.
   .transform((music) => (music.instagramAudioId ? { ...music, sourceStartMs: 0 } : music));

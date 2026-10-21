@@ -12,6 +12,8 @@ import {
   MAX_UPLOAD_BYTES,
   planSchema,
   resolveUploadType,
+  songMapFields,
+  songMapSchema,
   spotSchema,
   vibeById,
   thumbKeyFor,
@@ -76,7 +78,8 @@ export async function createReelFromTour(input: { tourId: string; vibeId?: strin
         };
       }),
     plan: plan.success ? plan.data : null,
-    music: song ? { assetId: song.id, sourceStartMs: 0, volume: 0.7, bpm: song.bpm, beatOffsetMs: song.beatOffsetMs } : null,
+    // A new reel's song carries its bars and sections, with "On the beat" on (ADR 0059).
+    music: song ? { assetId: song.id, sourceStartMs: 0, volume: 0.7, bpm: song.bpm, beatOffsetMs: song.beatOffsetMs, ...songMapFields(song.songMap), onBeat: true } : null,
     vibe,
   });
   if (!timeline) return { error: "This tour has too few room photos to build a reel from." };
@@ -296,6 +299,8 @@ const confirmSchema = z.object({
   beatOffsetMs: z.number().int().min(0).nullable().optional(),
   /** The room the shot list says this was filmed as (ADR 0063). */
   room: z.string().trim().toLowerCase().min(1).max(40).nullable().optional(),
+  /** Bars and sections of a song (ADR 0059), found in the browser. */
+  songMap: songMapSchema.nullable().optional(),
 });
 
 export type ConfirmResult = { ok: true; asset: LibraryAsset } | { ok: false; error: string };
@@ -335,6 +340,7 @@ export async function confirmUpload(input: z.input<typeof confirmSchema>): Promi
       bpm: resolved.kind === "AUDIO" ? (data.bpm ?? null) : null,
       beatOffsetMs: resolved.kind === "AUDIO" ? (data.beatOffsetMs ?? null) : null,
       room: resolved.kind === "AUDIO" ? null : (data.room ?? null),
+      ...(resolved.kind === "AUDIO" && data.songMap ? { songMap: data.songMap } : {}),
     },
   });
 

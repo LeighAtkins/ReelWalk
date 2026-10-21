@@ -17,6 +17,8 @@ export * from "./kinetic";
 export * from "./callout";
 export * from "./comment-replies";
 export * from "./beats";
+export * from "./song";
+export * from "./pacing";
 export * from "./drag";
 export * from "./handle";
 export * from "./instagram";

@@ -52,12 +52,14 @@ export async function processPresenterKit(s3: S3Client, bucket: string, now = ne
     const png = await decodeFrame(s3, bucket, portrait.objectKey, 0, "reference-png");
     const { width, height } = pngSize(png);
     images ??= new VertexImages(undefined, undefined, s3.config.credentials);
-    const box = await images.findFace({ bytesBase64Encoded: png.toString("base64"), mimeType: "image/png" });
-    if (!box || box[2] <= box[0] || box[3] <= box[1]) {
+    const { box, locate } = await images.findFace({ bytesBase64Encoded: png.toString("base64"), mimeType: "image/png" }, { width, height });
+    console.log(`presenter: ${waiting.id}: locate ${JSON.stringify(locate)} in ${width}×${height}`);
+    if (!box) {
       await settle({ faceCropError: "No clear face was found in the portrait. Choose a head-and-shoulders photo facing the camera." });
       return true;
     }
     const rect = faceCropRect(box, width, height);
+    console.log(`presenter: ${waiting.id}: crop ${JSON.stringify({ x: rect.x, y: rect.y, size: rect.size })}`);
     const crop = await cropFacePng(png, rect);
     const key = faceCropKey(waiting.workspaceId, waiting.id, waiting.portraitAssetId, token);
     await s3.send(new PutObjectCommand({ Bucket: bucket, Key: key, Body: crop, ContentType: "image/png" }));

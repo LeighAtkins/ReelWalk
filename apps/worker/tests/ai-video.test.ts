@@ -39,7 +39,7 @@ beforeEach(() => {
   submit.mockResolvedValue("operation-one");
   poll.mockResolvedValue({ done: true, video: Buffer.alloc(1000) });
   tx.reel.findFirst.mockResolvedValue(source);
-  identity.mockResolvedValue({ samePerson: true, confidence: 0.9, faceHeightPx: 240 });
+  identity.mockResolvedValue({ samePerson: true, confidence: 0.9, faceHeightPx: 240, eyesAndMouthRendered: true });
 });
 
 describe("AI shot worker", () => {
@@ -131,10 +131,32 @@ describe("AI shot worker", () => {
     expect(fail).not.toHaveBeenCalled();
     expect(unresolved()).toEqual([expect.objectContaining({ data: { status: "UNRESOLVED", error: UNRESOLVED_MESSAGE, operationName: "operation-one" } })]);
   });
+  it("a speaking take is composed closer and held to a 220 px face", async () => {
+    claim.mockResolvedValue({ ...job, shot: { mode: "custom", first: { assetId: "real-a", atMs: 0 }, line: "Welcome home.", voice: "veo", compose: { presenterId: "kit", first: "Beside the island bench, waist above it." } } });
+    frames.mockResolvedValueOnce(kit);
+    compose.mockResolvedValue({ bytesBase64Encoded: "composed", mimeType: "image/jpeg" });
+    identity.mockResolvedValueOnce({ samePerson: true, confidence: 0.95, faceHeightPx: 160, eyesAndMouthRendered: true });
+    await processAiVideo(s3, "media");
+    expect(identity.mock.calls[0][2]).toEqual({ minFacePx: 220 });
+    expect(compose.mock.calls[0][5]).toEqual({ framing: "medium", stronger: false, closer: true });
+    // 160 px passed for a silent take; for a speaking one it is recomposed.
+    expect(compose).toHaveBeenCalledTimes(2);
+    compose.mockReset();
+  });
+  it("a confident match whose eyes or mouth are not rendered is recomposed, then refused (cmvi0jk8h)", async () => {
+    claim.mockResolvedValue(job); frames.mockResolvedValueOnce(kit);
+    compose.mockResolvedValue({ bytesBase64Encoded: "composed", mimeType: "image/jpeg" });
+    identity.mockResolvedValue({ samePerson: true, confidence: 0.98, faceHeightPx: 150, eyesAndMouthRendered: false });
+    await processAiVideo(s3, "media");
+    expect(submit).not.toHaveBeenCalled();
+    expect(fail).toHaveBeenCalledWith(db, "one", expect.any(String), true, expect.objectContaining({ failureCode: "identity_rejected",
+      identityChecks: [expect.objectContaining({ eyesAndMouthRendered: false }), expect.objectContaining({ eyesAndMouthRendered: false })] }));
+    compose.mockReset(); identity.mockReset();
+  });
   it("a face too small to judge is recomposed closer at medium framing, even when wide was asked for", async () => {
     claim.mockResolvedValue(job); frames.mockResolvedValueOnce([{ ...kit[0], framing: "wide" }, kit[1], kit[2]]);
     compose.mockResolvedValue({ bytesBase64Encoded: "composed", mimeType: "image/jpeg" });
-    identity.mockResolvedValueOnce({ samePerson: false, confidence: 0, faceHeightPx: 58, reason: "face-too-small" }).mockResolvedValueOnce({ samePerson: true, confidence: 0.8, faceHeightPx: 240 });
+    identity.mockResolvedValueOnce({ samePerson: false, confidence: 0, faceHeightPx: 58, reason: "face-too-small" }).mockResolvedValueOnce({ samePerson: true, confidence: 0.8, faceHeightPx: 240, eyesAndMouthRendered: true });
     await processAiVideo(s3, "media");
     expect(compose.mock.calls[0][5]).toEqual({ framing: "wide", stronger: false });
     expect(compose.mock.calls[1][5]).toEqual({ framing: "medium", stronger: true, closer: true });
@@ -148,7 +170,7 @@ describe("AI shot worker", () => {
     await processAiVideo(s3, "media");
     expect(compose).toHaveBeenCalledWith("first", "At the door, head below the lintel.", { bytesBase64Encoded: "first", mimeType: "image/jpeg" }, { bytesBase64Encoded: "her", mimeType: "image/jpeg" }, undefined, { framing: "medium", stronger: false });
     // Without a kit the gate compares against the presenter frame itself.
-    expect(identity).toHaveBeenCalledWith({ bytesBase64Encoded: "composed", mimeType: "image/jpeg" }, { bytesBase64Encoded: "her", mimeType: "image/jpeg" });
+    expect(identity).toHaveBeenCalledWith({ bytesBase64Encoded: "composed", mimeType: "image/jpeg" }, { bytesBase64Encoded: "her", mimeType: "image/jpeg" }, { minFacePx: 120 });
     expect(submit).toHaveBeenCalledWith("veo", 8, "Move", { bytesBase64Encoded: "composed", mimeType: "image/jpeg" }, { bytesBase64Encoded: "last", mimeType: "image/jpeg" }, false);
     expect((s3.send as ReturnType<typeof vi.fn>).mock.calls.map(([command]) => command.input?.Key)).toContain("workspaces/studio/ai/one-first.jpg");
   });
@@ -164,18 +186,20 @@ describe("AI shot worker", () => {
   it("composes from the kit's full-length still and face crop, gates on her face, and records the score", async () => {
     claim.mockResolvedValue(job); frames.mockResolvedValueOnce(kit);
     compose.mockResolvedValueOnce({ bytesBase64Encoded: "composed", mimeType: "image/jpeg" });
-    identity.mockResolvedValueOnce({ samePerson: true, confidence: 0.82, faceHeightPx: 210 });
+    identity.mockResolvedValueOnce({ samePerson: true, confidence: 0.82, faceHeightPx: 210, eyesAndMouthRendered: true, locate: [{ mode: "grid", box: [300, 400, 409, 500], crop: { x: 300, y: 500, size: 462 }, faceHeightPx: 210 }] });
     await processAiVideo(s3, "media");
     expect(compose).toHaveBeenCalledWith("first", "Beside the island bench, waist above it.", { bytesBase64Encoded: "scene", mimeType: "image/png" }, { bytesBase64Encoded: "body", mimeType: "image/png" }, { bytesBase64Encoded: "face", mimeType: "image/png" }, { framing: "medium", stronger: false });
-    expect(identity).toHaveBeenCalledWith({ bytesBase64Encoded: "composed", mimeType: "image/jpeg" }, { bytesBase64Encoded: "face", mimeType: "image/png" });
+    expect(identity).toHaveBeenCalledWith({ bytesBase64Encoded: "composed", mimeType: "image/jpeg" }, { bytesBase64Encoded: "face", mimeType: "image/png" }, { minFacePx: 120 });
     expect(submit).toHaveBeenCalledWith("veo", 8, "Move", { bytesBase64Encoded: "composed", mimeType: "image/jpeg" }, undefined, false);
     expect(db.aiGeneration.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "RUNNING", identityScore: 0.82,
-      identityChecks: [{ end: "first", attempt: 1, samePerson: true, confidence: 0.82, faceHeightPx: 210 }] }) }));
+      identityChecks: [{ end: "first", attempt: 1, samePerson: true, confidence: 0.82, faceHeightPx: 210, minFacePx: 120, eyesAndMouthRendered: true,
+      // The locate box and crop are kept on every check, so a false reject can be diagnosed from the database.
+      locate: [{ mode: "grid", box: [300, 400, 409, 500], crop: { x: 300, y: 500, size: 462 }, faceHeightPx: 210 }] }] }) }));
   });
   it("recomposes once with a stronger instruction when the face misses, then pays only for the match", async () => {
     claim.mockResolvedValue(job); frames.mockResolvedValueOnce(kit);
     compose.mockResolvedValueOnce({ bytesBase64Encoded: "drifted", mimeType: "image/jpeg" }).mockResolvedValueOnce({ bytesBase64Encoded: "her-again", mimeType: "image/jpeg" });
-    identity.mockResolvedValueOnce({ samePerson: false, confidence: 0.3, faceHeightPx: 64 }).mockResolvedValueOnce({ samePerson: true, confidence: 0.7, faceHeightPx: 230 });
+    identity.mockResolvedValueOnce({ samePerson: false, confidence: 0.3, faceHeightPx: 64 }).mockResolvedValueOnce({ samePerson: true, confidence: 0.7, faceHeightPx: 230, eyesAndMouthRendered: true });
     await processAiVideo(s3, "media");
     expect(compose).toHaveBeenLastCalledWith("first", expect.any(String), expect.anything(), expect.anything(), expect.anything(), { framing: "medium", stronger: true });
     expect(submit).toHaveBeenCalledWith("veo", 8, "Move", { bytesBase64Encoded: "her-again", mimeType: "image/jpeg" }, undefined, false);

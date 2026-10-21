@@ -164,10 +164,11 @@ again before uploading anything.
   someone looks; the AI panel shows their message. They need a
   reconciliation tool (follow-up): look up the stored or logged operation
   with Google, then either resume polling or refund.
-- Identity calls: 2 to 4 text calls per composed end (find and compare,
-  twice if recomposed; a face that cannot be judged skips the compare), so
-  up to 8 for a take composed at both ends, plus 1 to 2 composition (image)
-  calls per end.
+- Identity calls (after the amendment below): each check is 2 to 4 text
+  calls (locate, compare, and a pixel locate and compare if the first box
+  missed her), so up to 8 per composed end with a recompose and 16 for a
+  take composed at both ends, plus 1 to 2 composition (image) calls per end.
+  A face that cannot be judged skips the compare.
 - Upload confirm (also behind `/api/uploads/confirm`) checks the stored
   object's metadata (content type, size), not the file signature; the
   worker's decoder rejects anything that is not an image. Recorded, not
@@ -214,3 +215,56 @@ again before uploading anything.
 - Not verified: any live Gemini call (none locally), the face crop on a
   real portrait, the gate's scores on real composites, the editor UI in a
   browser, and the seeding script against a real tab.
+
+## Amendment (2026-10-21): the cmvi32byk false reject
+
+**What happened.** Generation cmvi32byk000701ademkws6ou was refused with
+0.05 on both composites, though both clearly show her. Reproduced locally
+on the two stored JPEGs with the worker's own `faceCropRect` and
+`cropFacePng`: her face measures hairline 705 to chin 805 px, ears 535 to
+625 px, which is `box_2d` [367, 495, 419, 579]. That box crops to a square
+that is her face. But that face is 100 px tall, under the 120 px floor, so
+a correct locate would have answered `face-too-small` without comparing.
+The gate compared (0.05, not 0), so the box Gemini returned was at least
+120 px tall and was not her face. Two plausible readings of the first
+version's `faceBox`, which was forced through a response schema, both crop
+away from her: her pixel coordinates read as the 0–1000 grid lands on her
+coat (192 px "face"), and an x/y swap lands on the window and her hand
+(161 px). The exact box was not recorded, which is the other defect. The
+kit crops from the same locate call were also loose and off-centre.
+
+**Decision.**
+- The locate call uses Gemini's own detection format: `box_2d`
+  [ymin, xmin, ymax, xmax] normalised to 0–1000, y first, plus the eyes and
+  mouth as landmarks, with no forced response schema. A box is used only if
+  it is plausible: on the grid, non-empty, face-shaped in pixels (height
+  over width 0.7 to 2.2; an x/y swap on a portrait frame is a sliver), and
+  with the landmarks inside it and the eyes above the mouth.
+- The compare call says whether the crop shows a face at all
+  (`faceVisible`). A crop with no face is a missed locate, not a different
+  person: the gate locates again, asking for pixels of the stated
+  1080×1920 size, and compares that crop. If neither lands on her face the
+  verdict is `locate-failed` with confidence 0, never a low identity score.
+  The kit's face crop uses the same two-mode locate.
+- A speaking take (a line with a voice) needs a 220 px face (hairline to
+  chin), and is composed closer from the first attempt; silent takes keep
+  120 px. cmvi0jk8h passed at 0.98 with a face too small for Veo to keep
+  eyes and a mouth.
+- The compare call also answers `eyesAndMouthRendered` (both eyes open
+  with visible iris and whites, the mouth clearly formed), and a pass
+  requires it.
+- Every check stores its locate attempts in `identityChecks`: the mode,
+  the box as read, why it was refused if it was, the crop rectangle and the
+  face height, with the floor that applied. The worker logs the same line.
+- `cropFacePng` names its temp file by type: an ffmpeg without the
+  `jpeg_pipe`/`png_pipe` probes cannot open an extensionless image.
+
+**Verified.** Unit tests cover reading `box_2d`, `faceBox` and pixel
+answers; the plausibility rules on her measured box and the swapped one;
+the crop rectangle for her box; a crop with no face leading to the pixel
+locate; `locate-failed` when neither lands; the 220 px floor and closer
+composing for speaking takes; refusing a match without eyes and mouth; and
+the locate record in `identityChecks`. Not verified: what Gemini actually
+returns for these prompts (no live Gemini locally), so the root cause is
+inferred from the stored composites and the recorded score, not observed.
+

@@ -34,7 +34,7 @@ beforeEach(() => {
 
 describe("presenter kit face crop (ADR 0056)", () => {
   it("claims the kit for its current portrait, and publishes a never-overwritten key only under that claim", async () => {
-    findFace.mockResolvedValue([355, 480, 415, 560]);
+    findFace.mockResolvedValue({ box: [355, 480, 415, 560], locate: [] });
     expect(await processPresenterKit(s3, "media")).toBe(true);
     const claim = updates().find(args => args.data.leaseToken === "claim-1")!;
     expect(claim.where).toMatchObject({ id: "kit", portraitAssetId: "portrait", faceCropKey: null, faceCropTries: 0 });
@@ -47,7 +47,7 @@ describe("presenter kit face crop (ADR 0056)", () => {
     expect(updates().at(-1)).toEqual({ where: ours, data: { faceCropKey: "workspaces/w/presenters/kit/portrait/claim-1.png", faceHeightPx: 100, leaseToken: null, leaseUntil: null } });
   });
   it("a portrait replaced mid-crop keeps the new portrait: the old crop is not published", async () => {
-    findFace.mockResolvedValue([355, 480, 415, 560]);
+    findFace.mockResolvedValue({ box: [355, 480, 415, 560], locate: [] });
     // Settle, claim, then the publish finds the claim gone (PATCH cleared the token and changed the portrait).
     db.presenter.updateMany.mockResolvedValueOnce({ count: 0 }).mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce({ count: 0 });
     await processPresenterKit(s3, "media");
@@ -55,7 +55,7 @@ describe("presenter kit face crop (ADR 0056)", () => {
     expect(updates().filter(args => args.data.faceCropKey)).toHaveLength(1); // only the conditional attempt
   });
   it("says so when the portrait has no clear face, under its claim, without retrying", async () => {
-    findFace.mockResolvedValue(null);
+    findFace.mockResolvedValue({ box: null, locate: [] });
     await processPresenterKit(s3, "media");
     expect(s3.send).not.toHaveBeenCalled();
     expect(updates().at(-1)).toEqual({ where: ours, data: { faceCropError: expect.stringContaining("No clear face"), leaseToken: null, leaseUntil: null } });

@@ -5,7 +5,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { framingInstruction, type PresenterFraming } from "@reelwalk/core";
 import { VertexError, vertexAuth, type AwsCredentials } from "./vertex-video";
-import { FIND_FACE_PROMPT, FIND_FACE_RESPONSE_SCHEMA, IDENTITY_PROMPT, IDENTITY_RESPONSE_SCHEMA, compareVerdictSchema, cropFacePng, faceBoxSchema, faceCropRect, faceHeightFromBox, unjudgeable, type IdentityVerdict } from "./identity";
+import { FIND_FACE_PROMPT, IDENTITY_PROMPT, IDENTITY_RESPONSE_SCHEMA, MIN_GATE_FACE_PX, compareVerdictSchema, cropFacePng, faceCropRect, findFacePixelsPrompt, plausibleFace, readLocate, type IdentityVerdict, type LocateAttempt, type Located } from "./identity";
 
 const run = promisify(execFile);
 
@@ -141,27 +141,51 @@ export class VertexImages {
   }
 
   /**
-   * The identity gate's question (ADR 0056): is the face in the composite the reference's person?
-   * First find her face in the 1080×1920 composite; with no usable box, or a face under
-   * MIN_GATE_FACE_PX, there is nothing to judge and the answer is a miss. Otherwise the
-   * face is cropped (with the hair) and the crop, not the whole frame, is compared with the kit's face.
+   * The identity gate's question (ADR 0056): is the face in the 1080×1920 composite the reference's person?
+   * Locate her face (Gemini's own box_2d format, then in stated pixels if that box is implausible or the
+   * crop shows no face), crop it with the hair, and compare the crop, not the frame, with the kit's face.
+   * A face shorter than `minFacePx` is not judged. Every locate attempt is returned for the record.
    */
-  async checkIdentity(composite: InlineImage, reference: InlineImage, model = AI_IDENTITY_MODEL): Promise<IdentityVerdict> {
-    const faceBox = await this.findFace(composite, model);
-    const faceHeightPx = faceHeightFromBox(faceBox);
-    const miss = unjudgeable(faceHeightPx);
-    if (miss) return miss;
-    const crop = await cropFacePng(Buffer.from(composite.bytesBase64Encoded, "base64"), faceCropRect(faceBox!, 1080, 1920));
-    const result = await this.generate(model, [{ text: IDENTITY_PROMPT }, inlinePart({ bytesBase64Encoded: crop.toString("base64"), mimeType: "image/png" }), inlinePart(reference)],
-      { responseMimeType: "application/json", responseSchema: IDENTITY_RESPONSE_SCHEMA, temperature: 0 });
-    const verdict = compareVerdictSchema.parse(jsonFromResponse(result));
-    return { ...verdict, faceHeightPx };
+  async checkIdentity(composite: InlineImage, reference: InlineImage, options: { minFacePx?: number } = {}, model = AI_IDENTITY_MODEL): Promise<IdentityVerdict> {
+    const size = { width: 1080, height: 1920 }, minimum = options.minFacePx ?? MIN_GATE_FACE_PX;
+    const bytes = Buffer.from(composite.bytesBase64Encoded, "base64");
+    const locate: LocateAttempt[] = [];
+    for (const mode of ["grid", "pixels"] as const) {
+      const located = await this.locateFace(composite, size, mode, model);
+      const attempt: LocateAttempt = { mode, box: located.box?.map(v => Math.round(v * 10) / 10) ?? null };
+      locate.push(attempt);
+      if (!located.box) { attempt.rejected = "no-face"; continue; }
+      if (!plausibleFace(located, size)) { attempt.rejected = "implausible-box"; continue; }
+      const rect = faceCropRect(located.box, size.width, size.height);
+      attempt.crop = { x: rect.x, y: rect.y, size: rect.size }; attempt.faceHeightPx = rect.faceHeightPx;
+      if (rect.faceHeightPx < minimum) return { samePerson: false, confidence: 0, faceHeightPx: rect.faceHeightPx, reason: "face-too-small", locate };
+      const crop = await cropFacePng(bytes, rect);
+      const result = await this.generate(model, [{ text: IDENTITY_PROMPT }, inlinePart({ bytesBase64Encoded: crop.toString("base64"), mimeType: "image/png" }), inlinePart(reference)],
+        { responseMimeType: "application/json", responseSchema: IDENTITY_RESPONSE_SCHEMA, temperature: 0 });
+      const verdict = compareVerdictSchema.parse(jsonFromResponse(result));
+      // A crop with no face means the box missed her, not that she is someone else: never score it as identity.
+      if (!verdict.faceVisible) { attempt.rejected = "face-not-in-crop"; continue; }
+      return { samePerson: verdict.samePerson, confidence: verdict.confidence, eyesAndMouthRendered: verdict.eyesAndMouthRendered, faceHeightPx: rect.faceHeightPx, locate };
+    }
+    return { samePerson: false, confidence: 0, faceHeightPx: null, reason: locate.some(attempt => attempt.box) ? "locate-failed" : "no-face", locate };
   }
 
-  /** Where the face is in a portrait, for the kit's face crop; null when there is no clear face. */
-  async findFace(image: InlineImage, model = AI_IDENTITY_MODEL): Promise<number[] | null> {
-    const result = await this.generate(model, [{ text: FIND_FACE_PROMPT }, inlinePart(image)],
-      { responseMimeType: "application/json", responseSchema: FIND_FACE_RESPONSE_SCHEMA, temperature: 0 });
-    return faceBoxSchema.parse(jsonFromResponse(result)).faceBox;
+  /** One locate call: on the 0–1000 grid, or in pixels of the stated size (read back onto the grid). */
+  async locateFace(image: InlineImage, size: { width: number; height: number }, mode: "grid" | "pixels", model = AI_IDENTITY_MODEL): Promise<Located> {
+    const result = await this.generate(model, [{ text: mode === "grid" ? FIND_FACE_PROMPT : findFacePixelsPrompt(size.width, size.height) }, inlinePart(image)],
+      { responseMimeType: "application/json", temperature: 0 });
+    return readLocate(jsonFromResponse(result), size);
+  }
+
+  /** Where the face is in a portrait, for the kit's face crop: a plausible box from either locate mode, or null. */
+  async findFace(image: InlineImage, size: { width: number; height: number }, model = AI_IDENTITY_MODEL): Promise<{ box: number[] | null; locate: LocateAttempt[] }> {
+    const locate: LocateAttempt[] = [];
+    for (const mode of ["grid", "pixels"] as const) {
+      const located = await this.locateFace(image, size, mode, model);
+      const ok = located.box !== null && plausibleFace(located, size);
+      locate.push({ mode, box: located.box, ...(ok ? {} : { rejected: located.box ? "implausible-box" as const : "no-face" as const }) });
+      if (ok) return { box: located.box, locate };
+    }
+    return { box: null, locate };
   }
 }

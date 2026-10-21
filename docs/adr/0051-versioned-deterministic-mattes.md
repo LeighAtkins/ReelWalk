@@ -42,7 +42,12 @@ is the bounded first milestone, plus the design of that end state.
   by feature detection (both Chromes support SIMD; a Chrome that does not
   fails instead of silently running another binary). A test hashes the
   installed package's files against the manifest, so a package bump cannot
-  land without updating it.
+  land without updating it. **The WASM is not hashed at load**, unlike the
+  models: MediaPipe fetches the loader script and the binary itself, so a
+  hash we computed on a separate fetch would not prove what it ran, and
+  handing it verified bytes means a blob URL the editor's CSP does not
+  allow. What pins it is the immutable npm version on jsdelivr plus the
+  test. Vendoring it into the worker image (below) closes this.
 - The editor reads everything from its own origin (CSP `script-src 'self'`)
   under versioned paths (`/mediapipe/1.1.1/wasm/…`,
   `/mediapipe/models/<sha256 prefix>/<file>`), which `next.config.ts`
@@ -61,7 +66,7 @@ is the bounded first milestone, plus the design of that end state.
   the pixels: the rule, the working size, every threshold, the tracker's
   settings, the runtime version and hashes, the model hashes. It cannot be
   forgotten when one of them changes, and a test pins its current value
-  (`matte-1-f860056dedacb91e`) so the change shows in review. The canvases
+  (`matte-1-5300b9f12f7822e5`) so the change shows in review. The canvases
   carry it as `data-matte-version`.
 
 ### 2. One rule for preview and export (`matte-core.ts`)
@@ -90,19 +95,65 @@ dropping the settle:
   prevent by running matte jobs one at a time and dropping superseded ones.
 - In the artifact pipeline the previous frame is free (sequential decode).
 
+**Exact pictures** (`matte-decode.ts`, review of PR #190). A matte key names
+a picture by its exact source time, so the decode must hold exactly that
+picture. The first version's seek accepted anything within half a
+*composition* frame; at 0.25× adjacent source frames are 8 ms apart, so the
+previous picture was labelled with the current frame's key and the alpha
+depended on render history. `seekTo` now resolves only when the element has
+confirmed a decoded picture at the requested time (or is already at that
+time with no seek in flight). The rule:
+
+- **Same picture = reported time within 3 ms of the target.** Browsers do
+  not read back the time set: Chrome keeps whole microseconds and truncates
+  (61/30 s reads back as 2.033332 s; the first smoke run with an exact
+  comparison timed out on exactly that), and WebKit may use a coarser
+  timescale, which we cannot test here. 3 ms covers a timescale as coarse
+  as 1/600 s and stays under half the 8.3 ms between the closest two
+  requests a clip can make (neighbouring frames at 0.25× and 30 fps). We did
+  not use `requestVideoFrameCallback`'s `mediaTime`: it fires on
+  presentation, which a detached, paused element does not reliably do.
+- **The target is clamped to the element's duration**, as the browser
+  clamps `currentTime`. Asset durations are stored rounded, so a clip's
+  last frame (and `framePlan`'s rounding) can ask for a time up to a frame
+  past the last picture; unclamped, that seek never "arrived" and killed
+  the matte after the timeout. The duration is re-read when the seek lands,
+  because it is unknown until the metadata loads.
+- **A timeout in the editor is retried, not latched.** `failureAction`
+  ignores superseded jobs, fails anything in an export, and in the editor
+  turns a seek timeout into a console warning so the next frame tries
+  again; other failures still show the preview warning.
+
+Every seek is bounded (15 s) and
+abortable; the views abort a superseded frame's seek on cleanup, and an
+element being emptied or aborted (a replaced decoder) fails any seek waiting
+on it. Each decoder has its own `SerialQueue`, so a replaced decoder never
+inherits a pending job, and a job that fails does not block the next.
+
 The proof is a pixel-hash test on a synthetic shot (a textured wall and a
 moving red blob, with a fake segmenter answering on a coarse grid like the
 real model): every frame's alpha hash is identical whether the frames are
 asked for in order, reversed, shuffled, repeated, each on a fresh page, or
 split across two pages; and the unsettled alpha differs, so the test would
-catch the old preview behaviour.
+catch the old preview behaviour. A second test drives the same rule through
+the real seek code (`personMatteFrame` + `seekTo`) on a fake video element
+whose picture moves continuously, at 0.25×, 0.5×, 1× and 2×: sequential,
+scrubbed and fresh-page alphas match. With the old half-frame tolerance
+swapped back in, that test fails at 0.25× and 0.5×.
 
 ### 3. Fail closed, everywhere
 
 `objectRaw` distinguishes three outcomes. `off-frame` (every tap has left
 the picture) is an empty matte, which is right. `no-mask` (a tap in the
 picture got nothing from the segmenter) cancels an export with the title,
-clip and frame named. In the editor both mattes now show the failure as a
+clip and frame named. An object matte's view is mounted for the whole clip
+the title overlaps, so it segments, and enforces, only while the title is
+on screen. `titleActive` uses the composition's own frame range for the
+title (`round(ms × fps / 1000)` for start and end, as `framePlan` does):
+comparing milliseconds turned the matte off on the title's first drawn
+frame whenever the start was not on a frame (a start of 67 ms is drawn
+from frame 2, at 66.67 ms). Before and after, its canvas is clear and its
+status says `inactive`. In the editor both mattes now show the failure as a
 red note on the preview (`MatteWarning`) as well as in the console, and the
 words stay over the subject.
 
@@ -121,15 +172,35 @@ frame: the model output copy (the one the brief allows), the
 
 ### 5. Taps follow the object (`point-track.ts`)
 
-Each tap's 21×21 neighbourhood on the pin's first frame (the frame the
-author tapped, `pin.fromMs`) is a template. On frame n it is searched by
-normalised cross correlation in a ±40 px window (working pixels) around
-where the wall homography carries the tap, coarse at 2 px then every pixel,
-then a parabola for sub-pixel. Below a correlation of 0.7, on a flat
-template, or at the frame edge, the tap falls back to the homography point.
-The canvas's `data-matte-status` says which (`ok; tracked 1/1`, or
-`ok; tracked 0/1; the rest follow the wall (tracker lost)`), and the
-console notes it when it changes.
+The editor lets the author tap on any frame and stores the tap in the
+pin's first-frame coordinates, taken back through the wall's motion. For an
+object that moves on its own, that stored point is not the object on the
+pin frame, so the pin frame cannot be the tracker's reference. Taps now
+record the pinned source time of the frame they were made on (`atMs`, an
+optional, additive field on `occluders`; the editor's `OccluderEditor` sets
+it from `tapSourceMs`). `tapReference` carries the stored point by the wall
+to that frame, which gives back where the finger was.
+
+`atMs` is the exact source time, not rounded: `tapSourceMs` takes the frame
+on screen from the composition's frame plan and the source time from
+`clipSourceSeconds`, the same function the mattes seek by. Rounding to whole
+ms named the frame before for a third of frames (frame k at 2033.33 ms
+stored as 2033). Both `tapSourceMs` and `tapReference` keep the time inside
+the pin's window, so a reference seek never asks past the file.
+
+That tap's 21×21 neighbourhood on its own frame is a template. On frame n
+it is searched by normalised cross correlation in a ±40 px window (working
+pixels) around where the wall homography carries the tap, coarse at 2 px
+then every pixel around the best, then a parabola for sub-pixel. If the
+coarse pass finds nothing above 0.7, every pixel in the window is tried
+before the tap is called lost (a fine texture's peak can sit between the
+coarse stride's samples). Below 0.7, on a flat template, or at the frame
+edge, the tap falls back to the homography point. **Taps saved before this
+change have no `atMs`**: no reference is invented for them, they ride the
+wall exactly as before. The canvas's `data-matte-status` says which
+(`ok; tracked 1/1`, `ok; tracked 0/1; the rest follow the wall (lost)`,
+`ok; taps ride the wall (no tap frame recorded)`), and the console notes
+it when it changes.
 
 It is a template match from the reference frame, not sequential
 Lucas–Kanade, on purpose: frame n's answer depends only on the reference
@@ -165,16 +236,17 @@ fixed, as before.
 
 ## Consequences
 
-- Same reel, same export: the person matte's arithmetic and settle are
-  unchanged and the models are the bytes `latest` served today. The object
-  matte asks the segmenter at the tracked point instead of the homography
-  point where the tracker locks on, so a tapped object that moves
-  independently of its wall now stays matted; on a static object the two
-  points coincide.
+- Same reel, same export, at 1× speed: the person matte's arithmetic and
+  settle are unchanged and the models are the bytes `latest` served today.
+  At other speeds the export now reads the exact source frame where it
+  could before take a neighbour, so slowed clips can differ slightly (the
+  old result depended on render history anyway). Saved taps have no
+  `atMs`, so saved object mattes ride the wall exactly as before; only
+  taps made from now on are tracked.
 - Exports fail on a tapped object the segmenter cannot find, where they
   used to drop the matte silently.
 - The editor does up to one more seek and segmentation per scrubbed frame.
-  The object matte seeks once per view to the pin frame for its template.
+  The object matte seeks once per view to each tap's frame for its template.
 - Determinism is proven for the rule, on a synthetic fixture. Pixel
   equality *between* the editor's Chrome and the render's headless Chrome
   is not: canvas scaling and the WebGL/CPU path inside MediaPipe can differ
@@ -186,15 +258,26 @@ fixed, as before.
 ## What was verified
 
 - `pnpm --filter @reelwalk/render test`: the new `matte-core`,
-  `matte-assets`, `point-track` and `matte-artifact` suites and the
-  existing `matte-refine` suite pass.
+  `matte-decode`, `matte-assets`, `point-track` and `matte-artifact` suites
+  and the existing `matte-refine` suite pass; `packages/core` has
+  `occluder.test.ts` for `atMs`, `tapSourceMs` and `tapReference`.
+- What the tests do not cover: the React views themselves (effects,
+  delayRender, the canvas composite), real `HTMLVideoElement` seeking, and
+  the editor's tap gesture. The fake video models duration clamping and a
+  coarse timescale, but not whole decoded frames, Chrome's exact
+  microsecond truncation, other browsers' real timescales, or hardware vs
+  software decode colour differences. So preview == export is proven for
+  the matte *logic*, not for real pixels; the acceptance harness (PR #193)
+  covers the export side. The views are exercised only by the smoke render
+  below, on the export path, not in the editor.
 - `pnpm check` (lint, typecheck, all tests) passes.
 - `pnpm --filter @reelwalk/render smoke` (the smoke reel now has a tapped
-  object on the pinned `OCEAN VIEWS` title): 15 checkpoint frames drew in
-  106 s and the short export produced a 4.91 s 1080×1920 MP4 with audio, in
-  the render's headless Chrome with the hash-checked models. The object
-  matte visibly cuts the title in the middle still of shot 2. Run on
-  Windows with a static ffmpeg on PATH (the host has none).
+  object with a recorded tap time on the pinned `OCEAN VIEWS` title): all
+  15 checkpoint frames drew and the short export produced a ~4.9 s
+  1080×1920 MP4 with audio, in the render's headless Chrome with the
+  hash-checked models. The object matte visibly cuts the title in the
+  middle still of shot 2. Run on Windows with a static ffmpeg on PATH (the
+  host has none).
 - The pinned model URLs and the `latest` URLs served identical bytes on
   2026-10-21 (sha256 above), and jsdelivr's 1.1.1 WASM files match the
   installed package's.
@@ -207,3 +290,11 @@ fixed, as before.
 - Forward–backward checking and template refresh in the point tracker; a
   real benchmark of tracked taps on footage with parallax.
 - A real presenter fixture in smoke.
+- Real-browser seek behaviour outside Chrome (Safari/iOS timescales) is
+  reasoned about, not tested.
+- When speed × source fps is below the composition's fps (a 30 fps source
+  at 0.5×), frames n and n − 1 can show the same source picture: the rule
+  segments it twice (two keys) and the settle is a no-op. Correct, just
+  wasted work; keying raw masks by decoded picture rather than requested
+  time would halve it, and the artifact pipeline (one mask per source
+  frame) removes it.

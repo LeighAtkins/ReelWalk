@@ -54,6 +54,7 @@ import { AlertIcon, CloseIcon, InstagramIcon, PlusIcon } from "../icons";
 import { InstagramSoundBrowser } from "../instagram-sound-picker";
 import { detectSurface, findMatchingCut, trackTextPathDetailed } from "./frame-analysis";
 import { planarShift } from "./title-metrics";
+import { crossingNow } from "./pass-crossing";
 import { Sheet } from "../sheet";
 
 // ── Shell ───────────────────────────────────────────────────────
@@ -714,13 +715,13 @@ const ELEGANT_CHIP: CSSProperties = { fontFamily: ELEGANT_FONT_FAMILY, fontWeigh
 
 export function TextSheet({
   initial,
-  playheadMs,
+  playheadNow,
   onSave,
   onClose,
 }: {
   initial: TextDraft | null;
-  /** The reel time on screen behind the sheet: "Use this frame" sets the crossing there (ADR 0055). */
-  playheadMs?: number;
+  /** Reads the reel time on screen behind the sheet when called: "Use this frame" sets the crossing there (ADR 0055). */
+  playheadNow?(): number;
   onSave(draft: TextDraft): void;
   onClose(): void;
 }) {
@@ -780,7 +781,7 @@ export function TextSheet({
         <div className="pass-row" role="group" aria-label="She passes in front">
           <span className="small">{draft.passMs === undefined ? "In front of the words the whole time" : <>She passes in front at <strong>▸ {formatDuration(draft.passMs, true)}</strong></>}</span>
           <div className="segmented">
-            <button type="button" disabled={playheadMs === undefined} onClick={() => playheadMs !== undefined && setDraft({ ...draft, passMs: Math.max(0, Math.round(playheadMs)) })}>Use this frame</button>
+            <button type="button" disabled={!playheadNow} onClick={() => playheadNow && setDraft({ ...draft, passMs: crossingNow(playheadNow) })}>Use this frame</button>
             {draft.passMs !== undefined ? <button type="button" className="pass-clear" aria-label="Clear the crossing: she is in front the whole time" onClick={() => setDraft({ ...draft, passMs: undefined, passFadeMs: undefined })}>×</button> : null}
           </div>
         </div>

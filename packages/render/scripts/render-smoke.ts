@@ -110,7 +110,10 @@ export function smokeTimeline(): Timeline {
       // Words behind a person (matte), extruded: the first clip, where the matte mounts at frame 0.
       { id: "w1", text: "WELCOME", startMs: 0, endMs: 2500, x: 0.5, y: 0.4, style: "headline", size: 1.4, animation: "pop", behind: true, depth: "extruded" },
       // A pinned title painted on the window over the reader's head, on real footage (ADR 0053): the attachment check follows it.
+      // The woodpile in front of her is tapped (ADR 0044), on the frame at 1 s, and tracked from there (ADR 0051); it is
+      // well clear of the window, so the acceptance checks still see every letter of the title.
       { id: "s2", text: "BY THE FIRE", startMs: 0, endMs: 2500, x: 0.66, y: 0.12, style: "headline", size: 1, animation: "none", blend: "surface", surface: window,
+        occluders: [{ x: 0.6, y: 0.85, atMs: 1000 }],
         pin: { assetId: "walk", fromMs: 0, toMs: 2500, quad: window }, path: [{ t: 0, x: 0, y: 0, s: 1, r: 0, q: window }, { t: 1, x: -0.02, y: 0.01, s: 1, r: 0, q: windowMoved }] },
       // A whole-shot planar pin that overlaps the next cut by a few frames (the React 300 case), painted on the surface, fading at the end.
       { id: "p1", text: "OCEAN VIEWS", startMs: 2500, endMs: 5000, x: 0.5, y: 0.38, style: "headline", size: 1.1, animation: "none", blend: "surface",

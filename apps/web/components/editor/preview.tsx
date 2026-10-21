@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { Player, type PlayerRef } from "@remotion/player";
 import { prefetch } from "remotion";
-import { applyHomography, homography, INSTAGRAM, minTextSize, oneLineWidth, pinnedProgress, PLANAR_MAX_WIDTH, planarFitAndShift, REEL_FORMAT, TEXT_SIZE_MAX, textsAt, textPositionAt, textQuadAt, type TextOverlay, type Timeline } from "@reelwalk/core";
+import { applyHomography, homography, INSTAGRAM, minTextSize, oneLineWidth, pinnedProgress, PLANAR_MAX_WIDTH, planarFitAndShift, REEL_FORMAT, TEXT_SIZE_MAX, textsAt, textPositionAt, textQuadAt, tapSourceMs, type TextOverlay, type Timeline } from "@reelwalk/core";
 import { ReelComposition, reelDurationInFrames, textTreatmentCss, type ReelAsset } from "@reelwalk/render/reel";
 import { PlayIcon } from "../icons";
 import { useClock, type Clock } from "./clock";
@@ -299,14 +299,14 @@ function CutoutEditor({ cutouts: stored, frame, onChange, view = IDENTITY_VIEW }
  * are stored in first-frame coordinates and shown where the plane carries
  * them. Drawing a shape by hand remains for what the segmenter cannot find.
  */
-function OccluderEditor({ text, frame, view, onOccluders, onCutouts, onBehind }: { text: TextOverlay; frame: RefObject<HTMLDivElement | null>; view: PlaneView; onOccluders(occluders: { x: number; y: number }[], gesture: string): void; onCutouts?(cutouts: number[][], gesture: string): void; onBehind?(behind: boolean): void }) {
+function OccluderEditor({ text, frame, view, atMs, onOccluders, onCutouts, onBehind }: { text: TextOverlay; frame: RefObject<HTMLDivElement | null>; view: PlaneView; /** The pinned source time on screen: where the tracker starts from (ADR 0051). */ atMs: number | null; onOccluders(occluders: NonNullable<TextOverlay["occluders"]>, gesture: string): void; onCutouts?(cutouts: number[][], gesture: string): void; onBehind?(behind: boolean): void }) {
   const [byHand, setByHand] = useState(false);
   const taps = text.occluders ?? [];
   const tap = (event: React.PointerEvent<HTMLDivElement>) => {
     if (!frame.current || event.button !== 0 || taps.length >= 4) return;
     const rect = frame.current.getBoundingClientRect();
     const [x, y] = view.from((event.clientX - rect.left) / rect.width, (event.clientY - rect.top) / rect.height);
-    onOccluders([...taps, { x: Number(x.toFixed(4)), y: Number(y.toFixed(4)) }], `occluder-add-${Date.now()}`);
+    onOccluders([...taps, { x: Number(x.toFixed(4)), y: Number(y.toFixed(4)), ...(atMs === null ? {} : { atMs }) }], `occluder-add-${Date.now()}`);
   };
   if (byHand && onCutouts) {
     return (<>
@@ -346,7 +346,7 @@ function PlacingOverlay({ clock, timeline, text, frame, tool, onSurface, onBars,
   if (tracked && textPositionAt(text, pinnedProgress(timeline, text, now)).opacity <= 0) return null;
   const view = planeView(text.pin?.quad, tracked);
   if (tool === "cutouts") {
-    if (onOccluders) return <OccluderEditor text={text} frame={frame} view={view} onOccluders={onOccluders} onCutouts={onCutouts} onBehind={onBehind} />;
+    if (onOccluders) return <OccluderEditor text={text} frame={frame} view={view} atMs={tapSourceMs(timeline, text, now)} onOccluders={onOccluders} onCutouts={onCutouts} onBehind={onBehind} />;
     return onCutouts ? <CutoutEditor cutouts={text.cutouts ?? []} frame={frame} onChange={onCutouts} view={view} /> : null;
   }
   return <SurfaceHandles large quad={text.surface!} bars={text.bars} frame={frame} onChange={onSurface} onBars={onBars} view={view} />;

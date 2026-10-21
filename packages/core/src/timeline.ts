@@ -168,7 +168,11 @@ export const textSchema = z
     bars: z.array(z.array(z.number().min(-0.5).max(1.5)).length(8)).max(8).optional(),
     /** Things in front of the surface (a plant, a chair back, a railing): polygons of 3–16 points (x, y pairs, frame fractions at the first frame) cut out of the title, moving with the plane (ADR 0044). */
     /** Things in front of the title, chosen with a tap: points (frame fractions at the first frame) the segmenter is asked about on every frame, carried by the plane (ADR 0044). */
-    occluders: z.array(z.object({ x: z.number().min(-0.5).max(1.5), y: z.number().min(-0.5).max(1.5) })).max(4).optional(),
+    occluders: z.array(z.object({
+      x: z.number().min(-0.5).max(1.5), y: z.number().min(-0.5).max(1.5),
+      /** The pinned asset's source time (ms, exact, not rounded) of the frame the tap was made on (ADR 0051); the tracker starts there. Absent on older taps, which ride the wall. */
+      atMs: z.number().min(0).optional(),
+    })).max(4).optional(),
     cutouts: z.array(z.array(z.number().min(-0.5).max(1.5)).min(6).max(32).refine((points) => points.length % 2 === 0, "x, y pairs")).max(12).optional(),
     /** Offsets from x/y across this overlay's lifetime, with optional scale and rotation (degrees): a drift, or a surface tracked through the shot (ADR 0039). */
     path: z.array(z.object({

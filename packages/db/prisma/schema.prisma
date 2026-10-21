@@ -734,3 +734,45 @@ model RenderOutput {
   sizeBytes   BigInt
   createdAt   DateTime  @default(now())
 }
+
+// "Popular now" (ADR 0058): a song scored from a playlist snapshot (Σ
+// ln(1 + followers) × position weight, plus the source's popularity), and the
+// Instagram sound it was matched to, if any. Global, not per workspace: the
+// popularity is public and business accounts share one library. Written only
+// by the worker's music-chart job; the editor reads matched rows and never
+// offers anything that is not one of them.
+model MusicCandidate {
+  id           String    @id @default(cuid())
+  // "isrc:<ISRC>" or "ta:<title>|<first artist>", normalised (titleArtistKey in @reelwalk/core).
+  key          String    @unique
+  isrc         String?
+  title        String
+  artist       String
+  score        Float
+  // Mood ids (MUSIC_MOODS in @reelwalk/core) of the searches whose playlists it is in.
+  moods        Json
+  // [{ id, name, followers, position }], biggest following first.
+  playlists    Json
+  // Where the snapshot came from ("chartmetric 2026-10-21", "hand-curated").
+  source       String
+  // The Instagram sound it matched: a recording ("track") or a creator's cover ("cover").
+  igAudioId    String?
+  igAudioType  String?
+  igTitle      String?
+  igArtist     String?
+  igDurationMs Int?
+  igMatch      String?
+  igConfidence Float?
+  // Rank in Instagram's trending list for its type when the job last ran, or null.
+  trendingRank Int?
+  // Tempo of the sound, copied from any analysed copy of it (MediaAsset.bpm).
+  bpm          Float?
+  // When the snapshot was taken, and when the Instagram match was last checked.
+  fetchedAt    DateTime
+  matchedAt    DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([igAudioId])
+  @@index([score])
+}

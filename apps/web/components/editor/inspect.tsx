@@ -251,7 +251,7 @@ export function InspectMode({ clock, timeline, assets, sources, frame, plane, ho
         {message ? <p className="inspect-note" role="status">{message}</p> : null}
         <div className="inspect-row">
           <button type="button" className="inspect-btn" aria-label="Previous frame" data-testid="inspect-prev" onClick={() => step(-1)}>◀</button>
-          <input type="range" className="inspect-scrub" aria-label="Scrub" data-testid="inspect-scrub" min={0} max={Math.max(0, totalMs - 1)} step={1000 / fps} value={Math.min(now, Math.max(0, totalMs - 1))} onChange={(event) => onSeek(Number(event.target.value))} />
+          <input type="range" className="inspect-scrub" aria-label="Scrub" data-testid="inspect-scrub" min={0} max={Math.max(0, totalMs - 1)} step="any" value={Math.min(now, Math.max(0, totalMs - 1))} onChange={(event) => onSeek(Number(event.target.value))} />
           <button type="button" className="inspect-btn" aria-label="Next frame" data-testid="inspect-next" onClick={() => step(1)}>▶</button>
         </div>
         <div className="inspect-row is-chips">

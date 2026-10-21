@@ -9,6 +9,7 @@
  */
 import { beatPeriodMs } from "./beats";
 import type { MotionSample } from "./motion";
+import { setTypeMotionCue, typeMotionCues } from "./kinetic";
 import { isGeneratedAssetId } from "./presenter";
 import { BEATS_PER_BAR, sectionAt } from "./song";
 import { clipRunEndMs, retimeTexts, textAttachment } from "./text-timing";
@@ -360,7 +361,9 @@ function fixedTitle(text: TextOverlay): boolean {
  *   path was tracked on. Titles over one clip keep their order and never land
  *   on the same moment; a move that would leave a title under 800 ms is not
  *   made. The hook and anything starting in the first 500 ms never move;
- * - a particle burst (`particles.burstMs`), inside the title's life.
+ * - a particle burst (`particles.burstMs`), inside the title's life;
+ * - the start of a title's shine or kinetic move (ADR 0061), inside the
+ *   title's life, never for the hook or an opening title.
  * The presenter's pass (`passMs`) is never moved: it is where she really
  * crosses the words. Nothing that is not set is added. The reel as it was
  * without a tempo.
@@ -409,6 +412,13 @@ export function putOnTheBeat(timeline: Timeline, sourceDurationsMs: Record<strin
         if (entrance !== null && entrance !== text.startMs && entrance > previous && entrance < following) {
           const endMs = Math.round(Math.min(entrance + length, entry.to));
           if (endMs - entrance >= Math.min(length, MIN_TEXT_MS)) next = { ...next, startMs: entrance, endMs };
+        }
+      }
+      // Its shine and kinetic move (ADR 0061) begin on a downbeat inside the title, with the same exclusions as the entrance.
+      if (!fixedTitle(text)) {
+        for (const cue of typeMotionCues(next)) {
+          const at = nearestWithin(cue.reelMs, Math.max(next.startMs, OPENING_MS), next.endMs);
+          if (at !== null && at !== cue.reelMs) next = setTypeMotionCue(next, cue.key, at);
         }
       }
       if (next.particles?.burstMs !== undefined && !next.id.startsWith("room-")) {

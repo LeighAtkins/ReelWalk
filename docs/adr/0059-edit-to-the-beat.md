@@ -124,6 +124,12 @@ Each to the nearest downbeat, never so far it changes what it belongs to:
   field (`particleField`) puffs out from its centre and brightens for
   900 ms after `burstMs`; without `burstMs` it is byte-for-byte what it was.
 
+A title's **shine and kinetic move** (ADR 0061) go the same way: each cue
+from `typeMotionCues` to the nearest downbeat inside the title
+(`setTypeMotionCue`, on a whole frame), with the entrance's exclusions (never
+the hook or a title on the opening 500 ms). The cues are relative to the
+title, so a title whose entrance moves keeps its motion with it.
+
 The presenter's pass (`passMs`) is **not** moved: it is tied to where she
 really crosses the words in the footage, and moving it even a beat drops
 the words behind her before she arrives. A whip never shortens a 360 photo
@@ -189,7 +195,7 @@ Known gaps:
 
 ## What was verified
 
-On Windows 10, branch rebased on main at 407c62e7:
+On Windows 10, branch rebased on main at 56531d38 (with #208 and #211):
 
 - `pnpm check` (eslint, every package's typecheck, every package's tests):
   passes. New tests: `packages/core/tests/song.test.ts` (a generated click
@@ -222,7 +228,8 @@ On Windows 10, branch rebased on main at 407c62e7:
   one measured, or measured clips alike); a later gesture plans from the
   recorded base (same cut at the same stop, the hero not churned by newer
   measurements, a trim resetting the base); the reel's overrun past its
-  song; a song with no bar at the drop's level has no sections.
+  song; a song with no bar at the drop's level has no sections; a title's
+  shine and count-up cues moved onto the bar and the hook's left alone.
   `apps/web/components/editor/document-store.test.ts` (a drag across four
   Energy stops is one history entry, equal to planning the last stop
   directly, cuts with a hero, and one undo restores the reel object as it

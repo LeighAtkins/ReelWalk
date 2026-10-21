@@ -12,6 +12,7 @@ import {
   planPace,
   pastSongEndMs,
   putOnTheBeat,
+  typeMotionCues,
   reelGrid,
   textAttachment,
   timelineDurationMs,
@@ -373,6 +374,21 @@ describe("review fixes (PR #212)", () => {
     const trimmed = applyCommand(hype, { type: "trimClip", clipId: "c0", window: { sourceStartMs: 4000, sourceEndMs: 5000 } }, ctxOf()).timeline;
     const after = applyCommand(trimmed, { type: "pace", energy: 1, clipEnergy }, ctxOf()).timeline;
     expect(after.music?.pace?.base.map((entry) => entry.id)).toEqual(trimmed.clips.map((clip) => clip.id));
+  });
+
+  it("puts a title's shine and kinetic move on the bar, but not the hook's (ADR 0061)", () => {
+    const timeline = parseTimeline({
+      ...reel({ onBeat: true }),
+      texts: [
+        // Over c2 (6–9 s), already on the 6 s bar: its shine at 7.7 s goes to the 8 s bar, its count-up at 6.15 s to 6 s.
+        { id: "price", text: "$1.2M", startMs: 6000, endMs: 9000, shine: { preset: "sweep", startMs: 1700 }, kinetic: { preset: "count" } },
+        { id: "hook", text: "Just listed", startMs: 300, endMs: 2800, shine: { preset: "sweep", startMs: 1300 } },
+      ],
+    });
+    const after = putOnTheBeat(timeline, durations);
+    const price = after.texts.find((text) => text.id === "price")!;
+    expect(typeMotionCues(price).map((cue) => cue.reelMs)).toEqual([8000, 6000]);
+    expect(after.texts.find((text) => text.id === "hook")).toEqual(timeline.texts[1]);
   });
 
   it("says how far a reel runs past its song", () => {

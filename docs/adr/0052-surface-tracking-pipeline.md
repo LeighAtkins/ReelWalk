@@ -83,18 +83,28 @@ then Track"; the UI that sends them is not part of this change.
 
 **What gets saved** (`smoothTrack` then `trackPath`, both pure, in core):
 
-- *Smoothing that cannot lie.* A centred 1-2-1 average over the corners,
-  two passes, only inside runs of measured frames (held and lost frames
-  break runs, run ends stay put). Each frame's corners may then sit at
-  most its own `uncertaintyPx` from the measurement, and anchors do not
-  move. A confident measurement of a real camera jolt stays a jolt (the
-  review's case: raw error 0.00007 px, unbounded smoothing 6.25 px with
-  confidence still 1; now under 0.2 px).
+- *Smoothing that smooths but cannot run away.* A centred 1-2-1 average
+  over the corners, two passes, only inside runs of measured frames (held
+  and lost frames break runs, run ends stay put). Each corner coordinate
+  may then sit at most max(5 × `uncertaintyPx`, the inlier tolerance)
+  from the measurement (1.08 px at the editor's 360 wide), and anchors do
+  not move. The floor is needed because `uncertaintyPx` underestimates
+  true corner error 4–8× on the benchmark (median 0.04–0.14 px against
+  0.35–0.6 px of real error): bounding by `uncertaintyPx` alone, as the
+  first fix did, left about 1 px of shimmer at 1080 on clean pans. With
+  the floor, a confident measurement of a real camera jolt is pulled at
+  most about 1.5 px (the review's [0,0,0,10,0,0,0] px case: unbounded
+  smoothing moved it 6.25 px with confidence still 1), while ordinary
+  shimmer is smoothed as well as by an unbounded smoother (table below).
+  Recalibrating `uncertaintyPx` itself against truth is a follow-up.
 - *Nothing stale is drawn.* Lost frames are saved with o = 0 and carry the
   corners of the nearest measured frame on their side of the gap (the last
-  one before the loss for the first half, the re-found one after), so the
-  fade out runs at the last measured corners and the fade in at the
-  re-found ones, each over one sample interval. Measured frames are
+  one before the loss for the first half, the re-found one after, and the
+  keyframe directly before a measured frame always takes that frame's
+  corners, so a one-frame gap between runs from two anchors does not
+  slide during the fade in), so the fade out runs at the last measured
+  corners and the fade in at the re-found ones, each over one sample
+  interval. Measured frames are
   opaque. (Previously lost frames kept the last quad and opacity rose
   before re-acquisition: frame 18 of the heavy-occluder run was drawn at
   60% with 12.69 px error.) Held frames inside a track take corners
@@ -124,6 +134,12 @@ the path (`confidence[]`) and summarised in `TrackQuality.confidence`,
 not stored in the timeline. `motion.ts` is unchanged: `planePoints` and
 `trackPlane` stay exported (the benchmark's legacy run uses them).
 
+**Preview** (W2's file; a two-spot change): check mode's surface outline
+and the placing screen's corner handles are hidden while the pinned
+title's interpolated opacity is 0, so a lost stretch is not outlined in
+green at gliding corners, and a corner drag cannot be mapped back through
+corners that were never measured.
+
 ## Benchmark
 
 `packages/core/tests/track-bench/`: synthetic sequences with known
@@ -150,30 +166,32 @@ presented as attached (legacy: grade "good", the only signal it had; new:
 per-keyframe confidence ≥ 0.5); wrong means mean corner error > 3 px at
 360 wide (≈ 9 output px); keyframes after the cut are wrong wherever they
 are; "shown wrong" counts drawn keyframes that are wrong, whatever was
-claimed.
+claimed; "jitter" is the frame-to-frame change of the corner error between
+consecutive drawn keyframes, averaged over corners and pairs (shimmer the
+surface does not have).
 
-| scenario | tracker | outcome | drawn | mean err px (opacity-weighted) | max err px | confident | false-confident | shown wrong |
-|---|---|---|---|---|---|---|---|---|
-| pan (parallax) | legacy | good | 29/29 | 0.42 | 0.60 | 29 | 0 | 0 |
-| pan (parallax) | new | tracked | 29/29 | 0.34 | 0.55 | 29 | 0 | 0 |
-| push-in | legacy | good | 29/29 | 0.66 | 0.92 | 29 | 0 | 0 |
-| push-in | new | tracked | 29/29 | 0.55 | 0.73 | 29 | 0 | 0 |
-| orbit (perspective) | legacy | good | 29/29 | 3.17 | 6.00 | 29 | 15 | 15 |
-| orbit (perspective) | new | tracked | 29/29 | 0.57 | 1.28 | 29 | 0 | 0 |
-| handheld | legacy | good | 29/29 | 0.64 | 1.09 | 29 | 0 | 0 |
-| handheld | new | tracked | 29/29 | 0.47 | 0.78 | 29 | 0 | 0 |
-| occluded pan | legacy | good | 29/29 | 0.61 | 1.06 | 29 | 0 | 0 |
-| occluded pan | new | tracked | 29/29 | 0.18 | 0.34 | 25 | 0 | 0 |
-| heavy occluder | legacy | good | 29/29 | 6.81 | 12.10 | 29 | 19 | 19 |
-| heavy occluder | new | lost @9, found again @19 | 19/29 | 0.44 | 0.68 | 19 | 0 | 0 |
-| cut mid-shot | legacy | good | 29/29 | 0.73 | 7.18 | 29 | 16 | 16 |
-| cut mid-shot | new | lost @15 (plane-lost) | 14/29 | 0.01 | 0.02 | 14 | 0 | 0 |
-| leaves frame | legacy | good | 29/29 | 0.30 | 0.55 | 29 | 0 | 0 |
-| leaves frame | new | tracked | 29/29 | 0.01 | 0.02 | 29 | 0 | 0 |
-| blank wall | legacy | good | 29/29 | 25.46 | 49.31 | 29 | 28 | 28 |
-| blank wall | new | refused: too-few-features @0 | 0/29 | – | – | 0 | 0 | 0 |
-| **all** | legacy | | | 1.67 (textured, mean of scenarios) | | 261/261 | **78/261 (29.9%)** | 78/261 |
-| **all** | new | | | 0.32 (textured, mean of scenarios) | | 203/261 | **0/261 (0.0%)** | 0/261 |
+| scenario | tracker | outcome | drawn | mean err px (opacity-weighted) | max err px | jitter px | confident | false-confident | shown wrong |
+|---|---|---|---|---|---|---|---|---|---|
+| pan (parallax) | legacy | good | 29/29 | 0.42 | 0.60 | 0.07 | 29 | 0 | 0 |
+| pan (parallax) | new | tracked | 29/29 | 0.30 | 0.43 | 0.06 | 29 | 0 | 0 |
+| push-in | legacy | good | 29/29 | 0.66 | 0.92 | 0.07 | 29 | 0 | 0 |
+| push-in | new | tracked | 29/29 | 0.54 | 0.73 | 0.08 | 29 | 0 | 0 |
+| orbit (perspective) | legacy | good | 29/29 | 3.17 | 6.00 | 0.21 | 29 | 15 | 15 |
+| orbit (perspective) | new | tracked | 29/29 | 0.51 | 1.05 | 0.21 | 29 | 0 | 0 |
+| handheld | legacy | good | 29/29 | 0.64 | 1.09 | 0.18 | 29 | 0 | 0 |
+| handheld | new | tracked | 29/29 | 0.52 | 1.04 | 0.18 | 29 | 0 | 0 |
+| occluded pan | legacy | good | 29/29 | 0.61 | 1.06 | 0.08 | 29 | 0 | 0 |
+| occluded pan | new | tracked | 29/29 | 0.17 | 0.34 | 0.03 | 25 | 0 | 0 |
+| heavy occluder | legacy | good | 29/29 | 6.81 | 12.10 | 0.46 | 29 | 19 | 19 |
+| heavy occluder | new | lost @9 (plane-lost), found again @19 | 19/29 | 0.42 | 0.59 | 0.12 | 19 | 0 | 0 |
+| cut mid-shot | legacy | good | 29/29 | 0.73 | 7.18 | 0.54 | 29 | 16 | 16 |
+| cut mid-shot | new | lost @15 (plane-lost) | 14/29 | 0.01 | 0.02 | 0.02 | 14 | 0 | 0 |
+| leaves frame | legacy | good | 29/29 | 0.30 | 0.55 | 0.03 | 29 | 0 | 0 |
+| leaves frame | new | tracked | 29/29 | 0.01 | 0.02 | 0.02 | 29 | 0 | 0 |
+| blank wall | legacy | good | 29/29 | 25.46 | 49.31 | 1.70 | 29 | 28 | 28 |
+| blank wall | new | refused: too-few-features @0 | 0/29 | – | – | – | 0 | 0 | 0 |
+| **all** | legacy | | | 1.67 (textured, mean of scenarios) | | | 261/261 | **78/261 (29.9%)** | 78/261 |
+| **all** | new | | | 0.31 (textured, mean of scenarios) | | | 203/261 | **0/261 (0.0%)** | 0/261 |
 
 Errors are px at 360 wide (× 3 for 1080 output px). Read honestly:
 
@@ -188,6 +206,15 @@ Errors are px at 360 wide (× 3 for 1080 output px). Read honestly:
   translations, which flatter any LK tracker.
 - The new tracker draws fewer keyframes (203 vs 261): it hides frames it
   cannot vouch for, which is the intended trade.
+- Jitter (frame-to-frame change of the corner error, px at 360 wide) of
+  the new tracker's saved path on the textured cases, measured outside
+  the committed tests on the same frames: pan 0.47 raw → 0.35 with the
+  first, uncertainty-only bound → 0.06 now (unbounded smoothing: 0.06);
+  push-in 0.19 → 0.08 → 0.07 (0.07); orbit 0.43 → 0.34 → 0.21 (0.21). The
+  bound does not bind on these clips, so the result equals unbounded
+  smoothing, and mean error falls with it. Handheld is the exception: its
+  shake is real motion, and any smoothing raises its jitter slightly
+  (0.15 raw → 0.18) and its error (0.45 → 0.50).
 - History, for honesty: the first version of this table scored raw
   tracker output and full-opacity frames only. A review found that the
   saved path could still be wrong (unbounded smoothing, stale corners
@@ -199,7 +226,9 @@ The full run (`TRACK_BENCH=1 pnpm --filter @reelwalk/core exec vitest run
 tests/track.benchmark.test.ts`, about two minutes) asserts these claims:
 nothing drawn on the blank wall, zero false-confident and zero shown-wrong
 keyframes, fewer false-confident keyframes and a lower mean error than
-legacy, mean error under 0.6 px. A 144 × 256, 16-frame version runs in
+legacy, mean error under 0.6 px, and saved-path jitter under 0.1 px for
+the pan and the push-in and under 0.3 px for the orbit (px at 360 wide).
+A 144 × 256, 16-frame version runs in
 `pnpm check` and asserts nothing drawn on the blank wall, no more false
 confidence than legacy (and under 5%), and sub-threshold error on the
 textured pans.
@@ -215,9 +244,9 @@ textured pans.
   re-acquisition it can come back in the same shot. The fade is now one
   sample interval (100 ms or more, depending on shot length) rather than
   a fixed 250 ms.
-- Smoothing is limited to each frame's uncertainty, so a track with large
-  uncertainty keeps more of its jitter than before; that jitter is what
-  the measurement supports.
+- Smoothing can move a confident frame by up to about 1.5 px (the
+  tolerance floor, per coordinate), so a sudden real motion a single
+  sample long is softened by that much; it can no longer be erased.
 - Memory: frames are held for the whole run instead of streamed. Derived
   from the code (a measurement in Node was inconclusive because forced GC
   does not release ArrayBuffers synchronously): 63 frames × 360 × 640
@@ -236,14 +265,28 @@ textured pans.
 - Object taps still inherit the wall's homography (ObjectMatte, out of
   scope here).
 
+## Follow-ups
+
+- **Confidence does not feed opacity.** A re-found frame, like any
+  measured frame, draws at o = 1 whatever its confidence; confidence is
+  only reported (per keyframe and in `TrackQuality`). A low-confidence
+  frame could fade or be flagged in check mode.
+- **No cancel, and a stale result can land.** A track cannot be
+  cancelled, and its result can overwrite corners edited while it was
+  computing (editor.tsx ~724–733, sheets.tsx ~839–848). W2's generation
+  token for placement changes is the fix; this PR does not touch it.
+- **Recalibrate `uncertaintyPx`** against benchmark truth so the
+  smoothing bound can come from it alone, rather than from a tolerance
+  floor.
+
 ## Verified
 
 - `pnpm check` (eslint, every package's typecheck, every package's tests):
-  exit 0; `@reelwalk/core` 43 files, 421 passed + 1 skipped (the full
+  exit 0; `@reelwalk/core` 43 files, 422 passed + 1 skipped (the full
   benchmark, env-gated). The fresh worktree first needed
   `pnpm --filter @reelwalk/db db:generate` for the Prisma client;
   unrelated to this change.
-- `packages/core/tests/track.test.ts`, 39 tests: pyramid (sizes, flat
+- `packages/core/tests/track.test.ts`, 40 tests: pyramid (sizes, flat
   stays flat, stops small), corner score (blank, edge, texture), support
   points (inside-with-margin under a perspective quad with texture all
   around, coverage > 0.9, none on a blank surface, deterministic), LK
@@ -261,11 +304,13 @@ textured pans.
   confident frame is right, all three rejection reasons with frames and
   messages, correction anchors (track both ways from frame k; a 3 px
   wrong start pulled onto the truth by a later anchor), smoothing (the
-  [0,0,0,10,0,0,0] px jolt regression stays under 0.2 px after smoothing;
-  anchors never move; held frames break runs; displacement bounded by
-  uncertainty), the saved path (lost frames o = 0 at the nearest measured
+  [0,0,0,10,0,0,0] px jolt regression stays under 1.6 px after the
+  editor's bounded smoothing, against more than 5 px unbounded; anchors
+  never move; held frames break runs; displacement bounded by
+  max(k × uncertainty, floor), and the floor smooths shimmer), the saved path (lost frames o = 0 at the nearest measured
   corners and the re-found frame opaque; held frames interpolated; a
-  250 ms pin sampled at 0/100/200 ms saves t = 0/0.4/0.8/1), async
+  250 ms pin sampled at 0/100/200 ms saves t = 0/0.4/0.8/1; a one-frame
+  gap between two anchors' runs takes the next measured corners), async
   tracking identical to sync with a yield per step, and identical JSON
   output for identical input.
 - `packages/core/tests/track-editor.test.ts`, 2 tests through
@@ -280,6 +325,8 @@ textured pans.
 - Responsiveness: a one-off Node timing of 61 frames at 360 × 640 (not a
   committed test): 1.5 s total either way, longest stretch between yields
   76 ms.
+- The preview change (hidden outline and handles at o = 0) is covered by
+  typecheck and lint only; no component test exists for it.
 - Not verified: the editor in a real browser (no Chrome in this run),
   real footage, phones, or the `corrections` path from the UI (no UI
   sends it yet).

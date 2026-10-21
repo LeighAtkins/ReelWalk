@@ -15,6 +15,11 @@ describe.runIf(process.env.TRACK_BENCH)("surface tracking benchmark (full)", () 
     expect(fresh.falseConfident).toBeLessThan(legacy.falseConfident);
     expect(fresh.meanErr!).toBeLessThan(0.6);
     expect(fresh.meanErr!).toBeLessThan(legacy.meanErr!);
+    // Frame-to-frame shimmer of the saved corners, px at 360 wide (× 3 for 1080): smoothing must actually smooth.
+    const jitter = (name: string) => rows.find((r) => r.scenario === name && r.tracker === "new")!.jitter!;
+    expect(jitter("pan (parallax)")).toBeLessThan(0.1);
+    expect(jitter("push-in")).toBeLessThan(0.1);
+    expect(jitter("orbit (perspective)")).toBeLessThan(0.3);
   }, 600_000);
 });
 

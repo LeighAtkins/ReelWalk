@@ -106,8 +106,19 @@ export async function runMusicChart(input: {
     return new Map<string, number>();
   });
   const lookedUp = new Set(toMatch.map((candidate) => candidate.key));
-  const rows: MusicCandidateWrite[] = scored.map(({ popularity: _popularity, ...candidate }) => {
-    const row: MusicCandidateWrite = { ...candidate, source: snapshot.source, fetchedAt: snapshot.fetchedAt };
+  const rows: MusicCandidateWrite[] = scored.map((candidate) => {
+    // The source's popularity is already in the score; it is not stored on its own.
+    const row: MusicCandidateWrite = {
+      key: candidate.key,
+      isrc: candidate.isrc,
+      title: candidate.title,
+      artist: candidate.artist,
+      score: candidate.score,
+      moods: candidate.moods,
+      playlists: candidate.playlists,
+      source: snapshot.source,
+      fetchedAt: snapshot.fetchedAt,
+    };
     if (!lookedUp.has(candidate.key)) return row;
     const found = matches.get(candidate.key);
     row.matchedAt = now;

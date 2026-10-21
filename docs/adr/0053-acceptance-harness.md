@@ -168,5 +168,12 @@ On Windows 10 with Remotion 4.0.534's Chrome Headless Shell, host ffmpeg
   missing reference, and the letter-region measure on a missing title.
 - The phone spec type-checks; it has **not run** locally: Docker
   Desktop's port forwarding on this machine accepted and closed every
-  published port (5432, 8080, 8081, 3000), so no stack was reachable. Its
-  first run is CI's e2e job.
+  published port (5432, 8080, 8081, 3000), so no stack was reachable. In
+  CI (run 39523508222) its first run found a real defect: on a 412×915
+  screen the corner-placing stage spans about x = 30–448, so the
+  right-hand corners sit 6 px from the edge and paint 30 px of their 44.
+  The layout is the editor's; the size check is kept as an expected
+  failure (`test.fail`) until it is fixed, and the loupe and clear-centre
+  checks, run as their own test, pass.
+- The smoke's acceptance passes on Linux in the worker image (CI, 156 s),
+  with the same controls caught as on Windows.

@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import {
   bestInstagramMatch,
   candidatesToMatch,
+  chartFreshSince,
+  isGraphRateLimit,
   emptyTimeline,
   formatFollowers,
   matchCandidates,
@@ -18,6 +20,7 @@ import {
   scorePlaylistSnapshot,
   similarity,
   trendingBonus,
+  variantWords,
   whyLine,
   type InstagramAudioTrack,
   type PopularSoundRow,
@@ -136,6 +139,16 @@ describe("dedupe", () => {
     expect(normaliseTitle("Wonderwall (Remastered)")).toBe("wonderwall");
     expect(normaliseTitle("Sunset Lover [Radio Edit]")).toBe("sunset lover");
     expect(normaliseTitle("Rock & Roll")).toBe("rock and roll");
+    expect(normaliseTitle("Yesterday - 2009 Remaster")).toBe("yesterday");
+    expect(normaliseTitle("Strobe (Original Mix)")).toBe("strobe");
+    expect(normaliseTitle("Dance The Night (From Barbie The Album)")).toBe("dance the night");
+    // Other recordings keep what makes them other.
+    expect(normaliseTitle("Flowers (Instrumental Version)")).toBe("flowers instrumental version");
+    expect(normaliseTitle("Die With A Smile (Sped Up Version)")).toBe("die with a smile sped up version");
+    expect(normaliseTitle("Someone Like You - Live at the Royal Albert Hall")).toBe("someone like you live at the royal albert hall");
+    expect(normaliseTitle("Strobe (Extended Mix)")).toBe("strobe extended mix");
+    expect(variantWords(normaliseTitle("Snooze (Slowed + Reverb)"))).toBe("reverb slowed");
+    expect(variantWords("live forever")).toBe("live");
     expect(normaliseArtist("The Weeknd, Daft Punk")).toBe("weeknd");
     expect(normaliseArtist("Calvin Harris feat. Rihanna")).toBe("calvin harris");
     expect(normaliseArtist("@rabanmusik")).toBe("rabanmusik");
@@ -154,7 +167,8 @@ describe("the Instagram matcher", () => {
     ["the same recording with a release suffix", sound({ title: "Nuvole Bianche - Remastered", artist: "Ludovico Einaudi, Orchestra" }), "track"],
     ["a one-letter typo", sound({ title: "Nuvole Bianchi", artist: "Ludovico Einaudi" }), "track"],
     ["a piano cover", sound({ type: "original_sound", title: "Nuvole Bianche piano cover", artist: "@david_spagarini" }), "cover"],
-    ["a cover naming the artist", sound({ type: "original_sound", title: "Ludovico Einaudi - Nuvole Bianche", artist: "@someone" }), "cover"],
+    ["a cover with its own credit", sound({ type: "original_sound", title: "Nuvole Bianche piano cover by David Spagarini", artist: "@david_spagarini" }), "cover"],
+    ["an acoustic version by a creator", sound({ type: "original_sound", title: "Nuvole Bianche acoustic version by me", artist: "@someone" }), "cover"],
     ["a cover of", sound({ type: "original_sound", title: "Piano cover of Nuvole Bianche", artist: "@someone" }), "cover"],
   ])("matches %s", (_name, candidateSound, kind) => {
     expect(matchInstagramSound(song, candidateSound)?.kind).toBe(kind);
@@ -167,8 +181,29 @@ describe("the Instagram matcher", () => {
     ["a longer title that contains it", sound({ title: "Nuvole Bianche Variations Medley", artist: "Ludovico Einaudi" })],
     ["a creator's sound with no cover word or artist", sound({ type: "original_sound", title: "Nuvole Bianche", artist: "@someone" })],
     ["original audio", sound({ type: "original_sound", title: "Original audio", artist: "@ludovicoeinaudi" })],
+    // An artist's name is not a cover word: this is usually a rip of the record.
+    ["a creator's sound naming the artist", sound({ type: "original_sound", title: "Ludovico Einaudi - Nuvole Bianche", artist: "@someone" })],
+    ["a sped-up piano cover", sound({ type: "original_sound", title: "Nuvole Bianche piano cover sped up", artist: "@someone" })],
+    ["a live recording", sound({ title: "Nuvole Bianche (Live)", artist: "Ludovico Einaudi" })],
   ])("rejects %s", (_name, candidateSound) => {
     expect(matchInstagramSound(song, candidateSound)).toBeNull();
+  });
+
+  it.each([
+    [{ title: "Die With A Smile", artist: "Lady Gaga" }, sound({ title: "Die With A Smile (Sped Up Version)", artist: "Lady Gaga, Bruno Mars" })],
+    [{ title: "Someone Like You", artist: "Adele" }, sound({ title: "Someone Like You - Live at the Royal Albert Hall", artist: "Adele" })],
+    [{ title: "Flowers", artist: "Miley Cyrus" }, sound({ title: "Flowers (Instrumental Version)", artist: "Miley Cyrus" })],
+    [{ title: "Shape of You", artist: "Ed Sheeran" }, sound({ type: "original_sound", title: "Shape of You Ed Sheeran", artist: "@ripper" })],
+    [{ title: "Espresso", artist: "Sabrina Carpenter" }, sound({ title: "Espresso (Slowed + Reverb)", artist: "Sabrina Carpenter" })],
+    [{ title: "Strobe", artist: "deadmau5" }, sound({ title: "Strobe (Extended Mix)", artist: "deadmau5" })],
+    [{ title: "Levels", artist: "Avicii" }, sound({ title: "Levels (Skrillex Remix)", artist: "Avicii" })],
+  ])("never calls another version the song: %o", (candidate, candidateSound) => {
+    expect(matchInstagramSound(candidate, candidateSound)).toBeNull();
+  });
+
+  it("still matches the same version on both sides", () => {
+    expect(matchInstagramSound({ title: "Levels (Skrillex Remix)", artist: "Avicii" }, sound({ title: "Levels - Skrillex Remix", artist: "Avicii" }))?.kind).toBe("track");
+    expect(matchInstagramSound({ title: "Yesterday", artist: "The Beatles" }, sound({ title: "Yesterday - Remastered 2009", artist: "The Beatles" }))?.kind).toBe("track");
   });
 
   it("is strict with near titles and one-word titles", () => {
@@ -177,6 +212,7 @@ describe("the Instagram matcher", () => {
     expect(matchInstagramSound({ title: "Experience", artist: "Ludovico Einaudi" }, sound({ type: "original_sound", title: "Experience piano", artist: "@rabanmusik" }))).toBeNull();
     expect(matchInstagramSound({ title: "Experience", artist: "Ludovico Einaudi" }, sound({ type: "original_sound", title: "Experience - Ludovico Einaudi (piano)", artist: "@rabanmusik" }))?.kind).toBe("cover");
     expect(matchInstagramSound({ title: "Stand By Me", artist: "Ben E. King" }, sound({ type: "original_sound", title: "Stand By Me piano version", artist: "@x" }))?.kind).toBe("cover");
+    expect(matchInstagramSound({ title: "Stand By Me", artist: "Ben E. King" }, sound({ type: "original_sound", title: "Stand By Me cover by raban", artist: "@rabanmusik" }))?.kind).toBe("cover");
   });
 
   it("matches on ISRC whatever the spelling", () => {
@@ -195,27 +231,69 @@ describe("the Instagram matcher", () => {
     expect(bestInstagramMatch(song, sounds.slice(0, 1))).toBeNull();
   });
 
-  it("searches music then creators' sounds, stops at a recording, and survives a failed search", async () => {
+  it("searches music then creators' sounds, stops at a recording, and keeps failed songs apart", async () => {
     const search = vi.fn(async (type: string, query: string) => {
       if (query.startsWith("Broken")) throw new Error("Graph said no");
+      if (type === "music" && query === "Half Broken") throw new Error("Graph hiccup");
+      if (type === "original_sound" && query === "Half Broken") return [sound({ id: "half", type: "original_sound", title: "Half Broken piano cover", artist: "@x" })];
       if (type === "music" && query.startsWith("Nuvole")) return [sound({ id: "rec", title: "Nuvole Bianche", artist: "Ludovico Einaudi" })];
       if (type === "original_sound" && query === "Sunset Lover") return [sound({ id: "cov", type: "original_sound", title: "Sunset Lover piano", artist: "@mr.purged" })];
       return [];
     });
-    const { matches, searches, failures } = await matchCandidates(
+    const { matches, checked, failed, searches, failures, stopped } = await matchCandidates(
       [
         { key: "a", isrc: null, ...song },
         { key: "b", isrc: null, title: "Sunset Lover", artist: "Petit Biscuit" },
         { key: "c", isrc: null, title: "Broken Song", artist: "Nobody" },
+        { key: "d", isrc: null, title: "Half Broken", artist: "Someone" },
+        { key: "e", isrc: null, title: "Nothing Here", artist: "Nobody" },
       ],
       search,
     );
     expect(matches.get("a")?.sound.id).toBe("rec");
     expect(matches.get("b")?.match.kind).toBe("cover");
-    expect(matches.has("c")).toBe(false);
-    expect(searches).toBe(5);
-    expect(failures).toBe(2);
+    // Both searches failed, or the recording search failed: no answer, so the stored match must stand.
+    expect([...failed].sort()).toEqual(["c", "d"]);
+    expect(matches.has("c") || matches.has("d")).toBe(false);
+    // Searched fully and found nothing: that is an answer.
+    expect([...checked].sort()).toEqual(["a", "b", "e"]);
+    expect(searches).toBe(9);
+    expect(failures).toBe(3);
+    expect(stopped).toBeNull();
     expect(search).toHaveBeenCalledWith("music", "Nuvole Bianche");
+  });
+});
+
+describe("rate limiting", () => {
+  it("recognises Graph's slow-down answers", () => {
+    expect(isGraphRateLimit({ status: 429, code: null })).toBe(true);
+    for (const code of [4, 17, 32, 613]) expect(isGraphRateLimit({ status: 400, code })).toBe(true);
+    expect(isGraphRateLimit({ status: 400, code: 100 })).toBe(false);
+    expect(isGraphRateLimit(new Error("network"))).toBe(false);
+    expect(isGraphRateLimit(null)).toBe(false);
+  });
+
+  it("stops the run at once and leaves later songs unchecked", async () => {
+    const limited = Object.assign(new Error("Application request limit reached"), { status: 400, code: 4 });
+    const search = vi.fn(async (_type: string, query: string) => {
+      if (query === "Second") throw limited;
+      return [];
+    });
+    const run = await matchCandidates(
+      ["First", "Second", "Third"].map((title) => ({ key: title, isrc: null, title, artist: "A" })),
+      search,
+      { stopOn: isGraphRateLimit },
+    );
+    expect(run.stopped).toBe("Application request limit reached");
+    expect([...run.checked]).toEqual(["First"]);
+    expect(run.failed.size).toBe(0);
+    expect(search).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe("chart age", () => {
+  it("offers snapshots up to 45 days old", () => {
+    expect(chartFreshSince(new Date("2026-10-21T00:00:00Z")).toISOString()).toBe("2026-09-06T00:00:00.000Z");
   });
 });
 

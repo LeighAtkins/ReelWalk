@@ -183,20 +183,44 @@ function tidy(text: string): string {
     .trim();
 }
 
-/** Words in brackets or after " - " that name a release of a song rather than another song. */
-const RELEASE_WORDS = /\b(feat|ft|featuring|with|remaster|remastered|radio edit|edit|single version|album version|version|original mix|extended mix|mono|stereo|live|from|soundtrack|ost)\b/;
+/**
+ * Words that, alone in brackets or after " - ", only name a release of the
+ * same recording: "(Remastered 2011)", "- 2011 Remaster", "(Radio Edit)",
+ * "(Original Mix)", "(Album Version)". Anything else there ("Sped Up
+ * Version", "Live at …", "Instrumental", "Kygo Remix", "Extended Mix") is a
+ * different recording and stays part of the title.
+ */
+const RELEASE_ONLY = new Set(["remaster", "remastered", "remastering", "digital", "digitally", "version", "mono", "stereo", "mix", "original", "radio", "edit", "single", "album", "the"]);
+/** A credit or a soundtrack note: "(feat. X)", "(with X)", "(From “Barbie”)". Same recording. */
+const CREDIT_START = /^\s*(feat|ft|featuring|with|from)\b/;
+
+function onlyNamesARelease(segment: string): boolean {
+  const words = tidy(segment).split(" ").filter(Boolean);
+  if (words.length === 0) return true;
+  if (CREDIT_START.test(tidy(segment))) return true;
+  return words.every((word) => RELEASE_ONLY.has(word) || /^(19|20)\d\d$/.test(word));
+}
 
 /**
  * A song title reduced to the song: lower case, no accents, without
- * "(feat. …)", "- Remastered 2011", "(Radio Edit)" and similar. A remix
- * keeps its name: it is a different recording.
+ * credits ("(feat. …)") and release notes ("- Remastered 2011", "(Radio
+ * Edit)"). Versions that are other recordings keep their words: sped up,
+ * slowed, live, instrumental, acoustic, remix, extended.
  */
 export function normaliseTitle(title: string): string {
   let text = fold(title);
-  text = text.replace(/[([{]([^)\]}]*)[)\]}]/g, (whole, inner: string) => (RELEASE_WORDS.test(inner) && !/\bremix\b/.test(inner) ? " " : whole));
-  text = text.replace(/\s[-–—]\s(.*)$/, (whole, rest: string) => (RELEASE_WORDS.test(rest) && !/\bremix\b/.test(rest) ? " " : whole));
+  text = text.replace(/[([{]([^)\]}]*)[)\]}]/g, (whole, inner: string) => (onlyNamesARelease(inner) ? " " : whole));
+  text = text.replace(/\s[-–—]\s(.*)$/, (whole, rest: string) => (onlyNamesARelease(rest) ? " " : whole));
   text = text.replace(/\s(feat|ft|featuring)\.?\s.*$/, " ");
   return tidy(text);
+}
+
+/** Words that make a recording a different version of a song. Two titles must have the same ones to match. */
+const VARIANT_WORDS = /\b(sped up|speed up|spedup|slowed|reverb|instrumental|live|remix|acoustic|karaoke|nightcore|extended|acapella|a cappella|demo|cover|version|edit|mix|8d|lofi|lo fi|tiktok)\b/g;
+
+/** The variant words in a normalised title, sorted: "slowed reverb" for "Song (Slowed + Reverb)". */
+export function variantWords(normalisedTitle: string): string {
+  return [...new Set(normalisedTitle.match(VARIANT_WORDS) ?? [])].sort().join(" ");
 }
 
 /** The first credited artist, folded: "Calvin Harris, Dua Lipa" and "Calvin Harris feat. X" are both "calvin harris". */
@@ -356,10 +380,17 @@ export function candidatesToMatch<T extends { key: string; score: number; moods:
  */
 export const MATCH_THRESHOLDS = { title: 0.92, artist: 0.85, coverTitle: 0.95 } as const;
 
-/** Words that mark a creator's sound as a cover of a song. */
-const COVER_MARKERS = /\b(piano|cover|covered|version|instrumental|acoustic|violin|cello|guitar|strings|orchestral|lofi|lo fi|remake|rendition)\b/;
+/**
+ * Words that say a creator's sound is a cover: "cover", an instrument
+ * ("piano"), "acoustic version by". An artist's name is never enough: a
+ * sound called "Shape of You Ed Sheeran" is usually a rip of the record,
+ * which Instagram mutes.
+ */
+const COVER_MARKERS = /\b(cover|covered|piano|violin|cello|guitar|strings|orchestral|rendition)\b|\b(acoustic|instrumental) (version )?by\b/;
 /** Words removed from a cover's title before comparing it with the song's. */
-const COVER_WORDS = /\b(piano|cover|covered|version|instrumental|acoustic|violin|cello|guitar|strings|orchestral|lofi|lo fi|remake|rendition|solo|tutorial|original audio|original sound)\b/g;
+const COVER_WORDS = /\b(piano|cover|covered|version|instrumental|acoustic|violin|cello|guitar|strings|orchestral|rendition|solo|tutorial)\b/g;
+/** In a cover's title, these still make it another version (a sped-up cover is not the song's tempo). */
+const COVER_VARIANT_WORDS = /\b(sped up|speed up|spedup|slowed|reverb|live|remix|karaoke|nightcore|extended|8d|tiktok)\b/;
 
 export type MatchKind = "track" | "cover";
 export type InstagramMatch = { kind: MatchKind; confidence: number };
@@ -369,8 +400,9 @@ export type MatchableSound = Pick<InstagramAudioTrack, "type" | "title" | "artis
  * Whether an Instagram sound is the candidate song: the same recording
  * ("track": music with the same title and first artist, or the same ISRC),
  * or a creator's cover of it ("cover": an original sound whose title is the
- * song's title plus a cover word such as "piano", or plus the song's
- * artist). Null when it is neither.
+ * song's title plus an explicit cover word such as "cover" or "piano").
+ * Different versions (sped up, live, instrumental, remix) never match the
+ * song. Null when it is neither.
  */
 export function matchInstagramSound(candidate: { title: string; artist: string; isrc?: string | null }, sound: MatchableSound): InstagramMatch | null {
   const isrc = normaliseIsrc(candidate.isrc);
@@ -381,7 +413,10 @@ export function matchInstagramSound(candidate: { title: string; artist: string; 
   if (!songTitle) return null;
 
   if (sound.type === "music") {
-    const title = similarity(songTitle, normaliseTitle(sound.title));
+    const soundTitle = normaliseTitle(sound.title);
+    // "Flowers (Instrumental Version)" is not "Flowers", however alike the letters.
+    if (variantWords(songTitle) !== variantWords(soundTitle)) return null;
+    const title = similarity(songTitle, soundTitle);
     const artist = similarity(songArtist, normaliseArtist(sound.artist));
     if (title >= MATCH_THRESHOLDS.title && artist >= MATCH_THRESHOLDS.artist) return { kind: "track", confidence: round(Math.min(title, artist)) };
     return null;
@@ -390,13 +425,14 @@ export function matchInstagramSound(candidate: { title: string; artist: string; 
   // An original sound: a creator's recording, credited to the creator. Only a cover of the song can match.
   const raw = tidy(fold(sound.title));
   if (!raw || raw === "original audio" || raw === "original sound") return null;
-  const hasMarker = COVER_MARKERS.test(raw);
+  if (!COVER_MARKERS.test(raw)) return null;
+  if (COVER_VARIANT_WORDS.test(raw) && !COVER_VARIANT_WORDS.test(songTitle)) return null;
   const fullArtist = tidy(fold(candidate.artist));
   const namesArtist = songArtist.length >= 3 && (` ${raw} `.includes(` ${songArtist} `) || (fullArtist.length >= 3 && ` ${raw} `.includes(` ${fullArtist} `)));
-  if (!hasMarker && !namesArtist) return null;
   // A one-word title ("Home", "Experience") is too common to trust without the artist's name as well.
   if (!songTitle.includes(" ") && !namesArtist) return null;
-  let rest = normaliseTitle(sound.title);
+  // "… piano cover by Raban": the cover's own credit goes, "Stand By Me" keeps its "by".
+  let rest = normaliseTitle(sound.title).replace(/\b(cover|covered|version|rendition)\s+by\b.*$/, "$1");
   for (const name of [fullArtist, songArtist]) if (name.length >= 3) rest = ` ${rest} `.replace(` ${name} `, " ");
   // "Piano cover of Stand By Me", "Stand By Me piano version by": the joining word is left dangling at an end.
   rest = rest.replace(COVER_WORDS, " ").replace(/\s+/g, " ").trim().replace(/^(of|by)\s+/, "").replace(/\s+(of|by)$/, "");
@@ -432,37 +468,71 @@ function better(a: FoundMatch, b: FoundMatch): boolean {
 
 export type AudioSearch = (type: InstagramAudioType, query: string) => Promise<InstagramAudioTrack[]>;
 
+export type MatchRun = {
+  matches: Map<string, FoundMatch>;
+  /** Candidates whose every search answered: their result (a match, or none) is the truth now. */
+  checked: Set<string>;
+  /** Candidates with a search that failed: their stored match must be kept, not cleared. */
+  failed: Set<string>;
+  searches: number;
+  failures: number;
+  /** Why the run stopped early (`stopOn` said so), or null when it went through. */
+  stopped: string | null;
+};
+
 /**
  * Looks each candidate up in Instagram's library (music, then creators'
  * sounds for a cover) with `search`, which the caller supplies and paces.
- * A failed search is counted and skipped, never fatal.
+ * A candidate is "checked" only when every search it needed answered; one
+ * failed search puts it in `failed` with no result, so a hiccup never
+ * clears a stored match. An error `stopOn` recognises (rate limiting) ends
+ * the run at once; candidates after it are neither checked nor failed.
  */
 export async function matchCandidates<T extends { key: string; title: string; artist: string; isrc: string | null }>(
   candidates: T[],
   search: AudioSearch,
-): Promise<{ matches: Map<string, FoundMatch>; searches: number; failures: number }> {
-  const matches = new Map<string, FoundMatch>();
-  let searches = 0;
-  let failures = 0;
+  options: { stopOn?: (error: unknown) => boolean } = {},
+): Promise<MatchRun> {
+  const run: MatchRun = { matches: new Map(), checked: new Set(), failed: new Set(), searches: 0, failures: 0, stopped: null };
   for (const candidate of candidates) {
+    let best: FoundMatch | null = null;
+    let failed = false;
     for (const type of ["music", "original_sound"] as const) {
       // The title alone: Instagram's search matches titles, and the matcher checks the artist itself.
-      searches++;
+      run.searches++;
       let sounds: InstagramAudioTrack[];
       try {
         sounds = await search(type, candidate.title.slice(0, 100));
-      } catch {
-        failures++;
+      } catch (error) {
+        run.failures++;
+        if (options.stopOn?.(error)) {
+          run.stopped = error instanceof Error ? error.message : String(error);
+          return run;
+        }
+        failed = true;
         continue;
       }
       const found = bestInstagramMatch(candidate, sounds);
-      const known = matches.get(candidate.key);
-      if (found && (!known || better(found, known))) matches.set(candidate.key, found);
+      if (found && (!best || better(found, best))) best = found;
       // A recording beats any cover: no need to look for one.
-      if (found?.match.kind === "track") break;
+      if (best?.match.kind === "track") break;
     }
+    // A recording found is certain; anything less after a failed search might have missed one.
+    if (failed && best?.match.kind !== "track") {
+      run.failed.add(candidate.key);
+      continue;
+    }
+    run.checked.add(candidate.key);
+    if (best) run.matches.set(candidate.key, best);
   }
-  return { matches, searches, failures };
+  return run;
+}
+
+/** A Graph API answer that means "slow down": HTTP 429 or the rate-limit codes 4, 17, 32 and 613. */
+export function isGraphRateLimit(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const { status, code } = error as { status?: unknown; code?: unknown };
+  return status === 429 || (typeof code === "number" && [4, 17, 32, 613].includes(code));
 }
 
 // ── Picking for a reel ──────────────────────────────────────────
@@ -560,6 +630,14 @@ export function pickPopularSounds(rows: PopularSoundRow[], input: { moods: Music
     });
   }
   return picks;
+}
+
+/** Chart rows from a snapshot older than this are never offered: a stale chart is not "popular now". */
+export const CHART_MAX_AGE_DAYS = 45;
+
+/** The oldest snapshot time still offered at `now`. */
+export function chartFreshSince(now: Date): Date {
+  return new Date(now.getTime() - CHART_MAX_AGE_DAYS * 24 * 60 * 60 * 1000);
 }
 
 /** A MusicCandidate row as stored (moods and playlists are JSON): a row for the picks, or null when it has no usable match. */

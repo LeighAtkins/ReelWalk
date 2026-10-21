@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { IDENTITY_MIN_CONFIDENCE, faceCropArguments, faceCropRect, identityDecision, readIdentityVerdict } from "../src/identity";
+import { IDENTITY_MIN_CONFIDENCE, MIN_GATE_FACE_PX, faceCropArguments, faceCropRect, faceHeightFromBox, identityDecision, unjudgeable } from "../src/identity";
 
 describe("identity gate decision table (ADR 0056)", () => {
   const verdict = (samePerson: boolean, confidence: number) => ({ samePerson, confidence, faceHeightPx: 200 });
@@ -13,14 +13,27 @@ describe("identity gate decision table (ADR 0056)", () => {
     [2, verdict(true, 0.4), "reject"],
     [2, verdict(false, 0.8), "reject"],
     [2, null, "reject"],
+    // Review: a confident "same person" with no measured face, or a face too small to judge, is never a pass.
+    [1, { samePerson: true, confidence: 0.99, faceHeightPx: null }, "recompose"],
+    [2, { samePerson: true, confidence: 0.99, faceHeightPx: null }, "reject"],
+    [2, { samePerson: true, confidence: 0.99, faceHeightPx: MIN_GATE_FACE_PX - 1 }, "reject"],
+    [1, { samePerson: true, confidence: 0.9, faceHeightPx: MIN_GATE_FACE_PX }, "pass"],
   ] as const)("attempt %i with %o is %s", (attempt, input, expected) => {
     expect(identityDecision(attempt, input)).toBe(expected);
   });
 
-  it("measures the face height from the box, not the model's own pixel count", () => {
-    expect(readIdentityVerdict({ samePerson: true, confidence: 0.8, faceHeightPx: 999, faceBox: [300, 400, 400, 500] })).toEqual({ samePerson: true, confidence: 0.8, faceHeightPx: 192 });
-    expect(readIdentityVerdict({ samePerson: false, confidence: 0.2, faceHeightPx: 61.6, faceBox: null })).toEqual({ samePerson: false, confidence: 0.2, faceHeightPx: 62 });
-    expect(() => readIdentityVerdict({ samePerson: "yes", confidence: 2 })).toThrow();
+  it("measures the face from a valid, non-empty box only", () => {
+    expect(faceHeightFromBox([300, 400, 400, 500])).toBe(192);
+    expect(faceHeightFromBox(null)).toBeNull();
+    expect(faceHeightFromBox([300, 400, 300, 500])).toBeNull(); // zero height
+    expect(faceHeightFromBox([300, 400, 400, 400])).toBeNull(); // zero width
+    expect(faceHeightFromBox([400, 400, 300, 500])).toBeNull(); // inverted
+    expect(faceHeightFromBox([300, 400, 400])).toBeNull();
+  });
+  it("calls a missing or tiny face a miss before any comparison", () => {
+    expect(unjudgeable(null)).toEqual({ samePerson: false, confidence: 0, faceHeightPx: null, reason: "no-face" });
+    expect(unjudgeable(65)).toEqual({ samePerson: false, confidence: 0, faceHeightPx: 65, reason: "face-too-small" });
+    expect(unjudgeable(MIN_GATE_FACE_PX)).toBeNull();
   });
 });
 

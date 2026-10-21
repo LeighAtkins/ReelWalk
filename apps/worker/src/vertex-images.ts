@@ -5,7 +5,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { framingInstruction, type PresenterFraming } from "@reelwalk/core";
 import { VertexError, vertexAuth, type AwsCredentials } from "./vertex-video";
-import { FIND_FACE_PROMPT, FIND_FACE_RESPONSE_SCHEMA, IDENTITY_PROMPT, IDENTITY_RESPONSE_SCHEMA, faceBoxSchema, readIdentityVerdict, type IdentityVerdict } from "./identity";
+import { FIND_FACE_PROMPT, FIND_FACE_RESPONSE_SCHEMA, IDENTITY_PROMPT, IDENTITY_RESPONSE_SCHEMA, compareVerdictSchema, cropFacePng, faceBoxSchema, faceCropRect, faceHeightFromBox, unjudgeable, type IdentityVerdict } from "./identity";
 
 const run = promisify(execFile);
 
@@ -137,11 +137,22 @@ export class VertexImages {
     return { bytesBase64Encoded: jpeg.toString("base64"), mimeType: "image/jpeg" };
   }
 
-  /** The identity gate's question (ADR 0056): is the face in the composite the reference's person? */
+  /**
+   * The identity gate's question (ADR 0056): is the face in the composite the reference's person?
+   * First find her face in the 1080×1920 composite; with no usable box, or a face under
+   * MIN_GATE_FACE_PX, there is nothing to judge and the answer is a miss. Otherwise the
+   * face is cropped (with the hair) and the crop, not the whole frame, is compared with the kit's face.
+   */
   async checkIdentity(composite: InlineImage, reference: InlineImage, model = AI_IDENTITY_MODEL): Promise<IdentityVerdict> {
-    const result = await this.generate(model, [{ text: IDENTITY_PROMPT }, inlinePart(composite), inlinePart(reference)],
+    const faceBox = await this.findFace(composite, model);
+    const faceHeightPx = faceHeightFromBox(faceBox);
+    const miss = unjudgeable(faceHeightPx);
+    if (miss) return miss;
+    const crop = await cropFacePng(Buffer.from(composite.bytesBase64Encoded, "base64"), faceCropRect(faceBox!, 1080, 1920));
+    const result = await this.generate(model, [{ text: IDENTITY_PROMPT }, inlinePart({ bytesBase64Encoded: crop.toString("base64"), mimeType: "image/png" }), inlinePart(reference)],
       { responseMimeType: "application/json", responseSchema: IDENTITY_RESPONSE_SCHEMA, temperature: 0 });
-    return readIdentityVerdict(jsonFromResponse(result));
+    const verdict = compareVerdictSchema.parse(jsonFromResponse(result));
+    return { ...verdict, faceHeightPx };
   }
 
   /** Where the face is in a portrait, for the kit's face crop; null when there is no clear face. */

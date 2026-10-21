@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+const { execute } = vi.hoisted(() => ({ execute: vi.fn() }));
+vi.mock("node:util", () => ({ promisify: () => execute }));
 vi.mock("google-auth-library", () => ({
   GoogleAuth: class { async getAccessToken() { return "test-token"; } },
   AwsClient: class { async getAccessToken() { return { token: "federated-token" }; } },
@@ -51,16 +53,35 @@ describe("presenter kit compose (ADR 0056)", () => {
     expect(jsonFromResponse(answer('```json\n{"faceBox":null}\n```'))).toEqual({ faceBox: null });
     expect(() => jsonFromResponse({})).toThrow("no answer");
   });
-  it("asks a text model whether the composite is her, with the composite first and the kit's face second", async () => {
-    const fetcher = vi.fn().mockResolvedValue(Response.json({ candidates: [{ content: { parts: [{ text: JSON.stringify({ samePerson: true, confidence: 0.77, faceHeightPx: 50, faceBox: [200, 400, 300, 500] }) }] } }] }));
+  const answer = (value: unknown) => Response.json({ candidates: [{ content: { parts: [{ text: JSON.stringify(value) }] } }] });
+  const composite = { bytesBase64Encoded: Buffer.from("composite").toString("base64"), mimeType: "image/jpeg" };
+  it("finds her face in the composite, crops it, and compares the crop (not the frame) with the kit's face", async () => {
+    execute.mockResolvedValue({ stdout: Buffer.concat([Buffer.from([0x89, 0x50]), Buffer.alloc(200)]) });
+    const fetcher = vi.fn().mockResolvedValueOnce(answer({ faceBox: [200, 400, 300, 500] })).mockResolvedValueOnce(answer({ samePerson: true, confidence: 0.77 }));
     vi.stubGlobal("fetch", fetcher);
-    const verdict = await new VertexImages("test-project").checkIdentity({ bytesBase64Encoded: "composite", mimeType: "image/jpeg" }, face);
+    const verdict = await new VertexImages("test-project").checkIdentity(composite, face);
     expect(verdict).toEqual({ samePerson: true, confidence: 0.77, faceHeightPx: 192 });
-    const [url, init] = fetcher.mock.calls[0]!;
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    const [url, init] = fetcher.mock.calls[1]!;
     expect(url).toContain("gemini-2.5-flash:generateContent");
     const payload = JSON.parse(init.body);
     expect(payload.generationConfig).toMatchObject({ responseMimeType: "application/json", temperature: 0 });
-    expect(payload.contents[0].parts.slice(1).map((part: { inlineData: { data: string } }) => part.inlineData.data)).toEqual(["composite", "face"]);
+    const images = payload.contents[0].parts.slice(1).map((part: { inlineData: { data: string; mimeType: string } }) => part.inlineData);
+    expect(images[0].mimeType).toBe("image/png"); expect(images[0].data).not.toBe(composite.bytesBase64Encoded);
+    expect(images[1].data).toBe("face");
+    // The crop is the face square from the 1080×1920 composite, at 768×768.
+    expect(execute.mock.calls[0][1].join(" ")).toMatch(/crop=\d+:\d+:\d+:\d+,scale=768:768/);
+  });
+  it.each([
+    ["no face", { faceBox: null }, { faceHeightPx: null, reason: "no-face" }],
+    ["a zero-area box", { faceBox: [300, 400, 300, 500] }, { faceHeightPx: null, reason: "no-face" }],
+    ["a face too small to judge", { faceBox: [300, 400, 330, 420] }, { faceHeightPx: 58, reason: "face-too-small" }],
+  ])("never compares, and never passes, with %s", async (_label, found, expected) => {
+    const fetcher = vi.fn().mockResolvedValueOnce(answer(found)).mockResolvedValueOnce(answer({ samePerson: true, confidence: 0.99 }));
+    vi.stubGlobal("fetch", fetcher);
+    const verdict = await new VertexImages("test-project").checkIdentity(composite, face);
+    expect(verdict).toEqual({ samePerson: false, confidence: 0, ...expected });
+    expect(fetcher).toHaveBeenCalledTimes(1);
   });
   it("finds the face box in a portrait, or null", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ candidates: [{ content: { parts: [{ text: '{"faceBox":null}' }] } }] })));

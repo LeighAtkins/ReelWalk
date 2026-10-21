@@ -131,16 +131,42 @@ describe("AI shot worker", () => {
     expect(fail).not.toHaveBeenCalled();
     expect(unresolved()).toEqual([expect.objectContaining({ data: { status: "UNRESOLVED", error: UNRESOLVED_MESSAGE, operationName: "operation-one" } })]);
   });
-  it("a speaking take is composed closer and held to a 220 px face", async () => {
+  it("a speaking take is composed closer and held to the 165 px speaking floor", async () => {
     claim.mockResolvedValue({ ...job, shot: { mode: "custom", first: { assetId: "real-a", atMs: 0 }, line: "Welcome home.", voice: "veo", compose: { presenterId: "kit", first: "Beside the island bench, waist above it." } } });
     frames.mockResolvedValueOnce(kit);
     compose.mockResolvedValue({ bytesBase64Encoded: "composed", mimeType: "image/jpeg" });
     identity.mockResolvedValueOnce({ samePerson: true, confidence: 0.95, faceHeightPx: 160, eyesAndMouthRendered: true });
     await processAiVideo(s3, "media");
-    expect(identity.mock.calls[0][2]).toEqual({ minFacePx: 220 });
-    expect(compose.mock.calls[0][5]).toEqual({ framing: "medium", stronger: false, closer: true });
-    // 160 px passed for a silent take; for a speaking one it is recomposed.
+    expect(identity.mock.calls[0][2]).toEqual({ minFacePx: 165 });
+    expect(compose.mock.calls[0][5]).toEqual({ framing: "medium", stronger: false, closer: 1 });
+    // 160 px would pass a silent take; a speaking one is recomposed.
     expect(compose).toHaveBeenCalledTimes(2);
+    compose.mockReset();
+  });
+  it.each([
+    ["the locate never lands", { samePerson: false, confidence: 0, faceHeightPx: null, reason: "locate-failed" }, "We couldn't find her face clearly in the start frame"],
+    ["her face is too small to speak", { samePerson: false, confidence: 0, faceHeightPx: 140, reason: "face-too-small" }, "Her face was too small to speak on camera (140 px; needs 165)"],
+    ["her eyes or mouth are missing", { samePerson: true, confidence: 0.97, faceHeightPx: 200, eyesAndMouthRendered: false }, "Her eyes or mouth weren't clearly drawn in the start frame"],
+    ["it is someone else", { samePerson: false, confidence: 0.12, faceHeightPx: 200, eyesAndMouthRendered: true }, "It didn't look like her (score 0.12)"],
+  ])("the refund says why when %s", async (_label, verdict, message) => {
+    claim.mockResolvedValue({ ...job, shot: { mode: "custom", first: { assetId: "real-a", atMs: 0 }, line: "Welcome home.", voice: "lipsync", compose: { presenterId: "kit", first: "Beside the island bench, waist above it." } } });
+    frames.mockResolvedValueOnce(kit);
+    compose.mockResolvedValue({ bytesBase64Encoded: "composed", mimeType: "image/jpeg" });
+    identity.mockResolvedValue(verdict);
+    await processAiVideo(s3, "media");
+    expect(fail).toHaveBeenCalledWith(db, "one", expect.stringContaining(message), true, expect.objectContaining({ failureCode: "identity_rejected" }));
+    expect(fail.mock.calls[0][2]).not.toContain("did not match");
+    compose.mockReset(); identity.mockReset();
+  });
+  it("a shouted Veo line over a wide or action shot keeps its framing and the silent floor", async () => {
+    claim.mockResolvedValue({ ...job, shot: { mode: "custom", first: { assetId: "real-a", atMs: 0 }, line: "Here we go!", voice: "veo", compose: { presenterId: "kit", first: "Wide: mid-action, leaping from the deck into the pool." } } });
+    frames.mockResolvedValueOnce([{ ...kit[0], compose: "Wide: mid-action, leaping from the deck into the pool.", framing: "wide" }, kit[1], kit[2]]);
+    compose.mockResolvedValue({ bytesBase64Encoded: "composed", mimeType: "image/jpeg" });
+    identity.mockResolvedValueOnce({ samePerson: true, confidence: 0.9, faceHeightPx: 130, eyesAndMouthRendered: true });
+    await processAiVideo(s3, "media");
+    expect(compose.mock.calls[0][5]).toEqual({ framing: "wide", stronger: false });
+    expect(identity.mock.calls[0][2]).toEqual({ minFacePx: 120 });
+    expect(submit).toHaveBeenCalledTimes(1);
     compose.mockReset();
   });
   it("a confident match whose eyes or mouth are not rendered is recomposed, then refused (cmvi0jk8h)", async () => {
@@ -159,7 +185,7 @@ describe("AI shot worker", () => {
     identity.mockResolvedValueOnce({ samePerson: false, confidence: 0, faceHeightPx: 58, reason: "face-too-small" }).mockResolvedValueOnce({ samePerson: true, confidence: 0.8, faceHeightPx: 240, eyesAndMouthRendered: true });
     await processAiVideo(s3, "media");
     expect(compose.mock.calls[0][5]).toEqual({ framing: "wide", stronger: false });
-    expect(compose.mock.calls[1][5]).toEqual({ framing: "medium", stronger: true, closer: true });
+    expect(compose.mock.calls[1][5]).toEqual({ framing: "medium", stronger: true, closer: 2 });
     expect(submit).toHaveBeenCalledTimes(1);
     compose.mockReset();
   });
@@ -212,7 +238,7 @@ describe("AI shot worker", () => {
     identity.mockResolvedValueOnce({ samePerson: true, confidence: 0.4, faceHeightPx: 70 }).mockResolvedValueOnce({ samePerson: false, confidence: 0.55, faceHeightPx: 80 });
     await processAiVideo(s3, "media");
     expect(submit).not.toHaveBeenCalled();
-    expect(fail).toHaveBeenCalledWith(db, "one", expect.stringContaining("scores 0.40, 0.55"), true, expect.objectContaining({ failureCode: "identity_rejected", identityScore: 0.4,
+    expect(fail).toHaveBeenCalledWith(db, "one", "It didn't look like her (score 0.55), so the shot was not made. Your credit was returned.", true, expect.objectContaining({ failureCode: "identity_rejected", identityScore: 0.4,
       identityChecks: [expect.objectContaining({ attempt: 1, confidence: 0.4 }), expect.objectContaining({ attempt: 2, confidence: 0.55 })] }));
     compose.mockReset();
   });
@@ -223,7 +249,7 @@ describe("AI shot worker", () => {
     await processAiVideo(s3, "media");
     expect(compose).toHaveBeenCalledTimes(2);
     expect(submit).not.toHaveBeenCalled();
-    expect(fail).toHaveBeenCalledWith(db, "one", expect.stringContaining("unchecked, unchecked"), true, expect.objectContaining({ failureCode: "identity_rejected" }));
+    expect(fail).toHaveBeenCalledWith(db, "one", expect.stringContaining("We couldn't check her face in the start frame"), true, expect.objectContaining({ failureCode: "identity_rejected" }));
     identity.mockReset(); compose.mockReset();
   });
   it("reads back a pre-ADR-0056 row that named a generated take, keeping its voice", async () => {

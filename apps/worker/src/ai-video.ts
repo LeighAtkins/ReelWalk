@@ -11,7 +11,7 @@ import { VertexImages, type InlineImage } from "./vertex-images";
 import { fetchVideo, lipsyncConfigured, pollLipsync, startLipsync, synthesiseLine, voicedPrompt } from "./voice";
 import { transcribeVideo, transcriptionAvailable } from "./transcribe";
 import { clipSchema, insertAiShot, parseStoredAiShot, timelineSchema, type AiShot } from "@reelwalk/core";
-import { identityDecision, minFacePx, type IdentityVerdict, type LocateAttempt } from "./identity";
+import { closerLevel, identityDecision, identityRejectionMessage, minFacePx, speakingEnd, type IdentityVerdict, type LocateAttempt } from "./identity";
 
 let provider: VertexVideo | undefined;
 let images: VertexImages | undefined;
@@ -231,22 +231,24 @@ async function composeAndGate(s3: S3Client, bucket: string, job: Job, frames: Re
   const presenter = inline(frames.presenter)!, face = inline(frames.face);
   // Who she should be: the kit's face crop, or for an older frame-only request the presenter frame itself.
   const reference = face ?? presenter;
-  // A speaking take needs a bigger face: Veo and lip sync animate her eyes and mouth (ADR 0056).
-  const speaking = Boolean(parseStoredAiShot(job.shot).data?.voice);
-  const minimum = minFacePx(speaking);
+  const voiceMode = parseStoredAiShot(job.shot).data?.voice ?? null;
   const checks: IdentityCheck[] = [];
   const result: { image?: InlineImage; lastFrame?: InlineImage } = {};
   images ??= new VertexImages(undefined, undefined, s3.config.credentials);
   for (const [end, frame] of [["first", frames.image], ["last", frames.lastFrame]] as const) {
     if (!frame?.compose) continue;
+    // A speaking end needs a bigger face, since Veo and lip sync animate her eyes and mouth (ADR 0056),
+    // except a shouted Veo line over a described wide or action shot.
+    const speaking = speakingEnd(voiceMode, frame.compose);
+    const minimum = minFacePx(speaking);
     let accepted: InlineImage | null = null;
     let previous: IdentityVerdict | null = null;
     for (const attempt of [1, 2] as const) {
       let composed: InlineImage;
       try {
-        // A face too small to judge is recomposed closer (medium, face at least 220 px), whatever framing was asked.
-        const closer = speaking || (attempt === 2 && previous?.reason === "face-too-small");
-        composed = await images.compose(end, frame.compose, inline(frame)!, presenter, face, { framing: closer ? "medium" : frame.framing ?? "medium", stronger: attempt === 2, ...(closer ? { closer: true } : {}) });
+        // Closer for a speaking end, closer still after a face too small to judge, whatever framing was asked.
+        const closer = closerLevel(attempt, speaking, previous);
+        composed = await images.compose(end, frame.compose, inline(frame)!, presenter, face, { framing: closer ? "medium" : frame.framing ?? "medium", stronger: attempt === 2, ...(closer ? { closer } : {}) });
       } catch {
         await refund(job, "The start and end stills could not be composed. Your credit was returned.", { identityChecks: checks });
         return { ok: false };
@@ -265,9 +267,8 @@ async function composeAndGate(s3: S3Client, bucket: string, job: Job, frames: Re
       previous = verdict;
       if (decision === "pass") { accepted = composed; break; }
       if (decision === "reject") {
-        const scores = checks.filter(check => check.end === end).map(check => check.confidence === null ? "unchecked" : check.confidence.toFixed(2));
         const lowest = Math.min(...checks.map(check => check.confidence ?? 0));
-        await refund(job, `Her face did not match the presenter in the composed ${end === "first" ? "start" : "end"} still after two tries (scores ${scores.join(", ")}), so the shot was not made. Your credit was returned.`,
+        await refund(job, identityRejectionMessage(end, verdict, minimum, speaking),
           { failureCode: "identity_rejected", identityScore: lowest, identityChecks: checks });
         return { ok: false };
       }

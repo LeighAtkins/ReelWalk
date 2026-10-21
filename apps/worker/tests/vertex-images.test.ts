@@ -46,7 +46,18 @@ describe("presenter kit compose (ADR 0056)", () => {
     expect(composePrompt("first", "In the doorway.", { face: true, stronger: true })).toContain("Identity is the priority");
     expect(composePrompt("first", "In the doorway.", { face: true })).not.toContain("Identity is the priority");
     expect(composePrompt("first", "A small figure at the gate.", { framing: "wide" })).toContain("Wide framing");
-    expect(composePrompt("first", "At the gate.", { framing: "medium", closer: true })).toContain("Closer: her head about a quarter of the way down, face at least 220 px tall.");
+    // A speaking end: its own wording, no blame, and no conflicting 180 px medium text.
+    const speaking = composePrompt("first", "At the gate.", { framing: "medium", closer: 1 });
+    expect(speaking).toContain("Frame her closer, for a speaking shot");
+    expect(speaking).toContain("at least 220 px tall");
+    expect(speaking).not.toContain("last attempt");
+    expect(speaking).not.toContain("180 px");
+    // After a face too small to judge: escalate.
+    const escalated = composePrompt("first", "At the gate.", { framing: "medium", closer: 2, stronger: true });
+    expect(escalated).toContain("waist-up, her head in the top fifth of the frame, her face at least 260 px tall");
+    expect(escalated).toContain("The last attempt made her face too small");
+    expect(escalated).not.toContain("180 px");
+    expect(composePrompt("first", "At the gate.", { framing: "medium" })).toContain("180 px");
   });
   it("reads a JSON answer, with or without a code fence", () => {
     const answer = (text: string) => ({ candidates: [{ content: { parts: [{ text }] } }] });
@@ -112,7 +123,8 @@ describe("presenter kit compose (ADR 0056)", () => {
   it.each([
     ["no face", { box_2d: null }, { faceHeightPx: null, reason: "no-face" }, 2],
     ["a zero-area box", { box_2d: [300, 400, 300, 500] }, { faceHeightPx: null, reason: "locate-failed" }, 2],
-    ["a face too small to judge", { box_2d: [300, 400, 330, 445] }, { faceHeightPx: 58, reason: "face-too-small" }, 1],
+    // Too small on the grid falls through to the pixel locate before it is called small.
+    ["a face too small to judge", { box_2d: [300, 400, 330, 445] }, { faceHeightPx: 58, reason: "face-too-small" }, 2],
   ])("never compares, and never passes, with %s", async (_label, found, expected, calls) => {
     const fetcher = vi.fn().mockImplementation(async () => answer(found));
     vi.stubGlobal("fetch", fetcher);
@@ -120,10 +132,48 @@ describe("presenter kit compose (ADR 0056)", () => {
     expect(verdict).toMatchObject({ samePerson: false, confidence: 0, ...expected });
     expect(fetcher).toHaveBeenCalledTimes(calls);
   });
-  it("holds a speaking take to 220 px", async () => {
+  it("holds a speaking take to its floor", async () => {
     vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => answer(herFace)));
-    const verdict = await new VertexImages("test-project").checkIdentity(composite, face, { minFacePx: 220 });
+    const verdict = await new VertexImages("test-project").checkIdentity(composite, face, { minFacePx: 165 });
     expect(verdict).toMatchObject({ reason: "face-too-small", faceHeightPx: 100 });
+    expect(verdict.locate!.map(attempt => [attempt.mode, attempt.rejected])).toEqual([["grid", "face-too-small"], ["pixels", "face-too-small"]]);
+  });
+  it("a grid box that is too small is checked again in pixels, and the bigger face is compared", async () => {
+    png();
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(answer({ box_2d: [300, 400, 330, 445] }))
+      .mockResolvedValueOnce(answer({ box_px: [610, 470, 800, 640] }))
+      .mockResolvedValueOnce(answer(match));
+    vi.stubGlobal("fetch", fetcher);
+    const verdict = await new VertexImages("test-project").checkIdentity(composite, face, { minFacePx: 165 });
+    expect(verdict).toMatchObject({ samePerson: true, faceHeightPx: 190 });
+    expect(verdict.locate![0]).toMatchObject({ mode: "grid", rejected: "face-too-small", faceHeightPx: 58 });
+  });
+  it.each([
+    ["string numbers", '{"box_2d":["367","495","419","579"]}'],
+    ["a five-number box", '{"box_2d":[367,495,419,579,600]}'],
+    ["nested arrays", '{"box_2d":[[367,495],[419,579]]}'],
+    ["null", "null"],
+    ["not JSON", "her face is in the middle"],
+  ])("a malformed grid answer (%s) is recorded as unparseable and the pixel locate still runs", async (_label, text) => {
+    png();
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(Response.json({ candidates: [{ content: { parts: [{ text }] } }] }))
+      .mockResolvedValueOnce(answer({ box_px: [610, 470, 800, 640] }))
+      .mockResolvedValueOnce(answer(match));
+    vi.stubGlobal("fetch", fetcher);
+    const verdict = await new VertexImages("test-project").checkIdentity(composite, face);
+    expect(verdict.locate![0]).toEqual({ mode: "grid", box: null, rejected: "unparseable" });
+    expect(verdict).toMatchObject({ samePerson: true, confidence: 0.77 });
+  });
+  it("picks her face, the largest plausible one, when the locate finds several", async () => {
+    png();
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(answer([{ box_2d: [100, 100, 120, 118] }, { box_2d: [300, 400, 400, 500] }]))
+      .mockResolvedValueOnce(answer(match));
+    vi.stubGlobal("fetch", fetcher);
+    const verdict = await new VertexImages("test-project").checkIdentity(composite, face);
+    expect(verdict.locate![0].box).toEqual([300, 400, 400, 500]);
   });
   it("finds the face box in a portrait, falling back to pixels, or null", async () => {
     vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => answer({ box_2d: null })));

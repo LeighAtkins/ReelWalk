@@ -246,24 +246,52 @@ kit crops from the same locate call were also loose and off-centre.
   1080×1920 size, and compares that crop. If neither lands on her face the
   verdict is `locate-failed` with confidence 0, never a low identity score.
   The kit's face crop uses the same two-mode locate.
-- A speaking take (a line with a voice) needs a 220 px face (hairline to
-  chin), and is composed closer from the first attempt; silent takes keep
+- A speaking end (a line with a voice) needs a 165 px face, hairline to
+  chin, and is composed closer from the first attempt; silent takes keep
   120 px. cmvi0jk8h passed at 0.98 with a face too small for Veo to keep
-  eyes and a mouth.
+  eyes and a mouth. The 165 px floor is calibrated on production: in the
+  start frame of cmvi3jstp000901adp338aemf, whose take came back with good
+  eyes and mouth, her face measures 180 px hairline to chin (hairline
+  y ≈ 415, chin y ≈ 595, ears x ≈ 467 to 615, measured on the stored
+  1080×1920 JPEG); the floor sits a little below that. An exception: a
+  shouted Veo line (`voice: "veo"`) whose described end says "wide" or
+  "action" keeps its framing and the 120 px floor, since it is not a held
+  face that lip sync has to animate.
 - The compare call also answers `eyesAndMouthRendered` (both eyes open
   with visible iris and whites, the mouth clearly formed), and a pass
   requires it.
 - Every check stores its locate attempts in `identityChecks`: the mode,
   the box as read, why it was refused if it was, the crop rectangle and the
   face height, with the floor that applied. The worker logs the same line.
+- Locate answers are read defensively. A malformed answer (string
+  numbers, a five-number box, nested arrays, null, not JSON) is that mode's
+  failure, recorded as `unparseable`, and the next mode still runs; only a
+  provider error ends the check. A box with every value ≤ 1 (normalised to
+  0–1, not 0–1000) is refused. When several faces come back, the largest
+  plausible one is hers. A grid box that measures too small is checked
+  again in pixels before the face is called too small.
+- Compose wording is graded. A speaking end gets its own closer framing
+  ("knees-up or tighter, the top of her head about a quarter of the way
+  down, her face at least 220 px tall", aiming above the floor), with no
+  blame for a previous attempt. After a face too small to judge, the retry
+  escalates: waist-up, her head in the top fifth, her face at least 260 px.
+  Either replaces the medium-framing text (which asks only 180 px) rather
+  than contradicting it.
+- The refund message says what actually went wrong: "We couldn't find her
+  face clearly in the start frame", "Her face was too small to speak on
+  camera (N px; needs 165)" (or "to recognise" for a silent take), "Her
+  eyes or mouth weren't clearly drawn", "It didn't look like her (score
+  X)", or "We couldn't check her face" when the check could not run.
 - `cropFacePng` names its temp file by type: an ffmpeg without the
   `jpeg_pipe`/`png_pipe` probes cannot open an extensionless image.
 
 **Verified.** Unit tests cover reading `box_2d`, `faceBox` and pixel
 answers; the plausibility rules on her measured box and the swapped one;
 the crop rectangle for her box; a crop with no face leading to the pixel
-locate; `locate-failed` when neither lands; the 220 px floor and closer
-composing for speaking takes; refusing a match without eyes and mouth; and
+locate; `locate-failed` when neither lands; malformed, 0–1 and
+multi-face locate answers; a small grid box falling through to pixels; the
+165 px floor, the Veo wide/action exception and graded closer wording; a
+refund message per reason; refusing a match without eyes and mouth; and
 the locate record in `identityChecks`. Not verified: what Gemini actually
 returns for these prompts (no live Gemini locally), so the root cause is
 inferred from the stored composites and the recorded score, not observed.

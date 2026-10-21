@@ -33,8 +33,8 @@ export type ComposeOptions = {
   framing?: PresenterFraming;
   /** The second attempt after the identity gate missed. */
   stronger?: boolean;
-  /** The miss was a face too small to judge: come in closer. */
-  closer?: boolean;
+  /** Compose closer: 1 for a speaking end, 2 after a face too small to judge (see closerLevel). */
+  closer?: 0 | 1 | 2;
 };
 
 /** The instruction to the image model for one end of the shot. */
@@ -45,8 +45,10 @@ export function composePrompt(end: "first" | "last", instruction: string, option
       ? "The second image is the presenter's full-length reference: copy her outfit, build, skin tone and proportions. The third image is a close-up of her face: match the face in the third image exactly (eyes, nose, mouth, hairline, hair length and colour). Place her into the scene as described:"
       : "Place the person from the second image into that scene as described, keeping her face, hair, outfit, build and skin tone identical:",
     instruction.trim(),
-    options.framing ? framingInstruction(options.framing) : "",
-    options.closer ? "Closer: her head about a quarter of the way down, face at least 220 px tall. The last attempt made her face too small to recognise." : "",
+    // The closer wording replaces the framing text rather than contradicting it (medium asks only 180 px).
+    options.closer === 2 ? "Come in closer than before: waist-up, her head in the top fifth of the frame, her face at least 260 px tall from hairline to chin. The last attempt made her face too small to recognise."
+      : options.closer === 1 ? "Frame her closer, for a speaking shot: knees-up or tighter, the top of her head about a quarter of the way down, her face at least 220 px tall from hairline to chin, both eyes and her mouth sharp and clearly drawn."
+      : options.framing ? framingInstruction(options.framing) : "",
     "She must be at true human scale against the objects named and the architecture (a door is about 2.1 m, a chair seat 0.45 m, a kitchen bench 0.9 m); never larger than a doorway.",
     // The first reel's presenter stood on a coffee table: the model placed her by scale alone, not by the floor.
     "Her feet stand on visible, clear floor (never on or inside furniture, rugs' edges aside), below the horizon line; anything nearer the camera than that floor spot (a sofa back, a table, a counter) passes in front of her and hides the part of her it covers. She casts a soft contact shadow on the floor that matches the scene's light direction, and the scene's light falls on her the same way.",
@@ -151,14 +153,21 @@ export class VertexImages {
     const bytes = Buffer.from(composite.bytesBase64Encoded, "base64");
     const locate: LocateAttempt[] = [];
     for (const mode of ["grid", "pixels"] as const) {
-      const located = await this.locateFace(composite, size, mode, model);
+      let located: Located;
+      try { located = await this.locateFace(composite, size, mode, model); } catch (error) {
+        // A malformed answer is this mode's failure, not the whole check's; a transport error still ends the check.
+        if (error instanceof VertexError) throw error;
+        locate.push({ mode, box: null, rejected: "unparseable" });
+        continue;
+      }
       const attempt: LocateAttempt = { mode, box: located.box?.map(v => Math.round(v * 10) / 10) ?? null };
       locate.push(attempt);
       if (!located.box) { attempt.rejected = "no-face"; continue; }
       if (!plausibleFace(located, size)) { attempt.rejected = "implausible-box"; continue; }
       const rect = faceCropRect(located.box, size.width, size.height);
       attempt.crop = { x: rect.x, y: rect.y, size: rect.size }; attempt.faceHeightPx = rect.faceHeightPx;
-      if (rect.faceHeightPx < minimum) return { samePerson: false, confidence: 0, faceHeightPx: rect.faceHeightPx, reason: "face-too-small", locate };
+      // Too small on the grid may be a misread box: ask in pixels before calling it small.
+      if (rect.faceHeightPx < minimum) { attempt.rejected = "face-too-small"; continue; }
       const crop = await cropFacePng(bytes, rect);
       const result = await this.generate(model, [{ text: IDENTITY_PROMPT }, inlinePart({ bytesBase64Encoded: crop.toString("base64"), mimeType: "image/png" }), inlinePart(reference)],
         { responseMimeType: "application/json", responseSchema: IDENTITY_RESPONSE_SCHEMA, temperature: 0 });
@@ -167,6 +176,8 @@ export class VertexImages {
       if (!verdict.faceVisible) { attempt.rejected = "face-not-in-crop"; continue; }
       return { samePerson: verdict.samePerson, confidence: verdict.confidence, eyesAndMouthRendered: verdict.eyesAndMouthRendered, faceHeightPx: rect.faceHeightPx, locate };
     }
+    const small = locate.filter(attempt => attempt.rejected === "face-too-small").map(attempt => attempt.faceHeightPx!);
+    if (small.length) return { samePerson: false, confidence: 0, faceHeightPx: Math.max(...small), reason: "face-too-small", locate };
     return { samePerson: false, confidence: 0, faceHeightPx: null, reason: locate.some(attempt => attempt.box) ? "locate-failed" : "no-face", locate };
   }
 
@@ -181,7 +192,12 @@ export class VertexImages {
   async findFace(image: InlineImage, size: { width: number; height: number }, model = AI_IDENTITY_MODEL): Promise<{ box: number[] | null; locate: LocateAttempt[] }> {
     const locate: LocateAttempt[] = [];
     for (const mode of ["grid", "pixels"] as const) {
-      const located = await this.locateFace(image, size, mode, model);
+      let located: Located;
+      try { located = await this.locateFace(image, size, mode, model); } catch (error) {
+        if (error instanceof VertexError) throw error;
+        locate.push({ mode, box: null, rejected: "unparseable" });
+        continue;
+      }
       const ok = located.box !== null && plausibleFace(located, size);
       locate.push({ mode, box: located.box, ...(ok ? {} : { rejected: located.box ? "implausible-box" as const : "no-face" as const }) });
       if (ok) return { box: located.box, locate };

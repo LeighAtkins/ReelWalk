@@ -20,11 +20,46 @@ export const IDENTITY_MIN_CONFIDENCE = 0.6;
  * The smallest face the gate will judge, hairline to chin at 1080×1920:
  * below this the identity is the image model's invention, which is the
  * defect (ADR 0056). A speaking take needs more: Veo and lip sync animate
- * the eyes and mouth, and at 120 px they came back without either.
+ * the eyes and mouth. Calibrated on production: cmvi3jstp's start frame,
+ * whose take came back with good eyes and mouth, has her face 180 px
+ * hairline to chin; the floor sits a little below it.
  */
 export const MIN_GATE_FACE_PX = 120;
-export const MIN_SPEAKING_FACE_PX = 220;
+export const MIN_SPEAKING_FACE_PX = 165;
 export const minFacePx = (speaking: boolean) => speaking ? MIN_SPEAKING_FACE_PX : MIN_GATE_FACE_PX;
+
+/**
+ * Whether an end of a voiced take is held to the speaking floor and composed
+ * closer. A shouted Veo line over a described wide or action shot is not
+ * lip-synced to a held face, so it keeps the asked framing and the silent floor.
+ */
+export function speakingEnd(voice: "lipsync" | "veo" | null | undefined, instruction: string): boolean {
+  if (!voice) return false;
+  return !(voice === "veo" && /\b(wide|action)\b/i.test(instruction));
+}
+
+/**
+ * How much closer to compose: 0 as asked; 1 for a speaking end (its own
+ * wording, no blame); 2 after a face too small to judge (waist-up, head in
+ * the top fifth, face at least 260 px).
+ */
+export function closerLevel(attempt: 1 | 2, speaking: boolean, previous: IdentityVerdict | null): 0 | 1 | 2 {
+  if (attempt === 2 && previous?.reason === "face-too-small") return 2;
+  return speaking ? 1 : 0;
+}
+
+/** The refund message for a take the gate refused, by the last reason: honest about what went wrong. */
+export function identityRejectionMessage(end: "first" | "last", verdict: IdentityVerdict | null, minimum: number, speaking: boolean): string {
+  const frame = end === "first" ? "start" : "end";
+  const tail = "so the shot was not made. Your credit was returned.";
+  if (!verdict) return `We couldn't check her face in the ${frame} frame, ${tail}`;
+  if (verdict.reason === "no-face" || verdict.reason === "locate-failed") return `We couldn't find her face clearly in the ${frame} frame, ${tail}`;
+  if (verdict.reason === "face-too-small") {
+    return `Her face was too small to ${speaking ? "speak on camera" : "recognise"} (${verdict.faceHeightPx ?? "?"} px; needs ${minimum}), ${tail}`;
+  }
+  if (verdict.samePerson && verdict.confidence >= IDENTITY_MIN_CONFIDENCE && verdict.eyesAndMouthRendered !== true) return `Her eyes or mouth weren't clearly drawn in the ${frame} frame, ${tail}`;
+  return `It didn't look like her (score ${verdict.confidence.toFixed(2)}), ${tail}`;
+}
 
 export const compareVerdictSchema = z.object({
   /** Whether the first image (the crop) shows a human face at all: false means the locate step missed. */
@@ -41,7 +76,7 @@ export type LocateAttempt = {
   /** The box as read, on the 0–1000 grid ([ymin, xmin, ymax, xmax]); null when the model found no face. */
   box: number[] | null;
   /** Why the box was not used, if it was not. */
-  rejected?: "no-face" | "implausible-box" | "face-not-in-crop";
+  rejected?: "no-face" | "implausible-box" | "face-not-in-crop" | "face-too-small" | "unparseable";
   crop?: { x: number; y: number; size: number };
   faceHeightPx?: number;
 };
@@ -122,24 +157,37 @@ export function findFacePixelsPrompt(width: number, height: number) {
   ].join(" ");
 }
 
-const point = z.array(z.number()).length(2);
+const finite = z.number().finite();
+const point = z.array(finite).length(2);
 const locateSchema = z.object({
-  box_2d: z.array(z.number()).length(4).nullable().optional(),
-  faceBox: z.array(z.number()).length(4).nullable().optional(),
-  box_px: z.array(z.number()).length(4).nullable().optional(),
+  box_2d: z.array(finite).length(4).nullable().optional(),
+  faceBox: z.array(finite).length(4).nullable().optional(),
+  box_px: z.array(finite).length(4).nullable().optional(),
   left_eye: point.nullable().optional(), right_eye: point.nullable().optional(), mouth: point.nullable().optional(),
 }).passthrough();
 export type Located = { box: number[] | null; landmarks: { leftEye?: number[]; rightEye?: number[]; mouth?: number[] } };
 
-/** Read a locate answer onto the 0–1000 grid. Gemini sometimes wraps it in a one-element list. */
+/**
+ * Read a locate answer onto the 0–1000 grid. Gemini sometimes answers with
+ * a list (one entry per face); the largest plausible face is hers. Throws on
+ * an answer that is not a box at all, which the caller records as
+ * "unparseable" before trying the next mode.
+ */
 export function readLocate(raw: unknown, image: { width: number; height: number }): Located {
-  const parsed = locateSchema.parse(Array.isArray(raw) ? raw[0] ?? {} : raw);
-  const landmarks = { ...(parsed.left_eye ? { leftEye: parsed.left_eye } : {}), ...(parsed.right_eye ? { rightEye: parsed.right_eye } : {}), ...(parsed.mouth ? { mouth: parsed.mouth } : {}) };
-  if (parsed.box_px) {
-    const [top, left, bottom, right] = parsed.box_px;
-    return { box: [top / image.height * 1000, left / image.width * 1000, bottom / image.height * 1000, right / image.width * 1000], landmarks };
-  }
-  return { box: parsed.box_2d ?? parsed.faceBox ?? null, landmarks };
+  const entries = Array.isArray(raw) ? raw : [raw];
+  const candidates = entries.map(entry => {
+    const parsed = locateSchema.parse(entry);
+    const landmarks = { ...(parsed.left_eye ? { leftEye: parsed.left_eye } : {}), ...(parsed.right_eye ? { rightEye: parsed.right_eye } : {}), ...(parsed.mouth ? { mouth: parsed.mouth } : {}) };
+    if (parsed.box_px) {
+      const [top, left, bottom, right] = parsed.box_px;
+      return { box: [top / image.height * 1000, left / image.width * 1000, bottom / image.height * 1000, right / image.width * 1000], landmarks };
+    }
+    return { box: parsed.box_2d ?? parsed.faceBox ?? null, landmarks };
+  });
+  if (!candidates.length) return { box: null, landmarks: {} };
+  const area = (c: Located) => c.box ? (c.box[2] - c.box[0]) * (c.box[3] - c.box[1]) : -1;
+  const plausible = candidates.filter(c => plausibleFace(c, image)).sort((a, b) => area(b) - area(a));
+  return plausible[0] ?? candidates.find(c => c.box) ?? candidates[0];
 }
 
 /**
@@ -149,7 +197,9 @@ export function readLocate(raw: unknown, image: { width: number; height: number 
  */
 export function plausibleFace(located: Located, image: { width: number; height: number }): boolean {
   const { box, landmarks } = located;
-  if (!box || box.some(v => !Number.isFinite(v) || v < 0 || v > 1000)) return false;
+  if (!box || box.length !== 4 || box.some(v => !Number.isFinite(v) || v < 0 || v > 1000)) return false;
+  // A box normalised to 0–1 instead of 0–1000 would be read as a dot in the corner.
+  if (box.every(v => v <= 1)) return false;
   const [ymin, xmin, ymax, xmax] = box;
   if (!(ymax > ymin) || !(xmax > xmin)) return false;
   const heightPx = (ymax - ymin) / 1000 * image.height, widthPx = (xmax - xmin) / 1000 * image.width;

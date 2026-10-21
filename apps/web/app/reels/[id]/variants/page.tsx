@@ -3,25 +3,27 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { VARIANT_HOOK_LABELS, type VariantHook } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
-import { exportAllVariants, makeVariants } from "@/app/variant-actions";
+import { makeVariants } from "@/app/variant-actions";
 import { AutoRefresh } from "@/components/auto-refresh";
+import { ExportAllVariants } from "@/components/export-all-variants";
 import { BackIcon } from "@/components/icons";
 import { LinkPending } from "@/components/link-pending";
 import { StatusBadge } from "@/components/status-badge";
 import { SubmitButton } from "@/components/submit-button";
-import { formatDuration } from "@/lib/format";
+import { formatAgo, formatDuration } from "@/lib/format";
 import { coverUrls, durationOf, readTimeline } from "@/lib/reels";
-import { findVariantSet, refreshVariantInsights, type InsightsState } from "@/lib/variants";
+import { exportAllAllowance, findVariantSet, needsExport, refreshVariantInsights, type InsightsState } from "@/lib/variants";
 import { getCurrentUser } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Variants · ReelWalk" };
 
 const INSIGHTS_NOTE: Record<InsightsState, string> = {
-  read: "Plays and reach from Instagram. The winner is the one with the most plays, once two or more are posted.",
+  read: "Plays and reach from Instagram, read at most every ten minutes. The winner has the most plays once two or more are posted; an older post has had longer to collect them, so compare posts of a similar age.",
   unposted: "None of these is posted yet. The set is kept together, so once you post them their plays and reach show here and the winner is marked.",
   "no-connection": "Some are posted, but reading their numbers needs the Instagram Login connection on Account. The set is kept, so the numbers can be compared once it is connected.",
   permission: "Instagram needs a reconnect (Account, Reconnect Instagram) before it shares these numbers. The set is kept, so they can be compared after.",
+  waiting: "Posted, but Instagram has no numbers for them yet. They are asked for again every ten minutes; if this lasts, reconnect Instagram on Account.",
 };
 
 const hookLabel = (hook: string) => VARIANT_HOOK_LABELS[hook as VariantHook] ?? hook;
@@ -44,10 +46,15 @@ export default async function VariantsPage({
   if (!reel) notFound();
   const set = await findVariantSet(user.workspaceId, reel.id);
   const timelines = set ? set.variants.map((variant) => readTimeline(variant.reel.timeline)) : [];
-  const [covers, insights] = set ? await Promise.all([coverUrls(timelines), refreshVariantInsights(user.workspaceId, set)]) : [[], null];
+  // While exports render the page refreshes itself every 2 s: those refreshes show stored numbers and never ask Instagram.
+  const active = set?.variants.some((variant) => ["QUEUED", "RUNNING"].includes(variant.reel.renderJobs[0]?.status ?? "")) ?? false;
+  const [covers, insights, allowance] = set
+    ? await Promise.all([coverUrls(timelines), refreshVariantInsights(user.workspaceId, set, { live: !active }), exportAllAllowance(user.workspaceId)])
+    : [[], null, null];
+  const toExport = set ? set.variants.filter((variant) => needsExport(variant.reel)).length : 0;
   // New sets are made from the source reel, never from a variant.
   const sourceId = set ? set.sourceReelId : reel.variant ? null : reel.id;
-  const active = set?.variants.some((variant) => ["QUEUED", "RUNNING"].includes(variant.reel.renderJobs[0]?.status ?? "")) ?? false;
+  const now = new Date();
 
   return (
     <main className="shell">
@@ -126,7 +133,11 @@ export default async function VariantsPage({
                   </Link>
                   {numbers && (numbers.views !== null || numbers.reach !== null) ? (
                     <span className="variant-numbers" data-testid="variant-numbers">
-                      {[numbers.views !== null ? `${numbers.views.toLocaleString("en-US")} plays` : null, numbers.reach !== null ? `${numbers.reach.toLocaleString("en-US")} reached` : null]
+                      {[
+                        numbers.views !== null ? `${numbers.views.toLocaleString("en-US")} plays` : null,
+                        numbers.reach !== null ? `${numbers.reach.toLocaleString("en-US")} reached` : null,
+                        numbers.postedAt ? `posted ${formatAgo(numbers.postedAt, now)}` : null,
+                      ]
                         .filter(Boolean)
                         .join(" · ")}
                     </span>
@@ -138,13 +149,7 @@ export default async function VariantsPage({
           <p className="muted small" style={{ margin: "14px 0" }} data-testid="variant-insights">
             {insights ? INSIGHTS_NOTE[insights.state] : null}
           </p>
-          <form action={exportAllVariants}>
-            <input type="hidden" name="groupId" value={set.id} />
-            <input type="hidden" name="back" value={reel.id} />
-            <SubmitButton className="btn btn-signal btn-block" pendingLabel="Starting exports…" testId="export-all-variants">
-              Export all
-            </SubmitButton>
-          </form>
+          <ExportAllVariants groupId={set.id} back={reel.id} count={toExport} remaining={allowance?.remaining ?? null} atOnce={allowance?.atOnce ?? 0} />
           <p className="muted small" style={{ marginTop: 8 }}>
             Each export counts towards your plan like any other. Open a variant to change it, post it or schedule it.
           </p>

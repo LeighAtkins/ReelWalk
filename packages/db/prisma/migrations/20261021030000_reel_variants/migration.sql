@@ -19,6 +19,7 @@ CREATE TABLE "ReelVariant" (
     "reach" INTEGER,
     "mediaId" TEXT,
     "insightsAt" TIMESTAMP(3),
+    "insightsCheckedAt" TIMESTAMP(3),
 
     CONSTRAINT "ReelVariant_pkey" PRIMARY KEY ("reelId")
 );

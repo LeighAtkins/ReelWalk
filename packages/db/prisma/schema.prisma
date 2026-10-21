@@ -532,7 +532,10 @@ model ReelVariant {
   views      Int?
   reach      Int?
   mediaId    String?
+  // When the numbers were last read successfully.
   insightsAt DateTime?
+  // When Instagram was last asked, whatever came of it: the ten-minute limit counts from here, so failures are not retried on every load.
+  insightsCheckedAt DateTime?
 
   @@index([groupId])
 }

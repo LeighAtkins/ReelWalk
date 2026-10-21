@@ -45,3 +45,4 @@ export * from "./text-timing";
 export * from "./commands";
 export * from "./occluder";
 export * from "./workflow";
+export * from "./shoot";

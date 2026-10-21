@@ -43,6 +43,12 @@ export const TEXT_ANIMATIONS = ["auto", "pop", "fade", "rise", "type", "none"] a
 /** Particle kinds a title can carry (ADR 0055). */
 export const PARTICLE_KINDS = ["snow", "embers", "dust"] as const;
 export type ParticleKind = (typeof PARTICLE_KINDS)[number];
+/** Light on the letters (ADR 0061): a soft sweep, glints on the letter edges, or a warm golden-hour pass with a lens flare. */
+export const SHINE_PRESETS = ["sweep", "glint", "golden"] as const;
+export type ShinePreset = (typeof SHINE_PRESETS)[number];
+/** Kinetic type (ADR 0061): word by word, sliding out from behind something in front of the surface, or a number counting up. */
+export const KINETIC_PRESETS = ["words", "behind", "count"] as const;
+export type KineticPreset = (typeof KINETIC_PRESETS)[number];
 /** Where a logo may sit. */
 export const CORNERS = ["top-left", "top-right", "bottom-left", "bottom-right"] as const;
 /** Where the status tag sits: the top of the safe area, above the hook. */
@@ -173,6 +179,31 @@ export const textSchema = z
       /** Picks a different scatter of the same kind. */
       seed: z.number().int().min(0).max(1_000_000).optional(),
     }).optional(),
+    /**
+     * Light on the type (ADR 0061), drawn in the title's own plane so it warps and travels with a tracked surface.
+     * `startMs` is when the first pass begins, ms after the title appears (a cue the pacing work may snap to a beat);
+     * `everyMs` repeats it (0: once); `angle` tilts the sweep from vertical, degrees.
+     */
+    shine: z.object({
+      preset: z.enum(SHINE_PRESETS),
+      angle: z.number().min(-75).max(75).optional(),
+      startMs: z.number().int().min(0).max(60_000).optional(),
+      everyMs: z.number().int().min(0).max(20_000).optional(),
+      /** An anamorphic streak across the plane at the sweep's peak; the golden preset has one by default. */
+      flare: z.boolean().optional(),
+    }).optional(),
+    /** Kinetic type (ADR 0061): how the words arrive. `startMs` is ms after the title appears; `durationMs` how long the move takes. */
+    kinetic: z.object({
+      preset: z.enum(KINETIC_PRESETS),
+      startMs: z.number().int().min(0).max(60_000).optional(),
+      durationMs: z.number().int().min(100).max(10_000).optional(),
+    }).optional(),
+    /**
+     * A pinned callout (ADR 0061): the feature the label points at, frame fractions on the title's first frame. The label
+     * sits at x/y and keeps its size and angle; a leader line runs from the label to this point. When pinned, the point
+     * is followed with the surface tracker (a small square around it) and the label travels with it.
+     */
+    callout: z.object({ x: z.number().min(-0.5).max(1.5), y: z.number().min(-0.5).max(1.5) }).optional(),
     /** An extruded, 3D-looking title. */
     depth: z.enum(["flat", "extruded"]).optional(),
     /** How the text meets the picture: `surface` lets the wall's light and texture show through, like paint on it (ADR 0039). */

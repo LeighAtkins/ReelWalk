@@ -1,0 +1,75 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`pinned callouts (ADR 0061) > draws the dot, then the line out of it, then the label, ending outside the label's box 1`] = `"<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1920" viewBox="0 0 1080 1920"><line x1="312.9" y1="1341.6" x2="537.6" y2="1154.4" stroke="rgba(0,0,0,0.45)" stroke-width="7.2" stroke-linecap="round"/><line x1="312.9" y1="1339.2" x2="537.6" y2="1152.0" stroke="#ffffff" stroke-width="4.0" stroke-linecap="round"/><circle cx="300.0" cy="1350.0" r="22.8" fill="#ffffff" fill-opacity="0.220"/><circle cx="300.0" cy="1352.0" r="12.0" fill="rgba(0,0,0,0.45)" fill-opacity="1.000"/><circle cx="300.0" cy="1350.0" r="12.0" fill="#ffffff" fill-opacity="1.000"/></svg>"`;
+
+exports[`shine (ADR 0061) > matches a snapshot of one frame per preset 1`] = `
+{
+  "glint": {
+    "band": null,
+    "flare": null,
+    "glints": [
+      {
+        "fx": 0.5492413317784667,
+        "fy": 0.12658516125753522,
+        "letter": 738293,
+        "opacity": 0.9274905391940576,
+        "rotation": 27,
+        "size": 0.587853295285908,
+        "slot": 0,
+        "svg": "<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100%" height="100%"><g transform="rotate(27 50 50)" fill="#ffffff" fill-opacity="0.927"><circle cx="50" cy="50" r="9" fill-opacity="0.510"/><path d="M50 0 L54 46 L100 50 L54 54 L50 100 L46 54 L0 50 L46 46 Z"/></g></svg>",
+      },
+    ],
+  },
+  "golden": {
+    "band": {
+      "bloom": {
+        "color": "#ffe1a8",
+        "maskImage": "linear-gradient(122deg, transparent -14.63%, #000 -0.23%, transparent 14.17%)",
+        "opacity": 0.9,
+        "textShadow": "0 0 0.05em rgba(255,168,64,0.8), 0 0 0.2em rgba(255,168,64,0.8)",
+      },
+      "tone": {
+        "backgroundImage": "linear-gradient(122deg, transparent -24.23%, rgba(150,74,0,0.38) -13.43%, #ffe1a8 -0.23%, rgba(150,74,0,0.38) 12.97%, transparent 23.77%)",
+        "opacity": 0.9,
+      },
+    },
+    "flare": {
+      "background": "radial-gradient(closest-side, rgba(255,255,255,0.95), #ffc070 18%, #ffc07055 45%, transparent 100%)",
+      "height": "0.42em",
+      "left": "-8.08%",
+      "opacity": 0.56,
+      "top": "50%",
+      "transform": "translate(-50%, -50%)",
+      "width": "160%",
+    },
+    "glints": [
+      {
+        "fx": 0.5492413317784667,
+        "fy": 0.12658516125753522,
+        "letter": 738293,
+        "opacity": 0.9953795659944327,
+        "rotation": 23.63,
+        "size": 0.6308820771784247,
+        "slot": 0,
+        "svg": "<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100%" height="100%"><g transform="rotate(23.63 50 50)" fill="#ffffff" fill-opacity="0.995"><circle cx="50" cy="50" r="9" fill-opacity="0.547"/><path d="M50 0 L54 46 L100 50 L54 54 L50 100 L46 54 L0 50 L46 46 Z"/></g></svg>",
+      },
+    ],
+  },
+  "sweep": {
+    "band": {
+      "bloom": {
+        "color": "#ffffff",
+        "maskImage": "linear-gradient(110deg, transparent 47.14%, #000 54.94%, transparent 62.74%)",
+        "opacity": 0.95,
+        "textShadow": "0 0 0.05em rgba(255,255,255,0.85), 0 0 0.2em rgba(255,255,255,0.85)",
+      },
+      "tone": {
+        "backgroundImage": "linear-gradient(110deg, transparent 41.94%, rgba(38,46,60,0.42) 47.79%, #ffffff 54.94%, rgba(38,46,60,0.42) 62.09%, transparent 67.94%)",
+        "opacity": 0.95,
+      },
+    },
+    "flare": null,
+    "glints": [],
+  },
+}
+`;

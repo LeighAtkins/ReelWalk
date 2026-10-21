@@ -56,6 +56,7 @@
 import { applyHomography, homography, invertHomography, orientOrder, orientQuad, type Quad } from "./motion";
 import { endsBeforeShot, PINNED_ELSEWHERE, pinnedProgress, textPositionAt, textQuadAt } from "./cinematic";
 import { framePlan, REEL_FORMAT, type Clip, type TextOverlay, type Timeline } from "./timeline";
+import { calloutAnchorAt } from "./callout";
 
 /** A title's resolved font, as the renderer styles it. `fontSize` in composition px. */
 export type TitleFont = { fontFamily?: string; fontWeight?: string | number; fontSize: number; letterSpacing?: number; fontStretch?: string };
@@ -95,6 +96,8 @@ export type ScreenPlacement = {
   opacity: number;
   /** Tapped occluders on this frame, fractions. */
   occluderTaps: ScenePoint[];
+  /** A callout (ADR 0061): the point its leader line runs to on this frame, composition px. `center` is its label's. */
+  callout?: { anchor: ScenePoint };
 };
 
 export type SurfacePlacement = {
@@ -178,6 +181,8 @@ export function planarFitAndShift(quad0: readonly number[], widthFraction: numbe
  *   - a pin whose keyframes carry no corners, or a pin without a quad, is a screen title.
  */
 export function titleCorners(text: TextOverlay, progress: number): { plane: number[]; quad: number[] } | null {
+  // A callout's pin follows its point, not a plane to paint on (ADR 0061): its label is a screen title.
+  if (text.callout) return null;
   const bare = text.surface && !text.pin ? orientQuad(text.surface) : null;
   const order = text.pin?.quad ? orientOrder(text.pin.quad) : null;
   const reorder = (q: number[] | null): number[] | null => (q && order ? order.flatMap((i) => [q[i * 2], q[i * 2 + 1]]) : q);
@@ -231,6 +236,15 @@ export function evaluateTitle(input: TitleInput): TitlePlacement {
   const occluderTaps = carryTaps(text, progress);
   const corners = titleCorners(text, progress);
 
+  if (!corners && text.callout) {
+    // A callout (ADR 0061): the label keeps its size and angle and travels with its tracked point; one line, never wrapped.
+    const anchor = calloutAnchorAt(text, progress);
+    const label = text.pin?.quad ? { x: text.x + anchor.x - text.callout.x, y: text.y + anchor.y - text.callout.y } : { x: position.x, y: position.y };
+    return {
+      kind: "screen", progress, center: { x: label.x * width, y: label.y * height }, wrap: { mode: "line", maxWidth: width * 0.9 }, scale: 1, rotation: 0, opacity, occluderTaps,
+      callout: { anchor: { x: anchor.x * width, y: anchor.y * height } },
+    };
+  }
   if (!corners) {
     // A single word never breaks mid-word (a tracked title is usually one word); sentences wrap inside the safe width.
     const wrap: ScreenPlacement["wrap"] = /\s/.test(text.text) ? { mode: "wrap", width: width * 0.86 } : { mode: "line", maxWidth: width * 1.4 };

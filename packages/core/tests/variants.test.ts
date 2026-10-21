@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { clipDurationMs, parseTimeline, referencedAssetIds, timelineDurationMs, timelineSchema, type Timeline } from "../src/timeline";
-import { MIN_VARIANT_SHOT_MS, buildVariant, buildVariants, heroClipId, presenterClipId, titleCardText, variantWinner, type VariantInput } from "../src/variants";
+import { DEFAULT_PANO, clipDurationMs, clipStartsMs, parseTimeline, referencedAssetIds, timelineDurationMs, timelineSchema, type Timeline } from "../src/timeline";
+import { MAX_OVER_MS, MIN_VARIANT_SHOT_MS, buildVariant, buildVariants, heroClipId, presenterClipId, titleCardText, variantWinner, type VariantInput } from "../src/variants";
 
 const ROOMS = ["front door", "living room", "kitchen", "dining room", "primary bedroom", "bathroom", "bedroom", "office", "patio", "exterior", "garden", "pool"];
 
@@ -115,7 +115,7 @@ describe("retime to 15 and 30 s", () => {
       expect(variant.totalMs).toBe(timelineDurationMs(variant.timeline));
       // Within a beat (500 ms at 120 bpm) a shot, either way.
       expect(variant.totalMs, `${variant.hook}-${variant.lengthS}`).toBeGreaterThan(target * 0.85);
-      expect(variant.totalMs, `${variant.hook}-${variant.lengthS}`).toBeLessThan(target * 1.1);
+      expect(variant.totalMs, `${variant.hook}-${variant.lengthS}`).toBeLessThanOrEqual(target + MAX_OVER_MS);
       for (const clip of variant.timeline.clips) expect(clipDurationMs(clip)).toBeGreaterThanOrEqual(1000);
     }
   });
@@ -143,6 +143,31 @@ describe("retime to 15 and 30 s", () => {
     expect(input.transcripts!.talk!.words.some((w) => w.s < lead.sourceEndMs && w.e > lead.sourceEndMs)).toBe(false);
   });
 
+  it("measures the real length: 360 photos cannot be shortened, so fewer of them are kept", () => {
+    // Eight 360 photos: retime holds each at least 3.5 s, so keeping all eight would make a 28 s "15 s" variant.
+    const panos = parseTimeline({
+      version: 1,
+      clips: Array.from({ length: 8 }, (_, i) => ({ id: `p${i + 1}`, assetId: `pano${i + 1}`, kind: "IMAGE", sourceStartMs: 0, sourceEndMs: 5000, pano: DEFAULT_PANO, room: i === 0 ? "exterior" : "living room" })),
+      texts: [],
+      music: null,
+    });
+    const { variants: made } = buildVariants(panos, { title: "Lodge", sourceDurationsMs: {} });
+    const hero15 = made.find((v) => v.hook === "hero" && v.lengthS === 15)!;
+    expect(hero15.totalMs).toBeLessThanOrEqual(15000 + MAX_OVER_MS);
+    expect(hero15.timeline.clips.length).toBe(4);
+    expect(hero15.timeline.clips.at(-1)!.id).toBe("p8");
+    const hero30 = made.find((v) => v.hook === "hero" && v.lengthS === 30)!;
+    expect(hero30.totalMs).toBeLessThanOrEqual(30000 + MAX_OVER_MS);
+    for (const variant of made) expect(variant.totalMs).toBeLessThanOrEqual(variant.lengthS * 1000 + MAX_OVER_MS);
+  });
+
+  it("skips the presenter variant when her line cannot be cut between words", () => {
+    const long = reel({ clips: reel().clips.map((clip) => (clip.id === "c5" ? { ...clip, sourceStartMs: 0, sourceEndMs: 16000 } : clip)) });
+    // One word runs from 0.9 s to 9 s: no pause within the 6.75 s the line may take, and none a second in.
+    const made = buildVariant(long, "presenter", 15, { ...input, transcripts: { talk: { text: "", words: [{ w: "so", s: 0, e: 900 }, { w: "welcome", s: 900, e: 9000 }] } } });
+    expect("reason" in made && made.reason).toMatch(/mid-word/);
+  });
+
   it("a short reel has no 30 s version, and says why", () => {
     const short = parseTimeline({ ...reel(), clips: reel().clips.slice(0, 3) });
     const { variants: made, skipped } = buildVariants(short, input);
@@ -156,6 +181,47 @@ describe("retime to 15 and 30 s", () => {
     expect(made.map((v) => v.hook)).toEqual(["hero", "hero"]);
     expect(skipped.map((s) => s.hook)).toEqual(["presenter", "presenter", "title", "title"]);
     expect(skipped[0].reason).toMatch(/speaking/);
+  });
+});
+
+describe("pinned titles in variants", () => {
+  // c2 and c8 are 10 s videos shown in full in the source, each with a title tracked on part of it.
+  function pinned(): Timeline {
+    const base = reel({ clips: reel().clips.map((clip) => (clip.id === "c2" || clip.id === "c8" ? { ...clip, sourceStartMs: 0, sourceEndMs: 10000 } : clip)) });
+    const starts = clipStartsMs(base);
+    const at = (id: string) => starts[base.clips.findIndex((clip) => clip.id === id)];
+    return parseTimeline({
+      ...base,
+      texts: [
+        ...base.texts,
+        // Tracked on 0.5–2.5 s: the 2.5 s middle a variant keeps (3.75–6.25 s) never shows it.
+        { id: "pin-early", text: "Oak floors", startMs: at("c2") + 500, endMs: at("c2") + 2500, pin: { assetId: "video2", fromMs: 500, toMs: 2500 } },
+        // Tracked on 4–6 s: still on screen in the middle.
+        { id: "pin-middle", text: "Fireplace", startMs: at("c8") + 4000, endMs: at("c8") + 6000, pin: { assetId: "video8", fromMs: 4000, toMs: 6000 } },
+      ],
+    });
+  }
+  const durations = { ...input, sourceDurationsMs: { ...input.sourceDurationsMs, video2: 10000, video8: 10000 } };
+
+  it("drops a pinned title whose tracked frames are no longer shown, and keeps one whose frames are", () => {
+    const made = buildVariant(pinned(), "title", 30, durations);
+    if ("reason" in made) throw new Error(made.reason);
+    expect(made.timeline.clips.find((clip) => clip.id === "c2")).toMatchObject({ sourceStartMs: 3750, sourceEndMs: 6250 });
+    expect(made.timeline.texts.some((text) => text.id === "pin-early")).toBe(false);
+    expect(made.timeline.texts.find((text) => text.id === "pin-middle")).toBeTruthy();
+  });
+
+  it("every pinned title left in any variant sits over the asset and frames it was tracked on, for at least 400 ms", () => {
+    for (const variant of buildVariants(pinned(), durations).variants) {
+      const starts = clipStartsMs(variant.timeline);
+      for (const text of variant.timeline.texts.filter((t) => t.pin)) {
+        const index = starts.findIndex((start, i) => text.startMs >= start && text.startMs < start + clipDurationMs(variant.timeline.clips[i]));
+        const clip = variant.timeline.clips[index];
+        expect(clip.assetId).toBe(text.pin!.assetId);
+        expect(Math.min(clip.sourceEndMs, text.pin!.toMs) - Math.max(clip.sourceStartMs, text.pin!.fromMs)).toBeGreaterThanOrEqual(600);
+        expect(text.endMs - text.startMs).toBeGreaterThanOrEqual(400);
+      }
+    }
   });
 });
 

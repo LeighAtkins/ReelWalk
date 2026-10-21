@@ -13,6 +13,7 @@ import { textAttachment } from "./text-timing";
 import {
   addRoomLabels,
   clipDurationMs,
+  clipStartsMs,
   hasDetails,
   hasRoomLabels,
   keepTextsClearOfCard,
@@ -41,6 +42,8 @@ export const MIN_VARIANT_SHOT_MS = 1500;
 const PRESENTER_SHARE = 0.45;
 /** How long the title card holds over the opening. */
 export const TITLE_CARD_MS = 2500;
+/** A variant may run at most this much over its length; more and shots are dropped, or the variant is skipped. */
+export const MAX_OVER_MS = 2000;
 /** A 30 s variant must be at least this much longer than the 15 s one to be worth making. */
 const MIN_LENGTH_GAP_MS = 3000;
 /** Rooms that make a hero shot, best first, when the studio has not picked a cover. */
@@ -123,41 +126,67 @@ function presenterWindow(clip: Clip, maxMs: number, transcript: Transcript | nul
 const insideWord = (transcript: Transcript | null | undefined, ms: number) => Boolean(transcript?.words.some((word) => word.s < ms && word.e > ms));
 
 /**
+ * Pinned titles (ADR 0039) that still sit on the frames they were tracked
+ * on. Retiming keeps a video's middle, so a title tracked on 0.5–2.5 s of a
+ * 10 s clip can end up over 3.75–6.25 s: a flash whose path is off the
+ * picture shown. Those are dropped, as are pinned titles left over another
+ * asset or squeezed under 400 ms.
+ */
+function keepPinsOnTheirPicture(timeline: Timeline): Timeline {
+  const starts = clipStartsMs(timeline);
+  const texts = timeline.texts.filter((text) => {
+    if (!text.pin) return true;
+    const index = starts.findIndex((start, i) => text.startMs >= start && text.startMs < start + clipDurationMs(timeline.clips[i]));
+    const clip = timeline.clips[index];
+    if (!clip || clip.assetId !== text.pin.assetId || text.endMs - text.startMs < 400) return false;
+    const overlap = Math.min(clip.sourceEndMs, text.pin.toMs) - Math.max(clip.sourceStartMs, text.pin.fromMs);
+    return overlap >= Math.min(600, text.pin.toMs - text.pin.fromMs);
+  });
+  return texts.length === timeline.texts.length ? timeline : { ...timeline, texts };
+}
+
+/**
  * One variant, or why it cannot be made. Steps, each a document command:
  * the lead shot is moved first; shots beyond what fits at
  * `MIN_VARIANT_SHOT_MS` are dropped evenly (their own titles with them);
  * the rest is brought to length with `retimeToLength`; the presenter's line
  * is given back its words; cuts go back on the beat (not when that would
- * cut the presenter mid-word).
+ * cut the presenter mid-word). Shots that cannot be that short (a 360
+ * photo needs 3.5 s, `retime`) can leave the cut long: the real length is
+ * measured and one more shot dropped until it fits; a variant still more
+ * than `MAX_OVER_MS` over is skipped.
  */
 export function buildVariant(source: Timeline, hook: VariantHook, lengthS: VariantLength, input: VariantInput): Variant | SkippedVariant {
   const skip = (reason: string): SkippedVariant => ({ hook, lengthS, reason });
   if (source.clips.length === 0) return skip("The reel has no shots.");
   const totalMs = lengthS * 1000;
   const context = { generation: 0, sourceDurationsMs: input.sourceDurationsMs };
-  let timeline = source;
-  const run = (command: Command) => {
-    const result = applyCommand(timeline, command, context);
-    if (result.rejected) throw new Error(`${command.type}: ${result.rejected}`);
-    timeline = result.timeline;
-  };
 
   const leadId = hook === "hero" ? heroClipId(source) : hook === "presenter" ? presenterClipId(source, input.transcripts) : source.clips[0].id;
   if (!leadId) return skip(hook === "presenter" ? "No shot has someone speaking in it." : "The reel has no shots.");
   const titleText = hook === "title" ? titleCardText(source, input.title) : null;
   if (hook === "title" && !titleText) return skip("Nothing to put on a title card: add the listing details or a headline.");
+  const leadClip = source.clips.find((clip) => clip.id === leadId)!;
+  const transcript = input.transcripts?.[leadClip.assetId];
+  // The presenter's line keeps its own length (up to a share of the reel); everything else shares the time.
+  const leadWindow = hook === "presenter" ? presenterWindow(leadClip, Math.round(totalMs * PRESENTER_SHARE), transcript, input.sourceDurationsMs[leadClip.assetId]) : null;
+  if (leadWindow && insideWord(transcript, leadWindow.sourceEndMs)) {
+    return skip(`Her first line does not reach a pause within ${Math.round((totalMs * PRESENTER_SHARE) / 1000)} s, so it would be cut mid-word. Trim her clip to a shorter line.`);
+  }
+  const leadMs = leadWindow ? Math.round((leadWindow.sourceEndMs - leadWindow.sourceStartMs) / (leadClip.kind === "IMAGE" ? 1 : leadClip.speed)) : 0;
+  const others = source.clips.filter((clip) => clip.id !== leadId);
 
-  try {
+  /** The cut with `count` of the other shots kept. */
+  const cut = (count: number): Timeline => {
+    let timeline = source;
+    const run = (command: Command) => {
+      const result = applyCommand(timeline, command, context);
+      if (result.rejected) throw new Error(`${command.type}: ${result.rejected}`);
+      timeline = result.timeline;
+    };
     run({ type: "moveClip", clipId: leadId, toIndex: 0 });
-    const lead = timeline.clips[0];
-    // The presenter's line keeps its own length (up to a share of the reel); everything else shares the time.
-    const leadWindow = hook === "presenter" ? presenterWindow(lead, Math.round(totalMs * PRESENTER_SHARE), input.transcripts?.[lead.assetId], input.sourceDurationsMs[lead.assetId]) : null;
-    const leadMs = leadWindow ? Math.round((leadWindow.sourceEndMs - leadWindow.sourceStartMs) / (lead.kind === "IMAGE" ? 1 : lead.speed)) : 0;
-
     // Drop what does not fit, evenly, keeping the ending; a dropped shot's own titles go with it.
-    const others = timeline.clips.slice(1);
-    const room = leadWindow ? Math.floor((totalMs - leadMs) / MIN_VARIANT_SHOT_MS) : Math.floor(totalMs / MIN_VARIANT_SHOT_MS) - 1;
-    const keep = new Set(spread(others, Math.max(0, room)).map((clip) => clip.id));
+    const keep = new Set(spread(others, count).map((clip) => clip.id));
     const dropped = new Set(others.filter((clip) => !keep.has(clip.id)).map((clip) => clip.id));
     if (dropped.size > 0) {
       const before = timeline;
@@ -167,24 +196,36 @@ export function buildVariant(source: Timeline, hook: VariantHook, lengthS: Varia
       }) };
       for (const clipId of dropped) run({ type: "deleteClip", clipId });
     }
-
     if (leadWindow) {
       const rest = timeline.clips.length - 1;
       // retimeToLength gives every shot the same share; asking for the rest's time scaled up to all shots gives the rest that share.
       if (rest > 0) run({ type: "retimeToLength", totalMs: Math.round(((totalMs - leadMs) * timeline.clips.length) / rest) });
-      run({ type: "trimClip", clipId: lead.id, window: leadWindow });
+      run({ type: "trimClip", clipId: leadId, window: leadWindow });
       if (timeline.music?.bpm && timeline.clips.length > 1) {
         // Back on the beat, unless that would cut the presenter mid-word: then the line wins and the rest keeps its timing.
         const unsnapped = timeline;
         run({ type: "snapToBeat" });
-        if (insideWord(input.transcripts?.[lead.assetId], timeline.clips[0].sourceEndMs)) timeline = unsnapped;
+        if (insideWord(transcript, timeline.clips[0].sourceEndMs)) timeline = unsnapped;
       }
     } else {
       run({ type: "retimeToLength", totalMs });
     }
+    return timeline;
+  };
+
+  let timeline: Timeline;
+  try {
+    let count = Math.min(others.length, Math.max(0, leadWindow ? Math.floor((totalMs - leadMs) / MIN_VARIANT_SHOT_MS) : Math.floor(totalMs / MIN_VARIANT_SHOT_MS) - 1));
+    timeline = cut(count);
+    // Measured, not assumed: 360 photos and beat snaps can leave the cut long.
+    while (timelineDurationMs(timeline) > totalMs + MAX_OVER_MS && count > 0) timeline = cut(--count);
   } catch (error) {
     return skip(error instanceof Error ? error.message : String(error));
   }
+  if (timelineDurationMs(timeline) > totalMs + MAX_OVER_MS) {
+    return skip(`It would run ${Math.round(timelineDurationMs(timeline) / 1000)} s even with the fewest shots.`);
+  }
+  timeline = keepPinsOnTheirPicture(timeline);
 
   // A drawn opener (ADR 0041) and words-behind titles were made for the source's first shot.
   if (timeline.clips[0].id !== source.clips[0].id || hook === "title") {
@@ -265,4 +306,14 @@ export function variantWinner(rows: VariantNumbers[]): string | null {
   const [best, next] = sorted;
   // A tie is no winner.
   return best.views === next.views && best.reach === next.reach ? null : best.reelId;
+}
+
+/** What Export all is about to use, in words, before anything starts. */
+export function exportAllSummary(count: number, remaining: number | null, atOnce: number): string {
+  const exports = (n: number) => `${n} export${n === 1 ? "" : "s"}`;
+  const starting = remaining === null ? count : Math.min(count, remaining);
+  const parts = [remaining === null ? `This starts ${exports(count)}.` : `This uses ${starting} of your ${remaining} exports left this month.`];
+  if (remaining !== null && remaining < count) parts.push(`Only ${exports(remaining)} can start; the rest wait for next month or a bigger plan.`);
+  if (atOnce < starting) parts.push(atOnce === 0 ? "Your plan's renders are all busy: wait for one to finish." : `${atOnce} can render at once now; tap Export all again for the rest when they finish.`);
+  return parts.join(" ");
 }

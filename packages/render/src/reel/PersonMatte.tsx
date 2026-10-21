@@ -3,9 +3,12 @@ import { AbsoluteFill, cancelRender, continueRender, delayRender, useCurrentFram
 import type { Clip } from "@reelwalk/core";
 import { FILTER_CSS } from "./look";
 import type { ReelAsset } from "./types";
-import { blend, boundingBox, grow, guidedFilter, paste, resample, toAlpha, type Mask } from "./matte-refine";
+import type { Mask } from "./matte-refine";
 import { openVisionTask } from "./matte-assets";
+import { COMPOSITE_PARAMS, MATTE_VERSION, PersonMatteRule, WORK_HEIGHT, WORK_WIDTH, type PersonFrame, type Rect, type Rgba } from "./matte-core";
 import { clipPresentation, fitRects } from "./presentation";
+
+export { WORK_HEIGHT, WORK_WIDTH } from "./matte-core";
 
 /**
  * People in the shot pass in front of the type (ADR 0039). A second decode
@@ -14,21 +17,21 @@ import { clipPresentation, fitRects } from "./presentation";
  * layer, through the same fit, zoom, motion and transition as the footage,
  * so the cut-out sits exactly on the body (review of 2026-10-20).
  *
- * Every frame's matte depends only on that frame and the one before it,
- * never on what this page happened to render earlier: the previous frame's
- * mask is taken from a cache when it was just computed, and computed from
- * the footage otherwise. Rendering pages in parallel, seeking in the editor
- * and retrying a frame all give the same pixels.
+ * The matte itself is `PersonMatteRule` (matte-core.ts, ADR 0051): frame n's
+ * alpha is a pure function of pictures n and n − 1 of the shot and
+ * MATTE_VERSION, the same in the editor and the export. This file only steps
+ * the decode, hands the rule pixels and the segmenter, and draws.
  *
- * In an export, a matte that cannot load or cannot segment fails the render
- * rather than quietly leaving the words on top of the presenter.
+ * A matte that cannot load or cannot segment fails an export rather than
+ * quietly leaving the words on top of the presenter; in the editor it shows
+ * a warning on the preview.
  */
 
-type Segmenter = { segment(image: CanvasImageSource): { confidenceMasks?: { width: number; height: number; getAsFloat32Array(): Float32Array; close(): void }[]; close(): void } };
+type ConfidenceMasks = { confidenceMasks?: { width: number; height: number; getAsFloat32Array(): Float32Array; close(): void }[]; close(): void };
+type Segmenter = { segment(image: CanvasImageSource): ConfidenceMasks };
 let loading: Promise<Segmenter> | null = null;
 
 function loadSegmenter(isRendering: boolean): Promise<Segmenter> {
-  // Pinned runtime and hash-checked model bytes (ADR 0051).
   loading ??= openVisionTask("selfie", isRendering, (vision, fileset, modelAssetBuffer) =>
     vision.ImageSegmenter.createFromOptions(fileset, {
       baseOptions: { modelAssetBuffer },
@@ -38,32 +41,26 @@ function loadSegmenter(isRendering: boolean): Promise<Segmenter> {
   return loading;
 }
 
-/** Working size for the matte's edge work: a quarter of the pixels, upscaled at the end; the model's own grid is coarser still. */
-export const WORK_WIDTH = 540, WORK_HEIGHT = 960;
-/** How much of the previous frame's mask is kept, to settle the edge between frames. */
-const SETTLE = 0.35;
-
-export type MatteScratch = { work: HTMLCanvasElement; crop: HTMLCanvasElement; /** The unblended mask of the frame named by `rawKey`, for the next frame to settle against. */ raw: Mask | null; rawKey: string | null };
-
-export function newScratch(): MatteScratch {
-  return { work: document.createElement("canvas"), crop: document.createElement("canvas"), raw: null, rawKey: null };
-}
-
-function segmentToMask(segmenter: Segmenter, source: CanvasImageSource, width: number, height: number): Mask | null {
-  const result = segmenter.segment(source);
+/** The first confidence mask of a MediaPipe result, copied out (the one per-frame allocation the matte keeps), and the result closed. */
+export function takeMask(result: ConfidenceMasks): Mask | null {
   const mask = result.confidenceMasks?.[0];
-  if (!mask) { result.close(); return null; }
-  const copy = new Float32Array(mask.getAsFloat32Array());
-  const out = resample({ data: copy, width: mask.width, height: mask.height }, width, height);
+  const out = mask ? { data: new Float32Array(mask.getAsFloat32Array()), width: mask.width, height: mask.height } : null;
   result.close();
   return out;
+}
+
+export type MatteScratch = { work: HTMLCanvasElement; crop: HTMLCanvasElement; alpha: ImageData | null };
+
+export function newScratch(): MatteScratch {
+  return { work: document.createElement("canvas"), crop: document.createElement("canvas"), alpha: null };
 }
 
 type Fit = ReturnType<typeof fitRects>;
 
 /** Draws the frame into the work canvas through the clip's fit geometry (what the footage shows, at a quarter size). */
 export function drawWork(frame: CanvasImageSource, scratch: MatteScratch, fit: Fit, width: number, height: number): CanvasRenderingContext2D {
-  scratch.work.width = WORK_WIDTH; scratch.work.height = WORK_HEIGHT;
+  if (scratch.work.width !== WORK_WIDTH) scratch.work.width = WORK_WIDTH;
+  if (scratch.work.height !== WORK_HEIGHT) scratch.work.height = WORK_HEIGHT;
   const wctx = scratch.work.getContext("2d", { willReadFrequently: true })!;
   wctx.clearRect(0, 0, WORK_WIDTH, WORK_HEIGHT);
   const kx = WORK_WIDTH / width, ky = WORK_HEIGHT / height;
@@ -71,73 +68,36 @@ export function drawWork(frame: CanvasImageSource, scratch: MatteScratch, fit: F
   return wctx;
 }
 
-/**
- * The person in `frame` as a soft mask at working size, before any settling:
- * the segmenter on the whole picture, again on a crop around the person for
- * four times the detail, snapped to the picture's edges (guided filter) and
- * grown one pixel so thin parts (a raised hand, hair ends) are covered. Two
- * pixels, with a low alpha floor, drew a halo of the wall behind her over the
- * words around the hair (snow reel, 2026-10-21).
- * Pure in the frame: the same picture always gives the same mask.
- */
-export function personMask(segmenter: Segmenter, frame: CanvasImageSource, scratch: MatteScratch, fit: Fit, width: number, height: number): Mask | null {
-  const wctx = drawWork(frame, scratch, fit, width, height);
-  let mask = segmentToMask(segmenter, scratch.work, WORK_WIDTH, WORK_HEIGHT);
-  if (!mask) return null;
-  const box = boundingBox(mask, 0.5);
-  if (box) {
-    const padX = (box.x1 - box.x0) * 0.15, padY = (box.y1 - box.y0) * 0.1;
-    const x0 = Math.max(0, Math.floor(box.x0 - padX)), y0 = Math.max(0, Math.floor(box.y0 - padY));
-    const x1 = Math.min(WORK_WIDTH, Math.ceil(box.x1 + padX)), y1 = Math.min(WORK_HEIGHT, Math.ceil(box.y1 + padY));
-    const cw = x1 - x0, ch = y1 - y0;
-    if (cw > 16 && ch > 16 && cw * ch < WORK_WIDTH * WORK_HEIGHT * 0.6) {
-      scratch.crop.width = cw; scratch.crop.height = ch;
-      scratch.crop.getContext("2d")!.drawImage(scratch.work, x0, y0, cw, ch, 0, 0, cw, ch);
-      const fine = segmentToMask(segmenter, scratch.crop, cw, ch);
-      if (fine) mask = paste(fine, WORK_WIDTH, WORK_HEIGHT, x0, y0);
-    }
-  }
-  const pixels = wctx.getImageData(0, 0, WORK_WIDTH, WORK_HEIGHT).data;
-  const guide = new Float32Array(WORK_WIDTH * WORK_HEIGHT);
-  for (let i = 0; i < guide.length; i++) guide[i] = (0.299 * pixels[i * 4] + 0.587 * pixels[i * 4 + 1] + 0.114 * pixels[i * 4 + 2]) / 255;
-  return grow(guidedFilter(mask, guide, 5, 2e-3), 1);
+/** The work canvas's pixels, for the rule's guide and the tracker. */
+export function workPixels(scratch: MatteScratch): Rgba {
+  const image = scratch.work.getContext("2d", { willReadFrequently: true })!.getImageData(0, 0, WORK_WIDTH, WORK_HEIGHT);
+  return { data: image.data, width: image.width, height: image.height };
 }
 
-/** Draws `frame` into `out` through the clip's fit, keeping only the pixels `mask` (at working size) calls a person. */
-export function compositePerson(frame: CanvasImageSource, out: HTMLCanvasElement, scratch: MatteScratch, mask: Mask, fit: Fit) {
+/** The selfie segmenter on the work canvas, or on a crop of it copied into the crop canvas. */
+function segmentWork(segmenter: Segmenter, scratch: MatteScratch, crop: Rect | null): Mask | null {
+  if (!crop) return takeMask(segmenter.segment(scratch.work));
+  scratch.crop.width = crop.width; scratch.crop.height = crop.height;
+  scratch.crop.getContext("2d")!.drawImage(scratch.work, crop.x, crop.y, crop.width, crop.height, 0, 0, crop.width, crop.height);
+  return takeMask(segmenter.segment(scratch.crop));
+}
+
+/** Draws `frame` into `out` through the clip's fit, keeping only the pixels `alpha` (0–255 at working size) keeps. */
+export function compositeMatte(frame: CanvasImageSource, out: HTMLCanvasElement, scratch: MatteScratch, alpha: Uint8ClampedArray, fit: Fit) {
   const ctx = out.getContext("2d")!;
   ctx.clearRect(0, 0, out.width, out.height);
   const wctx = scratch.work.getContext("2d", { willReadFrequently: true })!;
-  // The edge ramps over the middle of the segmenter's confidence: a floor near zero kept the background around the hair.
-  const alpha = toAlpha(mask, 0.35, 0.65);
-  const image = wctx.createImageData(WORK_WIDTH, WORK_HEIGHT);
-  for (let i = 0; i < alpha.length; i++) image.data[i * 4 + 3] = alpha[i];
-  wctx.putImageData(image, 0, 0);
+  scratch.alpha ??= wctx.createImageData(WORK_WIDTH, WORK_HEIGHT);
+  const image = scratch.alpha.data;
+  for (let i = 0; i < alpha.length; i++) image[i * 4 + 3] = alpha[i];
+  wctx.putImageData(scratch.alpha, 0, 0);
   ctx.globalCompositeOperation = "source-over";
   ctx.drawImage(frame, fit.sx, fit.sy, fit.sw, fit.sh, fit.dx, fit.dy, fit.dw, fit.dh);
   ctx.globalCompositeOperation = "destination-in";
-  ctx.filter = "blur(0.8px)";
+  ctx.filter = `blur(${COMPOSITE_PARAMS.blurPx}px)`;
   ctx.drawImage(scratch.work, 0, 0, out.width, out.height);
   ctx.filter = "none";
   ctx.globalCompositeOperation = "source-over";
-}
-
-/**
- * The matte for the frame named `key`: its own mask settled against the
- * previous frame's (`previousKey`), which is reused when it was the last one
- * computed and otherwise comes from `previousFrame`. Deterministic: the result
- * depends on those two pictures and nothing else.
- */
-export function drawPersonOnly(segmenter: Segmenter, frame: CanvasImageSource, out: HTMLCanvasElement, scratch: MatteScratch, key: string, previous: { key: string; frame: CanvasImageSource } | null, fit: Fit, width: number, height: number): boolean {
-  let before: Mask | null = null;
-  if (previous) {
-    before = scratch.rawKey === previous.key ? scratch.raw : personMask(segmenter, previous.frame, scratch, fit, width, height);
-  }
-  const now = personMask(segmenter, frame, scratch, fit, width, height);
-  if (!now) return false;
-  scratch.raw = now; scratch.rawKey = key;
-  compositePerson(frame, out, scratch, before ? blend(now, before, SETTLE) : now, fit);
-  return true;
 }
 
 /** Steps a decode to `seconds` and resolves once it holds that picture (readyState ≥ 2). */
@@ -159,37 +119,9 @@ export function frameAt(element: HTMLVideoElement, seconds: number, fps: number)
   });
 }
 
-/** A still copy of the decode's current picture, so two frames can be held at once. */
-function snapshot(element: HTMLVideoElement): HTMLCanvasElement {
-  const canvas = document.createElement("canvas");
-  canvas.width = element.videoWidth; canvas.height = element.videoHeight;
-  canvas.getContext("2d")!.drawImage(element, 0, 0);
-  return canvas;
-}
-
-export const PersonMatteView: React.FC<{ clip: Clip; asset: ReelAsset; durationInFrames: number; fadeOut?: boolean; whipOut?: Clip["whipDirection"] | null }> = ({ clip, asset, durationInFrames, fadeOut = false, whipOut = null }) => {
-  const frame = useCurrentFrame();
-  const { fps, width, height } = useVideoConfig();
-  const { isRendering } = useRemotionEnvironment();
-  const canvas = useRef<HTMLCanvasElement>(null);
+/** One decode for a matte, kept for the life of the view. */
+export function useMatteDecode(asset: ReelAsset): React.RefObject<HTMLVideoElement | null> {
   const video = useRef<HTMLVideoElement | null>(null);
-  const scratch = useRef<MatteScratch | null>(null);
-  const [segmenter, setSegmenter] = useState<Segmenter | null>(null);
-  const [failed, setFailed] = useState(false);
-
-  // In an export a matte that cannot be made fails the render; in the editor the words show over the person, with a note in the console.
-  const fatal = (what: string, error: unknown) => {
-    const reason = error instanceof Error ? error.message : String(error);
-    if (isRendering) cancelRender(new Error(`Person matte for clip ${clip.id}: ${what}: ${reason}`));
-    else { console.warn(`Person matte for clip ${clip.id}: ${what}: ${reason}`); setFailed(true); }
-  };
-
-  useEffect(() => {
-    const handle = delayRender("Loading the person matte", { timeoutInMilliseconds: 60_000 });
-    loadSegmenter(isRendering).then(setSegmenter).catch((error) => fatal("the segmenter did not load", error)).finally(() => continueRender(handle));
-  }, [isRendering]);
-
-  // One decode for the matte, kept for the life of the view.
   useEffect(() => {
     if (asset.kind !== "VIDEO") return;
     const element = document.createElement("video");
@@ -198,51 +130,92 @@ export const PersonMatteView: React.FC<{ clip: Clip; asset: ReelAsset; durationI
     video.current = element;
     return () => { element.removeAttribute("src"); element.load(); video.current = null; };
   }, [asset.kind, asset.src]);
+  return video;
+}
 
-  // Step the decode to this frame's source time (and the previous frame's when its mask is not cached) and draw the matte.
+/** Thrown inside a matte job whose frame is no longer wanted; never reported. */
+export const CANCELLED = new Error("matte frame superseded");
+
+/** A matte problem in the editor: shown on the preview, never in an export (where the render fails instead). */
+export const MatteWarning: React.FC<{ text: string }> = ({ text }) => (
+  <div data-testid="matte-warning" style={{ position: "absolute", left: 24, top: 24, maxWidth: "70%", padding: "10px 16px", borderRadius: 12, background: "rgba(140, 20, 20, 0.85)", color: "#fff", font: "600 28px/1.25 system-ui, sans-serif" }}>
+    {text}
+  </div>
+);
+
+export const PersonMatteView: React.FC<{ clip: Clip; asset: ReelAsset; durationInFrames: number; fadeOut?: boolean; whipOut?: Clip["whipDirection"] | null }> = ({ clip, asset, durationInFrames, fadeOut = false, whipOut = null }) => {
+  const frame = useCurrentFrame();
+  const { fps, width, height } = useVideoConfig();
+  const { isRendering } = useRemotionEnvironment();
+  const canvas = useRef<HTMLCanvasElement>(null);
+  const video = useMatteDecode(asset);
+  const scratch = useRef<MatteScratch | null>(null);
+  const rule = useRef<PersonMatteRule | null>(null);
+  // Frames are matted one at a time on the one decode: a new frame waits for the last to finish or bail.
+  const queue = useRef<Promise<void>>(Promise.resolve());
+  const [segmenter, setSegmenter] = useState<Segmenter | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
+
+  // In an export a matte that cannot be made fails the render; in the editor the words show over the person, with a warning.
+  const fatal = (what: string, error: unknown) => {
+    const message = `Person matte for clip ${clip.id}: ${what}: ${error instanceof Error ? error.message : String(error)}`;
+    if (isRendering) cancelRender(new Error(message));
+    else { console.warn(message); setWarning(message); }
+  };
+
+  useEffect(() => {
+    const handle = delayRender("Loading the person matte", { timeoutInMilliseconds: 60_000 });
+    loadSegmenter(isRendering).then(setSegmenter).catch((error) => fatal("the segmenter did not load", error)).finally(() => continueRender(handle));
+  }, [isRendering]);
+
+  // Frame n's matte from pictures n and n − 1 of this shot (matte-core.ts), then the person drawn through it.
   useEffect(() => {
     const element = video.current;
-    if (!segmenter || !element || !canvas.current) return;
+    if (!segmenter || !element || !canvas.current || warning) return;
     const speed = clip.speed || 1;
     const seconds = (n: number) => clip.sourceStartMs / 1000 + (n / fps) * speed;
-    const key = (n: number) => `${clip.id}:${n}`;
+    // A key names a picture: the same source time through the same fit is the same raw mask.
+    const key = (n: number) => `${asset.src}|${clip.fit}|${width}x${height}|${seconds(n).toFixed(6)}`;
+    const frames = new Map<string, number>([[key(frame), frame]]);
+    if (frame > 0) frames.set(key(frame - 1), frame - 1);
     let cancelled = false;
     const handle = delayRender(`Person matte frame ${frame}`, { timeoutInMilliseconds: 30_000 });
-    (async () => {
+    const job = async () => {
+      if (cancelled) return;
       try {
-        scratch.current ??= newScratch();
-        const previousKey = frame > 0 ? key(frame - 1) : null;
-        let previous: { key: string; frame: CanvasImageSource } | null = null;
-        if (previousKey && scratch.current.rawKey !== previousKey && isRendering) {
-          // The frame before was not the last one made here (a parallel page, a seek, a retry): read it from the footage.
-          // Only in an export: the editor scrubs, and a second seek per frame left the matte a frame behind the picture.
-          await frameAt(element, seconds(frame - 1), fps);
-          if (cancelled) return;
-          previous = { key: previousKey, frame: snapshot(element) };
-        } else if (previousKey && scratch.current.rawKey === previousKey) {
-          previous = { key: previousKey, frame: element };
-        }
+        const s = (scratch.current ??= newScratch());
+        const r = (rule.current ??= new PersonMatteRule());
+        const fitNow = () => fitRects(element.videoWidth, element.videoHeight, width, height, clip.fit);
+        const read = async (k: string): Promise<PersonFrame> => {
+          await frameAt(element, seconds(frames.get(k)!), fps);
+          if (cancelled) throw CANCELLED;
+          drawWork(element, s, fitNow(), width, height);
+          return { pixels: workPixels(s), segment: (crop) => segmentWork(segmenter, s, crop) };
+        };
+        const alpha = await r.matte(key(frame), frame > 0 ? key(frame - 1) : null, read);
+        if (!alpha) throw new Error("the segmenter returned no mask");
+        // Both raw masks may have been held; the picture drawn must still be this frame's.
         await frameAt(element, seconds(frame), fps);
         if (cancelled || !canvas.current) return;
-        const fit = fitRects(element.videoWidth, element.videoHeight, width, height, clip.fit);
-        const drawn = drawPersonOnly(segmenter, element, canvas.current, scratch.current, key(frame), previous, fit, width, height);
-        if (!drawn) throw new Error("the segmenter returned no mask");
+        compositeMatte(element, canvas.current, s, alpha, fitNow());
       } catch (error) {
-        if (!cancelled) fatal(`frame ${frame} could not be matted`, error);
+        if (!cancelled && error !== CANCELLED) fatal(`frame ${frame} could not be matted`, error);
       } finally {
         continueRender(handle);
       }
-    })();
+    };
+    queue.current = queue.current.then(job);
     return () => { cancelled = true; continueRender(handle); };
-  }, [segmenter, frame, fps, width, height, clip.id, clip.sourceStartMs, clip.speed, clip.fit, isRendering]);
+  }, [segmenter, frame, fps, width, height, asset.src, clip.id, clip.sourceStartMs, clip.speed, clip.fit, warning]);
 
-  if (failed || asset.kind !== "VIDEO") return null;
+  if (asset.kind !== "VIDEO") return null;
+  if (warning) return isRendering ? null : <AbsoluteFill style={{ pointerEvents: "none" }}><MatteWarning text={warning} /></AbsoluteFill>;
   // The same fade, whip and motion as the footage underneath, so the person stays on their own body.
   const shown = clipPresentation(clip, frame, fps, durationInFrames, fadeOut, whipOut);
   return (
     <AbsoluteFill style={{ pointerEvents: "none", opacity: shown.opacity, overflow: "hidden" }}>
       <AbsoluteFill style={shown.whip}>
-        <canvas ref={canvas} width={width} height={height} style={{ width: "100%", height: "100%", transform: shown.transform, filter: FILTER_CSS[clip.filter] }} />
+        <canvas ref={canvas} width={width} height={height} data-matte-version={MATTE_VERSION} style={{ width: "100%", height: "100%", transform: shown.transform, filter: FILTER_CSS[clip.filter] }} />
       </AbsoluteFill>
     </AbsoluteFill>
   );

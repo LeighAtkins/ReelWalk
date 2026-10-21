@@ -95,6 +95,18 @@ describe("the same cut change through trim, an AI proposal and the review", () =
   });
 });
 
+describe("a trim handle dragged in and back out", () => {
+  it("brings a squeezed title back when every step is anchored to the gesture's start", () => {
+    const start = reel();
+    const step = (timeline: Timeline, sourceStartMs: number) =>
+      applyCommand(timeline, { type: "trimClip", clipId: "a", window: { sourceStartMs, sourceEndMs: 8000 } }, { ...ctx, gestureBase: start }).timeline;
+    // The title shows source 5.5–7 s of clip a; dragging the start to 6 s cuts into it, back to 2 s restores it.
+    const squeezed = step(start, 6000);
+    expect(times(squeezed).title).toEqual([0, 1000]);
+    expect(times(step(squeezed, 2000)).title).toEqual(times(start).title);
+  });
+});
+
 describe("moving clips", () => {
   it("an attached text follows its clip; a reel-relative caption stays", () => {
     const { timeline, changes } = apply(reel(), { type: "moveClip", clipId: "b", toIndex: 0 });

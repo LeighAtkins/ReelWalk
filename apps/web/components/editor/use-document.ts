@@ -6,6 +6,8 @@ import { historyReducer, initHistory, type History, type HistoryAction } from ".
 export const STALE_PROPOSAL = "The reel changed while that was being worked out, so nothing was replaced. Review the reel and ask again.";
 
 type Store = { history: History; generation: number };
+/** The gesture a keyed command belongs to: its key, the reel before it began, and the reel its last step left. */
+type Gesture = { key: string; base: Timeline; last: Timeline };
 
 /**
  * The editor's document (ADR 0048): the undo history plus a generation that
@@ -19,6 +21,7 @@ export function useDocument(initial: Timeline, sourceDurationsMs: () => Record<s
   const store = useRef<Store | null>(null);
   if (store.current === null) store.current = { history: initHistory(initial), generation: 0 };
   const [, rerender] = useReducer((count: number) => count + 1, 0);
+  const gesture = useRef<Gesture | null>(null);
 
   const dispatch = useCallback((action: HistoryAction) => {
     const before = store.current!;
@@ -32,15 +35,20 @@ export function useDocument(initial: Timeline, sourceDurationsMs: () => Record<s
   const runCommand = useCallback(
     (command: Command, key?: string): CommandResult & { generation: number } => {
       let result = null as CommandResult | null;
+      const present = store.current!.history.present;
+      // A keyed command right after another with the same key, nothing in between, continues that gesture.
+      const continues = key !== undefined && gesture.current?.key === key && gesture.current.last === present;
+      const base = continues ? gesture.current!.base : present;
       dispatch({
         type: "apply",
         key,
         update: (timeline) => {
-          result = applyCommand(timeline, command, { generation: store.current!.generation, sourceDurationsMs: sourceDurationsMs() });
+          result = applyCommand(timeline, command, { generation: store.current!.generation, sourceDurationsMs: sourceDurationsMs(), gestureBase: base });
           return result.timeline;
         },
       });
       const now = store.current!;
+      gesture.current = key === undefined ? null : { key, base, last: now.history.present };
       // A command that threw (an invalid proposal) leaves the reel as it was, with no changes.
       const landed: CommandResult = result ?? { timeline: now.history.present, changes: [] };
       return { ...landed, generation: now.generation };

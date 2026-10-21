@@ -62,6 +62,12 @@ export type CommandContext = {
   generation: number;
   /** Source lengths by asset id: trims and beat snaps never run past a video's end. */
   sourceDurationsMs?: Record<string, number | null | undefined>;
+  /**
+   * The timeline before the gesture this command continues (a trim handle
+   * dragged in and back out): texts are anchored there, not to the previous
+   * step, so a title squeezed by the drag comes back when the drag undoes it.
+   */
+  gestureBase?: Timeline;
 };
 
 export type Change = { kind: "clip"; id: string } | { kind: "text"; id: string } | { kind: "music" } | { kind: "other"; key: string };
@@ -88,7 +94,7 @@ function run(timeline: Timeline, command: Command, context: CommandContext): Tim
     return clip ? (durations[clip.assetId] ?? undefined) : undefined;
   };
   // Every cut change goes through retimeTexts, against the timeline it started from.
-  const cut = (after: Timeline, options?: Parameters<typeof retimeTexts>[2]) => (after === timeline ? timeline : retimeTexts(timeline, after, options));
+  const cut = (after: Timeline, options?: Parameters<typeof retimeTexts>[2]) => (after === timeline ? timeline : retimeTexts(context.gestureBase ?? timeline, after, options));
 
   switch (command.type) {
     case "trimClip":

@@ -1,7 +1,7 @@
 "use server";
 
 import { z } from "zod";
-import { isInstagramAudioType, isMusicMood, type PopularPick } from "@reelwalk/core";
+import { isInstagramAudioType, isMusicMood, songMapSchema, type PopularPick } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
 import { searchInstagramAudio, type AudioSearchResult } from "@/lib/instagram-audio";
 import { ensureInstagramSoundAsset, instagramSoundProblem } from "@/lib/instagram-sound";
@@ -75,6 +75,8 @@ const analysisSchema = z.object({
   durationMs: z.number().int().positive().max(60 * 60_000).nullable(),
   bpm: z.number().min(40).max(240).nullable(),
   beatOffsetMs: z.number().int().min(0).nullable(),
+  /** Bars and sections of the preview (ADR 0059). */
+  songMap: songMapSchema.nullable().optional(),
   /** Instagram's own length of the sound, to tell a clip from the whole track in the logs. */
   catalogueMs: z.number().int().positive().nullable().optional(),
 });
@@ -88,10 +90,10 @@ export async function analyseInstagramSound(input: z.input<typeof analysisSchema
   const parsed = analysisSchema.safeParse(input);
   if (!parsed.success) return { ok: false };
   const user = await getCurrentUser();
-  const { assetId, durationMs, bpm, beatOffsetMs, catalogueMs } = parsed.data;
+  const { assetId, durationMs, bpm, beatOffsetMs, songMap, catalogueMs } = parsed.data;
   const updated = await prisma.mediaAsset.updateMany({
     where: { id: assetId, workspaceId: user.workspaceId, instagramAudioId: { not: null } },
-    data: { durationMs, bpm, beatOffsetMs },
+    data: { durationMs, bpm, beatOffsetMs, ...(songMap ? { songMap } : {}) },
   });
   if (updated.count > 0 && durationMs && catalogueMs) {
     // Whether Instagram's preview is the whole sound or a clip of it (ADR 0019).

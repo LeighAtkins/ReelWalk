@@ -3,7 +3,7 @@ import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import path from "node:path";
 import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
-import { BEAT_SAMPLE_RATE, detectBeats, type BeatGrid } from "@reelwalk/core";
+import { analyseSong, BEAT_SAMPLE_RATE, detectBeats, type BeatGrid, type SongMap } from "@reelwalk/core";
 import { getConfig } from "../config";
 import { killTree, ownChild, OWN_PROCESS_GROUP, type AttemptScope } from "../lifecycle";
 
@@ -110,10 +110,17 @@ export async function probe(file: string, scope?: AttemptScope): Promise<{ width
 }
 
 /**
- * Tempo of a song. ffmpeg decodes the first 90 seconds to raw mono samples,
- * and the same detector the browser uses for uploads does the rest.
+ * Tempo of a song and its structure (bars, intro/build/drop/outro, ADR 0059).
+ * ffmpeg decodes the first 90 seconds to raw mono samples, and the same
+ * detectors the browser uses for uploads do the rest.
  */
-export async function analyseBeats(file: string): Promise<BeatGrid | null> {
+export async function analyseMusic(file: string): Promise<{ beat: BeatGrid | null; songMap: SongMap | null }> {
+  const samples = await decodeMono(file);
+  const beat = detectBeats(samples);
+  return { beat, songMap: beat ? analyseSong(samples, beat) : null };
+}
+
+async function decodeMono(file: string): Promise<Float32Array> {
   const { stdout } = await run(
     "ffmpeg",
     ["-v", "error", "-t", "90", "-i", file, "-ac", "1", "-ar", String(BEAT_SAMPLE_RATE), "-f", "f32le", "pipe:1"],
@@ -121,8 +128,7 @@ export async function analyseBeats(file: string): Promise<BeatGrid | null> {
   );
   // Copied: a Buffer may start at an offset a Float32Array cannot be aligned to.
   const bytes = Math.floor(stdout.byteLength / 4) * 4;
-  const samples = new Float32Array(stdout.buffer.slice(stdout.byteOffset, stdout.byteOffset + bytes));
-  return detectBeats(samples);
+  return new Float32Array(stdout.buffer.slice(stdout.byteOffset, stdout.byteOffset + bytes));
 }
 
 /**

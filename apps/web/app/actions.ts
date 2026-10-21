@@ -12,6 +12,7 @@ import {
   MAX_UPLOAD_BYTES,
   planSchema,
   resolveUploadType,
+  songMapSchema,
   spotSchema,
   vibeById,
   thumbKeyFor,
@@ -296,6 +297,8 @@ const confirmSchema = z.object({
   beatOffsetMs: z.number().int().min(0).nullable().optional(),
   /** The room the shot list says this was filmed as (ADR 0063). */
   room: z.string().trim().toLowerCase().min(1).max(40).nullable().optional(),
+  /** Bars and sections of a song (ADR 0059), found in the browser. */
+  songMap: songMapSchema.nullable().optional(),
 });
 
 export type ConfirmResult = { ok: true; asset: LibraryAsset } | { ok: false; error: string };
@@ -335,6 +338,7 @@ export async function confirmUpload(input: z.input<typeof confirmSchema>): Promi
       bpm: resolved.kind === "AUDIO" ? (data.bpm ?? null) : null,
       beatOffsetMs: resolved.kind === "AUDIO" ? (data.beatOffsetMs ?? null) : null,
       room: resolved.kind === "AUDIO" ? null : (data.room ?? null),
+      ...(resolved.kind === "AUDIO" && data.songMap ? { songMap: data.songMap } : {}),
     },
   });
 

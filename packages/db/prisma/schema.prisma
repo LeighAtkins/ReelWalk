@@ -433,6 +433,8 @@ model MediaAsset {
   // For music: tempo and the time of the first beat, detected at upload or import.
   bpm          Float?
   beatOffsetMs Int?
+  // For music: where its bars start and its intro/build/drop/outro (songMapSchema in @reelwalk/core, ADR 0059).
+  songMap      Json?
   // Set when this is the workspace's private copy of an Instagram sound's
   // preview (ADR 0019): for editing against in the editor only. It is never
   // rendered into an export or published; Instagram attaches the sound itself.

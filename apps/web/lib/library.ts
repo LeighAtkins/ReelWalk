@@ -1,6 +1,7 @@
 import { isEquirect, spotSchema, transcriptSchema, type MediaKind, type Spot, type Transcript } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
 import { mediaUrl } from "./storage";
+import { faceHintFromChecks, type FaceHint } from "../components/editor/inspect-view";
 
 /** A media asset as the editor sees it: what it is and where the browser can load it. */
 export type LibraryAsset = {
@@ -10,6 +11,14 @@ export type LibraryAsset = {
   /** Confirmed by a completed generation record, independent of filename. */
   isAiGenerated?: boolean;
   url: string;
+  /**
+   * The original file when `url` is the light preview rendition: Inspect's
+   * Footage only reads it, so a zoomed frame shows what was delivered, not
+   * the 720p preview (ADR 0057). Absent when `url` is the original.
+   */
+  originalUrl?: string;
+  /** For an AI take: where the identity gate found the presenter's face on the composed first frame (ADR 0056/0057). */
+  face?: FaceHint | null;
   thumbUrl: string | null;
   durationMs: number | null;
   width: number | null;
@@ -60,16 +69,20 @@ type LibraryAssetInput = {
   transcript?: unknown;
 };
 
-async function serializeLibraryAsset(asset: LibraryAssetInput, isAiGenerated: boolean): Promise<LibraryAsset> {
+async function serializeLibraryAsset(asset: LibraryAssetInput, generation: { checks: unknown } | undefined): Promise<LibraryAsset> {
   const spot = spotSchema.safeParse(asset.spot);
   // The editor plays the light preview rendition when one exists; exports always use the original.
-  const [url, thumbUrl] = await Promise.all([mediaUrl(asset.previewKey ?? asset.objectKey), asset.thumbKey ? mediaUrl(asset.thumbKey) : null]);
+  const preview = asset.previewKey && asset.previewKey !== asset.objectKey ? asset.previewKey : null;
+  const [url, thumbUrl, originalUrl] = await Promise.all([mediaUrl(preview ?? asset.objectKey), asset.thumbKey ? mediaUrl(asset.thumbKey) : null, preview ? mediaUrl(asset.objectKey) : null]);
+  const face = generation ? faceHintFromChecks(generation.checks) : null;
   return {
     id: asset.id,
     kind: asset.kind,
     fileName: asset.fileName,
-    isAiGenerated,
+    isAiGenerated: Boolean(generation),
     url,
+    ...(originalUrl ? { originalUrl } : {}),
+    ...(face ? { face } : {}),
     // A photo is its own thumbnail.
     thumbUrl: thumbUrl ?? (asset.kind === "IMAGE" ? url : null),
     durationMs: asset.durationMs,
@@ -94,10 +107,10 @@ async function serializeLibraryAsset(asset: LibraryAssetInput, isAiGenerated: bo
 export async function toLibraryAssets(assets: LibraryAssetInput[]): Promise<LibraryAsset[]> {
   const ids = assets.filter(asset => asset.kind === "VIDEO").map(asset => asset.id);
   const jobs = ids.length ? await prisma.aiGeneration.findMany({
-    where: { status: "SUCCEEDED", assetId: { in: ids } }, select: { assetId: true },
+    where: { status: "SUCCEEDED", assetId: { in: ids } }, select: { assetId: true, identityChecks: true },
   }) : [];
-  const generated = new Set(jobs.map(job => job.assetId));
-  return Promise.all(assets.map(asset => serializeLibraryAsset(asset, generated.has(asset.id))));
+  const generated = new Map(jobs.map(job => [job.assetId, { checks: job.identityChecks }]));
+  return Promise.all(assets.map(asset => serializeLibraryAsset(asset, generated.get(asset.id))));
 }
 
 export async function toLibraryAsset(asset: LibraryAssetInput): Promise<LibraryAsset> {

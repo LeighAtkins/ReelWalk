@@ -129,6 +129,7 @@ import { analyseStoredAudio, uploadFile } from "./upload";
 import { useAutosave } from "./use-autosave";
 import { AiVideoPanel } from "../ai-video-panel";
 import { Sheet } from "./sheets";
+import type { InspectSource } from "./inspect";
 
 // The Player only runs in the browser.
 const Preview = dynamic(() => import("./preview").then((module) => module.Preview), {
@@ -287,7 +288,10 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
   // Corner placing (ADR 0044): the frame full screen with only the selected title's corners, a loupe under the finger.
   const [placing, setPlacing] = useState<false | "corners" | "cutouts">(false);
   const [placingStatus, setPlacingStatus] = useState<{ text: string | null; busy: boolean }>({ text: null, busy: false });
-  const exitTheater = useCallback(() => { setTheater(false); setChecking(false); setPlacing(false); setPlacingStatus({ text: null, busy: false }); }, []);
+  // Inspect (ADR 0057): the frame full screen, magnified up to 8×, Final or Footage only.
+  const [inspecting, setInspecting] = useState(false);
+  const exitTheater = useCallback(() => { setTheater(false); setChecking(false); setPlacing(false); setInspecting(false); setPlacingStatus({ text: null, busy: false }); }, []);
+  const openInspect = useCallback(() => { playerRef.current?.pause(); setSheet(null); setChecking(false); setPlacing(false); setInspecting(true); setTheater(true); }, []);
   const openCorners = useCallback((tool: "corners" | "cutouts" = "corners") => { playerRef.current?.pause(); setChecking(false); setPlacing(tool); setTheater(true); }, []);
   const playerRef = useRef<PlayerRef>(null);
   // The Player loads after this component and remounts when the reel goes
@@ -901,6 +905,13 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
       const target = event.target as HTMLElement;
       if (sheet || target.closest("input, textarea, [contenteditable]")) return;
       const mod = event.metaKey || event.ctrlKey;
+      // I opens and closes Inspect; while it is open only the playhead keys reach the editor, never an edit.
+      if (event.key.toLowerCase() === "i" && !mod && !event.altKey) {
+        if (inspecting) exitTheater();
+        else if (timeline.clips.length > 0 && !theater) openInspect();
+        return;
+      }
+      if (inspecting && !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
       if (mod && event.key.toLowerCase() === "z") {
         event.preventDefault();
         dispatch({ type: event.shiftKey ? "redo" : "undo" });
@@ -926,10 +937,15 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [activeSelection, clock, deleteSelection, seek, sheet, split, togglePlay, totalMs]);
+  }, [activeSelection, clock, deleteSelection, exitTheater, inspecting, openInspect, seek, sheet, split, theater, timeline.clips.length, togglePlay, totalMs]);
 
   const assets = useMemo<Record<string, ReelAsset>>(
     () => Object.fromEntries(Object.values(library).map((asset) => [asset.id, { src: asset.url, kind: asset.kind, transcript: asset.transcript }])),
+    [library],
+  );
+  // What Inspect reads beyond the Player's media: the original file, its size, and an AI take's face hint.
+  const inspectSources = useMemo<Record<string, InspectSource>>(
+    () => Object.fromEntries(Object.values(library).map((asset) => [asset.id, { original: asset.originalUrl ?? null, width: asset.width, height: asset.height, ai: Boolean(asset.isAiGenerated), face: asset.face ?? null }])),
     [library],
   );
   // Media the preview keeps in memory: the clips' preview renditions and the
@@ -1227,6 +1243,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         }}
         theater={theater}
         onExitTheater={exitTheater}
+        inspect={inspecting ? { sources: inspectSources, totalMs, onSeek: seek, onClose: exitTheater } : null}
         empty={
           uploads.length > 0 ? (
             <p>Uploading {uploads.length === 1 ? "1 file" : `${uploads.length} files`}…</p>
@@ -1270,6 +1287,12 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         </button>
         <button type="button" className="icon-btn" aria-label="Redo" disabled={history.future.length === 0} onClick={() => dispatch({ type: "redo" })}>
           <RedoIcon />
+        </button>
+        <button type="button" className="icon-btn" aria-label="Inspect: magnify the frame" title="Inspect (I)" disabled={!hasClips} onClick={openInspect} data-testid="inspect-button">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <circle cx="10.5" cy="10.5" r="6" />
+            <path d="M15 15l5 5M8 10.5h5M10.5 8v5" />
+          </svg>
         </button>
         <button type="button" className="icon-btn" aria-label="Full screen" disabled={!hasClips} onClick={() => setTheater(true)} data-testid="preview-fullscreen">
           <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

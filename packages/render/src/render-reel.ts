@@ -2,7 +2,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { bundle } from "@remotion/bundler";
-import { renderMedia, renderStill, selectComposition } from "@remotion/renderer";
+import { makeCancelSignal, renderMedia, renderStill, selectComposition, type CancelSignal } from "@remotion/renderer";
 import { clipDurationMs, clipStartsMs, isInstagramMusic, REEL_FORMAT, type Timeline } from "@reelwalk/core";
 import { mkdtemp, rm } from "node:fs/promises";
 import { REEL_COMPOSITION_ID, type ReelAsset } from "./reel/types";
@@ -26,6 +26,19 @@ function getServeUrl(): Promise<string> {
   return bundled;
 }
 
+/**
+ * Remotion's cancel signal driven by an AbortSignal (ADR 0050): aborting
+ * cancels the render, which stops its compositor and stitcher and closes the
+ * browser it opened. `done` unhooks the listener once the call settles.
+ */
+export function remotionCancel(signal: AbortSignal | undefined): { cancelSignal: CancelSignal | undefined; done: () => void } {
+  if (!signal) return { cancelSignal: undefined, done: () => {} };
+  const { cancelSignal, cancel } = makeCancelSignal();
+  if (signal.aborted) cancel();
+  else signal.addEventListener("abort", cancel, { once: true });
+  return { cancelSignal, done: () => signal.removeEventListener("abort", cancel) };
+}
+
 export async function renderReel(
   input: {
     timeline: Timeline;
@@ -35,16 +48,21 @@ export async function renderReel(
     /** Frame width, 720 or 1080 (the composition is laid out at 1080 and scaled). */
     width?: number;
     watermark?: boolean;
+    /** Aborting cancels the render and closes its browser; the promise then rejects. */
+    signal?: AbortSignal;
   },
   onProgress?: (fraction: number) => void,
 ): Promise<string> {
   const serveUrl = await getServeUrl();
+  input.signal?.throwIfAborted();
   // Last line of defence (ADR 0019): an Instagram sound is never baked into an export.
   const timeline = isInstagramMusic(input.timeline.music) ? { ...input.timeline, music: null } : input.timeline;
   const inputProps = { timeline, assets: input.assets, watermark: input.watermark ?? false };
   const composition = await selectComposition({ serveUrl, id: REEL_COMPOSITION_ID, inputProps });
 
+  input.signal?.throwIfAborted();
   const outputLocation = path.resolve(input.output);
+  const cancel = remotionCancel(input.signal);
   // Instagram re-encodes every upload, so start from a high-quality source:
   // H.264, yuv420p, AAC, 30 fps, 1080x1920. Remotion adds +faststart for H.264.
   await renderMedia({
@@ -68,7 +86,8 @@ export async function renderReel(
     offthreadVideoCacheSizeInBytes: 512 * 1024 * 1024,
     mediaCacheSizeInBytes: 512 * 1024 * 1024,
     onProgress: ({ progress }) => onProgress?.(progress),
-  });
+    cancelSignal: cancel.cancelSignal,
+  }).finally(cancel.done);
   return outputLocation;
 }
 
@@ -109,10 +128,11 @@ export class PreflightError extends Error {
  * `keepIn` is given (the smoke test lays them out); otherwise they are removed.
  */
 export async function preflightReel(
-  input: { timeline: Timeline; assets: Record<string, ReelAsset>; keepIn?: string; timeoutMs?: number; width?: number },
+  input: { timeline: Timeline; assets: Record<string, ReelAsset>; keepIn?: string; timeoutMs?: number; width?: number; signal?: AbortSignal },
   onProgress?: (done: number, total: number) => void,
 ): Promise<{ frame: number; shot: number; edge: CheckpointEdge; path: string }[]> {
   const serveUrl = await getServeUrl();
+  input.signal?.throwIfAborted();
   const timeline = isInstagramMusic(input.timeline.music) ? { ...input.timeline, music: null } : input.timeline;
   const inputProps = { timeline, assets: input.assets, watermark: false };
   const composition = await selectComposition({ serveUrl, id: REEL_COMPOSITION_ID, inputProps });
@@ -122,15 +142,22 @@ export async function preflightReel(
   try {
     for (const [index, point] of points.entries()) {
       const output = path.join(dir, `shot-${String(point.shot).padStart(2, "0")}-${point.edge}.jpg`);
+      input.signal?.throwIfAborted();
+      const cancel = remotionCancel(input.signal);
       try {
         await renderStill({
           composition, serveUrl, inputProps, output, frame: point.frame, imageFormat: "jpeg", jpegQuality: 80,
           scale: (input.width ?? 540) / 1080,
           timeoutInMilliseconds: input.timeoutMs ?? 30_000,
           offthreadVideoCacheSizeInBytes: 256 * 1024 * 1024,
+          cancelSignal: cancel.cancelSignal,
         });
       } catch (error) {
+        // A cancelled preflight is not a broken shot: report the cancellation as it is.
+        if (input.signal?.aborted) throw input.signal.reason;
         throw new PreflightError(point.shot, point.edge, point.frame, error);
+      } finally {
+        cancel.done();
       }
       made.push({ ...point, path: output });
       onProgress?.(index + 1, points.length);

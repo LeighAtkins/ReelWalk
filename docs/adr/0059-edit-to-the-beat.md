@@ -189,7 +189,7 @@ Known gaps:
 
 ## What was verified
 
-On Windows 10, branch rebased on main at ad193af7:
+On Windows 10, branch rebased on main at 407c62e7:
 
 - `pnpm check` (eslint, every package's typecheck, every package's tests):
   passes. New tests: `packages/core/tests/song.test.ts` (a generated click

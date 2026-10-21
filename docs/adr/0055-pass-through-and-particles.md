@@ -51,24 +51,46 @@ that is not. So `sceneLayers()` now orders group 0 as:
 
 1. `behind` titles without `passMs`, each followed by its tapped objects;
 2. the shared presenter matte of every clip one of *those* overlaps;
-3. each passing title, its tapped objects, then a presenter matte of its
-   own (`{ kind: "person", …, pass }`), above that title alone.
+3. the passing titles, **grouped by their crossing** (same `passMs` and
+   `passFadeMs`), groups ordered by `passMs`: each group's titles with their
+   tapped objects, then one presenter matte for the group
+   (`{ kind: "person", …, pass: { textIds, … } }`), directly above its own
+   titles and below every later group's titles.
+
+Why groups: each presenter layer holds the whole person, so with one per
+title (the first cut of this ADR) COME IN → presenter A → FROM THE COLD →
+presenter B had B covering COME IN too; half way through a shared crossing
+an opaque presenter pixel covered COME IN by 0.75 and FROM THE COLD by 0.5,
+and with different times B hid COME IN before its own crossing (GPT-6 Astra
+review of #202). One layer per crossing covers every title in it once, and
+halves the segmentation for the snow reel's case (two words crossing
+together). Ordering groups by `passMs` means a group's presenter only ever
+sits above titles whose crossing has already begun: an earlier-passing
+title's letters are covered by a later group's presenter once that is up,
+which is right (she is in front of that plane by then), and a later group
+never covers an earlier title before the earlier title's own crossing. An
+earlier group with a long fade overlapping a later group's sharp crossing is
+the one case where the later presenter adds to the earlier ramp; accepted.
 
 `personLayerOpacity(layer, reelFrame, fps)` is 1 for the shared matte and,
-for a passing title's matte, `passOpacity` inside the title's window
-(its plan entry's frames) and 0 outside it, so a passing title's matte
-never covers another title. The renderer wraps that matte in `PassFade`, an
-`AbsoluteFill` at that opacity. `stackTitles` (the editor's tap targets)
-ranks passing titles after the other `behind` titles so a tap still selects
-what is drawn on top.
+for a group's matte, `passOpacity` inside the span of the group's windows
+(their plan entries' frames) and 0 outside it. The renderer wraps that matte
+in `PassFade`, an `AbsoluteFill` at that opacity, and passes
+`active = opacity > 0` to `PersonMatteView`: on an idle frame it does not
+seek, decode or segment at all (the first active frame reads its previous
+picture itself, through matte-core's rule, so the result is unchanged).
+`stackTitles` (the editor's tap targets) ranks passing titles after the
+other `behind` titles and by crossing, so a tap selects what is drawn on top.
 
 Unchanged on purpose: the title's own placement (`evaluateTitle`), its
 tapped object mattes (still directly above it, below its presenter), its
 `endsBeforeShot` tail (title opacity, independent of the matte) and the
-matte's pixels (`PersonMatteView` is mounted exactly as before, only inside
-a wrapper). The cost: a clip with both a passing and a plain `behind` title
-segments the presenter twice; a clip with only a passing title still
-segments once (the shared matte is not mounted for it).
+matte's pixels. The cost: each crossing group mounts its own
+`PersonMatteView` (decoder, scratch, cache) for the clip, so a clip with a
+plain `behind` title and a passing one, or two different crossings, decodes
+and segments the presenter more than once while those layers are active.
+Follow-up: share the decoded frame and the matte per clip and frame across
+every consumer (the mattes work).
 
 ### Particles: a pure field in the title's plane
 
@@ -104,6 +126,12 @@ segments once (the shared matte is not mounted for it).
   bright background, and sparks in a pass the renderer screen-blends.
   Snow and dust are one normal pass.
 
+Every particle is faded out before anything it paints (its long radius,
+halo, shadow offset and three blur deviations, `particleExtent`) reaches the
+field's edge, where the SVG would cut it. At the densest setting (2) a frame
+of snow, the heaviest kind, is at most ~23 KB of SVG over its four passes
+(Medium ~11 KB; embers ~12 KB and dust ~6 KB at 2), measured over 30 s.
+
 `TextView` draws the back layer before the words and the front layer after
 them, as siblings of the text element with the title's own transform: for a
 surface title the placement's `placed` homography followed by
@@ -113,13 +141,17 @@ They take the title's visible opacity (entrance × placement); only the
 ember sparks are `mix-blend-mode: screen`. Being part of the title layer, they sit under the
 title's occluders: the presenter of a `behind` title covers them too. They
 are not inside the plane's clipping box, so they are not cut at a chosen
-surface's edge.
+surface's edge, but a surface title's posts and cut-outs hide them as they
+hide the letters: the same luminance mask, its polygons moved by the
+field's margins, over the whole field (outside the surface it is white).
 
 ### Editor
 
 In the text sheet (where `behind` is set), when "People in the shot pass in
 front of this text" is on: "She passes in front at ▸ 0:09.3" with **Use this
-frame** (the playhead's reel time) and a clear (×); unticking `behind` clears
+frame** and a clear (×). The button reads the editor's clock when it is
+pressed (the sheet is handed `clock.get`, not a value), so playback running
+behind the sheet sets the frame on screen; unticking `behind` clears
 the crossing. A **Particles** row (No particles / Snow / Embers / Dust) and,
 when on, a three-step density (Light 0.5 / Medium 1 / Thick 1.8). All
 thumb-sized `.segmented` buttons, saved by the sheet's existing

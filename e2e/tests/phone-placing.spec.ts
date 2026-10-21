@@ -41,7 +41,11 @@ async function decode(browser: Browser, png: Buffer): Promise<Pixels> {
 }
 
 async function shot(page: Page, browser: Browser, clip: Box): Promise<Pixels> {
-  const rounded = { x: Math.round(clip.x), y: Math.round(clip.y), width: Math.round(clip.width), height: Math.round(clip.height) };
+  // Only what is on the screen: a region past its edge is what the phone cannot show (or be touched on).
+  const screen = page.viewportSize()!;
+  const x0 = Math.max(0, Math.round(clip.x)), y0 = Math.max(0, Math.round(clip.y));
+  const x1 = Math.min(screen.width, Math.round(clip.x + clip.width)), y1 = Math.min(screen.height, Math.round(clip.y + clip.height));
+  const rounded = { x: x0, y: y0, width: Math.max(1, x1 - x0), height: Math.max(1, y1 - y0) };
   return decode(browser, await page.screenshot({ clip: rounded, animations: "disabled", caret: "hide" }));
 }
 
@@ -106,25 +110,41 @@ async function openPlacing(page: Page) {
   await page.waitForTimeout(500);
 }
 
-test("corner placing at phone size: thumb-sized handles, a true loupe, a clear centre", async ({ page, browser }) => {
+// Found by this spec's first CI run (2026-10-21): in placing mode the stage is about 418 px wide from x = 30
+// on a 412 px screen, so the right-hand corners sit 6 px from the edge and paint 30 px of their 44 (and the
+// right 36 px of the picture are off screen). Recorded in PR #193 rather than fixed here: the layout belongs to
+// the editor, which this harness measures and does not change. `test.fail` keeps the check running and turns
+// it red the day the layout is fixed, as the cue to delete that line.
+test("corner placing at phone size: the stage and every corner handle fit the screen, thumb-sized", async ({ page, browser }) => {
+  test.fail(true, "known defect: the corner-placing stage overflows a 412 px screen (PR #193)");
   await openPlacing(page);
   const stage = (await page.getByTestId("preview").boundingBox())!;
+  const screen = page.viewportSize()!;
+  test.info().annotations.push({ type: "stage", description: `placing stage ${Math.round(stage.x)}..${Math.round(stage.x + stage.width)} × ${Math.round(stage.y)}..${Math.round(stage.y + stage.height)} on a ${screen.width}×${screen.height} screen` });
+  expect.soft(stage.x >= 0 && stage.x + stage.width <= screen.width && stage.y >= 0 && stage.y + stage.height <= screen.height, "the placing stage runs off the screen").toBe(true);
 
-  // 1. Every corner handle paints at least 44 × 44 px (a fingertip).
+  // Every corner handle paints at least 44 × 44 px (a fingertip) on the screen: a handle cut by the screen's
+  // edge paints, and can be touched, only where it is on screen.
   for (const [i, corner] of (await page.getByTestId("surface-corner").all()).entries()) {
     const c = await centreOf(corner);
     const region = { x: c.x - 40, y: c.y - 40, width: 80, height: 80 };
     const shown = await shot(page, browser, region);
     const hidden = await without(page, ".surface-corner", () => shot(page, browser, region));
     const painted = changed(shown, hidden);
-    expect(painted, `corner ${i + 1} paints nothing`).not.toBeNull();
-    const size = { width: painted!.right - painted!.left + 1, height: painted!.bottom - painted!.top + 1 };
-    test.info().annotations.push({ type: "corner", description: `corner ${i + 1} paints ${size.width}×${size.height} px` });
-    expect(size.width, `corner ${i + 1} is ${size.width} px wide`).toBeGreaterThanOrEqual(44);
-    expect(size.height, `corner ${i + 1} is ${size.height} px tall`).toBeGreaterThanOrEqual(44);
+    expect.soft(painted, `corner ${i + 1} paints nothing`).not.toBeNull();
+    if (!painted) continue;
+    const size = { width: painted.right - painted.left + 1, height: painted.bottom - painted.top + 1 };
+    test.info().annotations.push({ type: "corner", description: `corner ${i + 1} at ${Math.round(c.x)},${Math.round(c.y)} paints ${size.width}×${size.height} px` });
+    expect.soft(size.width, `corner ${i + 1} is ${size.width} px wide`).toBeGreaterThanOrEqual(44);
+    expect.soft(size.height, `corner ${i + 1} is ${size.height} px tall`).toBeGreaterThanOrEqual(44);
   }
+});
 
-  // 2. While a corner is dragged, the loupe shows the footage under the finger, not somewhere else.
+test("corner placing at phone size: a true loupe and a clear centre", async ({ page, browser }) => {
+  await openPlacing(page);
+  const stage = (await page.getByTestId("preview").boundingBox())!;
+
+  // While a corner is dragged, the loupe shows the footage under the finger, not somewhere else.
   const first = page.getByTestId("surface-corner").first();
   const from = await centreOf(first);
   const to = { x: stage.x + stage.width * 0.3, y: stage.y + stage.height * 0.5 };
@@ -155,7 +175,7 @@ test("corner placing at phone size: thumb-sized handles, a true loupe, a clear c
   // …better than it matches the footage half a loupe to either side (the fixture's colour bars run up and down, so only sideways is a fair test).
   expect(scores.finger).toBeLessThan(Math.min(scores.left, scores.right) - 8);
 
-  // 3. Nothing covers the middle of the stage while placing: the play disc (or anything else) stays out of it.
+  // Nothing covers the middle of the stage while placing: the play disc (or anything else) stays out of it.
   const middle = { x: stage.x + stage.width * 0.3, y: stage.y + stage.height * 0.35, width: stage.width * 0.4, height: stage.height * 0.3 };
   const placingMiddle = await shot(page, browser, middle);
   const placingBare = await without(page, ".play-badge, .stage-tap, .theater-close", () => shot(page, browser, middle));

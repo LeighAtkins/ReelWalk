@@ -52,7 +52,7 @@ import { saveCaption } from "@/app/actions";
 import { CaptionEditor } from "../caption-editor";
 import { AlertIcon, CloseIcon, InstagramIcon, PlusIcon } from "../icons";
 import { InstagramSoundBrowser } from "../instagram-sound-picker";
-import { detectSurface, findMatchingCut, trackTextPath } from "./frame-analysis";
+import { detectSurface, findMatchingCut, trackTextPathDetailed } from "./frame-analysis";
 import { Sheet } from "../sheet";
 
 // ── Shell ───────────────────────────────────────────────────────
@@ -842,8 +842,9 @@ export async function pinTitle({ text, clip, asset, clipStartMs, wholeShot, lean
   const timing = wholeShot ? { startMs: clipStartMs, endMs: clipStartMs + clipDurationMs(clip) } : { startMs: text.startMs, endMs: text.endMs };
   // Corners may have been placed in any order: the plane is tracked, and stored, upright.
   const upright = text.surface ? { ...text, surface: orientQuad(text.surface).map(v => Number(v.toFixed(4))) } : text;
-  const tracked = await trackTextPath(asset, clip, clipStartMs, { ...upright, ...timing }, onProgress, lean);
-  if (!tracked) return { error: "Could not follow this shot. Try placing the text on a surface with some detail." };
+  const tracked = await trackTextPathDetailed(asset, clip, clipStartMs, { ...upright, ...timing }, onProgress, lean);
+  // The tracker says why it refused (too few features inside the surface, lost at a frame, degenerate motion; ADR 0052).
+  if ("error" in tracked) return { error: tracked.error };
   // A title that starts cut off at the frame edge never reads as being on the wall: with the plane
   // known (and leaned), move the centre so the warped line begins fully in frame. The path is relative, so the pin follows.
   // A title on a chosen surface stays on it (the text is fitted and clipped inside); only a box pin is moved in from the frame edge.

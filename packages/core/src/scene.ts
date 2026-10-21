@@ -292,14 +292,57 @@ export function titleGroup(text: Pick<TextOverlay, "behind" | "occluders">): 0 |
 }
 
 /** Titles bottom to top in the order sceneLayers draws them: by group, saved order within a group. For hit targets that must match what is drawn on top. */
-export function stackTitles<T extends Pick<TextOverlay, "behind" | "occluders">>(texts: readonly T[]): T[] {
-  return texts.map((text, index) => ({ text, index })).sort((a, b) => titleGroup(a.text) - titleGroup(b.text) || a.index - b.index).map((entry) => entry.text);
+export function stackTitles<T extends Pick<TextOverlay, "behind" | "occluders" | "passMs" | "passFadeMs">>(texts: readonly T[]): T[] {
+  // A passing `behind` title (ADR 0055) draws after the other `behind` titles, above the shared presenter matte,
+  // in groups ordered by their crossing.
+  const passing = (text: T) => Boolean(text.behind && text.passMs !== undefined);
+  const rank = (text: T) => titleGroup(text) * 2 + (passing(text) ? 1 : 0);
+  const crossing = (a: T, b: T) => passing(a) && passing(b) ? a.passMs! - b.passMs! || (a.passFadeMs ?? PASS_FADE_MS) - (b.passFadeMs ?? PASS_FADE_MS) : 0;
+  return texts.map((text, index) => ({ text, index })).sort((a, b) => rank(a.text) - rank(b.text) || crossing(a.text, b.text) || a.index - b.index).map((entry) => entry.text);
+}
+
+/** Default length of the crossing (ms) for a title with `passMs` (ADR 0055). */
+export const PASS_FADE_MS = 160;
+
+/**
+ * How much of the presenter is drawn over a `behind` title at reel time `reelMs` (ADR 0055): 1 for a
+ * plain `behind` title (she is always in front), and for one with `passMs`, 0 before it (the words cover
+ * her, so she reads as behind them) ramping to 1 over `passFadeMs` (she has walked through the words).
+ * A title that is not `behind` has no presenter over it, and `passMs` is ignored: 1, unaffected.
+ * A pure function of the reel time; the renderer reads it from the frame, preview and export alike.
+ */
+export function passOpacity(text: Pick<TextOverlay, "behind" | "passMs" | "passFadeMs">, reelMs: number): number {
+  if (!text.behind || text.passMs === undefined) return 1;
+  const fade = text.passFadeMs ?? PASS_FADE_MS;
+  if (fade <= 0) return reelMs >= text.passMs ? 1 : 0;
+  return Math.min(1, Math.max(0, (reelMs - text.passMs) / fade));
+}
+
+/**
+ * A presenter layer that belongs to one group of passing titles, those with the same crossing (passMs and
+ * passFadeMs): their ids, the span of their windows (reel frames, end exclusive) and the crossing.
+ */
+export type PersonPass = { textIds: string[]; fromFrame: number; toFrame: number; passMs: number; passFadeMs: number };
+
+/**
+ * The opacity of a presenter layer on reel frame `reelFrame`: 1 for the shared presenter matte; for one
+ * that belongs to a group of passing titles, `passOpacity` inside the span of their windows and 0 outside it, so it never
+ * covers another title (the shared matte below does that for every other `behind` title).
+ */
+export function personLayerOpacity(layer: { pass?: PersonPass }, reelFrame: number, fps: number = REEL_FORMAT.fps): number {
+  const pass = layer.pass;
+  if (!pass) return 1;
+  if (reelFrame < pass.fromFrame || reelFrame >= pass.toFrame) return 0;
+  return passOpacity({ behind: true, passMs: pass.passMs, passFadeMs: pass.passFadeMs }, (reelFrame * 1000) / fps);
 }
 
 export type SceneLayer =
   | { kind: "title"; text: TextOverlay; from: number; durationInFrames: number }
-  /** The presenter matte of one clip, above every `behind` title on screen with it. */
-  | { kind: "person"; clipIndex: number; from: number; durationInFrames: number }
+  /**
+   * The presenter matte of one clip, above every `behind` title on screen with it; or, with `pass`,
+   * above one group of passing titles (same crossing), faded in at that crossing (`personLayerOpacity`).
+   */
+  | { kind: "person"; clipIndex: number; from: number; durationInFrames: number; pass?: PersonPass }
   /** The objects tapped for one title, on one clip, above that title. */
   | { kind: "object"; text: TextOverlay; clipIndex: number; from: number; durationInFrames: number };
 
@@ -308,6 +351,9 @@ export type SceneLayer =
  *   1. `behind` titles, each followed by the objects tapped for it;
  *   2. the presenter matte of every video clip a `behind` title overlaps (one per clip,
  *      so it is segmented once however many titles sit behind the presenter);
+ *   2b. `behind` titles with `passMs` (ADR 0055), grouped by crossing and ordered by passMs:
+ *      each group's titles and their objects, then one presenter matte for the group,
+ *      faded in at its crossing (`personLayerOpacity`);
  *   3. titles with tapped objects but not `behind`, each followed by its objects;
  *   4. every other title (a foreground caption), on top of all mattes.
  * Within a group the saved order holds. Before ADR 0046 every matte sat above every
@@ -322,14 +368,40 @@ export function sceneLayers(timeline: Timeline, fps: number = REEL_FORMAT.fps, h
     ? clips.filter((clip) => hasVideo(clip.clip) && overlaps(text, clip)).map((clip) => ({ kind: "object", text, clipIndex: clip.clipIndex, from: clip.from, durationInFrames: clip.durationInFrames }))
     : [];
   const title = (entry: (typeof plan.texts)[number]): SceneLayer => ({ kind: "title", text: entry.text, from: entry.from, durationInFrames: entry.durationInFrames });
-  const behind = plan.texts.filter((entry) => titleGroup(entry.text) === 0);
+  const passes = (text: TextOverlay) => text.behind && text.passMs !== undefined;
+  const behind = plan.texts.filter((entry) => titleGroup(entry.text) === 0 && !passes(entry.text));
+  const passing = plan.texts.filter((entry) => titleGroup(entry.text) === 0 && passes(entry.text));
   const tapped = plan.texts.filter((entry) => titleGroup(entry.text) === 1);
   const plain = plan.texts.filter((entry) => titleGroup(entry.text) === 2);
+  // Passing titles are grouped by their crossing (passMs, passFadeMs): one presenter matte above each group, faded
+  // in at that crossing (ADR 0055). Groups go bottom to top by passMs, so a group's presenter covers only titles that
+  // have already begun their own crossing, never one that is still in front of her.
+  const groups = new Map<string, (typeof plan.texts)[number][]>();
+  for (const entry of passing) {
+    const key = `${entry.text.passMs}|${entry.text.passFadeMs ?? PASS_FADE_MS}`;
+    groups.set(key, [...(groups.get(key) ?? []), entry]);
+  }
+  const passGroups = [...groups.values()].sort((a, b) => a[0].text.passMs! - b[0].text.passMs! || (a[0].text.passFadeMs ?? PASS_FADE_MS) - (b[0].text.passFadeMs ?? PASS_FADE_MS));
+  const passGroup = (entries: (typeof plan.texts)[number][]): SceneLayer[] => {
+    const first = entries[0].text;
+    const pass: PersonPass = {
+      textIds: entries.map((entry) => entry.text.id),
+      fromFrame: Math.min(...entries.map((entry) => entry.from)),
+      toFrame: Math.max(...entries.map((entry) => entry.from + entry.durationInFrames)),
+      passMs: first.passMs!, passFadeMs: first.passFadeMs ?? PASS_FADE_MS,
+    };
+    const people = clips.filter((clip) => hasVideo(clip.clip) && entries.some((entry) => overlaps(entry.text, clip)))
+      .map((clip): SceneLayer => ({ kind: "person", clipIndex: clip.clipIndex, from: clip.from, durationInFrames: clip.durationInFrames, pass }));
+    return [...entries.flatMap((entry) => [title(entry), ...objects(entry.text)]), ...people];
+  };
   return [
     ...behind.flatMap((entry) => [title(entry), ...objects(entry.text)]),
     // Every behind text of the reel, not just those with a plan entry, as before: a matte is mounted for the clip it overlaps.
-    ...clips.filter((clip) => hasVideo(clip.clip) && timeline.texts.some((text) => text.behind && overlaps(text, clip)))
+    // A passing title has its own (below), so it does not mount the shared one.
+    ...clips.filter((clip) => hasVideo(clip.clip) && timeline.texts.some((text) => text.behind && !passes(text) && overlaps(text, clip)))
       .map((clip): SceneLayer => ({ kind: "person", clipIndex: clip.clipIndex, from: clip.from, durationInFrames: clip.durationInFrames })),
+    // Above the shared matte: a passing title must cover the presenter until its crossing, so nothing that always shows her may sit above it.
+    ...passGroups.flatMap(passGroup),
     ...tapped.flatMap((entry) => [title(entry), ...objects(entry.text)]),
     ...plain.map(title),
   ];

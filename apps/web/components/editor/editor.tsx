@@ -1423,7 +1423,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
       ) : null}
 
       {sheet === "text-new" ? <TextSheet initial={null} onSave={saveText} onClose={closeSheet} /> : null}
-      {sheet === "text-edit" && selectedText ? <TextSheet initial={selectedText} onSave={saveText} onClose={closeSheet} /> : null}
+      {sheet === "text-edit" && selectedText ? <TextSheet initial={selectedText} playheadNow={clock.get} onSave={saveText} onClose={closeSheet} /> : null}
       {sheet === "pin" && selectedText ? (() => {
         const at = locate(timeline, selectedText.startMs);
         const clip = at ? timeline.clips[at.index] : null;

@@ -82,11 +82,15 @@ export function smokeTimeline(): Timeline {
     ],
     texts: [
       // Words behind a person (matte), extruded: the first clip, where the matte mounts at frame 0.
-      { id: "w1", text: "WELCOME", startMs: 0, endMs: 2500, x: 0.5, y: 0.4, style: "headline", size: 1.4, animation: "pop", behind: true, depth: "extruded" },
+      // At 0.9 s the reader passes in front of it (ADR 0055): the words cover her until then. Before 1 s, so that from
+      // frame 30, where s2's woodpile tap starts tracking, she covers WELCOME again: that object matte belongs to s2 but
+      // draws above every behind title (ADR 0046's order), and over exposed words it shows in s2's probe.
+      { id: "w1", text: "WELCOME", startMs: 0, endMs: 2500, x: 0.5, y: 0.4, style: "headline", size: 1.4, animation: "pop", behind: true, depth: "extruded", passMs: 900 },
       // A pinned title painted on the window over the reader's head, on real footage (ADR 0053): the attachment check follows it.
       // The woodpile in front of her is tapped (ADR 0044), on the frame at 1 s, and tracked from there (ADR 0051); it is
       // well clear of the window, so the acceptance checks still see every letter of the title.
-      { id: "s2", text: "BY THE FIRE", startMs: 0, endMs: 2500, x: 0.66, y: 0.12, style: "headline", size: 1, animation: "none", blend: "surface", surface: window,
+      // Embers in its plane (ADR 0055), drawn in front of and behind the letters.
+      { id: "s2", text: "BY THE FIRE", startMs: 0, endMs: 2500, x: 0.66, y: 0.12, style: "headline", size: 1, animation: "none", blend: "surface", surface: window, particles: { kind: "embers", seed: 3 },
         occluders: [{ x: 0.6, y: 0.85, atMs: 1000 }],
         pin: { assetId: "walk", fromMs: 0, toMs: 2500, quad: window }, path: [{ t: 0, x: 0, y: 0, s: 1, r: 0, q: window }, { t: 1, x: -0.02, y: 0.01, s: 1, r: 0, q: windowMoved }] },
       // A whole-shot planar pin that overlaps the next cut by a few frames (the React 300 case), painted on the surface, fading at the end.
@@ -97,7 +101,7 @@ export function smokeTimeline(): Timeline {
         pin: { assetId: "room", fromMs: 200, toMs: 2600, quad: surface }, path: [{ t: 0, x: 0, y: 0, s: 1, r: 0, q: surface }, { t: 1, x: 0.02, y: 0.01, s: 1, r: 0, q: surfaceMoved }] },
       // A still on a photo with the typewriter, and a drifting tag.
       { id: "t1", text: "3 bed · 2 bath", startMs: 4900, endMs: 6900, x: 0.5, y: 0.8, style: "tag", animation: "type" },
-      { id: "t2", text: "Just listed", startMs: 6900, endMs: 8200, x: 0.5, y: 0.2, style: "elegant", animation: "fade", path: [{ t: 0, x: 0, y: 0 }, { t: 1, x: 0.04, y: 0 }] },
+      { id: "t2", text: "Just listed", startMs: 6900, endMs: 8200, x: 0.5, y: 0.2, style: "elegant", animation: "fade", path: [{ t: 0, x: 0, y: 0 }, { t: 1, x: 0.04, y: 0 }], particles: { kind: "snow" } },
     ],
     music: { assetId: "song", sourceStartMs: 0, volume: 0.8, bpm: 108, beatOffsetMs: 0 },
     hook: { kind: "alert", durationMs: 1500, title: "New listing", body: "Beachfront, 3 bed", action: "See it" },

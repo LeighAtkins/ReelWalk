@@ -126,7 +126,11 @@ export const MatteWarning: React.FC<{ text: string }> = ({ text }) => (
   </div>
 );
 
-export const PersonMatteView: React.FC<{ clip: Clip; asset: ReelAsset; durationInFrames: number; fadeOut?: boolean; whipOut?: Clip["whipDirection"] | null }> = ({ clip, asset, durationInFrames, fadeOut = false, whipOut = null }) => {
+export const PersonMatteView: React.FC<{
+  clip: Clip; asset: ReelAsset; durationInFrames: number; fadeOut?: boolean; whipOut?: Clip["whipDirection"] | null;
+  /** False on frames where the layer is drawn at opacity 0 (a passing title before its crossing, ADR 0055): no seek, no segmentation. */
+  active?: boolean;
+}> = ({ clip, asset, durationInFrames, fadeOut = false, whipOut = null, active = true }) => {
   const frame = useCurrentFrame();
   const { fps, width, height } = useVideoConfig();
   const { isRendering } = useRemotionEnvironment();
@@ -160,7 +164,8 @@ export const PersonMatteView: React.FC<{ clip: Clip; asset: ReelAsset; durationI
   // Jobs run one at a time on the decode's queue; a superseded job's seek is aborted, so it never blocks the next.
   useEffect(() => {
     const current = decode.current;
-    if (!segmenter || !current || !canvas.current || warning) return;
+    // An idle frame is not matted at all; the first active frame reads its previous picture itself (matte-core's rule).
+    if (!active || !segmenter || !current || !canvas.current || warning) return;
     const { element, queue } = current;
     const seconds = (n: number) => clipSourceSeconds(clip, n, fps);
     const controller = new AbortController();
@@ -193,7 +198,7 @@ export const PersonMatteView: React.FC<{ clip: Clip; asset: ReelAsset; durationI
     };
     void queue.run(job);
     return () => { cancelled = true; controller.abort(); continueRender(handle); };
-  }, [segmenter, frame, fps, width, height, asset.src, clip.id, clip.sourceStartMs, clip.speed, clip.fit, warning]);
+  }, [active, segmenter, frame, fps, width, height, asset.src, clip.id, clip.sourceStartMs, clip.speed, clip.fit, warning]);
 
   // Declared after the frame effect, so on the render where the segmenter arrives that effect has already
   // taken the frame's handle when this lets the load's go.

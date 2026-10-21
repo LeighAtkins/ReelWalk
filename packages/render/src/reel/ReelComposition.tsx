@@ -15,7 +15,7 @@ import {
 // WebCodecs-based video, used when the worker renders: about twice as fast as
 // OffthreadVideo here, and it falls back to it for files it cannot decode.
 import { Video as RenderVideo } from "@remotion/media";
-import { cameraAt, duckGain, evaluateTitle, framePlan, INSTAGRAM, isInstagramMusic, matrix3d, REEL_FORMAT, sceneLayers, speechWindows, timelineDurationMs, walkInto, type Clip, type Logo, type Plan, type TextOverlay, type Timeline } from "@reelwalk/core";
+import { cameraAt, duckGain, evaluateTitle, framePlan, INSTAGRAM, isInstagramMusic, matrix3d, particleField, particleSvg, personLayerOpacity, REEL_FORMAT, sceneLayers, speechWindows, TITLE_LEADING, timelineDurationMs, walkInto, type Clip, type Logo, type ParticleField, type PersonPass, type Plan, type TextOverlay, type Timeline } from "@reelwalk/core";
 import { domMeasure } from "./measure";
 import { whipGeometry } from "./whip";
 import { clipPresentation } from "./presentation";
@@ -199,6 +199,58 @@ function extrudedShadow(color: string, fontSize: number): string {
   return `${layers.join(", ")}, 0 0 1px ${color}`;
 }
 
+/**
+ * A title's particles (ADR 0055): one layer (in front of or behind the letters) of a field that is a pure
+ * function of the reel time and the seed, so preview and export draw the same flakes. The box is the
+ * title's plane (or its screen box) plus a margin; `transform` is the title's own, so the field moves with it.
+ */
+/**
+ * Posts and cut-outs as a luminance mask (white plane, black polygons), polygons in plane px moved by (dx, dy) into
+ * a box of width × height. A mask subtracts their union: an even-odd path put two overlapping posts back to visible
+ * where they crossed, and two identical posts cancelled each other.
+ */
+function postsMask(shapes: number[][], width: number, height: number, dx = 0, dy = 0): React.CSSProperties {
+  const posts = shapes.map((shape) => `<polygon points="${Array.from({ length: shape.length / 2 }, (_, i) => `${(shape[i * 2] + dx).toFixed(1)},${(shape[i * 2 + 1] + dy).toFixed(1)}`).join(" ")}" fill="black"/>`).join("");
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect width="${width}" height="${height}" fill="white"/>${posts}</svg>`;
+  const url = `url("data:image/svg+xml;utf8,${encodeURIComponent(svg)}")`;
+  // Luminance, not the default alpha: an image mask reads alpha unless told otherwise, and a black
+  // polygon is as opaque as the white plane, so nothing would be cut (found on the phone, 2026-10-20).
+  return { maskImage: url, WebkitMaskImage: url, maskSize: "100% 100%", WebkitMaskSize: "100% 100%", maskRepeat: "no-repeat", WebkitMaskRepeat: "no-repeat", maskMode: "luminance" };
+}
+
+const ParticleLayer: React.FC<{
+  text: TextOverlay; layer: "front" | "back"; reelMs: number; box: { width: number; height: number }; style: React.CSSProperties;
+  transform: (margin: { x: number; y: number }) => string;
+  /** The title's posts, as a mask over the whole field. */
+  mask?: (field: ParticleField) => React.CSSProperties;
+}> = ({ text, layer, reelMs, box, style, transform, mask }) => {
+  const particles = text.particles!;
+  const field = particleField({ kind: particles.kind, density: particles.density, seed: particles.seed, timeMs: reelMs, box });
+  const common: React.CSSProperties = { position: "absolute", width: field.width, height: field.height, transformOrigin: "0 0", ...style, transform: transform({ x: field.marginX, y: field.marginY }), pointerEvents: "none", ...(mask ? mask(field) : {}) };
+  // Two passes: flakes, dust, shadows and ember halos blend normally (so they show on a bright sky); ember sparks screen.
+  return (
+    <>
+      <div aria-hidden="true" data-particles={`${particles.kind}-${layer}`} style={common}
+        dangerouslySetInnerHTML={{ __html: particleSvg(field, layer, `particles-${text.id}-${layer}`, "normal") }} />
+      {particles.kind === "embers" ? (
+        <div aria-hidden="true" data-particles={`${particles.kind}-${layer}-screen`} style={{ ...common, mixBlendMode: "screen" }}
+          dangerouslySetInnerHTML={{ __html: particleSvg(field, layer, `particles-${text.id}-${layer}-s`, "screen") }} />
+      ) : null}
+    </>
+  );
+};
+
+/**
+ * The presenter matte of a group of passing titles (ADR 0055): drawn at personLayerOpacity, 0 until she walks
+ * through the words. While it is 0 the matte is idle (no decode, no segmentation).
+ */
+const PassFade: React.FC<{ pass: PersonPass; from: number; children: (active: boolean) => React.ReactNode }> = ({ pass, from, children }) => {
+  const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
+  const opacity = personLayerOpacity({ pass }, from + frame, fps);
+  return <AbsoluteFill style={{ pointerEvents: "none", opacity }}>{children(opacity > 0)}</AbsoluteFill>;
+};
+
 const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline: Timeline; from: number }> = ({ text, durationInFrames, timeline, from }) => {
   const frame = useCurrentFrame();
   const { fps, width, height } = useVideoConfig();
@@ -218,23 +270,20 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
   // Paint on the surface: hard-light keeps the wall's own light and grain through the letters (white lightens, dark darkens), with the footage's softness.
   // The blend's own 0.92 multiplies the fade; spread after `opacity`, a flat 0.92 used to cancel it.
   const meet = text.blend === "surface" ? { mixBlendMode: "hard-light" as const, filter: "blur(0.6px)", opacity: visible * 0.92 } : {};
+  const reelMs = ((from + frame) * 1000) / fps;
   if (placement.kind === "surface") {
     const { rect, placed, fitScale, maskShapes, clipToPlane } = placement;
     const w = rect.width, h = rect.height;
-    let mask: React.CSSProperties = {};
-    if (maskShapes) {
-      // Posts are cut out of the plane in the plane's own coordinates, so they warp with it. A mask
-      // (white plane, black posts) subtracts their union: an even-odd path put two overlapping posts
-      // back to visible where they crossed, and two identical posts cancelled each other.
-      const posts = maskShapes.map((shape) => `<polygon points="${Array.from({ length: shape.length / 2 }, (_, i) => `${shape[i * 2].toFixed(1)},${shape[i * 2 + 1].toFixed(1)}`).join(" ")}" fill="black"/>`).join("");
-      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><rect width="${w}" height="${h}" fill="white"/>${posts}</svg>`;
-      const url = `url("data:image/svg+xml;utf8,${encodeURIComponent(svg)}")`;
-      // Luminance, not the default alpha: an image mask reads alpha unless told otherwise, and a black
-      // polygon is as opaque as the white plane, so nothing would be cut (found on the phone, 2026-10-20).
-      mask = { maskImage: url, WebkitMaskImage: url, maskSize: "100% 100%", WebkitMaskSize: "100% 100%", maskRepeat: "no-repeat", WebkitMaskRepeat: "no-repeat", maskMode: "luminance" };
-    }
+    const mask: React.CSSProperties = maskShapes ? postsMask(maskShapes, w, h) : {};
+    // Particles live in the plane: the same warp as the words, from a box the margin larger on every side. The
+    // posts hide them as they hide the letters (the mask moved by the margin); outside the surface's edge they still show.
+    const planeParticles = (layer: "front" | "back") => text.particles && placed ? (
+      <ParticleLayer text={text} layer={layer} reelMs={reelMs} box={{ width: w, height: h }} style={{ left: rect.left, top: rect.top, opacity: visible }} transform={(m) => `${matrix3d(placed)} translate(${-m.x}px, ${-m.y}px)`}
+        mask={maskShapes ? (field) => postsMask(maskShapes, field.width, field.height, field.marginX, field.marginY) : undefined} />
+    ) : null;
     return (
       <AbsoluteFill style={{ pointerEvents: "none", perspective: "none" }}>
+        {planeParticles("back")}
         {/* Painted on a chosen surface, the text exists only on that surface: anything in front of the surface's edge (a wall, a railing) hides it. */}
         <div style={{ position: "absolute", left: rect.left, top: rect.top, width: w, height: h, display: "flex", alignItems: "center", justifyContent: "center", transformOrigin: "0 0", transform: placed ? matrix3d(placed) : undefined, opacity: visible, whiteSpace: "nowrap", textAlign: "center", overflow: clipToPlane ? "hidden" : "visible", ...mask, ...meet }}>
           {/* The plane's box is only its frame: the words sit on one line (or the lines the author typed), scaled to fill or fit it, warped with it. */}
@@ -246,13 +295,24 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
             </>)}
           </span>
         </div>
+        {planeParticles("front")}
       </AbsoluteFill>
     );
   }
 
   const { center, wrap } = placement;
+  const motion = `translate(-50%, calc(-50% + ${rise * 40}px)) scale(${scale * placement.scale}) rotate(${placement.rotation}deg)`;
+  // A screen title's particles fill its text box (the wrap width, or the measured line), centred where the words are.
+  const screenParticles = (layer: "front" | "back") => {
+    if (!text.particles) return null;
+    const widest = Math.max(...text.text.split("\n").map((part) => domMeasure(part || " ", font).width));
+    const lines = text.text.split("\n").length * (wrap.mode === "wrap" ? Math.max(1, Math.ceil(widest / wrap.width)) : 1);
+    const box = { width: wrap.mode === "wrap" ? Math.min(wrap.width, widest) : Math.min(wrap.maxWidth, widest), height: font.fontSize * TITLE_LEADING * lines };
+    return <ParticleLayer text={text} layer={layer} reelMs={reelMs} box={box} style={{ left: center.x, top: center.y, opacity: visible, transformOrigin: "50% 50%" }} transform={() => motion} />;
+  };
   return (
     <AbsoluteFill style={{ pointerEvents: "none" }}>
+      {screenParticles("back")}
       <div
         style={{
           position: "absolute",
@@ -262,7 +322,7 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
           ...(wrap.mode === "wrap" ? { width: wrap.width } : { width: "max-content", maxWidth: wrap.maxWidth, whiteSpace: "nowrap" as const }),
           display: "flex",
           justifyContent: "center",
-          transform: `translate(-50%, calc(-50% + ${rise * 40}px)) scale(${scale * placement.scale}) rotate(${placement.rotation}deg)`,
+          transform: motion,
           opacity: visible,
           ...meet,
         }}
@@ -280,6 +340,7 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
           </span>
         )}
       </div>
+      {screenParticles("front")}
     </AbsoluteFill>
   );
 };
@@ -380,6 +441,15 @@ export const ReelComposition: React.FC<ReelProps> = ({ timeline, assets, waterma
         const whipOut = next?.transitionIn === "whip" ? next.whipDirection ?? "right" : null;
         if (layer.kind === "person") {
           // People in front of the type (ADR 0039): a person-only matte of the clip.
+          // A group of passing titles' presenter (ADR 0055): above those titles only, faded in as she walks through the words.
+          if (layer.pass) {
+            const pass = layer.pass;
+            return (
+              <Sequence key={`matte-${clip.id}-pass-${pass.passMs}-${pass.passFadeMs}`} from={from} durationInFrames={durationInFrames} name={`passes ${clip.id}`}>
+                <PassFade pass={pass} from={from}>{(active) => <PersonMatteView clip={clip} asset={asset} durationInFrames={durationInFrames} fadeOut={fadeOut} whipOut={whipOut} active={active} />}</PassFade>
+              </Sequence>
+            );
+          }
           return (
             <Sequence key={`matte-${clip.id}`} from={from} durationInFrames={durationInFrames} name={`matte ${clip.id}`}>
               <PersonMatteView clip={clip} asset={asset} durationInFrames={durationInFrames} fadeOut={fadeOut} whipOut={whipOut} />

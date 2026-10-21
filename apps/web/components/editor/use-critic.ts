@@ -1,0 +1,135 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  criticSamples,
+  critique,
+  lumaFromRgba,
+  momentAt,
+  oneLineWidth,
+  TITLE_LEADING,
+  type CriticFace,
+  type CriticFinding,
+  type CriticFrame,
+  type CriticSample,
+  type Measure,
+  type TextOverlay,
+  type Timeline,
+  type TitleFont,
+} from "@reelwalk/core";
+import { textTreatmentCss } from "@reelwalk/render/reel";
+import type { LibraryAsset } from "@/lib/library";
+import { timelineFrames } from "./frame-service";
+
+/**
+ * The critic before export (ADR 0062), in the editor: runs while the Export
+ * sheet is open. The timeline-only checks answer at once; the frames they
+ * read are drawn small through the frame service (ADR 0047), as the
+ * composition shows them, and the pixel checks follow. Frames are cached by
+ * clip presentation and source time, so after a fix only new moments are read.
+ */
+
+/** Small frames: enough for motion, contrast and a thumbnail, cheap to seek and read back on a phone. */
+const SAMPLE_WIDTH = 72, SAMPLE_HEIGHT = 128;
+/** Frames kept between runs (each about 37 KB of luma plus a small JPEG). */
+const MAX_CACHED = 160;
+
+export type CriticState = { findings: CriticFinding[]; checking: boolean; thumbs: Record<string, string> };
+
+/** A title's font as the renderer styles it. */
+function titleFont(text: TextOverlay): TitleFont {
+  const css = textTreatmentCss(text);
+  return { fontFamily: String(css.fontFamily ?? ""), fontWeight: css.fontWeight, fontSize: Number(css.fontSize) || 64, letterSpacing: text.tracking, fontStretch: css.fontStretch ? String(css.fontStretch) : undefined };
+}
+/** Lines measured in the DOM with the title's own font, as the composition measures them. */
+const measure: Measure = (line, font) => ({ width: oneLineWidth(line, font) * 1080, height: font.fontSize * TITLE_LEADING });
+
+/** What a frame depends on: the clip as presented (window, speed, fit, zoom, move, grade) and the source time. */
+const frameKey = (timeline: Timeline, sample: CriticSample) => `${sample.key}|${JSON.stringify(timeline.clips.find((clip) => clip.id === sample.clipId) ?? null)}`;
+
+export function useCritic({ timeline, library, active, headline, sourceDurationsMs }: {
+  timeline: Timeline;
+  library: Record<string, LibraryAsset>;
+  active: boolean;
+  /** The reel's name, offered as an opening title. */
+  headline: string | null;
+  sourceDurationsMs: () => Record<string, number | null | undefined>;
+}): CriticState {
+  const frames = useRef(new Map<string, { frame: CriticFrame; thumb: string | null }>());
+  const [state, setState] = useState<CriticState>({ findings: [], checking: false, thumbs: {} });
+  const [faces, setFaces] = useState<CriticFace[]>([]);
+
+  // The AI takes in the reel: their face facts come from the server (the identity gate's record).
+  const aiAssets = useMemo(() => [...new Set(timeline.clips.map((clip) => clip.assetId).filter((id) => library[id]?.isAiGenerated))].sort().join(","), [timeline.clips, library]);
+  useEffect(() => {
+    if (!active || !aiAssets) { setFaces([]); return; }
+    let live = true;
+    fetch(`/api/ai/faces?assets=${encodeURIComponent(aiAssets)}`, { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : { faces: [] }))
+      .then((body: { faces?: CriticFace[] }) => { if (live) setFaces(body.faces ?? []); })
+      .catch(() => undefined);
+    return () => { live = false; };
+  }, [active, aiAssets]);
+
+  const assets = useMemo(() => Object.fromEntries(Object.values(library).map((asset) => [asset.id, { src: asset.url, kind: asset.kind }])), [library]);
+
+  useEffect(() => {
+    if (!active) return;
+    let live = true;
+    const cache = frames.current;
+    const input = { timeline, titleFont, measure, faces, headline, sourceDurationsMs: sourceDurationsMs() };
+    const samples = criticSamples(timeline);
+    const known = () => {
+      const map = new Map<string, CriticFrame>();
+      for (const sample of samples) {
+        const hit = cache.get(frameKey(timeline, sample));
+        if (hit) map.set(sample.key, hit.frame);
+      }
+      return map;
+    };
+    const thumbsFor = (findings: CriticFinding[]) => Object.fromEntries(findings.flatMap((finding) => {
+      const moment = momentAt(timeline, finding.atMs);
+      const thumb = moment ? cache.get(frameKey(timeline, moment))?.thumb : null;
+      return thumb ? [[finding.id, thumb]] : [];
+    }));
+    const missing = samples.filter((sample) => !cache.has(frameKey(timeline, sample)));
+    const first = critique({ ...input, frames: known() });
+    setState({ findings: first, checking: missing.length > 0, thumbs: thumbsFor(first) });
+
+    const service = timelineFrames(timeline, assets);
+    const read = async (sample: CriticSample) => {
+      const key = frameKey(timeline, sample);
+      if (cache.has(key)) return;
+      const canvas = await service.frameAt(sample.clipId, sample.sourceMs, { width: SAMPLE_WIDTH, height: SAMPLE_HEIGHT, purpose: "view" });
+      if (!canvas || !canvas.width) return;
+      try {
+        // Read at once: the frame service frees canvases it evicts.
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return;
+        const frame = lumaFromRgba(ctx.getImageData(0, 0, canvas.width, canvas.height).data, canvas.width, canvas.height);
+        cache.set(key, { frame, thumb: canvas.toDataURL("image/jpeg", 0.7) });
+        while (cache.size > MAX_CACHED) cache.delete(cache.keys().next().value!);
+      } catch {
+        // Media served without CORS cannot be read back: the checks that need it are skipped, not guessed.
+      }
+    };
+    (async () => {
+      // By clip and time, so each source is seeked forwards once.
+      const order = [...missing].sort((a, b) => a.clipId.localeCompare(b.clipId) || a.sourceMs - b.sourceMs);
+      for (const sample of order) {
+        if (!live) return;
+        await read(sample);
+      }
+      if (!live) return;
+      const findings = critique({ ...input, frames: known() });
+      // Every finding gets a picture of its moment.
+      for (const finding of findings) {
+        if (!live) return;
+        const moment = momentAt(timeline, finding.atMs);
+        if (moment) await read(moment);
+      }
+      if (live) setState({ findings, checking: false, thumbs: thumbsFor(findings) });
+    })().catch(() => { if (live) setState((current) => ({ ...current, checking: false })); });
+    return () => { live = false; };
+  }, [active, timeline, faces, headline, assets, sourceDurationsMs]);
+
+  return active ? state : { findings: [], checking: false, thumbs: {} };
+}

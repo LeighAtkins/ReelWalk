@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  parseTimeline, particleCount, particleField, particleSvg, passOpacity, PASS_FADE_MS, personLayerOpacity, sceneLayers, stackTitles,
+  evaluateTitle, framePlan, parseTimeline, particleCount, particleExtent, particleField, particleSvg, passOpacity, PASS_FADE_MS, personLayerOpacity, sceneLayers, stackTitles,
   type ParticleKind, type Timeline,
 } from "../src";
 
@@ -53,7 +53,7 @@ describe("passOpacity (ADR 0055)", () => {
 });
 
 describe("sceneLayers with a passing title", () => {
-  const ids = (t: Timeline) => sceneLayers(t, FPS).map((l) => l.kind === "title" ? `title:${l.text.id}` : l.kind === "person" ? `person:${l.clipIndex}${l.pass ? `:${l.pass.textId}` : ""}` : `object:${l.text.id}:${l.clipIndex}`);
+  const ids = (t: Timeline) => sceneLayers(t, FPS).map((l) => l.kind === "title" ? `title:${l.text.id}` : l.kind === "person" ? `person:${l.clipIndex}${l.pass ? `:${l.pass.textIds.join("+")}` : ""}` : `object:${l.text.id}:${l.clipIndex}`);
 
   it("carries pass only when passMs is set", () => {
     const plain = sceneLayers(reel([{ id: "w", text: "WELCOME", startMs: 0, endMs: 2000, behind: true }]), FPS);
@@ -65,7 +65,7 @@ describe("sceneLayers with a passing title", () => {
     const passing = sceneLayers(reel([{ id: "w", text: "WELCOME", startMs: 0, endMs: 2000, behind: true, passMs: 1000 }]), FPS);
     const own = passing.filter((l) => l.kind === "person");
     expect(own).toHaveLength(1);
-    expect(own[0].kind === "person" && own[0].pass).toEqual({ textId: "w", fromFrame: 0, toFrame: 60, passMs: 1000, passFadeMs: 160 });
+    expect(own[0].kind === "person" && own[0].pass).toEqual({ textIds: ["w"], fromFrame: 0, toFrame: 60, passMs: 1000, passFadeMs: 160 });
   });
 
   it("fades the presenter in at the crossing and never shows her outside the title's window", () => {
@@ -90,6 +90,67 @@ describe("sceneLayers with a passing title", () => {
   it("mounts no shared matte for a clip whose only behind title passes", () => {
     const t = reel([{ id: "p", text: "COME IN", startMs: 0, endMs: 3000, behind: true, passMs: 1200 }]);
     expect(ids(t)).toEqual(["title:p", "person:0:p", "person:1:p"]);
+  });
+
+  /**
+   * A pixel where each title's letters lie over the presenter (and over no other title's letters): how much of
+   * title `id` shows, its own opacity times what every presenter layer drawn above it lets through.
+   */
+  const visible = (t: Timeline, id: string, reelFrame: number, alpha: (id: string) => number = () => 1) => {
+    const layers = sceneLayers(t, FPS);
+    const at = layers.findIndex((l) => l.kind === "title" && l.text.id === id);
+    return layers.slice(at + 1).reduce((shown, l) => l.kind === "person" && l.clipIndex === 0 ? shown * (1 - personLayerOpacity(l, reelFrame, FPS)) : shown, alpha(id));
+  };
+
+  it("groups titles with the same crossing under one presenter, so each is covered by the ramp once", () => {
+    const t = reel([
+      { id: "come", text: "COME IN", startMs: 0, endMs: 2400, behind: true, passMs: 1000, passFadeMs: 200 },
+      { id: "cold", text: "FROM THE COLD", startMs: 0, endMs: 2400, behind: true, passMs: 1000, passFadeMs: 200 },
+    ]);
+    expect(ids(t)).toEqual(["title:come", "title:cold", "person:0:come+cold"]);
+    // 1100 ms is frame 33, half way through the crossing: both titles half covered (before grouping, COME IN was 0.75 covered).
+    expect(visible(t, "come", 33)).toBeCloseTo(0.5);
+    expect(visible(t, "cold", 33)).toBeCloseTo(0.5);
+    expect(visible(t, "come", 20)).toBe(1);
+    expect(visible(t, "cold", 45)).toBe(0);
+  });
+
+  it("orders different crossings by time, so a later crossing never covers an earlier title before its own", () => {
+    const t = reel([
+      // Saved first but crossing later: still drawn above the earlier group.
+      { id: "late", text: "FROM THE COLD", startMs: 0, endMs: 2400, behind: true, passMs: 1500 },
+      { id: "early", text: "COME IN", startMs: 0, endMs: 2400, behind: true, passMs: 600 },
+    ]);
+    expect(ids(t)).toEqual(["title:early", "person:0:early", "title:late", "person:0:late"]);
+    expect(stackTitles(t.texts).map((text) => text.id)).toEqual(["early", "late"]);
+    // Before either crossing both are in front of her.
+    expect(visible(t, "early", 15)).toBe(1);
+    expect(visible(t, "late", 15)).toBe(1);
+    // After the early crossing only COME IN is behind her; FROM THE COLD is still in front.
+    expect(visible(t, "early", 30)).toBe(0);
+    expect(visible(t, "late", 30)).toBe(1);
+    // After the late crossing she is in front of both (the early group's presenter also covers it: she is past that plane).
+    expect(visible(t, "late", 52)).toBe(0);
+    expect(visible(t, "early", 52)).toBe(0);
+  });
+
+  it("keeps the crossing of one title when the other is faded out by its track", () => {
+    const quad = [0.3, 0.3, 0.7, 0.3, 0.7, 0.45, 0.3, 0.45];
+    const t = reel([
+      { id: "lost", text: "LOST", startMs: 0, endMs: 2500, behind: true, passMs: 1000, surface: quad,
+        pin: { assetId: "walk", fromMs: 0, toMs: 2500, quad }, path: [{ t: 0, x: 0, y: 0, q: quad, o: 0 }, { t: 1, x: 0, y: 0, q: quad, o: 0 }] },
+      { id: "kept", text: "KEPT", startMs: 0, endMs: 2500, behind: true, passMs: 1000 },
+    ]);
+    const measure = (line: string) => ({ width: line.length * 50, height: 100 });
+    const alpha = (frame: number) => (id: string) => {
+      const entry = framePlan(t, FPS).texts.find((e) => e.text.id === id)!;
+      return evaluateTitle({ text: entry.text, timeline: t, frame: frame - entry.from, from: entry.from, durationInFrames: entry.durationInFrames, fps: FPS, width: 1080, height: 1920, font: { fontSize: 96 }, measure }).opacity;
+    };
+    expect(ids(t)).toEqual(["title:lost", "title:kept", "person:0:lost+kept"]);
+    for (const frame of [15, 33, 45]) {
+      expect(visible(t, "lost", frame, alpha(frame))).toBe(0);
+      expect(visible(t, "kept", frame, alpha(frame))).toBeCloseTo(1 - passOpacity({ behind: true, passMs: 1000 }, (frame * 1000) / FPS));
+    }
   });
 
   it("leaves a title that is not behind alone even with passMs", () => {
@@ -126,6 +187,25 @@ describe("particleField (ADR 0055)", () => {
           expect(p.opacity).toBeLessThanOrEqual(1);
         }
       }
+    }
+  });
+
+  it("fades out anything whose blur, halo or shadow would reach the field's edge, and costs at most 25 KB a frame at density 2", () => {
+    for (const kind of kinds) {
+      let largest = 0;
+      for (let ms = 0; ms < 30_000; ms += 331) {
+        const field = particleField({ kind, timeMs: ms, box, density: 2, seed: 5 });
+        for (const p of field.particles.filter((q) => q.opacity > 0)) {
+          const e = particleExtent(kind, p);
+          expect(p.x - e).toBeGreaterThanOrEqual(0);
+          expect(p.x + e).toBeLessThanOrEqual(field.width);
+          expect(p.y - e).toBeGreaterThanOrEqual(0);
+          expect(p.y + e).toBeLessThanOrEqual(field.height);
+        }
+        const bytes = (["back", "front"] as const).flatMap((layer) => (["normal", "screen"] as const).map((blend) => particleSvg(field, layer, "t", blend).length)).reduce((a, b) => a + b, 0);
+        largest = Math.max(largest, bytes);
+      }
+      expect(largest).toBeLessThan(25_000);
     }
   });
 

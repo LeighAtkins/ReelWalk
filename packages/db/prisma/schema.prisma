@@ -60,6 +60,7 @@ model Workspace {
   aiGenerations AiGeneration[]
   workflowRuns WorkflowRun[]
   presenters Presenter[]
+  variantGroups VariantGroup[]
 
   // Set by the Stripe webhook from the subscription (plans in @reelwalk/core).
   plan                 Plan      @default(FREE)
@@ -491,8 +492,49 @@ model Reel {
   updatedAt   DateTime    @updatedAt
   renderJobs  RenderJob[]
   aiEdits     AiEdit[]
+  // Set when this reel is one of a set of variants (ADR 0063).
+  variant     ReelVariant?
+  // Sets of variants made from this reel.
+  variantSets VariantGroup[] @relation("VariantSource")
 
   @@index([workspaceId, updatedAt])
+}
+
+// A set of variants made from one finished reel (ADR 0063): sibling reels
+// that open differently and run 15 or 30 s, kept together so the studio can
+// compare how each did once posted. The variants are ordinary reels that use
+// the same media assets; nothing is copied.
+model VariantGroup {
+  id           String        @id @default(cuid())
+  workspaceId  String
+  workspace    Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  // The reel the set was made from. Kept when that reel is deleted, so the set can still be compared.
+  sourceReelId String?
+  sourceReel   Reel?         @relation("VariantSource", fields: [sourceReelId], references: [id], onDelete: SetNull)
+  createdAt    DateTime      @default(now())
+  variants     ReelVariant[]
+
+  @@index([workspaceId, createdAt])
+  @@index([sourceReelId])
+}
+
+// One reel's place in a set, and its Instagram numbers when they were last read.
+model ReelVariant {
+  reelId     String       @id
+  reel       Reel         @relation(fields: [reelId], references: [id], onDelete: Cascade)
+  groupId    String
+  group      VariantGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  // "hero" | "presenter" | "title" (VARIANT_HOOKS in @reelwalk/core).
+  hook       String
+  // 15 or 30: the length asked for; the reel's own timeline has the exact one.
+  lengthS    Int
+  // From Instagram's insights for the post of this reel (ADR 0027); null until it is posted and read.
+  views      Int?
+  reach      Int?
+  mediaId    String?
+  insightsAt DateTime?
+
+  @@index([groupId])
 }
 
 // A change asked for in words (ADR 0020): the request, the model's answer

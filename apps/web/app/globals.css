@@ -1585,6 +1585,20 @@ input[type="range"] {
   color: var(--ink);
 }
 
+/* "She passes in front at ▸ 0:09.3" (ADR 0055): the moment, then thumb-sized buttons to set or clear it. */
+.pass-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pass-row .pass-clear {
+  flex: 0 0 var(--tap);
+  min-width: var(--tap);
+  padding: 0;
+  font-size: 1.25rem;
+}
+
 .swatches {
   display: flex;
   gap: 10px;

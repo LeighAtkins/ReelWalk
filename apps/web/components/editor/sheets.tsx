@@ -704,17 +704,23 @@ export function PlanSheet({
 
 // ── Text ────────────────────────────────────────────────────────
 
-export type TextDraft = Pick<TextOverlay, "text" | "style" | "color" | "size" | "animation" | "font" | "tracking" | "path" | "shadow" | "behind" | "depth" | "blend">;
+export type TextDraft = Pick<TextOverlay, "text" | "style" | "color" | "size" | "animation" | "font" | "tracking" | "path" | "shadow" | "behind" | "depth" | "blend" | "passMs" | "passFadeMs" | "particles">;
+
+/** Particle density in three thumb-sized steps (ADR 0055). */
+const PARTICLE_DENSITIES = [0.5, 1, 1.6] as const;
 
 /** The "Elegant" style chip, set in the serif it puts on the reel. */
 const ELEGANT_CHIP: CSSProperties = { fontFamily: ELEGANT_FONT_FAMILY, fontWeight: 500, fontSize: "1.12em", letterSpacing: "0.06em" };
 
 export function TextSheet({
   initial,
+  playheadMs,
   onSave,
   onClose,
 }: {
   initial: TextDraft | null;
+  /** The reel time on screen behind the sheet: "Use this frame" sets the crossing there (ADR 0055). */
+  playheadMs?: number;
   onSave(draft: TextDraft): void;
   onClose(): void;
 }) {
@@ -768,7 +774,25 @@ export function TextSheet({
       }}><option value="still">Still</option>{draft.path ? <option value="path">Keep current motion path</option> : null}<option value="left">Drift left</option><option value="right">Drift right</option></select></label>
       <Segmented label="Depth" options={["flat", "extruded"] as const} value={draft.depth ?? "flat"} onChange={depth => setDraft({ ...draft, depth })} format={depth => ({ flat: "Flat", extruded: "Extruded 3D" })[depth]} />
       <Segmented label="Meets the picture" options={["plain", "surface"] as const} value={draft.blend ?? "plain"} onChange={blend => setDraft({ ...draft, blend: blend === "plain" ? undefined : blend })} format={blend => ({ plain: "On top", surface: "Painted on the surface" })[blend]} />
-      <label className="field small"><input type="checkbox" checked={Boolean(draft.behind)} onChange={event => setDraft({ ...draft, behind: event.target.checked || undefined })} /> People in the shot pass in front of this text</label>
+      <label className="field small"><input type="checkbox" checked={Boolean(draft.behind)} onChange={event => setDraft({ ...draft, behind: event.target.checked || undefined, ...(event.target.checked ? {} : { passMs: undefined, passFadeMs: undefined }) })} /> People in the shot pass in front of this text</label>
+      {draft.behind ? (
+        // Walks through the words (ADR 0055): in front of her until this moment, behind her after it.
+        <div className="pass-row" role="group" aria-label="She passes in front">
+          <span className="small">{draft.passMs === undefined ? "In front of the words the whole time" : <>She passes in front at <strong>▸ {formatDuration(draft.passMs, true)}</strong></>}</span>
+          <div className="segmented">
+            <button type="button" disabled={playheadMs === undefined} onClick={() => playheadMs !== undefined && setDraft({ ...draft, passMs: Math.max(0, Math.round(playheadMs)) })}>Use this frame</button>
+            {draft.passMs !== undefined ? <button type="button" className="pass-clear" aria-label="Clear the crossing: she is in front the whole time" onClick={() => setDraft({ ...draft, passMs: undefined, passFadeMs: undefined })}>×</button> : null}
+          </div>
+        </div>
+      ) : null}
+      <Segmented label="Particles" options={["none", "snow", "embers", "dust"] as const} value={draft.particles?.kind ?? "none"}
+        onChange={kind => setDraft({ ...draft, particles: kind === "none" ? undefined : { ...draft.particles, kind } })}
+        format={kind => ({ none: "No particles", snow: "Snow", embers: "Embers", dust: "Dust" })[kind]} />
+      {draft.particles ? (
+        <Segmented label="Particle density" options={PARTICLE_DENSITIES} value={PARTICLE_DENSITIES.reduce((best, d) => Math.abs(d - (draft.particles?.density ?? 1)) < Math.abs(best - (draft.particles?.density ?? 1)) ? d : best)}
+          onChange={density => setDraft({ ...draft, particles: { ...draft.particles!, density } })}
+          format={density => ({ 0.5: "Light", 1: "Medium", 1.6: "Thick" })[density as 0.5 | 1 | 1.6]} />
+      ) : null}
       <Segmented<TextAnimation> label="Arrives" options={TEXT_ANIMATIONS} value={draft.animation} onChange={(animation) => setDraft({ ...draft, animation })} format={(animation) => TEXT_ANIMATION_LABELS[animation]} />
       <button type="button" className="btn btn-block" disabled={!draft.text.trim()} onClick={() => onSave({ ...draft, text: draft.text.trim() })}>
         {initial ? "Save text" : "Add text"}

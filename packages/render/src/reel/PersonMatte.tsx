@@ -4,6 +4,7 @@ import type { Clip } from "@reelwalk/core";
 import { FILTER_CSS } from "./look";
 import type { ReelAsset } from "./types";
 import { blend, boundingBox, grow, guidedFilter, paste, resample, toAlpha, type Mask } from "./matte-refine";
+import { openVisionTask } from "./matte-assets";
 import { clipPresentation, fitRects } from "./presentation";
 
 /**
@@ -23,25 +24,17 @@ import { clipPresentation, fitRects } from "./presentation";
  * rather than quietly leaving the words on top of the presenter.
  */
 
-// In the editor the app's CSP allows scripts from its own origin only, so the
-// web app serves these paths by rewrite; the render's headless Chrome has no
-// CSP and reads the CDNs directly.
-const CDN = { wasm: "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.1.1/wasm", model: "https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite" };
-const SAME_ORIGIN = { wasm: "/mediapipe/wasm", model: "/mediapipe/selfie_segmenter.tflite" };
-
 type Segmenter = { segment(image: CanvasImageSource): { confidenceMasks?: { width: number; height: number; getAsFloat32Array(): Float32Array; close(): void }[]; close(): void } };
 let loading: Promise<Segmenter> | null = null;
 
 function loadSegmenter(isRendering: boolean): Promise<Segmenter> {
-  const from = isRendering ? CDN : SAME_ORIGIN;
-  loading ??= (async () => {
-    const vision = await import("@mediapipe/tasks-vision");
-    const files = await vision.FilesetResolver.forVisionTasks(from.wasm);
-    return vision.ImageSegmenter.createFromOptions(files, {
-      baseOptions: { modelAssetPath: from.model },
+  // Pinned runtime and hash-checked model bytes (ADR 0051).
+  loading ??= openVisionTask("selfie", isRendering, (vision, fileset, modelAssetBuffer) =>
+    vision.ImageSegmenter.createFromOptions(fileset, {
+      baseOptions: { modelAssetBuffer },
       runningMode: "IMAGE", outputConfidenceMasks: true, outputCategoryMask: false,
-    }) as unknown as Segmenter;
-  })().catch((error) => { loading = null; throw error; });
+    }) as unknown as Promise<Segmenter>,
+  ).catch((error) => { loading = null; throw error; });
   return loading;
 }
 

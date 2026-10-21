@@ -4,6 +4,7 @@ import { applyHomography, homography, pinnedProgress, textQuadAt, type Clip, typ
 import { FILTER_CSS } from "./look";
 import type { ReelAsset } from "./types";
 import { grow, guidedFilter, resample, type Mask } from "./matte-refine";
+import { openVisionTask } from "./matte-assets";
 import { clipPresentation, fitRects } from "./presentation";
 import { compositePerson, drawWork, frameAt, newScratch, WORK_HEIGHT, WORK_WIDTH, type MatteScratch } from "./PersonMatte";
 
@@ -17,22 +18,17 @@ import { compositePerson, drawWork, frameAt, newScratch, WORK_HEIGHT, WORK_WIDTH
  * Deterministic: each frame's mask depends on that frame and the tap alone.
  */
 
-const CDN = { wasm: "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.1.1/wasm", model: "https://storage.googleapis.com/mediapipe-models/interactive_segmenter/magic_touch/float32/latest/magic_touch.tflite" };
-const SAME_ORIGIN = { wasm: "/mediapipe/wasm", model: "/mediapipe/magic_touch.tflite" };
-
 type TouchSegmenter = { segment(image: CanvasImageSource, roi: { keypoint: { x: number; y: number } }): { confidenceMasks?: { width: number; height: number; getAsFloat32Array(): Float32Array; close(): void }[]; close(): void } };
 let loading: Promise<TouchSegmenter> | null = null;
 
 function loadTouch(isRendering: boolean): Promise<TouchSegmenter> {
-  const from = isRendering ? CDN : SAME_ORIGIN;
-  loading ??= (async () => {
-    const vision = await import("@mediapipe/tasks-vision");
-    const files = await vision.FilesetResolver.forVisionTasks(from.wasm);
-    return vision.InteractiveSegmenterLegacy.createFromOptions(files, {
-      baseOptions: { modelAssetPath: from.model },
+  // Pinned runtime and hash-checked model bytes (ADR 0051).
+  loading ??= openVisionTask("touch", isRendering, (vision, fileset, modelAssetBuffer) =>
+    vision.InteractiveSegmenterLegacy.createFromOptions(fileset, {
+      baseOptions: { modelAssetBuffer },
       outputConfidenceMasks: true, outputCategoryMask: false,
-    }) as unknown as TouchSegmenter;
-  })().catch((error) => { loading = null; throw error; });
+    }) as unknown as Promise<TouchSegmenter>,
+  ).catch((error) => { loading = null; throw error; });
   return loading;
 }
 

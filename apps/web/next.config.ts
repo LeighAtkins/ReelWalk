@@ -48,12 +48,14 @@ const nextConfig: NextConfig = {
   },
   // The person matte (ADR 0039) runs MediaPipe in the editor's preview. Its
   // WASM loader is a script, and script-src is 'self', so the runtime and the
-  // model are served from this origin by rewrite rather than from the CDNs.
+  // models are served from this origin by rewrite rather than from the CDNs.
+  // Pinned (ADR 0051): the paths match packages/render/src/reel/matte-assets.ts,
+  // which also checks each model's SHA-256 when it loads; never a `latest` URL.
   async rewrites() {
     return [
-      { source: "/mediapipe/wasm/:path*", destination: "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.1.1/wasm/:path*" },
-      { source: "/mediapipe/selfie_segmenter.tflite", destination: "https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite" },
-      { source: "/mediapipe/magic_touch.tflite", destination: "https://storage.googleapis.com/mediapipe-models/interactive_segmenter/magic_touch/float32/latest/magic_touch.tflite" },
+      { source: "/mediapipe/1.1.1/wasm/:path*", destination: "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.1.1/wasm/:path*" },
+      { source: "/mediapipe/models/191ac9529ae506ee/selfie_segmenter.tflite", destination: "https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/1/selfie_segmenter.tflite" },
+      { source: "/mediapipe/models/e24338a717c1b7ad/magic_touch.tflite", destination: "https://storage.googleapis.com/mediapipe-models/interactive_segmenter/magic_touch/float32/1/magic_touch.tflite" },
     ];
   },
 };

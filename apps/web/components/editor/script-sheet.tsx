@@ -8,7 +8,7 @@ import {
 import type { LibraryAsset } from "@/lib/library";
 import { PresenterPicker } from "./presenter-kit";
 import { luminance, timelineFrames } from "./frame-service";
-import { loadApproved, progressSummary, saveApproved, scriptProgress, scriptSettled, shouldStartMore, takesToPlace, type ApprovedScript, type ScriptJob, type TakeState } from "./script-flow";
+import { approvalExpired, loadApproved, sendApproval, startScript, type ApprovalDeps, progressSummary, saveApproved, scriptProgress, scriptSettled, shouldStartMore, takesToPlace, type ApprovedScript, type ScriptJob } from "./script-flow";
 
 const POLL_MS = 10_000;
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
@@ -16,42 +16,59 @@ const clock = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor((ms
 
 /**
  * An approved script's takes, followed while the editor is open (not only the
- * sheet): starts the next take when the workspace has room, and says when the
- * takes are ready to place.
+ * sheet): starts the next take when the workspace has room, stops starting
+ * them when the server says it never will, and says when the takes are ready.
  */
 export function useScriptRun(reelId: string) {
   const [approved, setApproved] = useState<ApprovedScript | null>(null);
-  const [progress, setProgress] = useState<TakeState[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const starting = useRef(false);
-  useEffect(() => { setApproved(loadApproved(reelId)); }, [reelId]);
+  const [jobs, setJobs] = useState<ScriptJob[] | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  const [expired, setExpired] = useState(false);
+  const sending = useRef(false);
+  useEffect(() => { setApproved(loadApproved(reelId)); setJobs(null); }, [reelId]);
 
-  const send = useCallback(async (next: ApprovedScript): Promise<{ ok: boolean; message?: string }> => {
-    if (starting.current) return { ok: false };
-    starting.current = true;
-    try {
-      const response = await fetch(`/api/reels/${reelId}/script`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...next, approved: true }) });
-      const data = await response.json().catch(() => ({})) as { error?: string; started?: unknown[] };
-      if (response.ok) return { ok: true };
-      // Takes already started keep going; the same approval carries on later without charging them twice.
-      return { ok: Boolean(data.started?.length), message: data.error ?? "Could not start the takes." };
-    } catch { return { ok: false, message: "No connection. Try again." }; }
-    finally { starting.current = false; }
+  const keep = useCallback((next: ApprovedScript | null) => { saveApproved(reelId, next); setApproved(next); }, [reelId]);
+
+  /** The script's own takes, by the request ids the server derives (never the workspace's last-20 list). */
+  const fetchJobs = useCallback(async (scriptId: string): Promise<{ jobs: ScriptJob[]; inFlight: number } | null> => {
+    const response = await fetch(`/api/reels/${reelId}/script?scriptId=${encodeURIComponent(scriptId)}`, { cache: "no-store" }).catch(() => null);
+    if (!response?.ok) return null;
+    return await response.json().catch(() => null) as { jobs: ScriptJob[]; inFlight: number } | null;
   }, [reelId]);
 
-  const refresh = useCallback(async (current: ApprovedScript) => {
-    const response = await fetch("/api/ai/generations", { cache: "no-store" }).catch(() => null);
-    if (!response?.ok) return;
-    const data = await response.json() as { jobs: ScriptJob[] };
-    const next = scriptProgress(current.script, data.jobs);
-    setProgress(next);
-    if (shouldStartMore(next, data.jobs)) {
-      const sent = await send(current);
-      setError(sent.ok ? null : sent.message ?? null);
-    }
-  }, [send]);
+  const deps = useMemo<ApprovalDeps>(() => ({
+    post: async (body) => {
+      const response = await fetch(`/api/reels/${reelId}/script`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+      return { status: response.status, data: await response.json().catch(() => ({})) };
+    },
+    jobs: async (scriptId) => (await fetchJobs(scriptId))?.jobs ?? null,
+    save: (next) => saveApproved(reelId, next),
+  }), [reelId, fetchJobs]);
 
-  const settled = progress.length > 0 && scriptSettled(progress);
+  /** Send the approval (again): a refusal stops the takes not yet started; anything else is tried again later. */
+  const send = useCallback(async (current: ApprovedScript, first = false) => {
+    if (sending.current) return;
+    sending.current = true;
+    try {
+      const result = first ? await startScript(current.script, current.quotedCredits, current.approvedAt, deps) : await sendApproval(current, deps);
+      setApproved(result.approved); setNote(result.note);
+      if (!result.approved) setJobs(null);
+    } finally { sending.current = false; }
+  }, [deps]);
+
+  const progress = useMemo(() => approved && jobs ? scriptProgress(approved, jobs) : [], [approved, jobs]);
+  const settled = scriptSettled(progress);
+
+  const refresh = useCallback(async (current: ApprovedScript) => {
+    const data = await fetchJobs(current.script.scriptId);
+    if (!data) return;
+    setJobs(data.jobs);
+    if (!shouldStartMore(scriptProgress(current, data.jobs), data.inFlight)) return;
+    // An old approval does not start more takes by itself: the studio is asked again first.
+    if (approvalExpired(current)) { setExpired(true); return; }
+    await send(current);
+  }, [fetchJobs, send]);
+
   useEffect(() => {
     if (!approved || settled) return;
     void refresh(approved);
@@ -59,17 +76,26 @@ export function useScriptRun(reelId: string) {
     return () => clearInterval(timer);
   }, [approved, settled, refresh]);
 
-  const start = useCallback(async (next: ApprovedScript) => {
-    setError(null);
-    const sent = await send(next);
-    if (!sent.ok) { setError(sent.message ?? "Could not start the takes."); return false; }
-    saveApproved(reelId, next); setApproved(next); setProgress([]); setError(sent.message ?? null);
-    return true;
-  }, [reelId, send]);
+  /** Kept before it is sent (startScript), so a lost response carries on with the same script id instead of charging the lines again. */
+  const start = useCallback(async (script: ScriptRequest, quotedCredits: number) => {
+    const next: ApprovedScript = { script, quotedCredits, approvedAt: Date.now() };
+    setApproved(next); setJobs([]); setExpired(false); setNote(null);
+    await send(next, true);
+  }, [send]);
 
-  const finish = useCallback(() => { saveApproved(reelId, null); setApproved(null); setProgress([]); setError(null); }, [reelId]);
-  const toPlace = useMemo(() => approved && settled ? takesToPlace(approved.script, progress) : [], [approved, settled, progress]);
-  return { approved, progress, settled, error, start, finish, toPlace, assets: progress.flatMap(take => take.asset ? [take.asset] : []) };
+  /** Approve the rest again after the approval expired. */
+  const renew = useCallback(async () => {
+    if (!approved) return;
+    const next = { ...approved, approvedAt: Date.now() };
+    keep(next); setExpired(false);
+    await send(next);
+  }, [approved, keep, send]);
+
+  const finish = useCallback(() => { keep(null); setJobs(null); setNote(null); setExpired(false); }, [keep]);
+  const ready = useMemo(() => approved ? takesToPlace(approved.script, progress) : [], [approved, progress]);
+  const toPlace = settled ? ready : [];
+  const owedCredits = expired ? progress.filter(take => take.state === "waiting").reduce((sum, take) => sum + scriptQuote([take.line]).total, 0) : 0;
+  return { approved, progress, settled, note, expired, owedCredits, start, renew, finish, ready, toPlace, assets: progress.flatMap(take => take.asset ? [take.asset] : []) };
 }
 export type ScriptRun = ReturnType<typeof useScriptRun>;
 
@@ -159,28 +185,40 @@ export function ScriptSheet({ reelId, timeline, library, run, onPlace, onAssets 
         takes: chosen.map((slot, i) => ({ line: filled[i], boundary: slot!.boundary, afterClipId: slot!.afterClipId, fraction: slot!.fraction, plate: slot!.plate, room: slot!.room, light: lights[i] })),
       };
       try { if (outfit.trim()) localStorage.setItem(OUTFIT_KEY(presenterId), outfit.trim()); } catch { /* none */ }
-      if (await run.start({ script, quotedCredits: quote.total })) { setLines(["", ""]); setPlacements([null, null]); }
+      await run.start(script, quote.total);
+      setLines(["", ""]); setPlacements([null, null]);
     } finally { setBusy(null); }
   }
 
   if (run.approved) {
-    const ready = run.toPlace.length;
+    const placeable = run.settled ? run.toPlace : run.ready;
+    const badge = (state: string) => state === "ready" ? "succeeded" : state === "failed" ? "failed" : state === "making" ? "running" : "queued";
+    const label = (take: (typeof run.progress)[number] | undefined) => !take || take.state === "waiting" ? "Waiting" : take.state === "making" ? "Being made" : take.state === "ready" ? "Ready"
+      : take.credit === "held" ? "Not confirmed · credit held" : take.credit === "none" ? "Not started" : take.credit === "spent" ? "Missing" : "Did not come out · credit returned";
     return <div className="script-sheet">
       <p className="small">{plural(run.approved.script.takes.length, "take")} · {plural(run.approved.quotedCredits, "credit")} approved · {progressSummary(run.progress)}</p>
       <ol className="script-takes">
         {run.approved.script.takes.map((take, i) => {
-          const state = run.progress[i]?.state ?? "waiting";
+          const state = run.progress[i];
           return <li key={i}>
-            <span className={`badge badge-${state === "ready" ? "succeeded" : state === "failed" ? "failed" : state === "making" ? "running" : "queued"}`}>{state === "ready" ? "Ready" : state === "failed" ? "Did not come out" : state === "making" ? "Being made" : "Waiting"}</span>
+            <span className={`badge badge-${badge(state?.state ?? "waiting")}`}>{label(state)}</span>
             <span className="script-take-line">“{take.line}”</span>
-            {state === "failed" && run.progress[i]?.error ? <span className="small muted">{run.progress[i]!.error}</span> : null}
+            {state?.state === "failed" && state.error ? <span className="small muted">{state.error}</span> : null}
           </li>;
         })}
       </ol>
       {!run.settled ? <p className="small muted">Takes are made two at a time and take a few minutes each. You can keep editing; this carries on while the editor is open.</p> : null}
-      {run.error ? <p role="status" className="small">{run.error}</p> : null}
-      {run.settled && ready > 0 ? <button type="button" className="btn btn-signal btn-block" onClick={() => { if (onPlace(run.toPlace, run.assets)) run.finish(); }}>Put {plural(ready, "take")} in the reel</button> : null}
-      {run.settled ? <button type="button" className="btn btn-quiet btn-block" onClick={run.finish}>{ready > 0 ? "Don't place them (they stay in Media)" : "Write a new script"}</button> : null}
+      {run.note ? <p role="status" className="small">{run.note}</p> : null}
+      {run.expired ? <>
+        <p role="status" className="small">This approval is over an hour old, so the rest were not started. Carry on with {plural(run.owedCredits, "credit")} for the takes still to make?</p>
+        <button type="button" className="btn btn-signal btn-block" onClick={() => { void run.renew(); }}>Carry on · {plural(run.owedCredits, "credit")}</button>
+      </> : null}
+      {placeable.length > 0 ? <button type="button" className={`btn ${run.settled ? "btn-signal" : "btn-quiet"} btn-block`} onClick={() => { if (onPlace(placeable, run.assets)) run.finish(); }}>
+        {run.settled ? `Put ${plural(placeable.length, "take")} in the reel` : `Stop here · put the ${plural(placeable.length, "ready take")} in the reel`}
+      </button> : null}
+      {!run.settled
+        ? <button type="button" className="btn btn-quiet btn-block" onClick={run.finish}>Stop here{placeable.length ? " without placing" : ""} · no more takes start; any being made finish and stay in Media</button>
+        : <button type="button" className="btn btn-quiet btn-block" onClick={run.finish}>{placeable.length > 0 ? "Don't place them (they stay in Media)" : "Write a new script"}</button>}
     </div>;
   }
 
@@ -230,7 +268,7 @@ export function ScriptSheet({ reelId, timeline, library, run, onPlace, onAssets 
       {plural(lines.length, "take")} · <strong>{plural(quote.total, "credit")}</strong> in total{info ? ` · you have ${info.remaining}` : ""}. Each face is checked against her kit before a credit is spent; a take that does not come out is refunded.
     </p>
     {info && info.enabled && !enough ? <p className="small" role="status">Not enough credits for the whole script. Add credits in Account or shorten a line.</p> : null}
-    {run.error || message ? <p role="status" className="small">{run.error ?? message}</p> : null}
+    {run.note || message ? <p role="status" className="small">{message ?? run.note}</p> : null}
     <button type="button" className="btn btn-signal btn-block" disabled={!canGenerate} onClick={() => { void generate(); }}>
       {busy === "generate" ? "Starting…" : `Generate · ${plural(quote.total, "credit")}`}
     </button>

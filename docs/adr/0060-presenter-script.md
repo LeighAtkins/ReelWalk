@@ -109,12 +109,55 @@ seconds (ADR 0048's rule).
 editor has it. With no model configured it returns `draftScriptLines`
 (greeting, rooms, call to action).
 
+## Amendments after review (Opus, PR #206)
+
+- **A lost response never charges twice.** The approved script, with its
+  id, is saved (localStorage, per reel) *before* it is sent
+  (`startScript`). A dropped response leaves it in place and the editor's
+  next poll sends the same approval, so the same request ids. It is
+  forgotten only on a definite refusal (a 4xx other than 401/408/429) when
+  the server shows nothing was made for that script id.
+- **A script always ends.** A refusal after some takes were made (the
+  balance spent elsewhere between takes, a kit or plate gone) marks the
+  takes not yet started as "not started (no credit used)" and the script
+  settles. "Stop here" is offered whenever it has not: it places the takes
+  that are ready (one command, one undo) and starts no more; takes being
+  made finish and stay in Media. The hourly generation limit is a pause
+  (`paused: "hourly"`, the takes wait and start by themselves later), as is
+  a full workspace (`paused: "busy"`); a lost worker wake no longer fails
+  reserved takes (the next poll wakes it).
+- **Progress from the script's own rows.** `GET /api/reels/:id/script?scriptId=`
+  derives the script's request ids on the server and returns exactly those
+  generations (status, error, failure code, finished asset) and the
+  workspace's in-flight count. The sheet uses it, not the workspace's
+  last-20 list, so an old script is never stuck as "waiting".
+- **Every shot is checked before it is sent.** `buildScriptShots` parses
+  each shot with `aiShotSchema`, the schema the worker reads it back with,
+  and throws `ScriptShotError` (the route answers 400) rather than sending
+  one the worker would read without its voice (a silent take charged as
+  voiced). Lines are cleaned before anything else sees them: quotation marks
+  and line breaks removed (the worker quotes the line in Veo's prompt),
+  spaces collapsed, at most 20 words. A generated (`ai-`) plate is refused.
+- **An approval lasts an hour.** After that, waiting takes are not started
+  until the studio taps "Carry on · N credits" (the credits still owed).
+- **What happened to each credit is said honestly:** returned (failed),
+  held (could not be confirmed, ADR 0056: never charged twice), made but
+  missing from the library, or never used (not started).
+- Verified: `pnpm check` passes; `script.test.ts` 20 tests (cleaning,
+  the word cap, the `ai-` plate, `ScriptShotError`), `script-routes.test.ts`
+  12 (the script's own rows by derived ids, hourly pause, a lost wake,
+  refusals keeping started takes, request ids distinct between scripts),
+  `script-flow.test.ts` 13 (saved before sent, the same id sent again after
+  a lost response, forgotten only on a definite refusal with nothing made,
+  stopped scripts settle, Stop here places what is ready, credit wording,
+  answer classes, approval expiry).
+
 ## Consequences
 
 - No migration. `aiShotSchema` gains an optional `script` object (additive;
   saved rows and older shots parse as before).
-- A script keeps going only while an editor tab of that reel is open, like
-  ADR 0037's run. Takes already started finish regardless and stay in the
+- A script keeps going only while an editor tab of that reel is open (in
+  that browser: the approval is in its localStorage), like ADR 0037's run. Takes already started finish regardless and stay in the
   library.
 - The outfit is per script and per browser, not per kit. A kit-level
   `outfit` (a Presenter column) is the follow-up once the identity work has

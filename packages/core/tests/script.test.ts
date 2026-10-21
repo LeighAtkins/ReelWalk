@@ -3,7 +3,7 @@ import { aiClipCredits } from "../src/ai";
 import { aiShotSchema } from "../src/ai-shots";
 import { applyCommand } from "../src/commands";
 import {
-  buildScriptShots, composeInstruction, draftScriptLines, insertPresenterTakes, lightFromLuma, lineSeconds, planScript,
+  buildScriptShots, cleanLine, composeInstruction, draftScriptLines, SCRIPT_LINE_MAX_WORDS, ScriptShotError, insertPresenterTakes, lightFromLuma, lineSeconds, planScript,
   presenterPrompt, presenterTakeClipId, scriptContinuity, scriptQuote, scriptRequestSchema, scriptSlots, DEFAULT_OUTFIT,
   type ScriptRequest,
 } from "../src/script";
@@ -159,6 +159,30 @@ describe("continuity in every prompt", () => {
       expect(s.shot.compose.first!.endsWith(".")).toBe(true);
       expect(s.prompt.length).toBeLessThan(2000);
     });
+  });
+
+  it("speaks the line without quotation marks or line breaks, and caps it at 20 words", () => {
+    const quoted = script({ takes: [{ ...script().takes[0], line: 'She said "hi"\nand “welcome”  home.' }] });
+    expect(quoted.takes[0].line).toBe("She said hi and welcome home.");
+    expect(buildScriptShots(quoted, "reel1")[0].shot.line).toBe("She said hi and welcome home.");
+    expect(cleanLine('a "b"\r\nc')).toBe("a b c");
+    const long = scriptRequestSchema.safeParse({ ...script(), takes: [{ ...script().takes[0], line: Array.from({ length: 21 }, (_, i) => `w${i}`).join(" ") }] });
+    expect(long.success).toBe(false);
+    expect(long.error?.issues[0].message).toBe(`Keep each line to ${SCRIPT_LINE_MAX_WORDS} words or fewer.`);
+  });
+
+  it("refuses a generated take as a plate", () => {
+    const parsed = scriptRequestSchema.safeParse({ ...script(), takes: [{ ...script().takes[0], plate: { assetId: "ai-123", atMs: 0 } }] });
+    expect(parsed.success).toBe(false);
+    expect(parsed.error?.issues[0].message).toMatch(/own footage/);
+  });
+
+  it("refuses to build a shot the worker could not read back with its voice, instead of sending a silent take charged as voiced", () => {
+    // Built without the request schema's checks: a line too short for aiShotSchema.
+    const unchecked = { ...script(), takes: [{ ...script().takes[0], line: "Hi" }] } as ScriptRequest;
+    expect(() => buildScriptShots(unchecked, "reel1")).toThrow(ScriptShotError);
+    const noKit = { ...script(), presenterId: "" } as ScriptRequest;
+    expect(() => buildScriptShots(noKit, "reel1")).toThrow(/Line 1 could not be made into a take/);
   });
 
   it("refuses lines out of playing order", () => {

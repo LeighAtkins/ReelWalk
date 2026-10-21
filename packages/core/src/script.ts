@@ -10,7 +10,7 @@
  */
 import { z } from "zod";
 import { aiClipCredits, type AiClipSeconds } from "./ai";
-import { aiBoundary, type AiScriptMeta, type AiShot } from "./ai-shots";
+import { aiBoundary, aiShotSchema, type AiScriptMeta, type AiShot } from "./ai-shots";
 import { isGeneratedAssetId } from "./presenter";
 import { clipStartsMs, timelineDurationMs, type Clip, type Filter, type Timeline } from "./timeline";
 
@@ -22,6 +22,15 @@ export const SCRIPT_OUTFIT_MAX = 120;
 export const DEFAULT_OUTFIT = "the same clothes as in her full-length photo";
 /** A line of up to this many words fits a 4-second take; longer lines get 8 seconds. */
 export const SHORT_LINE_WORDS = 7;
+/** About as much as she can say in an 8-second take. */
+export const SCRIPT_LINE_MAX_WORDS = 20;
+
+/**
+ * A line as it is spoken: no quotation marks or line breaks (the worker puts the
+ * line inside quotes in Veo's prompt), single spaces.
+ */
+export const cleanLine = (line: string) => line.replace(/["“”\r\n]+/g, " ").replace(/\s+/g, " ").trim();
+export const lineWords = (line: string) => cleanLine(line).split(" ").filter(Boolean).length;
 
 export const SCRIPT_VOICES = ["veo", "lipsync"] as const;
 export type ScriptVoice = typeof SCRIPT_VOICES[number];
@@ -102,7 +111,7 @@ export function planScript(slots: ScriptSlot[], count: number): ScriptSlot[] {
 
 /** A short line fits four seconds; anything longer gets eight, so she is not rushed. */
 export function lineSeconds(line: string): AiClipSeconds {
-  return line.trim().split(/\s+/).filter(Boolean).length <= SHORT_LINE_WORDS ? 4 : 8;
+  return lineWords(line) <= SHORT_LINE_WORDS ? 4 : 8;
 }
 
 /** What the script costs before anything is made: every take is voiced (ADR 0038 adds a credit per spoken take). */
@@ -114,11 +123,13 @@ export function scriptQuote(lines: string[]): { seconds: AiClipSeconds[]; credit
 
 const frame = z.object({ assetId: z.string().min(1).max(64), atMs: z.number().int().min(0).max(86_400_000) });
 export const scriptTakeSchema = z.object({
-  line: z.string().trim().min(SCRIPT_LINE_MIN).max(SCRIPT_LINE_MAX),
+  line: z.preprocess(v => typeof v === "string" ? cleanLine(v) : v, z.string().min(SCRIPT_LINE_MIN).max(SCRIPT_LINE_MAX)
+    .refine(line => lineWords(line) <= SCRIPT_LINE_MAX_WORDS, `Keep each line to ${SCRIPT_LINE_MAX_WORDS} words or fewer.`)),
   boundary: z.number().int().min(0).max(100),
   afterClipId: z.string().min(1).max(200).nullable(),
   fraction: z.number().min(0).max(1),
-  plate: frame,
+  // Her own footage only: a generated take may already show her, and chaining takes is how faces drifted (ADR 0056).
+  plate: frame.refine(plate => !isGeneratedAssetId(plate.assetId), "Film her into your own footage, not a generated take."),
   room: z.string().trim().max(40).nullable().optional(),
   light: z.enum(LIGHT_SIDES).nullable().optional(),
 });
@@ -195,7 +206,12 @@ export const scriptRequestKey = (scriptId: string, index: number) => `script:${s
 
 export type ScriptShot = { prompt: string; durationSeconds: AiClipSeconds; credits: number; shot: AiShot & { compose: NonNullable<AiShot["compose"]> } };
 
-/** Every take of a script as the generation path takes it: exact prompt, duration, credit quote, and the shot with its composed still. */
+/**
+ * Every take of a script as the generation path takes it: exact prompt, duration, credit quote, and the shot with its
+ * composed still. Each shot is checked against `aiShotSchema` here, the schema the worker reads it back with: a shot it
+ * could not read would lose its voice and be made silent although charged as voiced. Throws `ScriptShotError` instead.
+ */
+export class ScriptShotError extends Error {}
 export function buildScriptShots(script: ScriptRequest, reelId: string): ScriptShot[] {
   const continuity = scriptContinuity(script.takes);
   const quote = scriptQuote(script.takes.map(take => take.line));
@@ -204,14 +220,15 @@ export function buildScriptShots(script: ScriptRequest, reelId: string): ScriptS
       id: script.scriptId, reelId, index, count: script.takes.length, afterClipId: take.afterClipId, fraction: take.fraction,
       ...(script.outfit?.trim() ? { outfit: script.outfit.trim() } : {}),
     };
-    return {
-      prompt: presenterPrompt(take, script.outfit, script.voice, continuity[index]),
-      durationSeconds: quote.seconds[index], credits: quote.credits[index],
-      shot: {
-        mode: "custom", first: take.plate, line: take.line, voice: script.voice, script: meta,
-        compose: { presenterId: script.presenterId, framing: "medium", first: composeInstruction(take, script.outfit, continuity[index]) },
-      },
+    const shot: ScriptShot["shot"] = {
+      mode: "custom", first: take.plate, line: cleanLine(take.line), voice: script.voice, script: meta,
+      compose: { presenterId: script.presenterId, framing: "medium", first: composeInstruction(take, script.outfit, continuity[index]) },
     };
+    const checked = aiShotSchema.safeParse(shot);
+    if (!checked.success || !checked.data.voice || !checked.data.line || !checked.data.compose) {
+      throw new ScriptShotError(`Line ${index + 1} could not be made into a take${checked.success ? "" : `: ${checked.error.issues[0]?.message ?? "invalid"}`}.`);
+    }
+    return { prompt: presenterPrompt(take, script.outfit, script.voice, continuity[index]), durationSeconds: quote.seconds[index], credits: quote.credits[index], shot };
   });
 }
 

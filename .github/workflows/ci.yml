@@ -105,14 +105,31 @@ jobs:
       # Draw the first and last frame of every shot of a reel that uses every
       # feature, with the renderer this image ships (ADR 0042). A frame that
       # errors or hangs fails here, not in a production export.
+      # Then the acceptance checks (ADR 0053): the exported frames must match
+      # stills of the same frames (preview matches export), and every planar
+      # title must stay on its plane. To skip them when the fixture or the
+      # renderer is unavailable, label the PR `skip-acceptance` (then push, so
+      # the run sees the label) or set the repository variable
+      # SKIP_ACCEPTANCE=true. The baseline comparison only reports here: its
+      # references were made on Windows (packages/render/fixtures/SOURCE.md).
       - name: Render smoke test
         if: matrix.app == 'worker'
-        timeout-minutes: 12
+        timeout-minutes: 25
+        env:
+          SMOKE_COMPARE: ${{ (contains(github.event.pull_request.labels.*.name, 'skip-acceptance') || vars.SKIP_ACCEPTANCE == 'true') && '0' || '1' }}
         # From the worker's directory: that is where the image's Chrome lives
         # (ensure-browser ran there) and the only node_modules the `node` user may write.
-        run: >
-          docker run --rm -w /workspace/apps/worker "$IMAGE"
-          node_modules/.bin/tsx ../../packages/render/scripts/render-smoke.ts
+        run: |
+          mkdir -p smoke-out && chmod 777 smoke-out
+          docker run --rm -w /workspace/apps/worker -e SMOKE_COMPARE -e SMOKE_BASELINE=report -v "$PWD/smoke-out:/out" "$IMAGE" node_modules/.bin/tsx ../../packages/render/scripts/render-smoke.ts /out
+      # The stills, the MP4 and the contact sheets, to look at (and to take new baseline references from).
+      - name: Keep the smoke's frames
+        if: always() && matrix.app == 'worker'
+        uses: actions/upload-artifact@v7
+        with:
+          name: render-acceptance
+          path: smoke-out
+          if-no-files-found: ignore
 
       # Accepted findings (with reasons) are listed in .trivyignore.yaml.
       - name: Scan image with Trivy

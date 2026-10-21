@@ -28,7 +28,8 @@ export function legacyTrack(frames: Gray[], surface: Quad): LegacyResult {
   const out: LegacyFrame[] = [{ quad, o: 1 }];
   let lostAt: number | null = null, misses = 0, inlierSum = 0, steps = 0, held = 0;
   const inFrame = (p: [number, number]) => p[0] >= margin && p[1] >= margin && p[0] < W - margin && p[1] < H - margin;
-  const fadeFrames = Math.max(1, Math.round((frames.length - 1) * 0.1));
+  // main faded over 250 ms; the benchmark samples every 100 ms, so 2.5 frames (an earlier version of this port used 10% of the frames).
+  const fadeFrames = 2.5;
   for (let k = 1; k < frames.length; k++) {
     const next = frames[k];
     if (lostAt === null) {

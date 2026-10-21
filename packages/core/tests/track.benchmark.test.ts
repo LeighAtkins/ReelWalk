@@ -1,13 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { benchmark, table } from "./track-bench/bench";
+import { benchmark, table, totals } from "./track-bench/bench";
 import { scenarios } from "./track-bench/synth";
 
 // The full ADR 0052 benchmark at the editor's tracking size (360 × 640, 30 frames) is slow because the
-// legacy tracker brute-forces every patch: run it with TRACK_BENCH=1 pnpm --filter @reelwalk/core test track.benchmark
+// legacy tracker brute-forces every patch: TRACK_BENCH=1 pnpm --filter @reelwalk/core exec vitest run tests/track.benchmark.test.ts
 describe.runIf(process.env.TRACK_BENCH)("surface tracking benchmark (full)", () => {
-  it("prints before/after numbers", () => {
+  it("meets the claims in ADR 0052", () => {
     const rows = benchmark(scenarios(360, 640, 30));
     console.log(`\n${table(rows)}\n`);
+    const legacy = totals(rows, "legacy"), fresh = totals(rows, "new");
+    expect(rows.find((r) => r.scenario === "blank wall" && r.tracker === "new")!.shown).toBe(0);
+    expect(fresh.falseConfident).toBe(0);
+    expect(fresh.shownWrong).toBe(0);
+    expect(fresh.falseConfident).toBeLessThan(legacy.falseConfident);
+    expect(fresh.meanErr!).toBeLessThan(0.6);
+    expect(fresh.meanErr!).toBeLessThan(legacy.meanErr!);
   }, 600_000);
 });
 
@@ -15,16 +22,16 @@ describe("surface tracking benchmark (small)", () => {
   const rows = benchmark(scenarios(144, 256, 16));
   const wrongPx = 3 * (144 / 360);
 
-  it("never claims confidence on a blank wall", () => {
+  it("never draws a blank wall", () => {
     const blank = rows.find((r) => r.scenario === "blank wall" && r.tracker === "new")!;
-    expect(blank.confident).toBe(0);
+    expect(blank.shown).toBe(0);
   });
 
   it("is no more falsely confident than the legacy tracker, and rarely at all", () => {
-    const total = (tracker: string) => rows.filter((r) => r.tracker === tracker).reduce((s, r) => s + r.falseConfident, 0);
-    const frames = rows.filter((r) => r.tracker === "new").reduce((s, r) => s + r.frames, 0);
-    expect(total("new")).toBeLessThanOrEqual(total("legacy"));
-    expect(total("new") / frames).toBeLessThan(0.05);
+    const legacy = totals(rows, "legacy"), fresh = totals(rows, "new");
+    expect(fresh.falseConfident).toBeLessThanOrEqual(legacy.falseConfident);
+    expect(fresh.falseConfident / fresh.frames).toBeLessThan(0.05);
+    expect(fresh.shownWrong / fresh.frames).toBeLessThan(0.05);
   });
 
   it("follows textured surfaces within a few pixels", () => {

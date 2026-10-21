@@ -1,84 +1,110 @@
 /**
  * The ADR 0052 benchmark: corner error and false confidence for the legacy
- * tracker and the new pipeline on the synthetic set. Both outputs are passed
- * through smoothing the way the editor stores them.
+ * tracker and the new pipeline on the synthetic set, measured on the path
+ * each one saves, not on the raw tracker output:
  *
+ * - new: `smoothTrack` then `trackPath`, exactly as `trackTextPathDetailed`
+ *   does, with keyframe corners read back from the saved `q` fractions and
+ *   opacity from `o`;
+ * - legacy: its keyframes with its `o` fade, through `smoothKeyframes` over
+ *   the whole path, as main stores them.
+ *
+ * Every keyframe drawn at all (o > 0) counts, partially transparent ones
+ * included:
  * - corner error: mean distance of the four corners from the truth, px at the
- *   benchmark size, over the frames the tracker shows at full opacity;
- * - a frame is "confident" when the tracker presents it as attached: legacy,
- *   full opacity and an overall grade of "good" (the only per-track signal it
- *   had); new, per-frame confidence ≥ 0.5 on a track that was not rejected;
- * - false confidence: confident frames whose corner error exceeds `wrongPx`
- *   (3 px at 360 wide ≈ 9 output px), over all frames.
+ *   benchmark size, averaged with opacity as the weight;
+ * - "confident": drawn and presented as attached (legacy: grade "good", the
+ *   only signal it had; new: per-keyframe confidence ≥ 0.5);
+ * - false confidence: confident keyframes whose error exceeds `wrongPx`
+ *   (3 px at 360 wide ≈ 9 output px);
+ * - shown wrong: drawn keyframes over `wrongPx`, whatever was claimed.
+ * Frames after a cut have no right answer (infinite error).
  */
-import { smoothKeyframes, smoothLive, trackSurface, type Quad } from "../../src";
+import { smoothKeyframes, smoothTrack, trackPath, trackSurface, type Quad } from "../../src";
 import { legacyTrack } from "./legacy";
 import { cornerError, type Scenario } from "./synth";
 
 export type Row = {
   scenario: string; tracker: "legacy" | "new"; outcome: string;
-  /** Frames shown at full opacity (excluding frame 0). */
+  /** Keyframes drawn (o > 0), excluding the first. */
   shown: number; meanErr: number | null; maxErr: number | null;
   confident: number; falseConfident: number;
-  /** Frames shown at full opacity whose corners are more than `wrongPx` off, whatever the tracker claimed. */
   shownWrong: number;
   frames: number;
 };
 
-/** As the editor stores them: legacy smoothed the whole path; the new pipeline smooths each live run (`smoothLive`). */
-function smoothed(quads: Quad[], live?: boolean[]): Quad[] {
-  const path = quads.map((q, i) => ({ t: i / Math.max(1, quads.length - 1), x: 0, y: 0, q: [...q] }));
-  return (live ? smoothLive(path, live) : smoothKeyframes(path)).map((p) => p.q as Quad);
+type Saved = { quads: Quad[]; opacity: number[]; confident: boolean[] };
+
+function row(scenario: Scenario, tracker: Row["tracker"], outcome: string, saved: Saved | null, wrongPx: number): Row {
+  const n = scenario.frames.length - 1;
+  if (!saved) return { scenario: scenario.name, tracker, outcome, shown: 0, meanErr: null, maxErr: null, confident: 0, falseConfident: 0, shownWrong: 0, frames: n };
+  const errs = saved.quads.map((q, i) => cornerError(q, scenario.truth[i]));
+  const drawn = errs.flatMap((e, i) => (i > 0 && saved.opacity[i] > 0 ? [{ e, o: saved.opacity[i], i }] : []));
+  const finite = drawn.filter((d) => Number.isFinite(d.e));
+  const weight = finite.reduce((s, d) => s + d.o, 0);
+  return {
+    scenario: scenario.name, tracker, outcome, shown: drawn.length,
+    meanErr: weight ? finite.reduce((s, d) => s + d.o * d.e, 0) / weight : null,
+    maxErr: finite.length ? Math.max(...finite.map((d) => d.e)) : null,
+    confident: drawn.filter((d) => saved.confident[d.i]).length,
+    falseConfident: drawn.filter((d) => saved.confident[d.i] && d.e > wrongPx).length,
+    shownWrong: drawn.filter((d) => d.e > wrongPx).length, frames: n,
+  };
 }
 
-function row(scenario: Scenario, tracker: Row["tracker"], outcome: string, quads: Quad[] | null, shown: boolean[], confident: boolean[], wrongPx: number): Row {
-  const n = scenario.frames.length - 1;
-  if (!quads) return { scenario: scenario.name, tracker, outcome, shown: 0, meanErr: null, maxErr: null, confident: 0, falseConfident: 0, shownWrong: 0, frames: n };
-  const errs = quads.map((q, i) => cornerError(q, scenario.truth[i]));
-  // Frames after a cut have no right answer (truth is infinite): they count against confidence but not the mean.
-  const shownErrs = errs.flatMap((e, i) => (i > 0 && shown[i] && Number.isFinite(e) ? [e] : []));
-  const conf = errs.flatMap((e, i) => (i > 0 && confident[i] ? [e] : []));
+const toPx = (q: number[], width: number, height: number) => q.map((v, i) => (i % 2 === 0 ? v * width : v * height)) as Quad;
+
+/** The new pipeline's saved path for a scenario, sampled every 100 ms. */
+export function savedNew(sc: Scenario): { saved: Saved | null; outcome: string } {
+  const { width, height } = sc.frames[0];
+  const result = trackSurface(sc.frames, [{ index: 0, quad: sc.quad }]);
+  if (!result.ok) return { saved: null, outcome: `refused: ${result.reason} @${result.frame}` };
+  const times = sc.frames.map((_, i) => i * 100);
+  const { path, confidence } = trackPath(smoothTrack(result.frames), times, { fromMs: 0, toMs: times[times.length - 1] }, { x: 0.5, y: 0.42 }, { width, height });
+  if (path.length !== sc.frames.length) throw new Error("expected one keyframe per frame");
+  const reacquired = result.frames.findIndex((f, i) => i > (result.lostAt ?? Infinity) && !f.lost);
   return {
-    scenario: scenario.name, tracker, outcome, shown: errs.filter((_, i) => i > 0 && shown[i]).length,
-    meanErr: shownErrs.length ? shownErrs.reduce((s, e) => s + e, 0) / shownErrs.length : null,
-    maxErr: shownErrs.length ? Math.max(...shownErrs) : null,
-    confident: conf.length, falseConfident: conf.filter((e) => e > wrongPx).length,
-    shownWrong: errs.filter((e, i) => i > 0 && shown[i] && e > wrongPx).length, frames: n,
+    saved: { quads: path.map((p) => toPx(p.q, width, height)), opacity: path.map((p) => p.o ?? 1), confident: confidence.map((c) => c >= 0.5) },
+    outcome: result.lostAt !== null ? `lost @${result.lostAt} (${result.lostReason})${reacquired > 0 ? `, found again @${reacquired}` : ""}` : "tracked",
   };
 }
 
 export function benchmark(set: Scenario[], wrongPx = 3 * (set[0].frames[0].width / 360)): Row[] {
   const rows: Row[] = [];
   for (const sc of set) {
+    const { width, height } = sc.frames[0];
     const legacy = legacyTrack(sc.frames, sc.quad);
-    if (!legacy) rows.push(row(sc, "legacy", "refused", null, [], [], wrongPx));
+    if (!legacy) rows.push(row(sc, "legacy", "refused", null, wrongPx));
     else {
-      const quads = smoothed(legacy.frames.map((f) => f.quad));
-      const shown = legacy.frames.map((f) => f.o >= 1);
-      rows.push(row(sc, "legacy", legacy.grade + (legacy.lostAt !== null ? ` @${legacy.lostAt}` : ""), quads, shown, shown.map((s) => s && legacy.grade === "good"), wrongPx));
+      const path = legacy.frames.map((f, i) => ({ t: i / (legacy.frames.length - 1), x: 0, y: 0, q: f.quad.map((v, k) => (k % 2 === 0 ? v / width : v / height)), ...(f.o < 1 ? { o: f.o } : {}) }));
+      const smooth = smoothKeyframes(path);
+      rows.push(row(sc, "legacy", legacy.grade + (legacy.lostAt !== null ? ` @${legacy.lostAt}` : ""), {
+        quads: smooth.map((p) => toPx(p.q, width, height)), opacity: smooth.map((p) => p.o ?? 1), confident: smooth.map(() => legacy.grade === "good"),
+      }, wrongPx));
     }
-    const fresh = trackSurface(sc.frames, [{ index: 0, quad: sc.quad }]);
-    if (!fresh.ok) rows.push(row(sc, "new", `refused: ${fresh.reason} @${fresh.frame}`, null, [], [], wrongPx));
-    else {
-      const quads = smoothed(fresh.frames.map((f) => f.quad), fresh.frames.map((f) => !f.lost));
-      const shown = fresh.frames.map((f) => !f.lost);
-      rows.push(row(sc, "new", fresh.lostAt !== null ? `lost @${fresh.lostAt} (${fresh.lostReason})` : "tracked", quads, shown, fresh.frames.map((f) => !f.lost && f.confidence >= 0.5), wrongPx));
-    }
+    const fresh = savedNew(sc);
+    rows.push(row(sc, "new", fresh.outcome, fresh.saved, wrongPx));
   }
   return rows;
 }
 
+export function totals(rows: Row[], tracker: Row["tracker"]) {
+  const mine = rows.filter((r) => r.tracker === tracker);
+  const tracked = mine.filter((r) => r.meanErr !== null && r.scenario !== "blank wall");
+  return {
+    frames: mine.reduce((s, r) => s + r.frames, 0), confident: mine.reduce((s, r) => s + r.confident, 0),
+    falseConfident: mine.reduce((s, r) => s + r.falseConfident, 0), shownWrong: mine.reduce((s, r) => s + r.shownWrong, 0),
+    meanErr: tracked.length ? tracked.reduce((s, r) => s + r.meanErr!, 0) / tracked.length : null,
+  };
+}
+
 export function table(rows: Row[]): string {
   const f = (v: number | null) => (v === null ? "–" : v.toFixed(2));
-  const lines = ["| scenario | tracker | outcome | shown | mean err px | max err px | confident | false-confident | shown wrong |", "|---|---|---|---|---|---|---|---|---|"];
+  const lines = ["| scenario | tracker | outcome | drawn | mean err px (opacity-weighted) | max err px | confident | false-confident | shown wrong |", "|---|---|---|---|---|---|---|---|---|"];
   for (const r of rows) lines.push(`| ${r.scenario} | ${r.tracker} | ${r.outcome} | ${r.shown}/${r.frames} | ${f(r.meanErr)} | ${f(r.maxErr)} | ${r.confident} | ${r.falseConfident} | ${r.shownWrong} |`);
   for (const tracker of ["legacy", "new"] as const) {
-    const mine = rows.filter((r) => r.tracker === tracker);
-    const shownWrong = mine.reduce((s, r) => s + r.shownWrong, 0);
-    const frames = mine.reduce((s, r) => s + r.frames, 0), confident = mine.reduce((s, r) => s + r.confident, 0), wrong = mine.reduce((s, r) => s + r.falseConfident, 0);
-    const tracked = mine.filter((r) => r.meanErr !== null && r.scenario !== "blank wall");
-    const meanErr = tracked.length ? tracked.reduce((s, r) => s + r.meanErr!, 0) / tracked.length : null;
-    lines.push(`| **all** | ${tracker} | | | ${f(meanErr)} (textured, mean of scenarios) | | ${confident}/${frames} | ${wrong}/${frames} (${((100 * wrong) / Math.max(1, frames)).toFixed(1)}%; ${((100 * wrong) / Math.max(1, confident)).toFixed(1)}% of confident) | ${shownWrong}/${frames} |`);
+    const t = totals(rows, tracker);
+    lines.push(`| **all** | ${tracker} | | | ${f(t.meanErr)} (textured, mean of scenarios) | | ${t.confident}/${t.frames} | ${t.falseConfident}/${t.frames} (${((100 * t.falseConfident) / Math.max(1, t.frames)).toFixed(1)}%) | ${t.shownWrong}/${t.frames} |`);
   }
   return lines.join("\n");
 }

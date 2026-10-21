@@ -48,7 +48,7 @@ export const OBJECT_PARAMS = { radius: 5, eps: 2e-3, grow: 2, low: 0.35, high: 0
 export const COMPOSITE_PARAMS = { blurPx: 0.8 } as const;
 
 export const MATTE_INPUTS = {
-  rule: "person: raw(n) settled toward raw(n-1) of the same shot; object: union of taps on frame n, taps tracked from the pin frame",
+  rule: "person: raw(n) settled toward raw(n-1) of the same shot, pictures at exact source times; object: union of taps on frame n while the title's frame range is on screen, each tap tracked from the exact source time it was made on (exhaustive search before lost), else carried by the wall; seeks clamped to the file, same picture within 3 ms",
   work: [WORK_WIDTH, WORK_HEIGHT],
   person: PERSON_PARAMS,
   object: OBJECT_PARAMS,
@@ -134,20 +134,24 @@ export function objectAlpha(raw: Float32Array, out: Uint8ClampedArray): Uint8Cla
   return toAlpha({ data: raw, width: raw.length, height: 1 }, OBJECT_PARAMS.low, OBJECT_PARAMS.high, out);
 }
 
-export type TapStatus = "static" | TrackStatus;
+/** How a tap was placed on this frame: found by the tracker, or carried by the wall's homography (no tap frame recorded, or the tracker lost it). */
+export type TapStatus = "wall" | TrackStatus;
+
+/** A tap's own frame (luminance at working size) and where on it the author tapped (frame fractions). */
+export type TapReference = { gray: Gray; point: Point };
 
 /**
- * Each tap on this frame. `refTaps` are where the author tapped on the pin's first
- * frame, `priors` where the wall's homography carries them now (frame fractions).
- * With both pictures the tracker finds each tap's patch near its prior; without
- * (no pin) the taps stay where they were tapped.
+ * Each tap on this frame. `priors` are where the wall's homography carries the taps
+ * now (frame fractions). A tap with a reference frame is found by the tracker near
+ * its prior; one without (older taps, unpinned titles) stays on its prior: no
+ * reference is invented for it.
  */
-export function trackTaps(ref: Gray | null, refTaps: Point[], cur: Gray | null, priors: Point[]): { taps: Point[]; status: TapStatus[] } {
-  if (!ref || !cur) return { taps: priors, status: priors.map(() => "static") };
+export function trackTaps(refs: (TapReference | null)[], cur: Gray | null, priors: Point[]): { taps: Point[]; status: TapStatus[] } {
   const taps: Point[] = [], status: TapStatus[] = [];
-  refTaps.forEach((tap, i) => {
-    const prior = priors[i] ?? tap;
-    const found = trackPoint(ref, { x: tap.x * ref.width, y: tap.y * ref.height }, cur, { x: prior.x * cur.width, y: prior.y * cur.height });
+  priors.forEach((prior, i) => {
+    const ref = refs[i];
+    if (!ref || !cur) { taps.push(prior); status.push("wall"); return; }
+    const found = trackPoint(ref.gray, { x: ref.point.x * ref.gray.width, y: ref.point.y * ref.gray.height }, cur, { x: prior.x * cur.width, y: prior.y * cur.height });
     taps.push({ x: found.x / cur.width, y: found.y / cur.height });
     status.push(found.status);
   });
@@ -156,11 +160,22 @@ export function trackTaps(ref: Gray | null, refTaps: Point[], cur: Gray | null, 
 
 /** One line on how the taps were placed, for the mask's status. */
 export function describeTaps(status: TapStatus[]): string {
-  if (status.every((s) => s === "static")) return "taps fixed (no pin)";
+  if (status.every((s) => s === "wall")) return "taps ride the wall (no tap frame recorded)";
   const tracked = status.filter((s) => s === "tracked").length;
   if (tracked === status.length) return `tracked ${tracked}/${status.length}`;
   const reasons = [...new Set(status.filter((s) => s !== "tracked"))].join(", ");
-  return `tracked ${tracked}/${status.length}; the rest follow the wall (tracker ${reasons})`;
+  return `tracked ${tracked}/${status.length}; the rest follow the wall (${reasons})`;
+}
+
+/**
+ * Whether a title is on screen on reel frame `frame`: the composition's own
+ * frame range for it (framePlan rounds start and end to frames the same way),
+ * so the matte is never off on the title's first drawn frame. An object matte
+ * only segments, and only fails an export, while it is.
+ */
+export function titleActive(text: { startMs: number; endMs: number }, frame: number, fps: number): boolean {
+  const toFrame = (ms: number) => Math.round((ms * fps) / 1000);
+  return frame >= toFrame(text.startMs) && frame < toFrame(text.endMs);
 }
 
 type Slot = { key: string | null; ok: boolean; raw: Float32Array };

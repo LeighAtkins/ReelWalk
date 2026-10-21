@@ -1,11 +1,12 @@
 import React, { useEffect, useRef, useState } from "react";
 import { AbsoluteFill, cancelRender, continueRender, delayRender, useCurrentFrame, useRemotionEnvironment, useVideoConfig } from "remotion";
-import type { Clip } from "@reelwalk/core";
+import { clipSourceSeconds, type Clip } from "@reelwalk/core";
 import { FILTER_CSS } from "./look";
 import type { ReelAsset } from "./types";
 import type { Mask } from "./matte-refine";
 import { openVisionTask } from "./matte-assets";
-import { COMPOSITE_PARAMS, MATTE_VERSION, PersonMatteRule, WORK_HEIGHT, WORK_WIDTH, type PersonFrame, type Rect, type Rgba } from "./matte-core";
+import { COMPOSITE_PARAMS, MATTE_VERSION, PersonMatteRule, WORK_HEIGHT, WORK_WIDTH, type Rect, type Rgba } from "./matte-core";
+import { CANCELLED, failureAction, personMatteFrame, seekTo, SerialQueue } from "./matte-decode";
 import { clipPresentation, fitRects } from "./presentation";
 
 export { WORK_HEIGHT, WORK_WIDTH } from "./matte-core";
@@ -100,41 +101,23 @@ export function compositeMatte(frame: CanvasImageSource, out: HTMLCanvasElement,
   ctx.globalCompositeOperation = "source-over";
 }
 
-/** Steps a decode to `seconds` and resolves once it holds that picture (readyState ≥ 2). */
-export function frameAt(element: HTMLVideoElement, seconds: number, fps: number): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const done = () => { cleanup(); resolve(); };
-    const failed = () => { cleanup(); reject(new Error(element.error ? `video error ${element.error.code}` : "video error")); };
-    const cleanup = () => { element.removeEventListener("seeked", done); element.removeEventListener("loadeddata", done); element.removeEventListener("error", failed); };
-    element.addEventListener("error", failed, { once: true });
-    if (Math.abs(element.currentTime - seconds) < 1 / (fps * 2)) {
-      // Already at this time (the first frame of a take, before the file has loaded): setting currentTime
-      // again fires no `seeked`, so wait for the picture instead of a seek.
-      if (element.readyState >= 2) done();
-      else element.addEventListener("loadeddata", done, { once: true });
-    } else {
-      element.addEventListener("seeked", done, { once: true });
-      element.currentTime = seconds;
-    }
-  });
-}
+/** A matte's decode and the queue its jobs run on: a replaced decoder starts with a fresh queue, never an old one's pending job. */
+export type MatteDecode = { element: HTMLVideoElement; queue: SerialQueue };
 
-/** One decode for a matte, kept for the life of the view. */
-export function useMatteDecode(asset: ReelAsset): React.RefObject<HTMLVideoElement | null> {
-  const video = useRef<HTMLVideoElement | null>(null);
+/** One decode for a matte, kept for the life of the view. Unloading it fails any seek still waiting on it. */
+export function useMatteDecode(asset: ReelAsset): React.RefObject<MatteDecode | null> {
+  const decode = useRef<MatteDecode | null>(null);
   useEffect(() => {
     if (asset.kind !== "VIDEO") return;
     const element = document.createElement("video");
     element.crossOrigin = "anonymous"; element.muted = true; element.preload = "auto"; element.playsInline = true;
     element.src = asset.src;
-    video.current = element;
-    return () => { element.removeAttribute("src"); element.load(); video.current = null; };
+    decode.current = { element, queue: new SerialQueue() };
+    return () => { decode.current = null; element.removeAttribute("src"); element.load(); };
   }, [asset.kind, asset.src]);
-  return video;
+  return decode;
 }
 
-/** Thrown inside a matte job whose frame is no longer wanted; never reported. */
-export const CANCELLED = new Error("matte frame superseded");
 
 /** A matte problem in the editor: shown on the preview, never in an export (where the render fails instead). */
 export const MatteWarning: React.FC<{ text: string }> = ({ text }) => (
@@ -148,11 +131,9 @@ export const PersonMatteView: React.FC<{ clip: Clip; asset: ReelAsset; durationI
   const { fps, width, height } = useVideoConfig();
   const { isRendering } = useRemotionEnvironment();
   const canvas = useRef<HTMLCanvasElement>(null);
-  const video = useMatteDecode(asset);
+  const decode = useMatteDecode(asset);
   const scratch = useRef<MatteScratch | null>(null);
   const rule = useRef<PersonMatteRule | null>(null);
-  // Frames are matted one at a time on the one decode: a new frame waits for the last to finish or bail.
-  const queue = useRef<Promise<void>>(Promise.resolve());
   const [segmenter, setSegmenter] = useState<Segmenter | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
 
@@ -169,43 +150,42 @@ export const PersonMatteView: React.FC<{ clip: Clip; asset: ReelAsset; durationI
   }, [isRendering]);
 
   // Frame n's matte from pictures n and n − 1 of this shot (matte-core.ts), then the person drawn through it.
+  // Jobs run one at a time on the decode's queue; a superseded job's seek is aborted, so it never blocks the next.
   useEffect(() => {
-    const element = video.current;
-    if (!segmenter || !element || !canvas.current || warning) return;
-    const speed = clip.speed || 1;
-    const seconds = (n: number) => clip.sourceStartMs / 1000 + (n / fps) * speed;
-    // A key names a picture: the same source time through the same fit is the same raw mask.
-    const key = (n: number) => `${asset.src}|${clip.fit}|${width}x${height}|${seconds(n).toFixed(6)}`;
-    const frames = new Map<string, number>([[key(frame), frame]]);
-    if (frame > 0) frames.set(key(frame - 1), frame - 1);
+    const current = decode.current;
+    if (!segmenter || !current || !canvas.current || warning) return;
+    const { element, queue } = current;
+    const seconds = (n: number) => clipSourceSeconds(clip, n, fps);
+    const controller = new AbortController();
     let cancelled = false;
     const handle = delayRender(`Person matte frame ${frame}`, { timeoutInMilliseconds: 30_000 });
     const job = async () => {
-      if (cancelled) return;
       try {
+        if (cancelled || decode.current !== current) throw CANCELLED;
         const s = (scratch.current ??= newScratch());
         const r = (rule.current ??= new PersonMatteRule());
         const fitNow = () => fitRects(element.videoWidth, element.videoHeight, width, height, clip.fit);
-        const read = async (k: string): Promise<PersonFrame> => {
-          await frameAt(element, seconds(frames.get(k)!), fps);
-          if (cancelled) throw CANCELLED;
-          drawWork(element, s, fitNow(), width, height);
-          return { pixels: workPixels(s), segment: (crop) => segmentWork(segmenter, s, crop) };
-        };
-        const alpha = await r.matte(key(frame), frame > 0 ? key(frame - 1) : null, read);
+        const alpha = await personMatteFrame({
+          rule: r, frame, seconds,
+          // A key names a picture: the same exact source time through the same fit is the same raw mask.
+          scope: `${asset.src}|${clip.fit}|${width}x${height}`,
+          seek: async (t) => { await seekTo(element, t, { signal: controller.signal }); if (cancelled) throw CANCELLED; },
+          capture: () => { drawWork(element, s, fitNow(), width, height); return { pixels: workPixels(s), segment: (crop) => segmentWork(segmenter, s, crop) }; },
+        });
         if (!alpha) throw new Error("the segmenter returned no mask");
-        // Both raw masks may have been held; the picture drawn must still be this frame's.
-        await frameAt(element, seconds(frame), fps);
         if (cancelled || !canvas.current) return;
         compositeMatte(element, canvas.current, s, alpha, fitNow());
       } catch (error) {
-        if (!cancelled && error !== CANCELLED) fatal(`frame ${frame} could not be matted`, error);
+        const action = cancelled ? "ignore" : failureAction(error, isRendering);
+        if (action === "fail") fatal(`frame ${frame} could not be matted`, error);
+        // A slow seek in the editor: this frame shows no matte, the next one tries again.
+        else if (action === "retry") console.warn(`Person matte for clip ${clip.id}: frame ${frame}: ${error instanceof Error ? error.message : String(error)}; retrying on the next frame`);
       } finally {
         continueRender(handle);
       }
     };
-    queue.current = queue.current.then(job);
-    return () => { cancelled = true; continueRender(handle); };
+    void queue.run(job);
+    return () => { cancelled = true; controller.abort(); continueRender(handle); };
   }, [segmenter, frame, fps, width, height, asset.src, clip.id, clip.sourceStartMs, clip.speed, clip.fit, warning]);
 
   if (asset.kind !== "VIDEO") return null;

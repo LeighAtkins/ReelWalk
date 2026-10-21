@@ -113,8 +113,8 @@ export function smokeTimeline(): Timeline {
       { id: "s2", text: "BY THE FIRE", startMs: 0, endMs: 2500, x: 0.66, y: 0.12, style: "headline", size: 1, animation: "none", blend: "surface", surface: window,
         pin: { assetId: "walk", fromMs: 0, toMs: 2500, quad: window }, path: [{ t: 0, x: 0, y: 0, s: 1, r: 0, q: window }, { t: 1, x: -0.02, y: 0.01, s: 1, r: 0, q: windowMoved }] },
       // A whole-shot planar pin that overlaps the next cut by a few frames (the React 300 case), painted on the surface, fading at the end.
-      // It has a tapped object in front (ADR 0044), tracked from the pin frame (ADR 0051).
-      { id: "p1", text: "OCEAN VIEWS", startMs: 2500, endMs: 5000, x: 0.5, y: 0.38, style: "headline", size: 1.1, animation: "none", blend: "surface", occluders: [{ x: 0.5, y: 0.4 }],
+      // It has a tapped object in front (ADR 0044), tracked from the frame it was tapped on (ADR 0051).
+      { id: "p1", text: "OCEAN VIEWS", startMs: 2500, endMs: 5000, x: 0.5, y: 0.38, style: "headline", size: 1.1, animation: "none", blend: "surface", occluders: [{ x: 0.5, y: 0.4, atMs: 1000 }],
         pin: { assetId: "room", fromMs: 200, toMs: 2600, quad }, path: [{ t: 0, x: 0, y: 0, s: 1, r: 0, q: quad }, { t: 0.6, x: 0.02, y: 0.01, s: 1.02, r: 0.5, q: moved }, { t: 1, x: 0.02, y: 0.01, s: 1.02, r: 0.5, q: moved, o: 0 }] },
       // A title painted inside a chosen surface, with posts cut out of it (ADR 0043/0044), two lines, on the same shot.
       { id: "s1", text: "STEP\nOUT", startMs: 2500, endMs: 4900, x: 0.45, y: 0.38, style: "headline", size: 1, animation: "none", blend: "surface", surface, bars,

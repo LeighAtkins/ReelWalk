@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { describeTaps, MATTE_INPUTS, MATTE_VERSION, fnv1a64, objectRaw, PersonMatteRule, personRaw, trackTaps, type PersonFrame } from "../src/reel/matte-core";
+import { describeTaps, MATTE_INPUTS, MATTE_VERSION, fnv1a64, objectRaw, PersonMatteRule, personRaw, titleActive, trackTaps, type PersonFrame } from "../src/reel/matte-core";
 import { toAlpha, Workspace } from "../src/reel/matte-refine";
 import type { Gray } from "../src/reel/point-track";
 import { blobCentre, fakeSegment, FH, FW, hash, personFrame, shotFrame } from "./matte-fixture";
@@ -126,36 +126,71 @@ describe("taps carried by the tracker", () => {
     return { data, width: FW, height: FH };
   };
   const at = (f: number) => ({ x: blobCentre(f).x / FW, y: blobCentre(f).y / FH });
+  const near = (p: { x: number; y: number }, f: number) => {
+    expect(Math.abs(p.x * FW - blobCentre(f).x)).toBeLessThan(1);
+    expect(Math.abs(p.y * FH - blobCentre(f).y)).toBeLessThan(1);
+  };
 
   it("follows an object that moves independently of the wall, and falls back to the wall when it is gone", () => {
-    const ref = gray(0);
+    const ref = { gray: gray(0), point: at(0) };
     // The wall does not move: its homography would leave the tap where it was tapped.
     const wall = [at(0)];
-    const moved = trackTaps(ref, [at(0)], gray(6), wall);
+    const moved = trackTaps([ref], gray(6), wall);
     expect(moved.status).toEqual(["tracked"]);
-    expect(Math.abs(moved.taps[0].x * FW - blobCentre(6).x)).toBeLessThan(1);
-    expect(Math.abs(moved.taps[0].y * FH - blobCentre(6).y)).toBeLessThan(1);
-    const gone = trackTaps(ref, [at(0)], gray(6, false), wall);
+    near(moved.taps[0], 6);
+    const gone = trackTaps([ref], gray(6, false), wall);
     expect(gone.status).toEqual(["lost"]);
     expect(gone.taps).toEqual(wall);
-    expect(describeTaps(gone.status)).toBe("tracked 0/1; the rest follow the wall (tracker lost)");
+    expect(describeTaps(gone.status)).toBe("tracked 0/1; the rest follow the wall (lost)");
     expect(describeTaps(moved.status)).toBe("tracked 1/1");
-    expect(describeTaps(trackTaps(null, [at(0)], null, wall).status)).toBe("taps fixed (no pin)");
+  });
+
+  it("tracks from the frame the tap was made on, not the pin's first frame (review of PR #190)", () => {
+    // Tapped on frame 6, on the blob as it was then; the wall is still, so the prior is the tap itself.
+    const tapped = at(6);
+    const fromTapFrame = trackTaps([{ gray: gray(6), point: tapped }], gray(9), [tapped]);
+    expect(fromTapFrame.status).toEqual(["tracked"]);
+    near(fromTapFrame.taps[0], 9);
+    // Going back to the pin frame finds where the blob was then, too.
+    near(trackTaps([{ gray: gray(6), point: tapped }], gray(2), [tapped]).taps[0], 2);
+  });
+
+  it("leaves taps with no recorded frame on the wall's point: no reference is invented", () => {
+    const priors = [{ x: 0.3, y: 0.4 }];
+    const placed = trackTaps([null], gray(6), priors);
+    expect(placed).toEqual({ taps: priors, status: ["wall"] });
+    expect(describeTaps(placed.status)).toBe("taps ride the wall (no tap frame recorded)");
   });
 
   it("is the same answer whatever was tracked before (random access)", () => {
-    const ref = gray(0);
-    const a = trackTaps(ref, [at(0)], gray(9), [at(0)]);
-    trackTaps(ref, [at(0)], gray(3), [at(0)]);
-    const b = trackTaps(ref, [at(0)], gray(9), [at(0)]);
-    expect(b).toEqual(a);
+    const ref = { gray: gray(0), point: at(0) };
+    const a = trackTaps([ref], gray(9), [at(0)]);
+    trackTaps([ref], gray(3), [at(0)]);
+    expect(trackTaps([ref], gray(9), [at(0)])).toEqual(a);
+  });
+});
+
+describe("the title's active interval", () => {
+  it("is the composition's frame range for the title, so its first drawn frame is matted (review of PR #190)", () => {
+    // Drawn from round(67 × 30 / 1000) = frame 2, at 66.67 ms: comparing milliseconds called it inactive.
+    expect(titleActive({ startMs: 67, endMs: 2000 }, 2, 30)).toBe(true);
+    expect(titleActive({ startMs: 67, endMs: 2000 }, 1, 30)).toBe(false);
+    expect(titleActive({ startMs: 0, endMs: 2000 }, 59, 30)).toBe(true);
+    expect(titleActive({ startMs: 0, endMs: 2000 }, 60, 30)).toBe(false);
+    expect(titleActive({ startMs: 0, endMs: 2000 }, 120, 30)).toBe(false);
+    // Every frame-snapped start: active from exactly the frame the composition starts drawing.
+    for (let ms = 0; ms < 300; ms++) {
+      const first = Math.round((ms * 30) / 1000);
+      expect(titleActive({ startMs: ms, endMs: 5000 }, first, 30)).toBe(true);
+      expect(titleActive({ startMs: ms, endMs: 5000 }, first - 1, 30)).toBe(false);
+    }
   });
 });
 
 describe("MATTE_VERSION", () => {
   it("is derived from every input and pinned here, so a change to any of them shows in review", () => {
     expect(MATTE_VERSION).toBe(`matte-1-${fnv1a64(JSON.stringify(MATTE_INPUTS))}`);
-    expect(MATTE_VERSION).toMatchInlineSnapshot(`"matte-1-f860056dedacb91e"`);
+    expect(MATTE_VERSION).toMatchInlineSnapshot(`"matte-1-5300b9f12f7822e5"`);
     const changed = { ...MATTE_INPUTS, person: { ...MATTE_INPUTS.person, settle: 0.3 } };
     expect(`matte-1-${fnv1a64(JSON.stringify(changed))}`).not.toBe(MATTE_VERSION);
     expect(fnv1a64("")).toBe("cbf29ce484222325");

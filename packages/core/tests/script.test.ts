@@ -104,7 +104,7 @@ const script = (overrides: Partial<ScriptRequest> = {}): ScriptRequest => {
 describe("continuity in every prompt", () => {
   it("dresses her in the same outfit, word for word, in every composed still and every Veo prompt", () => {
     const shots = buildScriptShots(script(), "reel1");
-    const sentence = "She wears a cream linen blazer over a white tee, light jeans: exactly the same clothes, hair and accessories in every shot.";
+    const sentence = "She wears a cream linen blazer over a white tee, light jeans: the same clothes, hair and accessories in every shot.";
     for (const shot of shots) {
       expect(shot.shot.compose.first).toContain(sentence);
       expect(shot.prompt).toContain(sentence);
@@ -114,15 +114,24 @@ describe("continuity in every prompt", () => {
 
   it("lights her from the side the plate's light comes from", () => {
     const [left, behind, even] = buildScriptShots(script(), "reel1");
-    expect(left.shot.compose.first).toContain("comes from the left of the frame");
-    expect(left.prompt).toContain("comes from the left of the frame");
+    expect(left.shot.compose.first).toContain("key light comes from the left of the frame");
+    expect(left.prompt).toContain("key light comes from the left of the frame");
     expect(behind.shot.compose.first).toContain("behind her (a bright window)");
     expect(even.shot.compose.first).toContain("the same direction, softness and colour temperature");
   });
 
+  it("stays within the composed still's 600 characters at the longest room, outfit and light, without cutting a sentence", () => {
+    const longest = { room: "r".repeat(40), light: "left" as const };
+    for (const walksIn of [true, false]) {
+      const text = composeInstruction(longest, "o".repeat(120), { walksIn, walksOut: true });
+      expect(text.length).toBeLessThanOrEqual(600);
+      expect(text.endsWith("furniture's.")).toBe(true);
+    }
+  });
+
   it("walks her in from where the last take ended when two are back to back", () => {
     const take = { room: "kitchen", light: null };
-    expect(composeInstruction(take, null, { walksIn: true, walksOut: false })).toMatch(/^She is just stepping in from the left edge/);
+    expect(composeInstruction(take, null, { walksIn: true, walksOut: false })).toMatch(/^She steps in from the left edge/);
     expect(presenterPrompt(take, null, "veo", { walksIn: true, walksOut: false })).toContain("continuing from the previous shot where she walked out to the right");
     expect(presenterPrompt(take, null, "veo", { walksIn: false, walksOut: true })).toContain("walks out of the frame to the right");
     const plain = presenterPrompt(take, null, "veo", { walksIn: false, walksOut: false });
@@ -145,6 +154,9 @@ describe("continuity in every prompt", () => {
       expect(parsed.first).toEqual(script().takes[index].plate);
       expect(parsed.script).toMatchObject({ id: script().scriptId, reelId: "reel1", index, count: 3, outfit: "a cream linen blazer over a white tee, light jeans" });
       expect(s.shot.compose.first!.length).toBeLessThanOrEqual(600);
+      // A speaking take must pass the gate's eyes-and-mouth check (ADR 0056 amendment), so the still asks for them.
+      expect(s.shot.compose.first).toContain("both eyes and her mouth clearly visible");
+      expect(s.shot.compose.first!.endsWith(".")).toBe(true);
       expect(s.prompt.length).toBeLessThan(2000);
     });
   });

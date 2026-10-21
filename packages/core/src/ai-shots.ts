@@ -89,7 +89,7 @@ export const aiScriptMetaSchema = z.object({
   afterClipId: z.string().min(1).max(200).nullable(),
   /** Where that was in the reel (0 to 1), for when that clip has since been removed. */
   fraction: z.number().min(0).max(1),
-  outfit: z.string().trim().max(160).optional(),
+  outfit: z.string().trim().max(120).optional(),
 });
 export type AiScriptMeta = z.infer<typeof aiScriptMetaSchema>;
 export const aiShotSchema = z.object({

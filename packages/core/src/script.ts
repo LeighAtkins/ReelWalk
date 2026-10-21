@@ -17,7 +17,7 @@ import { clipStartsMs, timelineDurationMs, type Clip, type Filter, type Timeline
 export const SCRIPT_MAX_LINES = 4;
 export const SCRIPT_LINE_MIN = 3;
 export const SCRIPT_LINE_MAX = 200;
-export const SCRIPT_OUTFIT_MAX = 160;
+export const SCRIPT_OUTFIT_MAX = 120;
 /** Without a description, the kit's full-length photo is the outfit. */
 export const DEFAULT_OUTFIT = "the same clothes as in her full-length photo";
 /** A line of up to this many words fits a 4-second take; longer lines get 8 seconds. */
@@ -142,17 +142,17 @@ export type ScriptRequest = z.infer<typeof scriptRequestSchema>;
 /** How she is lit, matched to the plate's key light. */
 export function lightInstruction(light: LightSide | null | undefined): string {
   switch (light) {
-    case "left": return "Light her like the room: the key light comes from the left of the frame, so her face is brighter on that side and her shadow falls to the right like the furniture's, in the room's colour temperature.";
-    case "right": return "Light her like the room: the key light comes from the right of the frame, so her face is brighter on that side and her shadow falls to the left like the furniture's, in the room's colour temperature.";
-    case "behind": return "The room's light is behind her (a bright window): a soft rim on her hair and shoulders, her face lifted by soft fill from the camera side, never a silhouette.";
-    default: return "Light her like the room: the same direction, softness and colour temperature as its light, her shadows falling the way the furniture's do.";
+    case "left": return "The key light comes from the left of the frame, as in the room: her face brighter on that side, her shadow falling right like the furniture's.";
+    case "right": return "The key light comes from the right of the frame, as in the room: her face brighter on that side, her shadow falling left like the furniture's.";
+    case "behind": return "The room's light is behind her (a bright window): a soft rim on her hair, her face lifted by soft fill from the camera side, never a silhouette.";
+    default: return "Light her like the room: the same direction, softness and colour temperature, her shadows falling the way the furniture's do.";
   }
 }
 
 /** The outfit sentence every take repeats word for word. */
 export function outfitSentence(outfit: string | null | undefined): string {
   const worn = outfit?.trim() || DEFAULT_OUTFIT;
-  return `She wears ${worn}: exactly the same clothes, hair and accessories in every shot.`;
+  return `She wears ${worn}: the same clothes, hair and accessories in every shot.`;
 }
 
 type Continuity = { walksIn: boolean; walksOut: boolean };
@@ -169,9 +169,10 @@ export function scriptContinuity(takes: Pick<ScriptTake, "boundary">[]): Continu
 export function composeInstruction(take: Pick<ScriptTake, "room" | "light">, outfit: string | null | undefined, continuity: Continuity): string {
   const where = take.room ? `in the ${take.room}` : "in this room";
   const position = continuity.walksIn
-    ? `She is just stepping in from the left edge of the frame ${where}, mid-stride, turned slightly toward camera.`
-    : `She stands ${where} in the middle third of the frame, relaxed, facing camera, about to speak.`;
-  return [position, "Medium shot at true human scale against the furniture, feet on the floor.", outfitSentence(outfit), lightInstruction(take.light)].join(" ").slice(0, 600);
+    ? `She steps in from the left edge of the frame ${where}, mid-stride, turning toward camera.`
+    : `She stands ${where} in the middle third of the frame, facing camera, about to speak.`;
+  // Every part is bounded (room 40, outfit 120 characters), so the whole stays under the 600 the schema allows without cutting a sentence.
+  return [position, "Medium shot, knees at the bottom edge, true scale. Speaking: her face large, sharp and front-lit, both eyes and her mouth clearly visible.", outfitSentence(outfit), lightInstruction(take.light)].join(" ");
 }
 
 /** What Veo is asked for. The worker adds the spoken line (and, for Veo's audio, the accent) as for any voiced take. */

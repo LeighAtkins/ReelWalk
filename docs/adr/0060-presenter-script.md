@@ -55,7 +55,12 @@ the plate's thumbnail and a strip of numbered marks over the reel).
   composed still for that take puts her mid-stride at the left edge.
 - Every take: medium framing, the workspace's kit (`compose.presenterId`), the
   plate as the first frame, so the identity gate runs as for any composed
-  shot. Gate internals are untouched.
+  shot. Gate internals are untouched. Since the gate's amendment (#205)
+  wants a speaking face of 165 px or more with both eyes and the mouth
+  rendered, the still's description asks for exactly that ("her face large,
+  sharp and front-lit, both eyes and her mouth clearly visible"). Room (40)
+  and outfit (120 characters) are bounded so the description always fits
+  the schema's 600 characters whole, never cut mid-sentence.
 
 **Voice.** One voice per script (the schema has `voice` on the script, not the
 line). Default `veo`: Veo's own audio; the worker's `voicedPrompt` adds the
@@ -126,12 +131,14 @@ editor has it. With no model configured it returns `draftScriptLines`
 ## What was verified
 
 - `pnpm check` (lint, typecheck of every package, all tests) passes.
-- `packages/core/tests/script.test.ts` (16 tests): plates and slots (360 and
+- `packages/core/tests/script.test.ts` (17 tests): plates and slots (360 and
   generated clips skipped), the plan for 1–4 lines (room change preferred,
   order kept, back to back when short of cuts), the quote, the outfit
   sentence word for word in every still and prompt, light per plate, walking
   in/out, one voice, shots accepted by `aiShotSchema` with kit, medium
-  framing and plate, compose text under 600 characters, `lightFromLuma`,
+  framing and plate, compose text under 600 characters at the longest
+  room, outfit and light without a cut sentence (a first draft was cut
+  mid-sentence; the test caught it), `lightFromLuma`,
   placement (including a removed anchor clip and back-to-back order), the
   command retiming titles and being idempotent.
 - `packages/core/tests/script-routes.test.ts` (7 tests, generation mocked):

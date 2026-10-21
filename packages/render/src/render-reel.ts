@@ -140,3 +140,28 @@ export async function preflightReel(
     if (!input.keepIn) await rm(dir, { recursive: true, force: true });
   }
 }
+
+/**
+ * Chosen frames of a reel as PNG stills, drawn by the same composition with
+ * the same props as `renderReel` (ADR 0053): the acceptance harness compares
+ * them with the frames of the exported MP4 ("preview matches export") and
+ * reads titles off them. Files are named `frame-<n>.png` in `dir`.
+ */
+export async function renderReelStills(input: { timeline: Timeline; assets: Record<string, ReelAsset>; frames: number[]; dir: string; width?: number; watermark?: boolean; timeoutMs?: number }): Promise<Map<number, string>> {
+  const serveUrl = await getServeUrl();
+  const timeline = isInstagramMusic(input.timeline.music) ? { ...input.timeline, music: null } : input.timeline;
+  const inputProps = { timeline, assets: input.assets, watermark: input.watermark ?? false };
+  const composition = await selectComposition({ serveUrl, id: REEL_COMPOSITION_ID, inputProps });
+  const out = new Map<number, string>();
+  for (const frame of [...new Set(input.frames)].filter((f) => f >= 0 && f < composition.durationInFrames)) {
+    const output = path.join(input.dir, `frame-${frame}.png`);
+    await renderStill({
+      composition, serveUrl, inputProps, output, frame, imageFormat: "png",
+      scale: (input.width ?? 540) / 1080,
+      timeoutInMilliseconds: input.timeoutMs ?? 30_000,
+      offthreadVideoCacheSizeInBytes: 256 * 1024 * 1024,
+    });
+    out.set(frame, output);
+  }
+  return out;
+}

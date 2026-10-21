@@ -111,11 +111,12 @@ describe("particleField (ADR 0055)", () => {
     }
   });
 
-  it("keeps every particle inside the box and its margin, over a long run", () => {
+  it("keeps every particle inside the box and its margins, over a long run", () => {
     for (const kind of kinds) {
       for (let ms = 0; ms < 60_000; ms += 997) {
         const field = particleField({ kind, timeMs: ms, box, density: 2, seed: 3 });
-        expect(field.width).toBe(box.width + field.margin * 2);
+        expect(field.width).toBe(box.width + field.marginX * 2);
+        expect(field.height).toBe(box.height + field.marginY * 2);
         for (const p of field.particles) {
           expect(p.x).toBeGreaterThanOrEqual(0);
           expect(p.x).toBeLessThanOrEqual(field.width);
@@ -128,50 +129,82 @@ describe("particleField (ADR 0055)", () => {
     }
   });
 
-  it("draws 40 to 120 particles by density, dust half as many", () => {
-    expect(particleCount("snow", 0.2)).toBe(40);
-    expect(particleCount("snow", 2)).toBe(120);
-    expect(particleCount("embers", 1)).toBe(76);
-    expect(particleCount("dust", 1)).toBe(38);
-    expect(particleCount("snow", 5)).toBe(120);
-    for (const density of [0.2, 1, 2]) expect(particleField({ kind: "snow", timeMs: 0, box, density }).particles).toHaveLength(particleCount("snow", density));
+  it("gives the box a 30% margin", () => {
+    const field = particleField({ kind: "snow", timeMs: 0, box: { width: 600, height: 300 } });
+    expect(field.marginX).toBe(180);
+    expect(field.marginY).toBe(150);
   });
 
-  it("splits particles between the front and the back of the letters, each keeping its side", () => {
-    const a = particleField({ kind: "snow", timeMs: 0, box, density: 2 });
-    const b = particleField({ kind: "snow", timeMs: 5000, box, density: 2 });
-    const front = a.particles.filter((p) => p.front).length;
-    expect(front).toBeGreaterThan(20);
-    expect(front).toBeLessThan(100);
-    expect(b.particles.map((p) => p.front)).toEqual(a.particles.map((p) => p.front));
+  it("draws about 70 snow, 50 embers and 35 dust at Medium, 1.8× at Thick", () => {
+    expect(particleCount("snow", 1)).toBe(70);
+    expect(particleCount("embers", 1)).toBe(50);
+    expect(particleCount("dust", 1)).toBe(35);
+    expect(particleCount("snow", 1.8)).toBe(126);
+    expect(particleCount("snow", 5)).toBe(140);
+    for (const density of [0.5, 1, 1.8]) expect(particleField({ kind: "embers", timeMs: 0, box, density }).particles).toHaveLength(particleCount("embers", density));
   });
 
-  it("sizes and colours each kind as designed", () => {
+  it("puts near particles in front of the letters and far ones behind, each keeping its side", () => {
+    for (const kind of kinds) {
+      const a = particleField({ kind, timeMs: 0, box, density: 2 });
+      const b = particleField({ kind, timeMs: 5000, box, density: 2 });
+      expect(a.particles.filter((p) => p.band === "near").every((p) => p.front && p.depth > 0.7)).toBe(true);
+      expect(a.particles.filter((p) => p.band === "far").every((p) => !p.front && p.depth < 0.35)).toBe(true);
+      const mid = a.particles.filter((p) => p.band === "mid");
+      expect(mid.some((p) => p.front) && mid.some((p) => !p.front)).toBe(true);
+      expect(b.particles.map((p) => p.front)).toEqual(a.particles.map((p) => p.front));
+    }
+  });
+
+  it("sizes, softens and colours each kind by depth", () => {
     const snow = particleField({ kind: "snow", timeMs: 900, box, density: 2 }).particles;
-    expect(snow.every((p) => p.r >= 1 && p.r <= 3 && p.color === "#ffffff" && p.opacity <= 0.9)).toBe(true);
+    const near = snow.filter((p) => p.band === "near"), far = snow.filter((p) => p.band === "far"), mid = snow.filter((p) => p.band === "mid");
+    expect(near.every((p) => p.ry >= 3.5 && p.ry <= 7 && p.shadow)).toBe(true);
+    expect(mid.every((p) => p.ry >= 1.5 && p.ry <= 3 && !p.shadow)).toBe(true);
+    expect(far.every((p) => p.ry >= 0.75 && p.ry <= 1.5 && p.opacity <= 0.45)).toBe(true);
+    expect(snow.every((p) => Math.abs(p.rx / p.ry - 1.3) < 1e-9)).toBe(true);
     const embers = particleField({ kind: "embers", timeMs: 900, box, density: 2 }).particles;
-    expect(embers.every((p) => p.r >= 0.75 && p.r <= 2)).toBe(true);
+    expect(embers.filter((p) => p.band === "near").every((p) => p.rx >= 2 && p.rx <= 3.5 && p.halo && p.halo.r >= 4 && p.halo.r <= 6)).toBe(true);
     expect(new Set(embers.map((p) => p.color)).size).toBeGreaterThan(5);
     const dust = particleField({ kind: "dust", timeMs: 900, box, density: 2 }).particles;
-    expect(dust.every((p) => p.opacity <= 0.4 && p.r <= 2.5)).toBe(true);
+    expect(dust.every((p) => p.rx >= 1.5 && p.rx <= 3 && p.opacity <= 0.5 && p.color === "#fff4dc")).toBe(true);
   });
 
-  it("moves snow down and embers up", () => {
+  it("moves snow down at 25–45 px/s and embers up", () => {
     const at = (kind: ParticleKind, ms: number) => particleField({ kind, timeMs: ms, box, seed: 1 }).particles;
     const dy = (kind: ParticleKind) => {
       const a = at(kind, 1000), b = at(kind, 1100);
-      // Count only particles that did not wrap in the 100 ms.
-      const moves = a.map((p, i) => b[i].y - p.y).filter((d) => Math.abs(d) < 50);
+      // Only particles that did not wrap or respawn in the 100 ms.
+      const moves = a.map((p, i) => b[i].y - p.y).filter((d) => Math.abs(d) < 20);
       return moves.reduce((s, d) => s + d, 0) / moves.length;
     };
-    expect(dy("snow")).toBeGreaterThan(3);
+    expect(dy("snow")).toBeGreaterThan(2.5);
+    expect(dy("snow")).toBeLessThan(4.5);
     expect(dy("embers")).toBeLessThan(-2);
+  });
+
+  it("lets an ember live 1.5–3 s: it fades in, fades out and is born again elsewhere", () => {
+    const series = Array.from({ length: 120 }, (_, k) => particleField({ kind: "embers", timeMs: k * 50, box, seed: 2 }).particles[0]);
+    const opacities = series.map((p) => p.opacity);
+    expect(Math.min(...opacities)).toBeLessThan(0.05);
+    expect(Math.max(...opacities)).toBeGreaterThan(0.3);
+    expect(new Set(series.map((p) => Math.round(p.x / 40))).size).toBeGreaterThan(1);
+  });
+
+  it("splits embers into a normal pass (halos) and a screen pass (sparks); snow has no screen pass", () => {
+    const field = particleField({ kind: "embers", timeMs: 1500, box, density: 2 });
+    expect(particleSvg(field, "front", "e", "normal")).toContain("e-halo");
+    expect(particleSvg(field, "front", "e", "screen")).not.toContain("e-halo");
+    const snow = particleField({ kind: "snow", timeMs: 1500, box, density: 2 });
+    expect(particleSvg(snow, "front", "s", "screen")).not.toContain("<ellipse");
+    expect(particleSvg(snow, "front", "s", "normal")).toContain("#1a2a3a");
   });
 
   it("snapshots one frame of each kind", () => {
     for (const kind of kinds) {
       const field = particleField({ kind, timeMs: 2000, box: { width: 300, height: 80 }, density: 0.2, seed: 42 });
-      expect(particleSvg(field, "back", `title-${kind}`) + "\n" + particleSvg(field, "front", `title-${kind}`)).toMatchSnapshot(kind);
+      const passes = (["back", "front"] as const).flatMap((layer) => (["normal", "screen"] as const).map((blend) => particleSvg(field, layer, `title-${kind}`, blend)));
+      expect(passes.join("\n")).toMatchSnapshot(kind);
     }
   });
 });

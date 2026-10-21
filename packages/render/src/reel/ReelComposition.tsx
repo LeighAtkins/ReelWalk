@@ -204,16 +204,20 @@ function extrudedShadow(color: string, fontSize: number): string {
  * function of the reel time and the seed, so preview and export draw the same flakes. The box is the
  * title's plane (or its screen box) plus a margin; `transform` is the title's own, so the field moves with it.
  */
-const ParticleLayer: React.FC<{ text: TextOverlay; layer: "front" | "back"; reelMs: number; box: { width: number; height: number }; style: React.CSSProperties; transform: (margin: number) => string }> = ({ text, layer, reelMs, box, style, transform }) => {
+const ParticleLayer: React.FC<{ text: TextOverlay; layer: "front" | "back"; reelMs: number; box: { width: number; height: number }; style: React.CSSProperties; transform: (margin: { x: number; y: number }) => string }> = ({ text, layer, reelMs, box, style, transform }) => {
   const particles = text.particles!;
   const field = particleField({ kind: particles.kind, density: particles.density, seed: particles.seed, timeMs: reelMs, box });
+  const common: React.CSSProperties = { position: "absolute", width: field.width, height: field.height, transformOrigin: "0 0", ...style, transform: transform({ x: field.marginX, y: field.marginY }), pointerEvents: "none" };
+  // Two passes: flakes, dust, shadows and ember halos blend normally (so they show on a bright sky); ember sparks screen.
   return (
-    <div
-      aria-hidden="true"
-      data-particles={`${particles.kind}-${layer}`}
-      style={{ position: "absolute", width: field.width, height: field.height, transformOrigin: "0 0", ...style, transform: transform(field.margin), mixBlendMode: "screen", pointerEvents: "none" }}
-      dangerouslySetInnerHTML={{ __html: particleSvg(field, layer, `particles-${text.id}-${layer}`) }}
-    />
+    <>
+      <div aria-hidden="true" data-particles={`${particles.kind}-${layer}`} style={common}
+        dangerouslySetInnerHTML={{ __html: particleSvg(field, layer, `particles-${text.id}-${layer}`, "normal") }} />
+      {particles.kind === "embers" ? (
+        <div aria-hidden="true" data-particles={`${particles.kind}-${layer}-screen`} style={{ ...common, mixBlendMode: "screen" }}
+          dangerouslySetInnerHTML={{ __html: particleSvg(field, layer, `particles-${text.id}-${layer}-s`, "screen") }} />
+      ) : null}
+    </>
   );
 };
 
@@ -261,7 +265,7 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
     }
     // Particles live in the plane: the same warp as the words, from a box the margin larger on every side.
     const planeParticles = (layer: "front" | "back") => text.particles && placed ? (
-      <ParticleLayer text={text} layer={layer} reelMs={reelMs} box={{ width: w, height: h }} style={{ left: rect.left, top: rect.top, opacity: visible }} transform={(m) => `${matrix3d(placed)} translate(${-m}px, ${-m}px)`} />
+      <ParticleLayer text={text} layer={layer} reelMs={reelMs} box={{ width: w, height: h }} style={{ left: rect.left, top: rect.top, opacity: visible }} transform={(m) => `${matrix3d(placed)} translate(${-m.x}px, ${-m.y}px)`} />
     ) : null;
     return (
       <AbsoluteFill style={{ pointerEvents: "none", perspective: "none" }}>

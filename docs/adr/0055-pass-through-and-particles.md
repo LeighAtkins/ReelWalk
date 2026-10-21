@@ -77,32 +77,40 @@ segments once (the shared matte is not mounted for it).
 - `particleField({ kind, density, seed, timeMs, box })` returns the particles
   of one title on one frame. The box is the title's own: plane px
   (`rect.width × rect.height`) for a surface title, the text box for a screen
-  title, grown by a margin (three quarters of its height or 8% of its width,
-  32–280 px) on every side so
-  particles can cross the letters' edges and read as part of the scene.
-  Positions come from an integer hash of (seed, particle index, slot); motion
-  is a function of time; positions wrap inside the field and fade at its
-  edges so the wrap is invisible. No `Math.random`, no state.
-  - snow: 2–6 px at 1080, drifting down and slightly sideways with a
-    per-particle sway; bigger flakes fall faster (parallax); 70–90% white.
-  - embers: 1.5–4 px, rising with a sway, warm `#ffb15c → #ff6a2a`, a
-    flicker of `sin(t·k + phase)`, dying out over the top third of the field,
-    each with a faint halo three times its size.
-  - dust: slow, sparse (half the count), near-white, 2–5 px, 18–40%
-    opacity (the first cut, 1–3 px at 12–30%, could not be seen on the
-    reader footage at 1080).
-  - 40 particles at density 0.2 to 120 at density 2.
-- Each particle has a fixed front/back bit (40% front). `particleSvg(field,
-  layer, id)` writes one `<svg>` of one layer: circles under a single
-  Gaussian blur, numbers rounded so the string is stable.
+  title, grown by 30% of each side (and, for a single line, a quarter of its
+  width above and below), at least 32 px. Positions come from an integer hash
+  of (seed, particle index, slot); motion is a function of time. No
+  `Math.random`, no state.
+- **Depth sells it.** Each particle has a depth 0–1 from the hash. Near
+  (> 0.7) particles are large and soft and always draw in front of the
+  letters; far (< 0.35) ones are small and faint and always behind; mid ones
+  are crisp and split by a per-particle bit (40% in front).
+  - snow: near 7–14 px at 1080 under a soft blur at 60% with a faint cool
+    shadow (1 px offset, 25% `#1a2a3a`) so it reads on a white sky; mid
+    3–6 px crisp; far 1.5–3 px at 45%. 25–45 px/s down, a 10–20 px sine sway,
+    drawn as a 1.3:1 ellipse along its velocity so it turns as it sways.
+  - embers: a 1.5–3 s life (fade up, rise 30–60 px/s with a sway and a
+    flicker, fade out, born again lower down elsewhere: each life's start is
+    the hash of its cycle number); near 4–7 px with an 8–12 px blurred halo
+    at 35%, mid 3–6 px with a smaller one, far 1.5–3 px at 45%; warm
+    `#ffb15c → #ff6a2a`.
+  - dust: 3–6 px, 35–50%, warm near-white `#fff4dc`, 5–10 px/s in any
+    direction with a slow wander.
+  - Counts at Medium (density 1): 70 snow, 50 embers, 35 dust; Thick (1.8)
+    1.8×; Light 0.5.
+- `particleSvg(field, layer, id, blend)` writes one `<svg>` per layer and blend
+  pass: a halo group (blurred), a soft group (near particles) and a crisp
+  group. Embers have two passes: halos normal-blended, so the glow shows on a
+  bright background, and sparks in a pass the renderer screen-blends.
+  Snow and dust are one normal pass.
 
 `TextView` draws the back layer before the words and the front layer after
 them, as siblings of the text element with the title's own transform: for a
 surface title the placement's `placed` homography followed by
 `translate(−margin)`, so the field warps and travels with the tracked plane;
 for a screen title the same centre, rise, scale and rotation as the words.
-They take the title's visible opacity (entrance × placement) and
-`mix-blend-mode: screen`. Being part of the title layer, they sit under the
+They take the title's visible opacity (entrance × placement); only the
+ember sparks are `mix-blend-mode: screen`. Being part of the title layer, they sit under the
 title's occluders: the presenter of a `behind` title covers them too. They
 are not inside the plane's clipping box, so they are not cut at a chosen
 surface's edge.
@@ -113,7 +121,7 @@ In the text sheet (where `behind` is set), when "People in the shot pass in
 front of this text" is on: "She passes in front at ▸ 0:09.3" with **Use this
 frame** (the playhead's reel time) and a clear (×); unticking `behind` clears
 the crossing. A **Particles** row (No particles / Snow / Embers / Dust) and,
-when on, a three-step density (Light 0.5 / Medium 1 / Thick 1.6). All
+when on, a three-step density (Light 0.5 / Medium 1 / Thick 1.8). All
 thumb-sized `.segmented` buttons, saved by the sheet's existing
 `updateText` apply path, so undo and autosave are unchanged.
 
@@ -162,9 +170,10 @@ below.
   order with a shared and a passing title, no shared matte for a clip whose
   only behind title passes, `stackTitles` agrees; particles: same frame ⇒
   identical SVG string, another frame or seed ⇒ another, every centre inside
-  the field over a minute at density 2, counts 40/76/120 (dust 38),
-  front/back fixed per particle, sizes and colours per kind, snow falls and
-  embers rise, and a snapshot of one frame per kind.
+  the field over a minute at density 2, the 30% margins, counts 70/50/35
+  and 1.8×, near in front and far behind (fixed), sizes, blur bands and
+  colours per depth, snow at 25–45 px/s and embers rising, an ember's life
+  and respawn, the normal/screen passes, and a snapshot of one frame per kind.
 - `pnpm check` (lint, typecheck of every package, all tests) passes.
 - The render smoke with acceptance (`SMOKE_COMPARE=1 pnpm --filter
   @reelwalk/render smoke`, on Windows with imageio-ffmpeg's ffmpeg and
@@ -179,5 +188,6 @@ below.
   committed references were not updated.
 - Stills of the crossing (COME IN on the reader clip, frames 20 to 60) and of
   one frame per particle kind at 1080, drawn with `renderReelStills`; the
-  crossing reads as intended, embers and snow are visible but quiet, dust is
-  barely visible on this footage.
+  crossing reads as intended. After the coordinator's review the first
+  particle cut was too quiet to read on a phone; the depth bands above are
+  the second cut, re-rendered at 1080 and checked at 2×.

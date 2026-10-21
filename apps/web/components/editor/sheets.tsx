@@ -707,7 +707,7 @@ export function PlanSheet({
 export type TextDraft = Pick<TextOverlay, "text" | "style" | "color" | "size" | "animation" | "font" | "tracking" | "path" | "shadow" | "behind" | "depth" | "blend" | "passMs" | "passFadeMs" | "particles">;
 
 /** Particle density in three thumb-sized steps (ADR 0055). */
-const PARTICLE_DENSITIES = [0.5, 1, 1.6] as const;
+const PARTICLE_DENSITIES = [0.5, 1, 1.8] as const;
 
 /** The "Elegant" style chip, set in the serif it puts on the reel. */
 const ELEGANT_CHIP: CSSProperties = { fontFamily: ELEGANT_FONT_FAMILY, fontWeight: 500, fontSize: "1.12em", letterSpacing: "0.06em" };
@@ -791,7 +791,7 @@ export function TextSheet({
       {draft.particles ? (
         <Segmented label="Particle density" options={PARTICLE_DENSITIES} value={PARTICLE_DENSITIES.reduce((best, d) => Math.abs(d - (draft.particles?.density ?? 1)) < Math.abs(best - (draft.particles?.density ?? 1)) ? d : best)}
           onChange={density => setDraft({ ...draft, particles: { ...draft.particles!, density } })}
-          format={density => ({ 0.5: "Light", 1: "Medium", 1.6: "Thick" })[density as 0.5 | 1 | 1.6]} />
+          format={density => ({ 0.5: "Light", 1: "Medium", 1.8: "Thick" })[density as 0.5 | 1 | 1.8]} />
       ) : null}
       <Segmented<TextAnimation> label="Arrives" options={TEXT_ANIMATIONS} value={draft.animation} onChange={(animation) => setDraft({ ...draft, animation })} format={(animation) => TEXT_ANIMATION_LABELS[animation]} />
       <button type="button" className="btn btn-block" disabled={!draft.text.trim()} onClick={() => onSave({ ...draft, text: draft.text.trim() })}>

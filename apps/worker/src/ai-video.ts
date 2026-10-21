@@ -11,7 +11,7 @@ import { VertexImages, type InlineImage } from "./vertex-images";
 import { fetchVideo, lipsyncConfigured, pollLipsync, startLipsync, synthesiseLine, voicedPrompt } from "./voice";
 import { transcribeVideo, transcriptionAvailable } from "./transcribe";
 import { clipSchema, insertAiShot, parseStoredAiShot, timelineSchema, type AiShot } from "@reelwalk/core";
-import { identityDecision, type IdentityVerdict } from "./identity";
+import { closerLevel, identityDecision, identityRejectionMessage, minFacePx, speakingEnd, type IdentityVerdict, type LocateAttempt } from "./identity";
 
 let provider: VertexVideo | undefined;
 let images: VertexImages | undefined;
@@ -217,7 +217,9 @@ function refund(job: Job, message: string, details: Omit<NonNullable<Parameters<
   return failAiGeneration(prisma, job.id, message, true, { ...details, onlyIf: { leaseToken: job.leaseToken, submitStartedAt: null } });
 }
 
-type IdentityCheck = { end: "first" | "last"; attempt: 1 | 2; samePerson: boolean | null; confidence: number | null; faceHeightPx: number | null; reason?: "no-face" | "face-too-small" };
+/** One gate verdict as stored in identityChecks, with the locate boxes and crops so a false reject can be diagnosed. */
+type IdentityCheck = { end: "first" | "last"; attempt: 1 | 2; samePerson: boolean | null; confidence: number | null; faceHeightPx: number | null;
+  minFacePx: number; eyesAndMouthRendered?: boolean; reason?: IdentityVerdict["reason"]; locate?: LocateAttempt[] };
 
 /**
  * Compose each described end and check her face before Veo is paid (ADR 0056).
@@ -229,38 +231,44 @@ async function composeAndGate(s3: S3Client, bucket: string, job: Job, frames: Re
   const presenter = inline(frames.presenter)!, face = inline(frames.face);
   // Who she should be: the kit's face crop, or for an older frame-only request the presenter frame itself.
   const reference = face ?? presenter;
+  const voiceMode = parseStoredAiShot(job.shot).data?.voice ?? null;
   const checks: IdentityCheck[] = [];
   const result: { image?: InlineImage; lastFrame?: InlineImage } = {};
   images ??= new VertexImages(undefined, undefined, s3.config.credentials);
   for (const [end, frame] of [["first", frames.image], ["last", frames.lastFrame]] as const) {
     if (!frame?.compose) continue;
+    // A speaking end needs a bigger face, since Veo and lip sync animate her eyes and mouth (ADR 0056),
+    // except a shouted Veo line over a described wide or action shot.
+    const speaking = speakingEnd(voiceMode, frame.compose);
+    const minimum = minFacePx(speaking);
     let accepted: InlineImage | null = null;
     let previous: IdentityVerdict | null = null;
     for (const attempt of [1, 2] as const) {
       let composed: InlineImage;
       try {
-        // A face too small to judge is recomposed closer (medium, face at least 220 px), whatever framing was asked.
-        const closer = attempt === 2 && previous?.reason === "face-too-small";
-        composed = await images.compose(end, frame.compose, inline(frame)!, presenter, face, { framing: closer ? "medium" : frame.framing ?? "medium", stronger: attempt === 2, ...(closer ? { closer: true } : {}) });
+        // Closer for a speaking end, closer still after a face too small to judge, whatever framing was asked.
+        const closer = closerLevel(attempt, speaking, previous);
+        composed = await images.compose(end, frame.compose, inline(frame)!, presenter, face, { framing: closer ? "medium" : frame.framing ?? "medium", stronger: attempt === 2, ...(closer ? { closer } : {}) });
       } catch {
         await refund(job, "The start and end stills could not be composed. Your credit was returned.", { identityChecks: checks });
         return { ok: false };
       }
       let verdict: IdentityVerdict | null = null;
-      try { verdict = await images.checkIdentity(composed, reference); } catch { verdict = null; }
-      checks.push({ end, attempt, samePerson: verdict?.samePerson ?? null, confidence: verdict?.confidence ?? null, faceHeightPx: verdict?.faceHeightPx ?? null, ...(verdict?.reason ? { reason: verdict.reason } : {}) });
-      console.log(`ai-video: ${job.id}: identity ${end} attempt ${attempt}: ${verdict ? `${verdict.samePerson ? "same" : "different"} person, confidence ${verdict.confidence.toFixed(2)}, face ${verdict.faceHeightPx ?? "?"} px` : "check unavailable"}`);
+      try { verdict = await images.checkIdentity(composed, reference, { minFacePx: minimum }); } catch { verdict = null; }
+      checks.push({ end, attempt, samePerson: verdict?.samePerson ?? null, confidence: verdict?.confidence ?? null, faceHeightPx: verdict?.faceHeightPx ?? null, minFacePx: minimum,
+        ...(verdict?.eyesAndMouthRendered !== undefined ? { eyesAndMouthRendered: verdict.eyesAndMouthRendered } : {}),
+        ...(verdict?.reason ? { reason: verdict.reason } : {}), ...(verdict?.locate ? { locate: verdict.locate } : {}) });
+      console.log(`ai-video: ${job.id}: identity ${end} attempt ${attempt}: ${verdict ? `${verdict.samePerson ? "same" : "different"} person, confidence ${verdict.confidence.toFixed(2)}, face ${verdict.faceHeightPx ?? "?"} px (min ${minimum}), eyes/mouth ${verdict.eyesAndMouthRendered ?? "?"}${verdict.reason ? `, ${verdict.reason}` : ""}, locate ${JSON.stringify(verdict.locate ?? [])}` : "check unavailable"}`);
       // Kept beside the take so the studio can see what Veo was (or would have been) given.
       await s3.send(new PutObjectCommand({ Bucket: bucket, Key: `workspaces/${job.workspaceId}/ai/${job.id}-${end}${attempt === 2 ? "-retry" : ""}.jpg`, Body: Buffer.from(composed.bytesBase64Encoded, "base64"), ContentType: "image/jpeg" }));
       // Each attempt is a few slow calls: stop as soon as the claim is gone, before any more spend.
       if (!await renewLease(job)) { console.warn(`ai-video: ${job.id}: claim lost while composing; not sent`); return { ok: false }; }
-      const decision = identityDecision(attempt, verdict);
+      const decision = identityDecision(attempt, verdict, minimum);
       previous = verdict;
       if (decision === "pass") { accepted = composed; break; }
       if (decision === "reject") {
-        const scores = checks.filter(check => check.end === end).map(check => check.confidence === null ? "unchecked" : check.confidence.toFixed(2));
         const lowest = Math.min(...checks.map(check => check.confidence ?? 0));
-        await refund(job, `Her face did not match the presenter in the composed ${end === "first" ? "start" : "end"} still after two tries (scores ${scores.join(", ")}), so the shot was not made. Your credit was returned.`,
+        await refund(job, identityRejectionMessage(end, verdict, minimum, speaking),
           { failureCode: "identity_rejected", identityScore: lowest, identityChecks: checks });
         return { ok: false };
       }

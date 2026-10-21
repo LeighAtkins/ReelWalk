@@ -41,17 +41,26 @@ export const presenterInputSchema = z.object({
   voice: z.string().trim().min(1).max(100).nullable().optional(),
   isDefault: z.boolean().optional(),
 });
-export const presenterUpdateSchema = presenterInputSchema.partial().refine(update => Object.keys(update).length > 0, "Change at least one thing.");
+export const presenterUpdateSchema = presenterInputSchema.partial().extend({
+  /** Try the face crop again after it gave up. */
+  retry: z.literal(true).optional(),
+}).refine(update => Object.keys(update).length > 0, "Change at least one thing.");
+
+/** Face-crop attempts before a kit gives up and says so. */
+export const PRESENTER_CROP_MAX_TRIES = 3;
+export const PRESENTER_CROP_GAVE_UP = "Her face reference could not be made. Tap Retry, or choose another portrait.";
 export type PresenterInput = z.infer<typeof presenterInputSchema>;
 
-/** Where a kit stands, for the picker. */
-export function presenterStatus(kit: { faceCropKey: string | null; faceCropError: string | null; faceHeightPx: number | null }): { ready: boolean; label: string } {
+/** Where a kit stands, for the picker; retry is offered once it has failed. */
+export function presenterStatus(kit: { faceCropKey: string | null; faceCropError: string | null; faceHeightPx: number | null; faceCropTries?: number; leaseUntil?: Date | null }, now = new Date()): { ready: boolean; label: string; canRetry?: boolean } {
   if (kit.faceCropKey) {
     return kit.faceHeightPx !== null && kit.faceHeightPx < PORTRAIT_FACE_MIN_PX
       ? { ready: true, label: `Ready · the portrait's face is ${kit.faceHeightPx} px tall; a closer head-and-shoulders photo (face ${PORTRAIT_FACE_MIN_PX} px or more) holds her likeness better` }
       : { ready: true, label: "Ready" };
   }
-  if (kit.faceCropError) return { ready: false, label: kit.faceCropError };
+  if (kit.faceCropError) return { ready: false, label: kit.faceCropError, canRetry: true };
+  // Tries used up and no live claim: the worker died on the last one. It will be settled; say so now.
+  if ((kit.faceCropTries ?? 0) >= PRESENTER_CROP_MAX_TRIES && (!kit.leaseUntil || kit.leaseUntil < now)) return { ready: false, label: PRESENTER_CROP_GAVE_UP, canRetry: true };
   return { ready: false, label: "Preparing her face reference…" };
 }
 

@@ -32,12 +32,13 @@ describe("generation with a presenter kit (ADR 0056)", () => {
     await expect(presenterKit("w", "kit")).rejects.toThrow("still being prepared");
   });
   it("sends the kit's full-length still and face crop as the references, at depth 0", async () => {
-    mocks.presenter.findFirst.mockResolvedValue({ id: "kit", faceCropKey: "workspaces/w/presenters/kit/face.png", faceCropError: null, fullBodyAssetId: "body" });
+    mocks.presenter.findFirst.mockResolvedValue({ id: "kit", faceCropKey: "workspaces/w/presenters/kit/portrait/claim-1.png", faceCropError: null, fullBodyAssetId: "body" });
     await createAiGeneration(user, input({ presenterId: "kit" }), { exactPrompt: true });
     const reserved = mocks.reserve.mock.calls[0][1];
     expect(reserved.frameSources).toEqual([
       { key: "uploads/w/body.png", kind: "IMAGE", atMs: 0, role: "presenter" },
-      { key: "workspaces/w/presenters/kit/face.png", kind: "IMAGE", atMs: 0, role: "face" },
+      // The exact, immutable keys are snapshotted at reserve time: a later portrait change cannot alter them.
+      { key: "workspaces/w/presenters/kit/portrait/claim-1.png", kind: "IMAGE", atMs: 0, role: "face" },
       { key: "uploads/w/kitchen.png", kind: "IMAGE", atMs: 0, role: "first", compose: first, framing: "medium" },
     ]);
     expect(reserved).toMatchObject({ presenterId: "kit", referenceDepth: 0 });

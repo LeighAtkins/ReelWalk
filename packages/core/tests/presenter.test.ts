@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { aiShotSchema, parseStoredAiShot } from "../src/ai-shots";
-import { CHAINED_REFERENCE_MESSAGE, defaultFraming, presenterStatus, referenceDepthOf } from "../src/presenter";
+import { CHAINED_REFERENCE_MESSAGE, PRESENTER_CROP_GAVE_UP, defaultFraming, presenterStatus, referenceDepthOf } from "../src/presenter";
 import { DIRECTOR_INSTRUCTIONS, DIRECTOR_PLAN_JSON_SCHEMA } from "../src/ai-director";
 
 const shot = (compose: Record<string, unknown>, extra: Record<string, unknown> = {}) => ({ mode: "custom", first: { assetId: "room", atMs: 0 }, compose, ...extra });
@@ -46,7 +46,11 @@ describe("reference lineage", () => {
 describe("kit status", () => {
   it("is ready once the face crop exists, and says when the portrait's face is small", () => {
     expect(presenterStatus({ faceCropKey: null, faceCropError: null, faceHeightPx: null })).toEqual({ ready: false, label: "Preparing her face reference…" });
-    expect(presenterStatus({ faceCropKey: null, faceCropError: "No clear face", faceHeightPx: null })).toEqual({ ready: false, label: "No clear face" });
+    expect(presenterStatus({ faceCropKey: null, faceCropError: "No clear face", faceHeightPx: null })).toEqual({ ready: false, label: "No clear face", canRetry: true });
+    // Review P2: tries used up and the claim lapsed (the worker died on the last try) is a failure with Retry, not "Preparing".
+    const now = new Date("2026-10-21T12:00:00Z");
+    expect(presenterStatus({ faceCropKey: null, faceCropError: null, faceHeightPx: null, faceCropTries: 3, leaseUntil: new Date("2026-10-21T11:59:00Z") }, now)).toEqual({ ready: false, label: PRESENTER_CROP_GAVE_UP, canRetry: true });
+    expect(presenterStatus({ faceCropKey: null, faceCropError: null, faceHeightPx: null, faceCropTries: 3, leaseUntil: new Date("2026-10-21T12:04:00Z") }, now).label).toBe("Preparing her face reference…");
     expect(presenterStatus({ faceCropKey: "k", faceCropError: null, faceHeightPx: 520 })).toEqual({ ready: true, label: "Ready" });
     expect(presenterStatus({ faceCropKey: "k", faceCropError: null, faceHeightPx: 100 }).label).toContain("100 px");
   });

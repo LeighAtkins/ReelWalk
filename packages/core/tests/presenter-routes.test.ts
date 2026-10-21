@@ -71,7 +71,15 @@ describe("presenter kits API (ADR 0056)", () => {
     mocks.presenter.findFirst.mockResolvedValue(row({ faceCropKey: "old.png" }));
     await update(request("/api/presenters/kit", "PATCH", { portraitAssetId: "closer", isDefault: true }), { params: Promise.resolve({ id: "kit" }) });
     expect(mocks.presenter.updateMany).toHaveBeenCalledWith({ where: { workspaceId: "w", isDefault: true, id: { not: "kit" } }, data: { isDefault: false } });
-    expect(mocks.presenter.update).toHaveBeenCalledWith({ where: { id: "kit" }, data: expect.objectContaining({ portraitAssetId: "closer", faceCropKey: null, faceCropTries: 0 }) });
+    // Clearing the claim token stops a worker still cutting the old portrait from publishing it.
+    expect(mocks.presenter.update).toHaveBeenCalledWith({ where: { id: "kit" }, data: expect.objectContaining({ portraitAssetId: "closer", faceCropKey: null, faceCropTries: 0, leaseToken: null, leaseUntil: null }) });
+  });
+  it("retries a face crop that gave up", async () => {
+    mocks.presenter.findFirst.mockResolvedValue(row({ faceCropError: "Her face reference could not be made.", faceCropTries: 3 }));
+    const response = await update(request("/api/presenters/kit", "PATCH", { retry: true }), { params: Promise.resolve({ id: "kit" }) });
+    expect(response.status).toBe(200);
+    expect(mocks.presenter.update).toHaveBeenCalledWith({ where: { id: "kit" }, data: expect.objectContaining({ faceCropError: null, faceCropTries: 0, leaseToken: null }) });
+    expect(mocks.wake).toHaveBeenCalled();
   });
 });
 

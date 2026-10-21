@@ -29,6 +29,12 @@ export function PresenterPicker({ library, value, onChange, onAssets, disabled }
     if (!value || !data.presenters.some(kit => kit.id === value)) onChange(data.presenters.find(kit => kit.isDefault)?.id ?? null);
   }
   useEffect(() => { void reload(); }, []);
+  async function retry(id: string) {
+    const response = await fetch(`/api/presenters/${id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ retry: true }) });
+    const data = await response.json().catch(() => ({}));
+    setMessage(response.ok ? "Trying her face reference again…" : data.error ?? "Could not retry.");
+    await reload();
+  }
   // The worker cuts her face crop in a few seconds; look again while one is being prepared.
   const preparing = kits?.some(kit => !kit.ready && kit.status.startsWith("Preparing"));
   useEffect(() => {
@@ -45,6 +51,7 @@ export function PresenterPicker({ library, value, onChange, onAssets, disabled }
           {kits.map(kit => <option key={kit.id} value={kit.id}>{kit.name}{kit.isDefault ? " (default)" : ""}</option>)}
         </select></label>}
     {chosen ? <span className={`small ${chosen.ready ? "muted" : ""}`}>{chosen.status}</span> : null}
+    {chosen?.canRetry ? <button type="button" className="btn btn-quiet btn-block" onClick={() => { void retry(chosen.id); }}>Retry her face reference</button> : null}
     <button type="button" className="btn btn-quiet btn-block" onClick={() => setSetup(open => !open)}>{setup ? "Close presenter setup" : "Set up presenter"}</button>
     {setup ? <PresenterSetup library={library} onAssets={onAssets} onDone={async (kit) => { setSetup(false); setMessage(`${kit.name} is set up. Her face reference is being prepared.`); await reload(); onChange(kit.id); }} /> : null}
     {message ? <p role="status" className="small">{message}</p> : null}

@@ -10,14 +10,14 @@ import type { z } from "zod";
 
 export type PublicPresenter = {
   id: string; name: string; portraitAssetId: string; fullBodyAssetId: string; voice: string | null; isDefault: boolean;
-  ready: boolean; status: string; faceHeightPx: number | null; createdAt: string;
+  ready: boolean; status: string; canRetry: boolean; faceHeightPx: number | null; createdAt: string;
 };
 
 type Row = Awaited<ReturnType<typeof prisma.presenter.findFirstOrThrow>>;
 function toPublic(row: Row): PublicPresenter {
   const status = presenterStatus(row);
   return { id: row.id, name: row.name, portraitAssetId: row.portraitAssetId, fullBodyAssetId: row.fullBodyAssetId, voice: row.voice,
-    isDefault: row.isDefault, ready: status.ready, status: status.label, faceHeightPx: row.faceHeightPx, createdAt: row.createdAt.toISOString() };
+    isDefault: row.isDefault, ready: status.ready, status: status.label, canRetry: Boolean(status.canRetry), faceHeightPx: row.faceHeightPx, createdAt: row.createdAt.toISOString() };
 }
 
 export class PresenterError extends Error {
@@ -63,8 +63,10 @@ export async function updatePresenter(workspaceId: string, id: string, raw: unkn
   if (!existing) throw new PresenterError("That presenter is not in your workspace.", 404);
   if (update.portraitAssetId) await ownedStill(workspaceId, update.portraitAssetId, "portrait");
   if (update.fullBodyAssetId) await ownedStill(workspaceId, update.fullBodyAssetId, "full-length photo");
-  // A new portrait needs a new face crop.
+  // A new portrait needs a new face crop, and so does a retry of one that gave up. Clearing the claim
+  // token means a worker still cutting the old portrait cannot publish its crop (it checks the token).
   const newPortrait = update.portraitAssetId && update.portraitAssetId !== existing.portraitAssetId;
+  const retry = update.retry && !existing.faceCropKey;
   return prisma.$transaction(async tx => {
     if (update.isDefault) await tx.presenter.updateMany({ where: { workspaceId, isDefault: true, id: { not: id } }, data: { isDefault: false } });
     return toPublic(await tx.presenter.update({ where: { id }, data: {
@@ -73,7 +75,7 @@ export async function updatePresenter(workspaceId: string, id: string, raw: unkn
       ...(update.fullBodyAssetId ? { fullBodyAssetId: update.fullBodyAssetId } : {}),
       ...(update.voice !== undefined ? { voice: update.voice } : {}),
       ...(update.isDefault !== undefined ? { isDefault: update.isDefault } : {}),
-      ...(newPortrait ? { faceCropKey: null, faceHeightPx: null, faceCropError: null, faceCropTries: 0, leaseUntil: null } : {}),
+      ...(newPortrait || retry ? { faceCropKey: null, faceHeightPx: null, faceCropError: null, faceCropTries: 0, leaseToken: null, leaseUntil: null } : {}),
     } }));
   });
 }

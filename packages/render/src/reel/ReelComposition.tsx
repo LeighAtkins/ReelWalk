@@ -15,7 +15,7 @@ import {
 // WebCodecs-based video, used when the worker renders: about twice as fast as
 // OffthreadVideo here, and it falls back to it for files it cannot decode.
 import { Video as RenderVideo } from "@remotion/media";
-import { cameraAt, duckGain, evaluateTitle, framePlan, INSTAGRAM, isInstagramMusic, matrix3d, REEL_FORMAT, sceneLayers, speechWindows, timelineDurationMs, walkInto, type Clip, type Logo, type Plan, type TextOverlay, type Timeline } from "@reelwalk/core";
+import { cameraAt, duckGain, evaluateTitle, framePlan, INSTAGRAM, isInstagramMusic, matrix3d, particleField, particleSvg, personLayerOpacity, REEL_FORMAT, sceneLayers, speechWindows, TITLE_LEADING, timelineDurationMs, walkInto, type Clip, type Logo, type PersonPass, type Plan, type TextOverlay, type Timeline } from "@reelwalk/core";
 import { domMeasure } from "./measure";
 import { whipGeometry } from "./whip";
 import { clipPresentation } from "./presentation";
@@ -199,6 +199,31 @@ function extrudedShadow(color: string, fontSize: number): string {
   return `${layers.join(", ")}, 0 0 1px ${color}`;
 }
 
+/**
+ * A title's particles (ADR 0055): one layer (in front of or behind the letters) of a field that is a pure
+ * function of the reel time and the seed, so preview and export draw the same flakes. The box is the
+ * title's plane (or its screen box) plus a margin; `transform` is the title's own, so the field moves with it.
+ */
+const ParticleLayer: React.FC<{ text: TextOverlay; layer: "front" | "back"; reelMs: number; box: { width: number; height: number }; style: React.CSSProperties; transform: (margin: number) => string }> = ({ text, layer, reelMs, box, style, transform }) => {
+  const particles = text.particles!;
+  const field = particleField({ kind: particles.kind, density: particles.density, seed: particles.seed, timeMs: reelMs, box });
+  return (
+    <div
+      aria-hidden="true"
+      data-particles={`${particles.kind}-${layer}`}
+      style={{ position: "absolute", width: field.width, height: field.height, transformOrigin: "0 0", ...style, transform: transform(field.margin), mixBlendMode: "screen", pointerEvents: "none" }}
+      dangerouslySetInnerHTML={{ __html: particleSvg(field, layer, `particles-${text.id}-${layer}`) }}
+    />
+  );
+};
+
+/** The presenter matte of a passing title (ADR 0055): drawn at personLayerOpacity, 0 until she walks through the words. */
+const PassFade: React.FC<{ pass: PersonPass; from: number; children: React.ReactNode }> = ({ pass, from, children }) => {
+  const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
+  return <AbsoluteFill style={{ pointerEvents: "none", opacity: personLayerOpacity({ pass }, from + frame, fps) }}>{children}</AbsoluteFill>;
+};
+
 const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline: Timeline; from: number }> = ({ text, durationInFrames, timeline, from }) => {
   const frame = useCurrentFrame();
   const { fps, width, height } = useVideoConfig();
@@ -218,6 +243,7 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
   // Paint on the surface: hard-light keeps the wall's own light and grain through the letters (white lightens, dark darkens), with the footage's softness.
   // The blend's own 0.92 multiplies the fade; spread after `opacity`, a flat 0.92 used to cancel it.
   const meet = text.blend === "surface" ? { mixBlendMode: "hard-light" as const, filter: "blur(0.6px)", opacity: visible * 0.92 } : {};
+  const reelMs = ((from + frame) * 1000) / fps;
   if (placement.kind === "surface") {
     const { rect, placed, fitScale, maskShapes, clipToPlane } = placement;
     const w = rect.width, h = rect.height;
@@ -233,8 +259,13 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
       // polygon is as opaque as the white plane, so nothing would be cut (found on the phone, 2026-10-20).
       mask = { maskImage: url, WebkitMaskImage: url, maskSize: "100% 100%", WebkitMaskSize: "100% 100%", maskRepeat: "no-repeat", WebkitMaskRepeat: "no-repeat", maskMode: "luminance" };
     }
+    // Particles live in the plane: the same warp as the words, from a box the margin larger on every side.
+    const planeParticles = (layer: "front" | "back") => text.particles && placed ? (
+      <ParticleLayer text={text} layer={layer} reelMs={reelMs} box={{ width: w, height: h }} style={{ left: rect.left, top: rect.top, opacity: visible }} transform={(m) => `${matrix3d(placed)} translate(${-m}px, ${-m}px)`} />
+    ) : null;
     return (
       <AbsoluteFill style={{ pointerEvents: "none", perspective: "none" }}>
+        {planeParticles("back")}
         {/* Painted on a chosen surface, the text exists only on that surface: anything in front of the surface's edge (a wall, a railing) hides it. */}
         <div style={{ position: "absolute", left: rect.left, top: rect.top, width: w, height: h, display: "flex", alignItems: "center", justifyContent: "center", transformOrigin: "0 0", transform: placed ? matrix3d(placed) : undefined, opacity: visible, whiteSpace: "nowrap", textAlign: "center", overflow: clipToPlane ? "hidden" : "visible", ...mask, ...meet }}>
           {/* The plane's box is only its frame: the words sit on one line (or the lines the author typed), scaled to fill or fit it, warped with it. */}
@@ -246,13 +277,24 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
             </>)}
           </span>
         </div>
+        {planeParticles("front")}
       </AbsoluteFill>
     );
   }
 
   const { center, wrap } = placement;
+  const motion = `translate(-50%, calc(-50% + ${rise * 40}px)) scale(${scale * placement.scale}) rotate(${placement.rotation}deg)`;
+  // A screen title's particles fill its text box (the wrap width, or the measured line), centred where the words are.
+  const screenParticles = (layer: "front" | "back") => {
+    if (!text.particles) return null;
+    const widest = Math.max(...text.text.split("\n").map((part) => domMeasure(part || " ", font).width));
+    const lines = text.text.split("\n").length * (wrap.mode === "wrap" ? Math.max(1, Math.ceil(widest / wrap.width)) : 1);
+    const box = { width: wrap.mode === "wrap" ? Math.min(wrap.width, widest) : Math.min(wrap.maxWidth, widest), height: font.fontSize * TITLE_LEADING * lines };
+    return <ParticleLayer text={text} layer={layer} reelMs={reelMs} box={box} style={{ left: center.x, top: center.y, opacity: visible, transformOrigin: "50% 50%" }} transform={() => motion} />;
+  };
   return (
     <AbsoluteFill style={{ pointerEvents: "none" }}>
+      {screenParticles("back")}
       <div
         style={{
           position: "absolute",
@@ -262,7 +304,7 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
           ...(wrap.mode === "wrap" ? { width: wrap.width } : { width: "max-content", maxWidth: wrap.maxWidth, whiteSpace: "nowrap" as const }),
           display: "flex",
           justifyContent: "center",
-          transform: `translate(-50%, calc(-50% + ${rise * 40}px)) scale(${scale * placement.scale}) rotate(${placement.rotation}deg)`,
+          transform: motion,
           opacity: visible,
           ...meet,
         }}
@@ -280,6 +322,7 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
           </span>
         )}
       </div>
+      {screenParticles("front")}
     </AbsoluteFill>
   );
 };
@@ -380,9 +423,18 @@ export const ReelComposition: React.FC<ReelProps> = ({ timeline, assets, waterma
         const whipOut = next?.transitionIn === "whip" ? next.whipDirection ?? "right" : null;
         if (layer.kind === "person") {
           // People in front of the type (ADR 0039): a person-only matte of the clip.
+          const matte = <PersonMatteView clip={clip} asset={asset} durationInFrames={durationInFrames} fadeOut={fadeOut} whipOut={whipOut} />;
+          // A passing title's own presenter (ADR 0055): above that title only, faded in as she walks through the words.
+          if (layer.pass) {
+            return (
+              <Sequence key={`matte-${clip.id}-${layer.pass.textId}`} from={from} durationInFrames={durationInFrames} name={`passes ${clip.id}`}>
+                <PassFade pass={layer.pass} from={from}>{matte}</PassFade>
+              </Sequence>
+            );
+          }
           return (
             <Sequence key={`matte-${clip.id}`} from={from} durationInFrames={durationInFrames} name={`matte ${clip.id}`}>
-              <PersonMatteView clip={clip} asset={asset} durationInFrames={durationInFrames} fadeOut={fadeOut} whipOut={whipOut} />
+              {matte}
             </Sequence>
           );
         }

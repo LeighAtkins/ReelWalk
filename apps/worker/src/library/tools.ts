@@ -1,23 +1,79 @@
-import { execFile, type ExecFileOptions, type ExecFileOptionsWithBufferEncoding } from "node:child_process";
+import { spawn } from "node:child_process";
 import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
-import { promisify } from "node:util";
+import path from "node:path";
 import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { BEAT_SAMPLE_RATE, detectBeats, type BeatGrid } from "@reelwalk/core";
 import { getConfig } from "../config";
+import { killTree, ownChild, OWN_PROCESS_GROUP, type AttemptScope } from "../lifecycle";
 
 // Shared by the library importers.
 
-const execFileAsync = promisify(execFile);
 /** How long any one ffmpeg/ffprobe call may take before it is killed: a stuck decode must not hold the render slot forever (review of 2026-10-20). */
 export const TOOL_TIMEOUT_MS = Number(process.env.TOOL_TIMEOUT_SECONDS ?? 15 * 60) * 1000;
 
-/** `execFile` as a promise, with a hard timeout and a SIGKILL so a hung process cannot outlive its deadline. */
-export function run(file: string, args: readonly string[]): Promise<{ stdout: string; stderr: string }>;
-export function run(file: string, args: readonly string[], options: ExecFileOptionsWithBufferEncoding): Promise<{ stdout: Buffer; stderr: Buffer }>;
-export function run(file: string, args: readonly string[], options: ExecFileOptions & { encoding?: BufferEncoding }): Promise<{ stdout: string; stderr: string }>;
-export function run(file: string, args: readonly string[], options: object = {}): Promise<unknown> {
-  return execFileAsync(file, args as string[], { timeout: TOOL_TIMEOUT_MS, killSignal: "SIGKILL", ...options } as ExecFileOptions);
+/** What a `run` call is part of: the attempt whose abort kills it, and a timeout of its own. */
+export type RunControl = { scope?: AttemptScope; timeoutMs?: number };
+
+type RunOptions = RunControl & { cwd?: string; env?: NodeJS.ProcessEnv; maxBuffer?: number };
+
+/**
+ * Runs a program to completion, like `execFile` (same output, same error
+ * shape with `code`, `stdout` and `stderr`), but spawned in its own process
+ * group (`execFile` ignores `detached`). Its timeout and its attempt's abort
+ * take the same path (ADR 0050): the group is SIGKILLed and the promise
+ * settles once the process has exited, so a stopped attempt never leaves an
+ * ffmpeg running. The child is also registered with the attempt's scope,
+ * which kills it if the attempt is torn down first.
+ */
+export function run(file: string, args: readonly string[], options?: RunOptions & { encoding?: BufferEncoding }): Promise<{ stdout: string; stderr: string }>;
+export function run(file: string, args: readonly string[], options: RunOptions & { encoding: "buffer" }): Promise<{ stdout: Buffer; stderr: Buffer }>;
+export function run(file: string, args: readonly string[], options: RunOptions & { encoding?: BufferEncoding | "buffer" } = {}): Promise<unknown> {
+  const { scope, timeoutMs = TOOL_TIMEOUT_MS, encoding = "utf8", maxBuffer = 1024 * 1024, cwd, env } = options;
+  const name = path.basename(file);
+  return new Promise((resolve, reject) => {
+    if (scope?.signal.aborted) return reject(scope.signal.reason);
+    const child = spawn(file, args, { cwd, env, detached: OWN_PROCESS_GROUP, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+    const out: Buffer[] = [];
+    const err: Buffer[] = [];
+    let bytes = 0;
+    let stopped: Error | null = null;
+    let settled = false;
+    const decode = (chunks: Buffer[]) => (encoding === "buffer" ? Buffer.concat(chunks) : Buffer.concat(chunks).toString(encoding));
+    const stop = (reason: Error) => {
+      if (stopped) return;
+      stopped = reason;
+      killTree(child, "SIGKILL");
+    };
+    const collect = (into: Buffer[]) => (chunk: Buffer) => {
+      bytes += chunk.length;
+      if (bytes > maxBuffer) stop(new RangeError(`${name} wrote more than ${maxBuffer} bytes of output`));
+      else into.push(chunk);
+    };
+    child.stdout!.on("data", collect(out));
+    child.stderr!.on("data", collect(err));
+    const finish = (error: Error | null, code: number | null, signal: NodeJS.Signals | null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      scope?.signal.removeEventListener("abort", onAbort);
+      forget();
+      const stdout = decode(out);
+      const stderr = decode(err);
+      if (stopped) return reject(stopped);
+      if (error) return reject(Object.assign(error, { stdout, stderr }));
+      if (code !== 0) {
+        return reject(Object.assign(new Error(`Command failed: ${[file, ...args].join(" ")}\n${String(stderr)}`), { code, signal, stdout, stderr }));
+      }
+      resolve({ stdout, stderr });
+    };
+    child.once("error", (error) => finish(error, null, null));
+    child.once("close", (code, signal) => finish(null, code, signal));
+    const timer = setTimeout(() => stop(new Error(`${name} did not finish within ${Math.round(timeoutMs / 1000)} s and was killed`)), timeoutMs);
+    const onAbort = () => stop(scope!.signal.reason as Error);
+    scope?.signal.addEventListener("abort", onAbort, { once: true });
+    const forget = scope ? ownChild(scope, child, name) : () => {};
+  });
 }
 
 const config = getConfig();
@@ -37,12 +93,12 @@ export async function upload(key: string, file: string, contentType: string): Pr
   return size;
 }
 
-export async function probe(file: string): Promise<{ width: number; height: number; codec: string; durationMs: number | null }> {
+export async function probe(file: string, scope?: AttemptScope): Promise<{ width: number; height: number; codec: string; durationMs: number | null }> {
   const { stdout } = await run("ffprobe", [
     "-v", "error", "-select_streams", "v:0",
     "-show_entries", "stream=width,height,codec_name:format=duration",
     "-of", "json", file,
-  ]);
+  ], { scope });
   const data = JSON.parse(stdout) as { streams: { width: number; height: number; codec_name?: string }[]; format: { duration?: string } };
   const duration = Number(data.format.duration);
   return {

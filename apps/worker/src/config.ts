@@ -19,6 +19,21 @@ export type WorkerConfig = {
   retryBackoffSeconds: number;
   /** The most one render attempt may take before it is failed and retried. */
   jobTimeoutSeconds: number;
+  /**
+   * How long a stopped render attempt (deadline, SIGTERM) may take to unwind,
+   * and then how long releasing Chrome, ffmpeg and temp files may take: a
+   * stopped attempt is reported within twice this.
+   */
+  abortGraceSeconds: number;
+  /**
+   * After SIGTERM, how long the current render may keep going before it is
+   * stopped and handed back. 0 on ECS (the task is killed 30 s after the
+   * signal); on Kubernetes, with a long termination grace, set it so a render
+   * can finish during a rollout.
+   */
+  shutdownDrainSeconds: number;
+  /** How long the platform waits after SIGTERM before SIGKILL: ECS stopTimeout, or terminationGracePeriodSeconds. */
+  stopTimeoutSeconds: number;
   /** How often the worker looks for outbox messages the web app could not send itself. */
   outboxPollSeconds: number;
   /** Browser tabs per render. */
@@ -41,6 +56,9 @@ function numberFrom(env: NodeJS.ProcessEnv, key: string, fallback: number): numb
   return env[key] && Number.isFinite(value) ? value : fallback;
 }
 
+/** Time left after the grace for the hand-back's database write and SQS calls. */
+const SHUTDOWN_REPORT_SECONDS = 5;
+
 export function getConfig(env = process.env): WorkerConfig {
   const config: WorkerConfig = {
     sqsEndpointUrl: valueOrUndefined(env, "SQS_ENDPOINT_URL"),
@@ -59,6 +77,9 @@ export function getConfig(env = process.env): WorkerConfig {
     staleSeconds: numberFrom(env, "RENDER_STALE_SECONDS", 60),
     retryBackoffSeconds: numberFrom(env, "RENDER_RETRY_BACKOFF_SECONDS", 15),
     jobTimeoutSeconds: numberFrom(env, "RENDER_JOB_TIMEOUT_SECONDS", 45 * 60),
+    abortGraceSeconds: numberFrom(env, "RENDER_ABORT_GRACE_SECONDS", 10),
+    shutdownDrainSeconds: numberFrom(env, "RENDER_SHUTDOWN_DRAIN_SECONDS", 0),
+    stopTimeoutSeconds: numberFrom(env, "RENDER_STOP_TIMEOUT_SECONDS", 30),
     outboxPollSeconds: numberFrom(env, "OUTBOX_POLL_SECONDS", 5),
     renderConcurrency: numberFrom(env, "RENDER_CONCURRENCY", 4),
     healthPort: numberFrom(env, "HEALTH_PORT", 8081),
@@ -70,6 +91,13 @@ export function getConfig(env = process.env): WorkerConfig {
   // and burn one of the job's attempts for nothing.
   if (config.staleSeconds >= config.visibilitySeconds || config.heartbeatSeconds >= config.staleSeconds) {
     throw new Error("Expected RENDER_HEARTBEAT_SECONDS < RENDER_STALE_SECONDS < RENDER_VISIBILITY_SECONDS");
+  }
+  // After SIGTERM the render may drain, then gets one grace to unwind and one to release, and the hand-back
+  // still has to reach the database and SQS before the platform's SIGKILL (ADR 0050).
+  if (config.shutdownDrainSeconds + 2 * config.abortGraceSeconds + SHUTDOWN_REPORT_SECONDS > config.stopTimeoutSeconds) {
+    throw new Error(
+      `Expected RENDER_SHUTDOWN_DRAIN_SECONDS + 2 x RENDER_ABORT_GRACE_SECONDS + ${SHUTDOWN_REPORT_SECONDS} <= RENDER_STOP_TIMEOUT_SECONDS (${config.shutdownDrainSeconds} + 2 x ${config.abortGraceSeconds} + ${SHUTDOWN_REPORT_SECONDS} > ${config.stopTimeoutSeconds})`,
+    );
   }
   return config;
 }

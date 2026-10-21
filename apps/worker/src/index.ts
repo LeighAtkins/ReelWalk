@@ -55,6 +55,12 @@ function toDelivery(queueUrl: string, message: Message): Delivery {
     async delete() {
       await sqs.send(new DeleteMessageCommand(receipt));
     },
+    // A fresh copy first, then the delete: if the delete fails there is a duplicate (which decideDelivery
+    // sorts out), never a lost job. The copy's receive count starts at 1 (ADR 0050).
+    async handBack() {
+      await sqs.send(new SendMessageCommand({ QueueUrl: queueUrl, MessageBody: message.Body ?? "" }), { abortSignal: AbortSignal.timeout(10_000) });
+      await sqs.send(new DeleteMessageCommand(receipt));
+    },
   };
 }
 
@@ -134,12 +140,17 @@ const health = http.createServer((_request, response) => {
 });
 health.listen(config.healthPort);
 
-// On SIGTERM (rollout, scale-down) stop taking new work and let the current
-// render finish. If the pod is killed first, the message reappears after its
-// visibility timeout and another worker reclaims the job.
+// On SIGTERM (rollout, scale-down, ECS task stop) stop taking new work; the
+// current render may run for RENDER_SHUTDOWN_DRAIN_SECONDS (0 on ECS, which
+// kills the task 30 s after the signal), then is stopped (ADR 0050): it
+// unwinds and releases Chrome, ffmpeg and its temp files within twice
+// RENDER_ABORT_GRACE_SECONDS, and the job is handed back as a fresh message so
+// the interruption does not spend one of its attempts. If the task is killed
+// first, the message reappears after its visibility timeout and another
+// worker reclaims the job.
 for (const signal of ["SIGTERM", "SIGINT"] as const) {
   process.on(signal, () => {
-    console.log(`${signal} received, finishing current job`);
+    console.log(`${signal} received, stopping${config.shutdownDrainSeconds > 0 ? ` the current job in ${config.shutdownDrainSeconds}s if it is still running` : " the current job"} and handing it back`);
     stopping = true;
     shutdown.abort();
   });
@@ -165,7 +176,12 @@ const loops = [
     config.queueUrl,
     (delivery) =>
       handleDelivery(
-        { store, config, render: (job, onProgress) => renderJob(job, s3, config.s3Bucket, onProgress, config.renderConcurrency) },
+        {
+          store,
+          config,
+          shutdown: shutdown.signal,
+          render: (job, onProgress, scope) => renderJob(job, s3, config.s3Bucket, onProgress, config.renderConcurrency, scope),
+        },
         delivery,
       ),
     // Only the render loop decides the task is idle; the outbox loop never has work of its own.

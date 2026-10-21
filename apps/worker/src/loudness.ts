@@ -1,6 +1,7 @@
 import { rename } from "node:fs/promises";
 import path from "node:path";
 import { run } from "./library/tools";
+import type { AttemptScope } from "./lifecycle";
 
 /**
  * Exports come out at a broadcast-style level (−14 LUFS integrated, −1 dBTP)
@@ -42,11 +43,11 @@ export function withinTarget(measured: LoudnessMeasure, toleranceLu = 1): boolea
  * Normalises `file` in place, copying the video stream. A file without
  * audio, or one that is silent, is left alone. Returns what was measured.
  */
-export async function normaliseLoudness(file: string, log: (line: string) => void): Promise<LoudnessMeasure | null> {
+export async function normaliseLoudness(file: string, log: (line: string) => void, scope?: AttemptScope): Promise<LoudnessMeasure | null> {
   const { I, TP, LRA } = LOUDNESS_TARGET;
   let measured: LoudnessMeasure | null = null;
   try {
-    const { stderr } = await run("ffmpeg", ["-hide_banner", "-nostats", "-i", file, "-vn", "-af", `loudnorm=I=${I}:TP=${TP}:LRA=${LRA}:print_format=json`, "-f", "null", "-"]);
+    const { stderr } = await run("ffmpeg", ["-hide_banner", "-nostats", "-i", file, "-vn", "-af", `loudnorm=I=${I}:TP=${TP}:LRA=${LRA}:print_format=json`, "-f", "null", "-"], { scope });
     measured = parseLoudnorm(stderr);
   } catch (error) {
     const stderr = (error as { stderr?: string }).stderr ?? "";
@@ -61,7 +62,7 @@ export async function normaliseLoudness(file: string, log: (line: string) => voi
   log(`loudness: ${measured.input_i} LUFS, peak ${measured.input_tp} dBTP`);
   if (withinTarget(measured)) return measured;
   const levelled = path.join(path.dirname(file), `levelled-${path.basename(file)}`);
-  await run("ffmpeg", ["-v", "error", "-y", "-i", file, "-map", "0:v:0", "-map", "0:a:0", "-c:v", "copy", "-af", loudnormFilter(measured), "-ar", "48000", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", levelled]);
+  await run("ffmpeg", ["-v", "error", "-y", "-i", file, "-map", "0:v:0", "-map", "0:a:0", "-c:v", "copy", "-af", loudnormFilter(measured), "-ar", "48000", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", levelled], { scope });
   await rename(levelled, file);
   log(`loudness: levelled to ${I} LUFS, ${TP} dBTP`);
   return measured;

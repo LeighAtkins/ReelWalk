@@ -1,6 +1,5 @@
 import { createReadStream, createWriteStream } from "node:fs";
-import { mkdtemp, rm, stat } from "node:fs/promises";
-import os from "node:os";
+import { rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import { GetObjectCommand, HeadObjectCommand, PutObjectCommand, type S3Client } from "@aws-sdk/client-s3";
@@ -8,6 +7,7 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { frameThumbKeyFor, inputFilenameFor, outputKeyFor, parseReelExportPayload, reelRenderPlan, renderSourceKeyFor } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
 import { probe, run } from "./library/tools";
+import { createAttemptScope, killDescendants, REMOTION_PROCESSES, type AttemptScope } from "./lifecycle";
 import { normaliseLoudness } from "./loudness";
 import { transcribeVideo, transcriptionAvailable } from "./transcribe";
 
@@ -28,19 +28,21 @@ async function renderSourceKey(
   assetId: string,
   objectKey: string,
   log: (line: string) => void,
+  scope: AttemptScope,
   /** The original, when it is already on disk. */
   localPath?: string,
 ): Promise<string> {
   const key = renderSourceKeyFor(assetId);
   try {
-    await s3.send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
+    await s3.send(new HeadObjectCommand({ Bucket: bucket, Key: key }), { abortSignal: scope.signal });
     return key;
   } catch {
     // Not made yet.
   }
+  scope.throwIfStopped();
   const inputPath = localPath ?? path.join(workdir, `src-${inputFilenameFor(objectKey)}`);
-  if (!localPath) await downloadObject(s3, bucket, objectKey, inputPath);
-  const { width, height, codec } = await probe(inputPath);
+  if (!localPath) await downloadObject(s3, bucket, objectKey, inputPath, scope.signal);
+  const { width, height, codec } = await probe(inputPath, scope);
   if (codec === "h264" && Math.max(width, height) <= MAX_RENDER_SIDE) {
     if (!localPath) await rm(inputPath, { force: true });
     return objectKey;
@@ -52,9 +54,9 @@ async function renderSourceKey(
     "-vf", `scale='if(gt(iw,ih),min(${MAX_RENDER_SIDE},iw),-2)':'if(gt(iw,ih),-2,min(${MAX_RENDER_SIDE},ih))'`,
     "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p",
     "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", outPath,
-  ]);
+  ], { scope });
   const { size } = await stat(outPath);
-  await s3.send(new PutObjectCommand({ Bucket: bucket, Key: key, Body: createReadStream(outPath), ContentLength: size, ContentType: "video/mp4" }));
+  await s3.send(new PutObjectCommand({ Bucket: bucket, Key: key, Body: createReadStream(outPath), ContentLength: size, ContentType: "video/mp4" }), { abortSignal: scope.signal });
   if (!localPath) await rm(inputPath, { force: true });
   await rm(outPath, { force: true });
   return key;
@@ -70,25 +72,31 @@ import type { ClaimedJob, RenderResult } from "./handler";
  * fade from black or a hand over the lens is passed over. Short clips start
  * at their first frame.
  */
-export async function frameThumbnail(videoPath: string, outPath: string): Promise<void> {
+export async function frameThumbnail(videoPath: string, outPath: string, scope?: AttemptScope): Promise<void> {
   const args = (start: number) => ["-v", "error", "-y", "-ss", String(start), "-t", "3", "-i", videoPath, "-vf", "thumbnail=45,scale=-2:240", "-frames:v", "1", "-q:v", "4", outPath];
   try {
-    await run("ffmpeg", args(0.5));
+    await run("ffmpeg", args(0.5), { scope });
     await stat(outPath);
   } catch {
-    await run("ffmpeg", args(0));
+    scope?.throwIfStopped();
+    await run("ffmpeg", args(0), { scope });
   }
 }
 
-async function downloadObject(client: S3Client, bucket: string, key: string, destination: string) {
-  const result = await client.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+async function downloadObject(client: S3Client, bucket: string, key: string, destination: string, signal: AbortSignal) {
+  const result = await client.send(new GetObjectCommand({ Bucket: bucket, Key: key }), { abortSignal: signal });
   if (!result.Body) throw new Error(`No body returned for ${key}`);
-  await pipeline(result.Body as NodeJS.ReadableStream, createWriteStream(destination));
+  await pipeline(result.Body as NodeJS.ReadableStream, createWriteStream(destination), { signal });
 }
 
 /**
  * Renders one job to MP4 and uploads it. The output key is derived from the
- * job id, so running this twice for the same job overwrites one object.
+ * job id and attempt, so a retry never overwrites another attempt's file.
+ *
+ * Everything long-running is tied to `scope` (ADR 0050): S3 calls and ffmpeg
+ * take its signal, Remotion is cancelled through it, and the work dir and any
+ * Chrome Remotion leaves behind are owned by it. The caller closes the scope;
+ * without one, a private scope is made and closed here.
  */
 export async function renderJob(
   job: ClaimedJob,
@@ -96,8 +104,12 @@ export async function renderJob(
   bucket: string,
   onProgress: (percent: number) => void,
   concurrency?: number,
+  scope?: AttemptScope,
 ): Promise<RenderResult> {
-  const workdir = await mkdtemp(path.join(os.tmpdir(), `reelwalk-${job.id}-`));
+  const privateScope = scope ? null : createAttemptScope();
+  const attempt = scope ?? privateScope!;
+  const signal = attempt.signal;
+  const workdir = await attempt.tempDir(`reelwalk-${job.id}-`);
   const outputPath = path.join(workdir, "output.mp4");
   const report = (fraction: number) => onProgress(Math.min(100, Math.round(fraction * 100)));
 
@@ -106,7 +118,7 @@ export async function renderJob(
       if (!job.inputKey || !job.previewKey || !job.mediaAssetId) throw new Error("The uploaded video for this preview was deleted");
       const inputPath = path.join(workdir, inputFilenameFor(job.inputKey));
       console.log(`[${job.id}] download s3://${bucket}/${job.inputKey}`);
-      await downloadObject(s3, bucket, job.inputKey, inputPath);
+      await downloadObject(s3, bucket, job.inputKey, inputPath, signal);
       report(0.2);
       // 720 px on the short side, 30 fps, H.264 + AAC, moov atom first so the
       // browser can start before the whole file arrives.
@@ -115,7 +127,7 @@ export async function renderJob(
         "-vf", "scale='if(gt(iw,ih),-2,min(720,iw))':'if(gt(iw,ih),min(720,ih),-2)'",
         "-r", "30", "-c:v", "libx264", "-preset", "veryfast", "-crf", "27", "-pix_fmt", "yuv420p",
         "-c:a", "aac", "-b:a", "96k", "-ac", "2", "-movflags", "+faststart", outputPath,
-      ]);
+      ], { scope: attempt });
       report(0.9);
       const { size: previewSize } = await stat(outputPath);
       console.log(`[${job.id}] upload ${previewSize} bytes to s3://${bucket}/${job.previewKey}`);
@@ -129,16 +141,18 @@ export async function renderJob(
           ContentType: "video/mp4",
           CacheControl: "public, max-age=31536000, immutable",
         }),
+        { abortSignal: signal },
       );
       // The thumbnail from a real frame, in place of the browser's (which can be black).
       let thumbKey: string | null = null;
       try {
         const thumbPath = path.join(workdir, "thumb.jpg");
-        await frameThumbnail(outputPath, thumbPath);
+        await frameThumbnail(outputPath, thumbPath, attempt);
         const { size: thumbSize } = await stat(thumbPath);
         thumbKey = frameThumbKeyFor(job.inputKey);
-        await s3.send(new PutObjectCommand({ Bucket: bucket, Key: thumbKey, Body: createReadStream(thumbPath), ContentLength: thumbSize, ContentType: "image/jpeg" }));
+        await s3.send(new PutObjectCommand({ Bucket: bucket, Key: thumbKey, Body: createReadStream(thumbPath), ContentLength: thumbSize, ContentType: "image/jpeg" }), { abortSignal: signal });
       } catch (error) {
+        attempt.throwIfStopped();
         thumbKey = null;
         console.warn(`[${job.id}] frame thumbnail not made: ${error instanceof Error ? error.message : error}`);
       }
@@ -146,22 +160,30 @@ export async function renderJob(
       let transcript = null;
       if (transcriptionAvailable()) {
         try {
-          transcript = await transcribeVideo(inputPath, workdir);
+          transcript = await transcribeVideo(inputPath, workdir, undefined, attempt);
           console.log(`[${job.id}] transcript: ${transcript ? `${transcript.words.length} words` : "no speech"}`);
         } catch (error) {
+          attempt.throwIfStopped();
           console.warn(`[${job.id}] transcript not made: ${error instanceof Error ? error.message : error}`);
         }
       }
+      attempt.throwIfStopped();
       await prisma.mediaAsset.update({ where: { id: job.mediaAssetId }, data: { previewKey: job.previewKey, ...(thumbKey ? { thumbKey } : {}), ...(transcript ? { transcript: transcript as never } : {}) } });
       // While the original is here, make the copy an export will need, so the
       // first export of phone footage does not spend minutes re-encoding.
       // An export makes it itself if this fails.
       try {
-        await renderSourceKey(s3, bucket, workdir, job.mediaAssetId, job.inputKey, (line) => console.log(`[${job.id}] ${line}`), inputPath);
+        await renderSourceKey(s3, bucket, workdir, job.mediaAssetId, job.inputKey, (line) => console.log(`[${job.id}] ${line}`), attempt, inputPath);
       } catch (error) {
+        attempt.throwIfStopped();
         console.warn(`[${job.id}] render source not made ahead: ${error instanceof Error ? error.message : error}`);
       }
       return { objectKey: job.previewKey, contentType: "video/mp4", sizeBytes: previewSize };
+    }
+    if (job.kind === "REEL" || job.kind === "TEMPLATE") {
+      // Remotion closes the Chrome it opened without waiting for it, also when cancelled: whatever is left
+      // of it when the attempt ends is stopped then (SIGTERM, the grace, SIGKILL).
+      attempt.own("remotion processes", (remainingMs) => killDescendants({ match: REMOTION_PROCESSES, graceMs: remainingMs }));
     }
     if (job.kind === "REEL") {
       const payload = parseReelExportPayload(job.payload);
@@ -174,7 +196,7 @@ export async function renderJob(
       const assets: Record<string, ReelAsset> = {};
       const entries = Object.entries(plan.assets);
       for (const [index, [id, asset]] of entries.entries()) {
-        const key = asset.kind === "VIDEO" ? await renderSourceKey(s3, bucket, workdir, id, asset.objectKey, (line) => console.log(`[${job.id}] ${line}`)) : asset.objectKey;
+        const key = asset.kind === "VIDEO" ? await renderSourceKey(s3, bucket, workdir, id, asset.objectKey, (line) => console.log(`[${job.id}] ${line}`), attempt) : asset.objectKey;
         const src = await getSignedUrl(s3, new GetObjectCommand({ Bucket: bucket, Key: key }), { expiresIn: 3600 });
         assets[id] = { src, kind: asset.kind, ...(asset.transcript ? { transcript: asset.transcript } : {}) };
         // Preparing sources is the first fifth of the bar; Remotion reports the rest.
@@ -184,11 +206,11 @@ export async function renderJob(
       // errors or hangs fails in seconds, naming the shot, not minutes into the render.
       if (process.env.RENDER_PREFLIGHT !== "0") {
         const started = Date.now();
-        await preflightReel({ timeline: plan.timeline, assets }, (done, total) => report(0.2 + 0.08 * (done / total)));
+        await preflightReel({ timeline: plan.timeline, assets, signal }, (done, total) => report(0.2 + 0.08 * (done / total)));
         console.log(`[${job.id}] preflight: every shot drew (${Math.round((Date.now() - started) / 1000)} s)`);
       }
-      await renderReel({ timeline: plan.timeline, assets, output: outputPath, concurrency, width: payload.output.width, watermark: payload.output.watermark }, report);
-      await normaliseLoudness(outputPath, (line) => console.log(`[${job.id}] ${line}`));
+      await renderReel({ timeline: plan.timeline, assets, output: outputPath, concurrency, width: payload.output.width, watermark: payload.output.watermark, signal }, report);
+      await normaliseLoudness(outputPath, (line) => console.log(`[${job.id}] ${line}`), attempt);
     } else if (job.kind === "EDITOR") {
       // Editor projects carried media URLs chosen by the client, so rendering
       // one made the worker fetch any host it named (SSRF). The route that
@@ -198,10 +220,11 @@ export async function renderJob(
       if (!job.inputKey) throw new Error("The source media for this render was deleted");
       const inputPath = path.join(workdir, inputFilenameFor(job.inputKey));
       console.log(`[${job.id}] download s3://${bucket}/${job.inputKey}`);
-      await downloadObject(s3, bucket, job.inputKey, inputPath);
+      await downloadObject(s3, bucket, job.inputKey, inputPath, signal);
       await renderStubReel(
         { input: inputPath, output: outputPath, caption: job.caption ?? undefined, brand: job.brand ?? undefined },
         report,
+        signal,
       );
     }
 
@@ -218,9 +241,10 @@ export async function renderJob(
         ContentLength: size,
         ContentType: "video/mp4",
       }),
+      { abortSignal: signal },
     );
     return { objectKey, contentType: "video/mp4", sizeBytes: size };
   } finally {
-    await rm(workdir, { recursive: true, force: true });
+    await privateScope?.close();
   }
 }

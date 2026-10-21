@@ -18,7 +18,7 @@ export function createJobStore(prisma: PrismaClient): JobStore {
       return prisma.renderJob.findUnique({ where: { id: jobId }, select: { status: true, generation: true, heartbeatAt: true } });
     },
 
-    async claim(message, attempt, staleBefore) {
+    async claim(message, staleBefore) {
       const now = new Date();
       const claimed = await prisma.renderJob.updateMany({
         where: {
@@ -29,7 +29,9 @@ export function createJobStore(prisma: PrismaClient): JobStore {
             { status: "RUNNING", OR: [{ heartbeatAt: null }, { heartbeatAt: { lt: staleBefore } }] },
           ],
         },
-        data: { status: "RUNNING", attempt, progress: 0, startedAt: now, heartbeatAt: now, finishedAt: null },
+        // The attempt counts claims, not SQS receives: a message handed back on shutdown is a new message
+        // whose receive count starts again, and the attempt names the output, so it must never repeat.
+        data: { status: "RUNNING", attempt: { increment: 1 }, progress: 0, startedAt: now, heartbeatAt: now, finishedAt: null },
       });
       if (claimed.count === 0) return null;
 
@@ -40,7 +42,7 @@ export function createJobStore(prisma: PrismaClient): JobStore {
       return {
         id: job.id,
         generation: job.generation,
-        attempt,
+        attempt: job.attempt,
         kind: job.kind,
         caption: job.caption,
         payload: job.payload,

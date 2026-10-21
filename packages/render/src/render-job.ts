@@ -4,6 +4,7 @@ import { bundle } from "@remotion/bundler";
 import { renderMedia, selectComposition } from "@remotion/renderer";
 import { z } from "zod";
 import { STUB_REEL } from "./constants";
+import { remotionCancel } from "./render-reel";
 
 const argsSchema = z.object({
   input: z.string().min(1),
@@ -27,6 +28,8 @@ export type RenderProgress = (fraction: number) => void;
 export async function renderStubReel(
   input: z.input<typeof argsSchema>,
   onProgress?: RenderProgress,
+  /** Aborting cancels the render and closes its browser (ADR 0050). */
+  signal?: AbortSignal,
 ): Promise<string> {
   const params = argsSchema.parse(input);
   const currentFile = fileURLToPath(import.meta.url);
@@ -47,6 +50,8 @@ export async function renderStubReel(
     id: STUB_REEL.id,
     inputProps,
   });
+  signal?.throwIfAborted();
+  const cancel = remotionCancel(signal);
 
   await renderMedia({
     composition,
@@ -55,7 +60,8 @@ export async function renderStubReel(
     inputProps,
     outputLocation: path.resolve(params.output),
     onProgress: ({ progress }) => onProgress?.(progress),
-  });
+    cancelSignal: cancel.cancelSignal,
+  }).finally(cancel.done);
 
   return path.resolve(params.output);
 }

@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { transcriptSchema, type Transcript } from "@reelwalk/core";
 import { run } from "./library/tools";
+import type { AttemptScope } from "./lifecycle";
 
 /**
  * Speech recognition for uploaded videos, on the CPU, in process. Whisper
@@ -36,15 +37,16 @@ async function loadRecogniser(): Promise<Recogniser> {
  * Words with timings for the speech in a video, or null when it has no audio
  * track or nothing recognisable. Only the first `maxSeconds` are read.
  */
-export async function transcribeVideo(input: string, workdir: string, maxSeconds = 180): Promise<Transcript | null> {
+export async function transcribeVideo(input: string, workdir: string, maxSeconds = 180, scope?: AttemptScope): Promise<Transcript | null> {
   const pcm = path.join(workdir, "speech.pcm");
   try {
-    await run("ffmpeg", ["-v", "error", "-y", "-i", input, "-map", "0:a:0", "-t", String(maxSeconds), "-vn", "-ac", "1", "-ar", String(SAMPLE_RATE), "-f", "s16le", pcm]);
+    await run("ffmpeg", ["-v", "error", "-y", "-i", input, "-map", "0:a:0", "-t", String(maxSeconds), "-vn", "-ac", "1", "-ar", String(SAMPLE_RATE), "-f", "s16le", pcm], { scope });
   } catch (error) {
     // A video with no audio track is common (silent AI shots, muted phone clips): nothing to transcribe.
     if (/matches no streams|does not contain any stream/i.test(String((error as { stderr?: string }).stderr ?? error))) return null;
     throw error;
   }
+  scope?.throwIfStopped();
   const bytes = await readFile(pcm);
   if (bytes.length < SAMPLE_RATE) return null; // under half a second of audio
   const samples = new Int16Array(Uint8Array.from(bytes).buffer, 0, bytes.length >> 1);

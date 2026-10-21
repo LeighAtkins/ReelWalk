@@ -226,7 +226,7 @@ const ParticleLayer: React.FC<{
   mask?: (field: ParticleField) => React.CSSProperties;
 }> = ({ text, layer, reelMs, box, style, transform, mask }) => {
   const particles = text.particles!;
-  const field = particleField({ kind: particles.kind, density: particles.density, seed: particles.seed, timeMs: reelMs, box });
+  const field = particleField({ kind: particles.kind, density: particles.density, seed: particles.seed, timeMs: reelMs, box, burstMs: particles.burstMs });
   const common: React.CSSProperties = { position: "absolute", width: field.width, height: field.height, transformOrigin: "0 0", ...style, transform: transform({ x: field.marginX, y: field.marginY }), pointerEvents: "none", ...(mask ? mask(field) : {}) };
   // Two passes: flakes, dust, shadows and ember halos blend normally (so they show on a bright sky); ember sparks screen.
   return (

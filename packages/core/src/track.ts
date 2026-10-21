@@ -533,13 +533,18 @@ export type TrackOptions = {
   onProgress?(fraction: number): void;
 };
 
+/** The RANSAC inlier distance for a frame width, px: 0.3% of the width, at least 0.75 (1.08 px at the editor's 360). */
+export function defaultTolerance(width: number): number {
+  return Math.max(0.75, width * 0.003);
+}
+
 type Resolved = Required<Omit<TrackOptions, "support" | "onProgress" | "margin" | "tolerance">> & { margin: number; tolerance: number; support?: Quad };
 
 function resolve(options: TrackOptions, width: number): Resolved {
   const window = options.window ?? 5;
   return {
     levels: options.levels ?? 3, window, margin: options.margin ?? window + 1, maxPoints: options.maxPoints ?? 80, minPoints: options.minPoints ?? 8,
-    minCorner: options.minCorner ?? 8, fbMax: options.fbMax ?? 0.7, tolerance: options.tolerance ?? Math.max(0.75, width * 0.003),
+    minCorner: options.minCorner ?? 8, fbMax: options.fbMax ?? 0.7, tolerance: options.tolerance ?? defaultTolerance(width),
     refreshEvery: options.refreshEvery ?? 4, maxMisses: options.maxMisses ?? 3, maxResidual: options.maxResidual ?? 20, support: options.support,
   };
 }
@@ -805,11 +810,14 @@ export function* trackSteps(frames: Gray[], anchors: { index: number; quad: Quad
  * `passes` of a centred 1-2-1 average over each corner, only within runs of
  * measured frames. Held and lost frames are never part of a run, and the end
  * points of a run stay where they were measured. Afterwards each frame's
- * corners may sit at most its own `uncertaintyPx` from the measurement, so
- * smoothing cannot carry a confident frame off its surface (a real camera
- * jolt stays a jolt); author anchors do not move at all.
+ * corners may sit at most max(k × `uncertaintyPx`, `floorPx`) from the
+ * measurement: the floor (the tracker's inlier tolerance) lets ordinary
+ * sub-pixel shimmer be smoothed away, since `uncertaintyPx` underestimates
+ * true corner error several times over on the benchmark; the bound still
+ * stops smoothing from carrying a frame far off its surface (a measured
+ * 10 px jolt moves about 1 px, not 6). Author anchors do not move at all.
  */
-export function smoothTrack(frames: TrackFrame[], passes = 2): TrackFrame[] {
+export function smoothTrack(frames: TrackFrame[], { passes = 2, k = 5, floorPx = 1 }: { passes?: number; k?: number; floorPx?: number } = {}): TrackFrame[] {
   const out = frames.map((f) => ({ ...f, quad: [...f.quad] as Quad }));
   const measured = (f: TrackFrame) => !f.held && !f.lost;
   for (let i = 0; i < frames.length;) {
@@ -820,12 +828,12 @@ export function smoothTrack(frames: TrackFrame[], passes = 2): TrackFrame[] {
       const quads = frames.slice(i, j).map((f) => [...f.quad]);
       for (let pass = 0; pass < passes; pass++) {
         const prior = quads.map((q) => [...q]);
-        for (let k = 1; k < quads.length - 1; k++) for (let c = 0; c < 8; c++) quads[k][c] = (prior[k - 1][c] + 2 * prior[k][c] + prior[k + 1][c]) / 4;
+        for (let m = 1; m < quads.length - 1; m++) for (let c = 0; c < 8; c++) quads[m][c] = (prior[m - 1][c] + 2 * prior[m][c] + prior[m + 1][c]) / 4;
       }
-      quads.forEach((q, k) => {
-        const raw = frames[i + k];
-        const bound = raw.anchor ? 0 : Math.max(0, raw.uncertaintyPx ?? 0);
-        out[i + k].quad = q.map((v, c) => raw.quad[c] + Math.max(-bound, Math.min(bound, v - raw.quad[c]))) as Quad;
+      quads.forEach((q, m) => {
+        const raw = frames[i + m];
+        const bound = raw.anchor ? 0 : Math.max(k * Math.max(0, raw.uncertaintyPx ?? 0), floorPx);
+        out[i + m].quad = q.map((v, c) => raw.quad[c] + Math.max(-bound, Math.min(bound, v - raw.quad[c]))) as Quad;
       });
     }
     i = j;
@@ -844,7 +852,8 @@ export type TrackPathPoint = { t: number; x: number; y: number; s: number; r: nu
  *   when the last sample falls short;
  * - lost frames are hidden (o = 0) and carry the corners of the nearest
  *   measured frame on their side of the gap (the last one before the loss
- *   for the first half, the re-found one after), so nothing stale is drawn
+ *   for the first half, the re-found one after, and always the next measured
+ *   frame's corners directly before it), so nothing stale is drawn
  *   while the title fades out or back in; measured frames are fully opaque;
  * - held (refused) frames inside a track take corners interpolated between
  *   the measured frames either side rather than repeating stale ones;
@@ -862,6 +871,9 @@ export function trackPath(frames: TrackFrame[], times: number[], pin: { fromMs: 
     if (f.lost) {
       if (before === undefined) return after !== undefined ? frames[after].quad : f.quad;
       if (after === undefined) return frames[before].quad;
+      // The keyframe just before a measured one carries that frame's corners, so the fade in never slides
+      // (a one-frame gap between runs from different anchors would otherwise take the earlier corners).
+      if (after === i + 1) return frames[after].quad;
       return i - before <= after - i ? frames[before].quad : frames[after].quad;
     }
     if (before === undefined || after === undefined) return frames[before ?? after ?? i].quad;

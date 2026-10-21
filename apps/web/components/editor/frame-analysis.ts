@@ -1,4 +1,4 @@
-import { findSurfaceQuad, leanQuad, pickMatchingFrame, smoothTrack, trackPath, trackSurfaceAsync, type Clip, type Gray, type Quad, type TextOverlay, type TrackFailure } from "@reelwalk/core";
+import { defaultTolerance, findSurfaceQuad, leanQuad, pickMatchingFrame, smoothTrack, trackPath, trackSurfaceAsync, type Clip, type Gray, type Quad, type TextOverlay, type TrackFailure } from "@reelwalk/core";
 import type { LibraryAsset } from "@/lib/library";
 
 /** Browser side of @reelwalk/core's motion module: small grayscale frames from a video element. */
@@ -139,9 +139,9 @@ export async function trackTextPathDetailed(
     // Hands the thread back between frame steps so progress paints and the editor stays responsive; same result as trackSurface.
     const result = await trackSurfaceAsync(frames, anchors, { onProgress: (f) => onProgress?.(0.7 + 0.3 * f) });
     if (!result.ok) return { error: result.message, reason: result.reason };
-    // Smoothed within measured runs and never further than each frame's own uncertainty; anchors stay exact.
+    // Smoothed within measured runs, each frame moved at most max(5 × its uncertainty, the inlier tolerance); anchors stay exact.
     // Lost frames are hidden (o = 0) and carry the nearest measured corners, so nothing stale fades in (ADR 0052).
-    const { path, confidence: perKeyframe } = trackPath(smoothTrack(result.frames), times, { fromMs, toMs }, text, { width: TRACK_WIDTH, height: TRACK_HEIGHT });
+    const { path, confidence: perKeyframe } = trackPath(smoothTrack(result.frames, { floorPx: defaultTolerance(TRACK_WIDTH) }), times, { fromMs, toMs }, text, { width: TRACK_WIDTH, height: TRACK_HEIGHT });
     const measured = result.frames.filter((f) => !f.anchor && !f.lost);
     const confidence = measured.length ? measured.reduce((sum, f) => sum + f.confidence, 0) / measured.length : 0;
     const lostAtMs = result.lostAt !== null ? Math.round(times[result.lostAt]) : null;

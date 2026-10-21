@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  applyHomography, buildPyramid, cornerScore, downsample, homography, insideQuad, localShape, lkTrack, mapQuad, minorSpread, quadCoverage, quadIsSane,
+  applyHomography, buildPyramid, defaultTolerance, cornerScore, downsample, homography, insideQuad, localShape, lkTrack, mapQuad, minorSpread, quadCoverage, quadIsSane,
   register, selectModel, smoothTrack, supportPoints, trackForwardBackward, trackPath, trackSurface, trackSurfaceAsync, warpGray, IDENTITY, type Gray, type Point, type Quad, type TrackFrame,
 } from "../src";
 import { cornerError, scenarios, texturedFrame } from "./track-bench/synth";
@@ -314,12 +314,15 @@ describe("smoothing", () => {
     if (!raw.ok) return;
     expect(cornerError(raw.frames[3].quad, truth[3])).toBeLessThan(0.1);
     expect(raw.frames[3].confidence).toBeGreaterThan(0.5);
-    const smooth = smoothTrack(raw.frames);
+    // The editor's bound: max(5 × uncertainty, the inlier tolerance, 1.08 px at 360 wide).
+    const floorPx = defaultTolerance(360);
+    const smooth = smoothTrack(raw.frames, { floorPx });
     for (let i = 0; i < smooth.length; i++) {
-      expect(cornerError(smooth[i].quad, truth[i]), `frame ${i}`).toBeLessThan(0.1 + (raw.frames[i].uncertaintyPx ?? 0));
+      expect(cornerError(smooth[i].quad, truth[i]), `frame ${i}`).toBeLessThanOrEqual(0.1 + Math.max(5 * (raw.frames[i].uncertaintyPx ?? 0), floorPx) * Math.SQRT2);
     }
     // An unbounded 1-2-1 smoother would have carried frame 3 most of the way back (the review measured 6.25 px).
-    expect(cornerError(smooth[3].quad, truth[3])).toBeLessThan(0.2);
+    expect(cornerError(smooth[3].quad, truth[3])).toBeLessThan(1.6);
+    expect(cornerError(smoothTrack(raw.frames, { floorPx: 100, k: 0 })[3].quad, truth[3])).toBeGreaterThan(5);
   });
 
   it("never moves an author anchor, even inside a run", () => {
@@ -337,10 +340,13 @@ describe("smoothing", () => {
     expect(out.slice(4).map((f) => f.quad[0])).toEqual([3, 3, 3]);
   });
 
-  it("bounds smoothing by uncertainty: a jittery track is smoothed only as far as its error bars allow", () => {
-    const frames = [0, 2, 0, 2, 0].map((x, i) => trackFrame(i, at(x), { uncertaintyPx: 0.3 }));
-    const out = smoothTrack(frames);
+  it("bounds smoothing by max(k × uncertainty, floor)", () => {
+    const frames = [0, 2, 0, 2, 0].map((x, i) => trackFrame(i, at(x), { uncertaintyPx: 0.06 }));
+    const out = smoothTrack(frames, { k: 5, floorPx: 0.2 });
     out.forEach((f, i) => expect(Math.abs(f.quad[0] - frames[i].quad[0])).toBeLessThanOrEqual(0.3 + 1e-9));
+    // With the editor's floor the same shimmer is smoothed down.
+    const floored = smoothTrack(frames, { floorPx: 1.08 });
+    expect(Math.abs(floored[2].quad[0] - floored[1].quad[0])).toBeLessThan(Math.abs(frames[2].quad[0] - frames[1].quad[0]) / 2);
   });
 });
 
@@ -361,6 +367,14 @@ describe("saved path", () => {
     expect(path[3].q[0]).toBeCloseTo(0.01, 4);
     expect(path[4].q[0]).toBeCloseTo(0.09, 4);
     expect(path[5].q[0]).toBeCloseTo(0.09, 4);
+  });
+
+  it("gives a one-frame gap the next measured corners, so the fade in does not slide (regression)", () => {
+    // Runs from two anchors meet across a single lost frame 20 px apart.
+    const frames = [trackFrame(0, at(0), { anchor: true }), trackFrame(1, at(0)), trackFrame(2, at(0), { lost: true, held: true, confidence: 0 }), trackFrame(3, at(20), { anchor: true })];
+    const { path } = trackPath(frames, [0, 100, 200, 300], { fromMs: 0, toMs: 300 }, { x: 0.25, y: 0.25 }, size);
+    expect(path[2].o).toBe(0);
+    expect(path[2].q).toEqual(path[3].q);
   });
 
   it("interpolates a held (refused) frame instead of repeating stale corners", () => {

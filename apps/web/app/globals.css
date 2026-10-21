@@ -3259,6 +3259,29 @@ video:-webkit-full-screen {
 
 .scheduled-row:has(.scheduled-music-panel) { grid-template-columns: minmax(0, 1fr); }
 
+/* A callout's point (ADR 0061): a 44 px target for a thumb, drawn as a small ringed dot so the feature under it shows. */
+.callout-anchor {
+  position: absolute;
+  width: 44px;
+  height: 44px;
+  margin: -22px 0 0 -22px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  cursor: grab;
+  touch-action: none;
+}
+.callout-anchor::after {
+  content: "";
+  position: absolute;
+  inset: 12px;
+  border: 3px solid #fff;
+  border-radius: 50%;
+  background: rgb(77 163 255 / 0.85);
+  box-shadow: 0 1px 6px rgb(0 0 0 / 0.55);
+}
+
 /* Surface corners and posts (ADR 0043, ADR 0044): big enough for a thumb, numbered so the sheet can name them. */
 .surface-corner {
   position: absolute;

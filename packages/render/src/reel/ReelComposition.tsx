@@ -15,8 +15,9 @@ import {
 // WebCodecs-based video, used when the worker renders: about twice as fast as
 // OffthreadVideo here, and it falls back to it for files it cannot decode.
 import { Video as RenderVideo } from "@remotion/media";
-import { cameraAt, duckGain, evaluateTitle, framePlan, INSTAGRAM, isInstagramMusic, matrix3d, particleField, particleSvg, personLayerOpacity, REEL_FORMAT, sceneLayers, speechWindows, TITLE_LEADING, timelineDurationMs, walkInto, type Clip, type Logo, type ParticleField, type PersonPass, type Plan, type TextOverlay, type Timeline } from "@reelwalk/core";
+import { behindInPlane, calloutGeometry, calloutSvg, cameraAt, countUpText, duckGain, evaluateTitle, flareCss, framePlan, glintLetter, glintSvg, INSTAGRAM, isInstagramMusic, kineticProgress, matrix3d, particleField, particleSvg, personLayerOpacity, REEL_FORMAT, sceneLayers, shineAt, shineBandCss, shineSpec, slideFromBehind, speechWindows, TITLE_LEADING, timelineDurationMs, walkInto, wordReveal, type Clip, type Logo, type ParticleField, type PersonPass, type Plan, type ShineFlare, type ShineGlint, type TextOverlay, type Timeline } from "@reelwalk/core";
 import { domMeasure } from "./measure";
+import { textExit, titleFont } from "./title-motion";
 import { whipGeometry } from "./whip";
 import { clipPresentation } from "./presentation";
 import { useFontsFor } from "./fonts";
@@ -240,6 +241,104 @@ const ParticleLayer: React.FC<{
   );
 };
 
+/** "Apx Bpx" (or "Apx") padding as px. */
+function paddingPx(padding: React.CSSProperties["padding"]): { x: number; y: number } {
+  const parts = String(padding ?? "0").split(/\s+/).map((v) => parseFloat(v) || 0);
+  return { y: parts[0] ?? 0, x: parts[1] ?? parts[0] ?? 0 };
+}
+
+/** The visible characters of `str` from `offset` on, with a glint (ADR 0061) on each that has one: a star on the letter's upper edge. */
+function glinted(str: string, offset: number, glints: Map<number, ShineGlint>, colour: string): React.ReactNode {
+  if (!glints.size) return str;
+  const out: React.ReactNode[] = [];
+  let run = "";
+  [...str].forEach((ch, i) => {
+    const glint = glints.get(offset + i);
+    if (!glint) { run += ch; return; }
+    if (run) { out.push(run); run = ""; }
+    out.push(
+      <span key={i} style={{ position: "relative" }}>{ch}<span aria-hidden="true" data-glint={glint.slot} style={{ position: "absolute", left: `${(glint.fx * 100).toFixed(2)}%`, top: `${(glint.fy * 100).toFixed(2)}%`, width: `${glint.size.toFixed(3)}em`, height: `${glint.size.toFixed(3)}em`, transform: "translate(-50%, -50%)", pointerEvents: "none", lineHeight: 0 }}
+        dangerouslySetInnerHTML={{ __html: glintSvg(glint, colour) }} /></span>,
+    );
+  });
+  if (run) out.push(run);
+  return out;
+}
+
+/**
+ * The letters of a title with shine or kinetic type (ADR 0061), inside its face span, in that span's own box: a
+ * surface title's span is in plane px under the plane's warp, so everything here is carried by the tracked plane.
+ *   - words: each word fades up and unblurs, staggered; count: the numbers count up over a hidden copy that holds the
+ *     size (as the typewriter does, which this also draws when the title types);
+ *   - shine: glints on chosen letters; the band is two copies of the letters (a shade-light-shade fill clipped to the
+ *     glyphs, and a glow masked to the band's core). The flare is not drawn here but in FlareLayer, a sibling that
+ *     screen-blends against the footage (inside the title's box it would only blend with the letters).
+ * Everything is read from `titleMs` (the frame), so preview, stills and export agree.
+ */
+const MotionLetters: React.FC<{ text: TextOverlay; titleMs: number; face: React.CSSProperties; written: string | null; aspect: number }> = ({ text, titleMs, face, written, aspect }) => {
+  const kinetic = text.kinetic;
+  const progress = kinetic ? kineticProgress(kinetic, titleMs) : 1;
+  // A string drawn over a hidden copy of the whole text: the count, or the typewriter's written part.
+  const replaced = kinetic?.preset === "count" ? countUpText(text.text, progress) : kinetic?.preset === "words" ? null : written;
+  const shine = text.shine ? shineAt(text.shine, titleMs, aspect) : null;
+  const glintColour = text.shine ? shineSpec(text.shine).glintColor : "#ffffff";
+  const glintsFor = (str: string) => new Map((shine?.glints ?? []).map((g) => [glintLetter(str, g), g] as const).filter(([i]) => i >= 0));
+  const body = (str: string, withGlints: boolean): React.ReactNode => {
+    const glints = withGlints ? glintsFor(str) : new Map<number, ShineGlint>();
+    if (kinetic?.preset !== "words") return glinted(str, 0, glints, glintColour);
+    let offset = 0;
+    return wordReveal(str, kinetic, titleMs).map((part, i) => {
+      const at = offset;
+      offset += [...part.text].length;
+      if (part.space) return part.text;
+      return (
+        <span key={i} style={{ display: "inline-block", whiteSpace: "pre", opacity: part.opacity, transform: part.rise ? `translateY(${part.rise}em)` : undefined, filter: part.blur > 0.01 ? `blur(${part.blur}px)` : undefined }}>
+          {glinted(part.text, at, glints, glintColour)}
+        </span>
+      );
+    });
+  };
+  const layer = (withGlints: boolean): React.ReactNode => replaced === null ? body(text.text, withGlints) : (<>
+    <span style={{ visibility: "hidden" }}>{text.text}</span>
+    <span style={{ position: "absolute", inset: face.padding ?? 0, textAlign: "inherit" }}>{body(replaced, withGlints)}</span>
+  </>);
+  const band = shine?.band && shine.band.opacity > 0.001 ? shineBandCss(shine.band) : null;
+  return (
+    <>
+      {layer(true)}
+      {band ? (<>
+        {/* Shade, light, shade across the band, clipped to the letters: reads on white letters as well as coloured ones. */}
+        <span aria-hidden="true" data-shine="tone" style={{ position: "absolute", inset: 0, padding: face.padding, color: "transparent", textShadow: "none", WebkitTextStroke: "0", backgroundColor: "transparent", boxShadow: "none",
+          backgroundImage: band.tone.backgroundImage, backgroundClip: "text", WebkitBackgroundClip: "text", backgroundSize: "100% 100%", opacity: band.tone.opacity, pointerEvents: "none" }}>
+          {layer(false)}
+        </span>
+        <span aria-hidden="true" data-shine="bloom" style={{ position: "absolute", inset: 0, padding: face.padding, color: band.bloom.color, textShadow: band.bloom.textShadow, WebkitTextStroke: "0", backgroundColor: "transparent", boxShadow: "none",
+          maskImage: band.bloom.maskImage, WebkitMaskImage: band.bloom.maskImage, maskSize: "100% 100%", WebkitMaskSize: "100% 100%", opacity: band.bloom.opacity, pointerEvents: "none" }}>
+          {layer(false)}
+        </span>
+      </>) : null}
+    </>
+  );
+};
+
+/**
+ * The golden-hour streak (ADR 0061): a layer of its own beside the title, positioned and warped exactly as the words'
+ * box (`box`: left, top, width, height in the parent's px; `fontSize` the words' px, for its em height), and
+ * screen-blended, like the ember sparks, so it lightens the footage under it rather than painting over it.
+ */
+const FlareLayer: React.FC<{ flare: ShineFlare; frame: React.CSSProperties; box: { left: number; top: number; width: number; height: number }; fontSize: number }> = ({ flare, frame, box, fontSize }) => (
+  <div aria-hidden="true" data-shine="flare" style={{ position: "absolute", pointerEvents: "none", mixBlendMode: "screen", ...frame }}>
+    <span style={{ position: "absolute", left: box.left, top: box.top, width: box.width, height: box.height, fontSize }}>
+      <span style={{ position: "absolute", ...flareCss(flare), borderRadius: "50%" }} />
+    </span>
+  </div>
+);
+
+/** A callout's dot and leader line (ADR 0061), over the whole composition, under its label. */
+const CalloutLine: React.FC<{ svg: string; opacity: number }> = ({ svg, opacity }) => (
+  <div aria-hidden="true" data-callout="line" style={{ position: "absolute", inset: 0, opacity, pointerEvents: "none" }} dangerouslySetInnerHTML={{ __html: svg }} />
+);
+
 /**
  * The presenter matte of a group of passing titles (ADR 0055): drawn at personLayerOpacity, 0 until she walks
  * through the words. While it is 0 the matte is idle (no decode, no segmentation).
@@ -255,10 +354,16 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
   const frame = useCurrentFrame();
   const { fps, width, height } = useVideoConfig();
   const css = textTreatmentCss(text);
-  const font = { fontFamily: String(css.fontFamily ?? ""), fontWeight: css.fontWeight, fontSize: Number(css.fontSize) || 64, letterSpacing: text.tracking, fontStretch: css.fontStretch ? String(css.fontStretch) : undefined };
+  // A count-up draws tabular figures (ADR 0061): measured the same way, so its fit leaves room for the widest number.
+  const font = titleFont(text, css);
   // Hooks first: a pinned title on another clip returns nothing, but only after every hook has run (React 300 otherwise).
   useFontsFor(text.text, Number(css.fontWeight ?? 600));
-  const { scale, opacity, rise, chars } = textMotion(text, frame, fps, durationInFrames);
+  // Word-by-word and from-behind type bring the words in themselves but keep the way out (an elegant fade) (ADR 0061);
+  // a callout has its own reveal and exit; a count replaces the typewriter.
+  const arrives = text.callout || (text.kinetic?.preset === "count" && text.animation === "type") ? { ...text, animation: "none" as const } : text;
+  const { scale, opacity, rise, chars } = text.kinetic && text.kinetic.preset !== "count" && !text.callout ? textExit(text, frame, fps, durationInFrames) : textMotion(arrives, frame, fps, durationInFrames);
+  /** The golden-hour streak on this frame; `aspect` is the words' box height / width, for where the tilted band crosses its middle. */
+  const flareAt = (aspect: number) => (text.shine ? shineAt(text.shine, (frame * 1000) / fps, aspect).flare : null);
   // Where the title is on this frame comes from one place (ADR 0046): the scene evaluator in core.
   const placement = evaluateTitle({ text, timeline, frame, from, durationInFrames, fps, width, height, font, measure: domMeasure });
   if (placement.kind === "hidden") return null;
@@ -271,10 +376,31 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
   // The blend's own 0.92 multiplies the fade; spread after `opacity`, a flat 0.92 used to cancel it.
   const meet = text.blend === "surface" ? { mixBlendMode: "hard-light" as const, filter: "blur(0.6px)", opacity: visible * 0.92 } : {};
   const reelMs = ((from + frame) * 1000) / fps;
+  // Shine and kinetic type (ADR 0061): drawn inside the face span, so in the plane for a surface title.
+  const titleMs = (frame * 1000) / fps;
+  const moving = Boolean(text.shine || text.kinetic);
+  const motionFace: React.CSSProperties = { ...face, position: "relative", ...(text.kinetic?.preset === "count" ? { fontVariantNumeric: "tabular-nums" } : {}) };
+  const letters = (aspect: number) => <MotionLetters text={text} titleMs={titleMs} face={face} written={chars === null ? null : `${written}${cursor ? "|" : ""}`} aspect={aspect} />;
+  /** "From behind": the slide (px, in the box the edges are given in) and the polygon that clips the side the words come from. */
+  const behind = (textLeft: number, textRight: number, edge: number) => {
+    const slide = slideFromBehind({ spec: text.kinetic!, titleMs, textLeft, textRight, edge });
+    const far = 100000;
+    const clip = slide.clipLeft !== undefined
+      ? `polygon(${slide.clipLeft.toFixed(2)}px ${-far}px, ${far}px ${-far}px, ${far}px ${far}px, ${slide.clipLeft.toFixed(2)}px ${far}px)`
+      : `polygon(${-far}px ${-far}px, ${slide.clipRight!.toFixed(2)}px ${-far}px, ${slide.clipRight!.toFixed(2)}px ${far}px, ${-far}px ${far}px)`;
+    return { dx: slide.dx, clipPath: clip };
+  };
   if (placement.kind === "surface") {
     const { rect, placed, fitScale, maskShapes, clipToPlane } = placement;
     const w = rect.width, h = rect.height;
     const mask: React.CSSProperties = maskShapes ? postsMask(maskShapes, w, h) : {};
+    // From behind a post, a cut-out or a tapped object (ADR 0061): its edge in plane px, the words' box in plane px.
+    let slide: { dx: number; clipPath: string } | null = null;
+    if (text.kinetic?.preset === "behind") {
+      // Posts and cut-outs (plane px) and tapped objects (carried back into the plane) level with the words.
+      const box = behindInPlane(placement, { width, height });
+      slide = behind(box.textLeft, box.textRight, box.edge);
+    }
     // Particles live in the plane: the same warp as the words, from a box the margin larger on every side. The
     // posts hide them as they hide the letters (the mask moved by the margin); outside the surface's edge they still show.
     const planeParticles = (layer: "front" | "back") => text.particles && placed ? (
@@ -285,23 +411,53 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
       <AbsoluteFill style={{ pointerEvents: "none", perspective: "none" }}>
         {planeParticles("back")}
         {/* Painted on a chosen surface, the text exists only on that surface: anything in front of the surface's edge (a wall, a railing) hides it. */}
-        <div style={{ position: "absolute", left: rect.left, top: rect.top, width: w, height: h, display: "flex", alignItems: "center", justifyContent: "center", transformOrigin: "0 0", transform: placed ? matrix3d(placed) : undefined, opacity: visible, whiteSpace: "nowrap", textAlign: "center", overflow: clipToPlane ? "hidden" : "visible", ...mask, ...meet }}>
+        <div style={{ position: "absolute", left: rect.left, top: rect.top, width: w, height: h, display: "flex", alignItems: "center", justifyContent: "center", transformOrigin: "0 0", transform: placed ? matrix3d(placed) : undefined, opacity: visible, whiteSpace: "nowrap", textAlign: "center", overflow: clipToPlane ? "hidden" : "visible", ...mask, ...meet, ...(slide ? { clipPath: slide.clipPath } : {}) }}>
           {/* The plane's box is only its frame: the words sit on one line (or the lines the author typed), scaled to fill or fit it, warped with it. */}
-          <span style={{ ...face, position: "relative", whiteSpace: text.text.includes("\n") ? "pre" : "nowrap", overflowWrap: "normal", wordBreak: "keep-all", transform: `scale(${scale * fitScale})` }}>
-            {chars === null ? text.text : (<>
+          <span style={{ ...(moving ? motionFace : face), position: "relative", whiteSpace: text.text.includes("\n") ? "pre" : "nowrap", overflowWrap: "normal", wordBreak: "keep-all", transform: `${slide ? `translateX(${slide.dx.toFixed(2)}px) ` : ""}scale(${scale * fitScale})` }}>
+            {moving ? letters(h / Math.max(1, w)) : chars === null ? text.text : (<>
               {/* The typewriter on a plane: the full text holds the size, the written part sits over it. */}
               <span style={{ visibility: "hidden" }}>{text.text}</span>
               <span style={{ position: "absolute", inset: 0, textAlign: "inherit" }}>{written}{cursor ? "|" : ""}</span>
             </>)}
           </span>
         </div>
+        {text.shine ? (() => {
+          const lineW = placement.lineBox.width * fitScale * scale, lineH = placement.lineBox.height * fitScale * scale;
+          const flare = flareAt(lineH / Math.max(1, lineW));
+          if (!flare || flare.opacity <= 0.001) return null;
+          return <FlareLayer flare={flare} fontSize={font.fontSize * fitScale * scale}
+            frame={{ left: rect.left, top: rect.top, width: w, height: h, transformOrigin: "0 0", transform: placed ? matrix3d(placed) : undefined, opacity: visible, overflow: clipToPlane ? "hidden" : "visible", ...mask }}
+            box={{ left: (w - lineW) / 2 + (slide?.dx ?? 0), top: (h - lineH) / 2, width: lineW, height: lineH }} />;
+        })() : null}
         {planeParticles("front")}
       </AbsoluteFill>
     );
   }
 
   const { center, wrap } = placement;
-  const motion = `translate(-50%, calc(-50% + ${rise * 40}px)) scale(${scale * placement.scale}) rotate(${placement.rotation}deg)`;
+  // A callout (ADR 0061): the dot and the line under the label, and the label settling out along the line.
+  let callout: { svg: string; opacity: number; label: number; shift: { x: number; y: number } } | null = null;
+  if (placement.callout) {
+    const pad = paddingPx(css.padding);
+    const lineW = Math.max(...text.text.split("\n").map((part) => domMeasure(part || " ", font).width));
+    const g = calloutGeometry({
+      anchor: placement.callout.anchor, titleMs, lifeMs: (durationInFrames * 1000) / fps, width,
+      label: { x: center.x, y: center.y, halfWidth: lineW / 2 + pad.x, halfHeight: (font.fontSize * (Number(css.lineHeight) || TITLE_LEADING)) / 2 + pad.y },
+    });
+    callout = { svg: calloutSvg(g, { width, height }, text.color), opacity: visible * g.opacity, label: g.label.opacity * g.opacity, shift: g.label.shift };
+  }
+  const labelShift = callout ? `translate(${callout.shift.x.toFixed(2)}px, ${callout.shift.y.toFixed(2)}px) ` : "";
+  const motion = `${labelShift}translate(-50%, calc(-50% + ${rise * 40}px)) scale(${scale * placement.scale}) rotate(${placement.rotation}deg)`;
+  // From behind, on the screen (ADR 0061): out from behind the words' own left edge, in the box's own px.
+  let slide: { dx: number; clipPath: string } | null = null;
+  if (text.kinetic?.preset === "behind") {
+    const pad = paddingPx(css.padding);
+    const widest = Math.max(...text.text.split("\n").map((part) => domMeasure(part || " ", font).width));
+    const textW = wrap.mode === "wrap" ? Math.min(wrap.width, widest) : Math.min(wrap.maxWidth, widest + 2 * pad.x);
+    const boxW = wrap.mode === "wrap" ? wrap.width : textW;
+    const textLeft = (boxW - textW) / 2;
+    slide = behind(textLeft, textLeft + textW, textLeft);
+  }
   // A screen title's particles fill its text box (the wrap width, or the measured line), centred where the words are.
   const screenParticles = (layer: "front" | "back") => {
     if (!text.particles) return null;
@@ -312,6 +468,7 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
   };
   return (
     <AbsoluteFill style={{ pointerEvents: "none" }}>
+      {callout ? <CalloutLine svg={callout.svg} opacity={callout.opacity} /> : null}
       {screenParticles("back")}
       <div
         style={{
@@ -323,11 +480,15 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
           display: "flex",
           justifyContent: "center",
           transform: motion,
-          opacity: visible,
           ...meet,
+          // After the surface blend, whose own 0.92 is kept: the callout's reveal multiplies it rather than being overwritten.
+          opacity: visible * (text.blend === "surface" ? 0.92 : 1) * (callout ? callout.label : 1),
+          ...(slide ? { clipPath: slide.clipPath } : {}),
         }}
       >
-        {chars === null ? (
+        {moving ? (
+          <span style={{ ...motionFace, ...(slide ? { transform: `translateX(${slide.dx.toFixed(2)}px)` } : {}) }}>{letters(0.25)}</span>
+        ) : chars === null ? (
           <span style={face}>{text.text}</span>
         ) : (
           <span style={{ ...css, position: "relative" }}>
@@ -340,6 +501,14 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
           </span>
         )}
       </div>
+      {text.shine ? (() => {
+        const widest = Math.max(...text.text.split("\n").map((part) => domMeasure(part || " ", font).width));
+        const lineW = wrap.mode === "wrap" ? Math.min(wrap.width, widest) : Math.min(wrap.maxWidth, widest);
+        const lineH = font.fontSize * TITLE_LEADING * text.text.split("\n").length;
+        const flare = flareAt(lineH / Math.max(1, lineW));
+        if (!flare || flare.opacity <= 0.001) return null;
+        return <FlareLayer flare={flare} fontSize={font.fontSize} frame={{ left: center.x, top: center.y, width: lineW, height: lineH, transform: motion, opacity: visible }} box={{ left: slide?.dx ?? 0, top: 0, width: lineW, height: lineH }} />;
+      })() : null}
       {screenParticles("front")}
     </AbsoluteFill>
   );

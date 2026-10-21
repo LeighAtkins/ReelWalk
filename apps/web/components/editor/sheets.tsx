@@ -15,6 +15,12 @@ import { HOOK_DESCRIPTIONS, HOOK_FONTS, HOOK_LABELS, type Hook, type HookKind,
   FILTERS,
   DEFAULT_PANO,
   INSTAGRAM_MUSIC_SUGGESTIONS,
+  hasCountableNumber,
+  KINETIC_LABELS,
+  KINETIC_PRESETS,
+  SHINE_LABELS,
+  SHINE_PRESETS,
+  calloutTrackTarget,
   ROOM_NAMES,
   formatArea,
   formatPrice,
@@ -57,6 +63,7 @@ import { PopularSounds } from "../popular-sounds";
 import { detectSurface, findMatchingCut, trackTextPathDetailed } from "./frame-analysis";
 import { planarShift } from "./title-metrics";
 import { crossingNow } from "./pass-crossing";
+import { asCallout, beatForMotion, motionMode, motionStartMs, withMotionMode, withMotionStartAt } from "./type-motion-draft";
 import { Sheet } from "../sheet";
 
 // ── Shell ───────────────────────────────────────────────────────
@@ -707,7 +714,7 @@ export function PlanSheet({
 
 // ── Text ────────────────────────────────────────────────────────
 
-export type TextDraft = Pick<TextOverlay, "text" | "style" | "color" | "size" | "animation" | "font" | "tracking" | "path" | "shadow" | "behind" | "depth" | "blend" | "passMs" | "passFadeMs" | "particles">;
+export type TextDraft = Pick<TextOverlay, "text" | "style" | "color" | "size" | "animation" | "font" | "tracking" | "path" | "shadow" | "behind" | "depth" | "blend" | "passMs" | "passFadeMs" | "particles" | "shine" | "kinetic" | "callout">;
 
 /** Particle density in three thumb-sized steps (ADR 0055). */
 const PARTICLE_DENSITIES = [0.5, 1, 1.8] as const;
@@ -718,12 +725,18 @@ const ELEGANT_CHIP: CSSProperties = { fontFamily: ELEGANT_FONT_FAMILY, fontWeigh
 export function TextSheet({
   initial,
   playheadNow,
+  title,
+  music,
   onSave,
   onClose,
 }: {
   initial: TextDraft | null;
   /** Reads the reel time on screen behind the sheet when called: "Use this frame" sets the crossing there (ADR 0055). */
   playheadNow?(): number;
+  /** The text's time on the reel, when editing one: where its motion's start is measured from (ADR 0061). */
+  title?: { startMs: number; endMs: number };
+  /** The reel's music: "On the beat" when it has a tempo (ADR 0061). */
+  music?: Music | null;
   onSave(draft: TextDraft): void;
   onClose(): void;
 }) {
@@ -731,13 +744,20 @@ export function TextSheet({
   const previewCss = textTreatmentCss(draft);
 
   return (
-    <Sheet title={initial ? "Edit text" : "Add text"} onClose={onClose}>
+    <Sheet title={initial ? (initial.callout ? "Edit callout" : "Edit text") : "Add text"} onClose={onClose}>
+      {initial ? null : (
+        // A callout (ADR 0061) is added from the same flow: a small label with a line to a feature of the room.
+        <Segmented label="Kind" options={["title", "callout"] as const} value={draft.callout ? "callout" : "title"}
+          onChange={kind => setDraft(kind === "callout" ? asCallout(draft) : { ...draft, callout: undefined })}
+          format={kind => ({ title: "Title", callout: "Callout ↗" })[kind]} />
+      )}
+      {draft.callout && !initial ? <p className="muted small">A small label with a line to something in the room. After adding it, drag the blue dot onto the feature, then Pin it to follow it.</p> : null}
       <textarea
         className="text-area"
         rows={2}
         maxLength={200}
         value={draft.text}
-        placeholder="Just listed · 3LDK near Kanda Station"
+        placeholder={draft.callout ? "Heated floors" : "Just listed · 3LDK near Kanda Station"}
         aria-label="Text to show"
         onChange={(event) => setDraft({ ...draft, text: event.target.value })}
       />
@@ -752,6 +772,26 @@ export function TextSheet({
         format={(style) => TEXT_STYLE_LABELS[style]}
         optionStyle={(style) => (style === "elegant" ? ELEGANT_CHIP : undefined)}
       />
+      {/* Motion on the type (ADR 0061): one kind at a time, a preset, and when it starts. */}
+      <Segmented label="Motion" options={["none", "shine", "kinetic"] as const} value={motionMode(draft)} onChange={mode => setDraft(withMotionMode(draft, mode))}
+        format={mode => ({ none: "No motion", shine: "Shine", kinetic: "Kinetic" })[mode]} />
+      {draft.shine ? (
+        <Segmented label="Shine" options={SHINE_PRESETS} value={draft.shine.preset} onChange={preset => setDraft({ ...draft, shine: { ...draft.shine, preset } })} format={preset => SHINE_LABELS[preset]} />
+      ) : null}
+      {draft.kinetic ? (
+        <Segmented label="Kinetic type" options={KINETIC_PRESETS} value={draft.kinetic.preset} onChange={preset => setDraft({ ...draft, kinetic: { ...draft.kinetic, preset } })} format={preset => KINETIC_LABELS[preset]} />
+      ) : null}
+      {draft.kinetic?.preset === "count" && !hasCountableNumber(draft.text) ? <p className="small">Count up needs a number in the text, like 4 BED or $1.2M.</p> : null}
+      {draft.kinetic?.preset === "behind" ? <p className="muted small">The words slide out from behind the nearest post or tapped object in front of the surface (set under Pin), or from behind their own edge.</p> : null}
+      {(draft.shine || draft.kinetic) && title ? (
+        <div className="pass-row" role="group" aria-label="When the motion starts">
+          <span className="small">Starts <strong>{((motionStartMs(draft) ?? 0) / 1000).toFixed(1)} s</strong> after the text appears</span>
+          <div className="segmented">
+            <button type="button" disabled={!playheadNow} onClick={() => playheadNow && setDraft(withMotionStartAt(draft, playheadNow(), title))}>Use this frame</button>
+            {beatForMotion(draft, title, music) !== null ? <button type="button" onClick={() => setDraft(withMotionStartAt(draft, beatForMotion(draft, title, music)!, title))}>On the beat</button> : null}
+          </div>
+        </div>
+      ) : null}
       <div className="swatches" role="group" aria-label="Colour">
         {TEXT_COLORS.map((color) => (
           <button
@@ -771,34 +811,39 @@ export function TextSheet({
       <Segmented label="Text shadow" options={["auto", "soft", "strong", "none"] as const} value={draft.shadow ?? "auto"} onChange={shadow => setDraft({ ...draft, shadow })} format={shadow => ({ auto: "Auto contrast", soft: "Soft", strong: "Strong", none: "None" })[shadow]} />
       <p className="muted small">Auto contrast protects small text over bright footage without changing its size or font.</p>
       <Range label="Letter spacing" value={draft.tracking ?? 0.06} min={-0.04} max={0.24} step={0.01} display={`${(draft.tracking ?? 0.06).toFixed(2)}em`} onChange={tracking => setDraft({ ...draft, tracking })} />
-      <label className="field">Text movement<select className="text-input" value={draft.path ? "path" : "still"} onChange={event => {
-        const move = event.target.value;
-        setDraft({ ...draft, path: move === "still" ? undefined : move === "path" ? draft.path : [{ t: 0, x: 0, y: 0 }, { t: 1, x: move === "left" ? -0.04 : 0.04, y: 0 }] });
-      }}><option value="still">Still</option>{draft.path ? <option value="path">Keep current motion path</option> : null}<option value="left">Drift left</option><option value="right">Drift right</option></select></label>
-      <Segmented label="Depth" options={["flat", "extruded"] as const} value={draft.depth ?? "flat"} onChange={depth => setDraft({ ...draft, depth })} format={depth => ({ flat: "Flat", extruded: "Extruded 3D" })[depth]} />
-      <Segmented label="Meets the picture" options={["plain", "surface"] as const} value={draft.blend ?? "plain"} onChange={blend => setDraft({ ...draft, blend: blend === "plain" ? undefined : blend })} format={blend => ({ plain: "On top", surface: "Painted on the surface" })[blend]} />
-      <label className="field small"><input type="checkbox" checked={Boolean(draft.behind)} onChange={event => setDraft({ ...draft, behind: event.target.checked || undefined, ...(event.target.checked ? {} : { passMs: undefined, passFadeMs: undefined }) })} /> People in the shot pass in front of this text</label>
-      {draft.behind ? (
-        // Walks through the words (ADR 0055): in front of her until this moment, behind her after it.
-        <div className="pass-row" role="group" aria-label="She passes in front">
-          <span className="small">{draft.passMs === undefined ? "In front of the words the whole time" : <>She passes in front at <strong>▸ {formatDuration(draft.passMs, true)}</strong></>}</span>
-          <div className="segmented">
-            <button type="button" disabled={!playheadNow} onClick={() => playheadNow && setDraft({ ...draft, passMs: crossingNow(playheadNow) })}>Use this frame</button>
-            {draft.passMs !== undefined ? <button type="button" className="pass-clear" aria-label="Clear the crossing: she is in front the whole time" onClick={() => setDraft({ ...draft, passMs: undefined, passFadeMs: undefined })}>×</button> : null}
+      {draft.callout ? null : (<>
+        <label className="field">Text movement<select className="text-input" value={draft.path ? "path" : "still"} onChange={event => {
+          const move = event.target.value;
+          setDraft({ ...draft, path: move === "still" ? undefined : move === "path" ? draft.path : [{ t: 0, x: 0, y: 0 }, { t: 1, x: move === "left" ? -0.04 : 0.04, y: 0 }] });
+        }}><option value="still">Still</option>{draft.path ? <option value="path">Keep current motion path</option> : null}<option value="left">Drift left</option><option value="right">Drift right</option></select></label>
+        <Segmented label="Depth" options={["flat", "extruded"] as const} value={draft.depth ?? "flat"} onChange={depth => setDraft({ ...draft, depth })} format={depth => ({ flat: "Flat", extruded: "Extruded 3D" })[depth]} />
+        <Segmented label="Meets the picture" options={["plain", "surface"] as const} value={draft.blend ?? "plain"} onChange={blend => setDraft({ ...draft, blend: blend === "plain" ? undefined : blend })} format={blend => ({ plain: "On top", surface: "Painted on the surface" })[blend]} />
+        <label className="field small"><input type="checkbox" checked={Boolean(draft.behind)} onChange={event => setDraft({ ...draft, behind: event.target.checked || undefined, ...(event.target.checked ? {} : { passMs: undefined, passFadeMs: undefined }) })} /> People in the shot pass in front of this text</label>
+        {draft.behind ? (
+          // Walks through the words (ADR 0055): in front of her until this moment, behind her after it.
+          <div className="pass-row" role="group" aria-label="She passes in front">
+            <span className="small">{draft.passMs === undefined ? "In front of the words the whole time" : <>She passes in front at <strong>▸ {formatDuration(draft.passMs, true)}</strong></>}</span>
+            <div className="segmented">
+              <button type="button" disabled={!playheadNow} onClick={() => playheadNow && setDraft({ ...draft, passMs: crossingNow(playheadNow) })}>Use this frame</button>
+              {draft.passMs !== undefined ? <button type="button" className="pass-clear" aria-label="Clear the crossing: she is in front the whole time" onClick={() => setDraft({ ...draft, passMs: undefined, passFadeMs: undefined })}>×</button> : null}
+            </div>
           </div>
-        </div>
-      ) : null}
-      <Segmented label="Particles" options={["none", "snow", "embers", "dust"] as const} value={draft.particles?.kind ?? "none"}
-        onChange={kind => setDraft({ ...draft, particles: kind === "none" ? undefined : { ...draft.particles, kind } })}
-        format={kind => ({ none: "No particles", snow: "Snow", embers: "Embers", dust: "Dust" })[kind]} />
-      {draft.particles ? (
-        <Segmented label="Particle density" options={PARTICLE_DENSITIES} value={PARTICLE_DENSITIES.reduce((best, d) => Math.abs(d - (draft.particles?.density ?? 1)) < Math.abs(best - (draft.particles?.density ?? 1)) ? d : best)}
-          onChange={density => setDraft({ ...draft, particles: { ...draft.particles!, density } })}
-          format={density => ({ 0.5: "Light", 1: "Medium", 1.8: "Thick" })[density as 0.5 | 1 | 1.8]} />
-      ) : null}
-      <Segmented<TextAnimation> label="Arrives" options={TEXT_ANIMATIONS} value={draft.animation} onChange={(animation) => setDraft({ ...draft, animation })} format={(animation) => TEXT_ANIMATION_LABELS[animation]} />
+        ) : null}
+        <Segmented label="Particles" options={["none", "snow", "embers", "dust"] as const} value={draft.particles?.kind ?? "none"}
+          onChange={kind => setDraft({ ...draft, particles: kind === "none" ? undefined : { ...draft.particles, kind } })}
+          format={kind => ({ none: "No particles", snow: "Snow", embers: "Embers", dust: "Dust" })[kind]} />
+        {draft.particles ? (
+          <Segmented label="Particle density" options={PARTICLE_DENSITIES} value={PARTICLE_DENSITIES.reduce((best, d) => Math.abs(d - (draft.particles?.density ?? 1)) < Math.abs(best - (draft.particles?.density ?? 1)) ? d : best)}
+            onChange={density => setDraft({ ...draft, particles: { ...draft.particles!, density } })}
+            format={density => ({ 0.5: "Light", 1: "Medium", 1.8: "Thick" })[density as 0.5 | 1 | 1.8]} />
+        ) : null}
+      </>)}
+      {/* A callout and word-by-word or from-behind type bring the words in themselves. */}
+      {draft.callout || (draft.kinetic && draft.kinetic.preset !== "count") ? null : (
+        <Segmented<TextAnimation> label="Arrives" options={TEXT_ANIMATIONS} value={draft.animation} onChange={(animation) => setDraft({ ...draft, animation })} format={(animation) => TEXT_ANIMATION_LABELS[animation]} />
+      )}
       <button type="button" className="btn btn-block" disabled={!draft.text.trim()} onClick={() => onSave({ ...draft, text: draft.text.trim() })}>
-        {initial ? "Save text" : "Add text"}
+        {initial ? "Save text" : draft.callout ? "Add callout" : "Add text"}
       </button>
     </Sheet>
   );
@@ -934,7 +979,8 @@ export function PinSheet({ text, clip, asset, clipStartMs, placementVersionNow, 
     const versionNow = () => `${placementVersionNow?.() ?? ""}|${lean.current.yaw}|${lean.current.pitch}`;
     const version = versionNow();
     setBusy(true); setStatus("Following the surface under the text…");
-    const result = await pinTitle({ text, clip, asset, clipStartMs, wholeShot, lean: { yaw, pitch }, signal: controller.signal, onProgress: fraction => setStatus(`Following the surface under the text… ${Math.round(fraction * 100)}%`) });
+    // A callout follows its point: a small square around it, tracked like a surface (ADR 0061).
+    const result = await pinTitle({ text: text.callout ? calloutTrackTarget(text) : text, clip, asset, clipStartMs, wholeShot, lean: { yaw, pitch }, signal: controller.signal, onProgress: fraction => setStatus(`Following the surface under the text… ${Math.round(fraction * 100)}%`) });
     if (controller.signal.aborted) return;
     tracking.current = null;
     setBusy(false);
@@ -942,6 +988,18 @@ export function PinSheet({ text, clip, asset, clipStartMs, placementVersionNow, 
     if (versionNow() !== version) { setStatus("The title or its shot changed while tracking, so that track was discarded. Pin again."); return; }
     onPath(result.pinned, result.patch);
     setStatus(result.status);
+  }
+  if (text.callout) {
+    return (
+      <Sheet title="Pin the callout" onClose={onClose}>
+        <p className="muted small">The dot follows the feature as the camera moves, and the label travels with it. Drag the blue dot onto the feature first; where it cannot be followed, the callout fades out.</p>
+        <label className="field small"><input type="checkbox" checked={wholeShot} onChange={event => setWholeShot(event.target.checked)} /> For the whole shot</label>
+        <button type="button" className="btn btn-signal btn-block" disabled={!canTrack || busy} onClick={pin} data-testid="pin-callout">{busy ? "Following…" : text.path && text.path.length > 2 ? "Pin again" : "Pin to the feature"}</button>
+        {!canTrack ? <p className="small">Pinning needs the callout to start on a video clip.</p> : null}
+        {text.path ? <button type="button" className="btn btn-quiet btn-block" disabled={busy} onClick={() => { onPath(undefined); setStatus("Unpinned."); }}>Unpin (still callout)</button> : null}
+        {status ? <p role="status" className="small">{status}</p> : null}
+      </Sheet>
+    );
   }
   return (
     <Sheet title="Pin to the picture" onClose={onClose}>

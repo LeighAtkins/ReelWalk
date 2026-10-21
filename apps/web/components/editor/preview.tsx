@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Player, type PlayerRef } from "@remotion/player";
 import { prefetch } from "remotion";
-import { compositionScale, emptyTimeline, INSTAGRAM, mapPoints, minTextSize, onScreenAt, pinnedProgress, PLANAR_MAX_WIDTH, planeFrame, planeMotion, REEL_FORMAT, stageRect, stackTitles, STILL_PLANE, storedFraction, TEXT_SIZE_MAX, textsAt, textPositionAt, textQuadAt, tapSourceMs, viewportToComposition, type PlaneMotion, type TextOverlay, type Timeline, type ViewportRect, type XY } from "@reelwalk/core";
+import { calloutAnchorAt, compositionScale, emptyTimeline, INSTAGRAM, mapPoints, minTextSize, onScreenAt, pinnedProgress, PLANAR_MAX_WIDTH, planeFrame, planeMotion, REEL_FORMAT, stageRect, stackTitles, STILL_PLANE, storedFraction, TEXT_SIZE_MAX, textsAt, textPositionAt, textQuadAt, tapSourceMs, viewportToComposition, type PlaneMotion, type TextOverlay, type Timeline, type ViewportRect, type XY } from "@reelwalk/core";
 import { ReelComposition, reelDurationInFrames, textTreatmentCss, type ReelAsset } from "@reelwalk/render/reel";
 import { timelineFrames } from "./frame-service";
 import { pinnedLineFit } from "./title-metrics";
@@ -39,6 +39,8 @@ type PreviewProps = {
   onOccludersText?(id: string, occluders: { x: number; y: number }[], gesture: string): void;
   /** People in the shot pass in front of the selected title (the person matte). */
   onBehindText?(id: string, behind: boolean): void;
+  /** The selected callout's point was dragged onto a feature (ADR 0061; frame fractions on its first frame). */
+  onCalloutAnchorText?(id: string, x: number, y: number, gesture: string): void;
   onSelectText(id: string): void;
   onEditText(id: string): void;
   empty: React.ReactNode;
@@ -426,7 +428,7 @@ function Ghost({ text, scale }: { text: TextOverlay; scale: number }) {
     // As wide as the words, up to the width the reel wraps text at, so the box hugs the text.
     // A pinned title never wraps and is shrunk to the frame instead, so its box is its one line at that scale.
     <span style={{ display: "block", zoom: scale, width: "max-content", maxWidth: text.pin ? REEL_FORMAT.width * PLANAR_MAX_WIDTH : REEL_FORMAT.width * 0.86, pointerEvents: "none" }}>
-      <span style={{ ...css, display: "inline-block", color: "transparent", background: "transparent", textShadow: "none", WebkitTextStroke: "0", ...(text.pin ? { whiteSpace: "nowrap", transform: `scale(${pinnedLineFit(text)})`, transformOrigin: "0 0" } : {}) }}>
+      <span style={{ ...css, display: "inline-block", color: "transparent", background: "transparent", textShadow: "none", WebkitTextStroke: "0", ...(text.pin && !text.callout ? { whiteSpace: "nowrap", transform: `scale(${pinnedLineFit(text)})`, transformOrigin: "0 0" } : {}) }}>
         {text.text}
       </span>
     </span>
@@ -530,6 +532,23 @@ function TextHandle({
   );
 }
 
+/**
+ * A callout's point (ADR 0061): a dot to drag onto the feature the label names. Shown where the point is on this
+ * frame; dragging it sets the point on the title's first frame, so a pin made before is dropped by the editor.
+ */
+function CalloutAnchorHandle({ text, timeline, clock, frame, onMove }: { text: TextOverlay; timeline: Timeline; clock: Clock; frame: RefObject<HTMLDivElement | null>; onMove(x: number, y: number, gesture: string): void }) {
+  const now = useClock(clock);
+  const at = calloutAnchorAt(text, text.pin ? pinnedProgress(timeline, text, now) : 0);
+  return (
+    <button type="button" className="callout-anchor" data-testid="callout-anchor" aria-label={`The point "${text.text}" points at. Drag it onto the feature.`}
+      style={{ left: `${at.x * 100}%`, top: `${at.y * 100}%` }}
+      onPointerDown={(event) => {
+        const gesture = `drag:callout-${text.id}:${Date.now()}`;
+        dragPoint(event, frame, (x, y) => onMove(storedFraction(x), storedFraction(y), gesture));
+      }} />
+  );
+}
+
 /** While paused, the texts on screen can be tapped to select them. */
 function TextTargets({
   clock,
@@ -587,6 +606,7 @@ export function Preview({
   onCutoutsText,
   onOccludersText,
   onBehindText,
+  onCalloutAnchorText,
   onSelectText,
   onEditText,
   empty,
@@ -779,6 +799,9 @@ export function Preview({
               onResize={(size, gesture) => onResizeText(selectedText.id, size, gesture)}
               onEdit={() => onEditText(selectedText.id)}
             />
+            {selectedText.callout && onCalloutAnchorText ? (
+              <CalloutAnchorHandle text={selectedText} timeline={timeline} clock={clock} frame={plane} onMove={(x, y, gesture) => onCalloutAnchorText(selectedText.id, x, y, gesture)} />
+            ) : null}
             {selectedText.surface && onSurfaceText ? (
               <SurfaceHandles quad={selectedText.surface} bars={selectedText.bars} frame={plane} onChange={(quad, gesture) => onSurfaceText(selectedText.id, quad, gesture)} onBars={onBarsText ? (bars, gesture) => onBarsText(selectedText.id, bars, gesture) : undefined} />
             ) : null}

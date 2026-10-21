@@ -61,7 +61,10 @@ test("a forgotten password is reset from an emailed link, which then stops worki
   // Only the new password signs in.
   await page.goto("/account");
   await page.getByTestId("sign-out").click();
-  await page.goto("/login");
+  // Sign-out is a server action that ends on /login. Going to /login before it
+  // lands raced it: still signed in, /login sent the browser home, and the
+  // Email field below never appeared (two 5-minute timeouts in CI, ADR 0054).
+  await expect(page).toHaveURL(/\/login$/);
   await page.getByLabel("Email").fill(email);
   await page.getByLabel("Password").fill("first-password-1");
   await page.getByRole("button", { name: "Sign in" }).click();

@@ -1282,7 +1282,8 @@ export function fakeAiEditPlan(request: string, timeline: Timeline, songs: AiSon
   if (/\blogo\b/.test(text)) {
     if (/\b(remove|no|drop|without)\b/.test(text)) ops.push({ ...blank, op: "logo", assetId: null });
     else {
-      const logo = unused.find((asset) => asset.kind === "IMAGE" && /logo|brand|mark/i.test(asset.title));
+      // A logo already on the reel is moved; it is not "unused", so looking only there said "upload your logo first" (ADR 0054).
+      const logo = timeline.logo ? { id: timeline.logo.assetId } : unused.find((asset) => asset.kind === "IMAGE" && /logo|brand|mark/i.test(asset.title));
       if (logo) ops.push({ ...blank, op: "logo", assetId: logo.id, corner: /bottom/.test(text) ? (/left/.test(text) ? "bottom-left" : "bottom-right") : /left/.test(text) ? "top-left" : "top-right" });
       else notes.push("Upload your logo first, then ask again.");
     }

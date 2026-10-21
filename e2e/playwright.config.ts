@@ -21,6 +21,10 @@ export default defineConfig({
   use: {
     baseURL: process.env.E2E_BASE_URL ?? "http://localhost:8080",
     trace: "retain-on-failure",
+    // A click or fill on something that never appears fails here, with the
+    // locator in the message, instead of hanging until the 5-minute test
+    // timeout and blaming whatever ran next (ADR 0054).
+    actionTimeout: 30_000,
   },
   // The editor is built for phones, so the suite runs on a phone-sized viewport.
   // "setup" signs in to the demo studio once; the tests reuse that session.

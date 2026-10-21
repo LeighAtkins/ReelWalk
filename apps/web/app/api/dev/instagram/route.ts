@@ -11,7 +11,9 @@ const FAKE_TOKEN = "dev-fake-instagram";
  * A pretend Instagram connection for the end-to-end tests on the local stack
  * (DEV_FAKE_INSTAGRAM=true). POST connects it to the signed-in studio unless
  * a real account is already connected; DELETE removes it again. Elsewhere
- * the endpoint does not exist.
+ * the endpoint does not exist. One-tap posting needs a paid plan, so a plain
+ * free studio (the suite signs one up for its Instagram tests, ADR 0054) is
+ * comped onto Agent, like the seeded demo studio is comped onto Studio.
  */
 export async function POST(): Promise<Response> {
   if (!isFakeInstagram()) return new NextResponse(null, { status: 404 });
@@ -19,6 +21,7 @@ export async function POST(): Promise<Response> {
   if (!user) return NextResponse.json({ error: "sign in first" }, { status: 401 });
   const existing = await prisma.socialAccount.findUnique({ where: { workspaceId_provider: { workspaceId: user.workspaceId, provider: "instagram" } } });
   if (existing && existing.accessToken !== FAKE_TOKEN) return NextResponse.json({ username: existing.username, fake: false });
+  await prisma.workspace.updateMany({ where: { id: user.workspaceId, plan: "FREE", compedPlan: null }, data: { compedPlan: "AGENT", compedUntil: new Date("2099-01-01T00:00:00Z") } });
   const account = await prisma.socialAccount.upsert({
     where: { workspaceId_provider: { workspaceId: user.workspaceId, provider: "instagram" } },
     update: {},

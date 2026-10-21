@@ -133,7 +133,7 @@ there, ten-asks would have said "flaky" 37 times.
 
 ## Consequences
 
-- A docs or worker-only PR no longer waits about 11 minutes for the suite.
+- A docs or worker-only PR no longer waits for the suite, and the suite itself is about 4 minutes shorter on every run.
 - A flaky test is visible on the PR the first time it happens.
 - The Instagram tests sign up one studio per run. The signup limit is ten
   an hour from one address; a run now uses four (accounts ×2,
@@ -172,4 +172,33 @@ there, ten-asks would have said "flaky" 37 times.
 
 ### Measured on this PR
 
-To be filled from this PR's CI run.
+Two runs of this workflow, one sample each, so read them as indications:
+PR #200 itself (touches web, core and e2e: everything runs, with the
+acceptance render), and a draft probe PR #201 based on this branch that
+changes one ADR line (closed after measuring).
+
+| | Before (median of 37–42) | #200, full | #201, docs only |
+|---|---|---|---|
+| e2e job | 10.6 min | 5.9 min | 0 min, SUCCESS, steps skipped |
+| e2e `pnpm e2e` step | 7.0 min (run 39527861086) | 2.6 min | not run |
+| first-attempt failures / flaky | 2 per run (ten-asks every run) | 0 / 0 (37 passed) | — |
+| worker job | 7.6 min | 6.9 min | 8.5 min |
+| worker "Render smoke test" step | 2.5 min (with compare) | 2.0 min (compare) | 1.2 min (plain) |
+| worker "Build image" step | 1.0 min (run 39527861086) | 3.7 min | 6.3 min |
+| whole run | 12.5 min | 8.5 min | 10.1 min |
+
+What this shows:
+
+- The e2e suite itself went from 7.0 to 2.6 min because no test now waits
+  out a 5-minute timeout before its retry. That is the main saving, and it
+  applies to every run, main included.
+- A docs-only PR skips the suite and still shows "End-to-end tests:
+  success".
+- The acceptance checks cost about one minute of the smoke (2.0 vs 1.2
+  min), less than the 4 minutes the job's growth suggested. The worker
+  job's length is mostly the image build, and that swings from 1 to 6 min
+  with the GitHub Actions cache: #200 and #201 built at the same time and
+  both missed it. The probe's whole run (10.1 min) was set by that build,
+  not by any test. A faster worker job is a Docker cache question (for
+  example a cache scope per branch, or not building the image on PRs
+  that cannot change it). This ADR leaves that for later.

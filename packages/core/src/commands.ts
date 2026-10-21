@@ -13,6 +13,7 @@
  */
 import { snapCutsToBeats } from "./beats";
 import { retime, retimeToLength } from "./review";
+import { insertPresenterTakes, type PresenterTakeInsert } from "./script";
 import { attachedAnchors, retimeTexts } from "./text-timing";
 import {
   clipDurationMs,
@@ -50,6 +51,8 @@ export type Command =
   /** The draft review's pace and length (ADR 0022). */
   | { type: "retime"; shotMs: number }
   | { type: "retimeToLength"; totalMs: number }
+  /** A script's finished presenter takes (ADR 0060), all placed in one step. */
+  | { type: "insertPresenterTakes"; takes: PresenterTakeInsert[] }
   /**
    * A whole timeline computed elsewhere (an AI edit, the autopilot, the
    * director) against `baseGeneration`. Applied only when that is still the
@@ -155,6 +158,8 @@ function run(timeline: Timeline, command: Command, context: CommandContext): Tim
       return retime(timeline, command.shotMs, durations);
     case "retimeToLength":
       return retimeToLength(timeline, command.totalMs, durations);
+    case "insertPresenterTakes":
+      return cut(insertPresenterTakes(timeline, command.takes));
     case "applyProposal": {
       // The proposal already placed its texts (through retimeTexts, in applyAiEditPlan); it is taken as it is.
       const proposal = parseTimeline(command.proposal);

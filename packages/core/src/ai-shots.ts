@@ -77,8 +77,24 @@ export const aiComposeSchema = z.object({
     ctx.addIssue({ code: "custom", message: CHAINED_REFERENCE_MESSAGE });
   }
 }).transform(c => ({ ...c, framing: c.framing ?? defaultFraming([c.first, c.last]) }));
+/**
+ * A take made for Script mode (ADR 0060): which script it belongs to, its line's place in it, where it goes in the reel and
+ * the outfit every take of the script was told to wear. Stored with the generation so an open editor can find the script's
+ * takes again and place them, and so the outfit is on record beside what was made.
+ */
+export const aiScriptMetaSchema = z.object({
+  id: z.string().uuid(), reelId: z.string().min(1).max(64),
+  index: z.number().int().min(0).max(3), count: z.number().int().min(1).max(4),
+  /** The clip the take goes after; null puts it before the first clip. */
+  afterClipId: z.string().min(1).max(200).nullable(),
+  /** Where that was in the reel (0 to 1), for when that clip has since been removed. */
+  fraction: z.number().min(0).max(1),
+  outfit: z.string().trim().max(160).optional(),
+});
+export type AiScriptMeta = z.infer<typeof aiScriptMetaSchema>;
 export const aiShotSchema = z.object({
   mode: z.enum(AI_SHOT_MODES), first: frame.optional(), last: frame.optional(),
+  script: aiScriptMetaSchema.optional(),
   style: z.enum(AI_SHOT_STYLES).optional(), atmosphere: z.enum(AI_SHOT_ATMOSPHERES).optional(),
   energy: z.enum(["subtle", "bold"]).optional(), harmonize: z.boolean().optional(),
   polish: z.boolean().optional(),

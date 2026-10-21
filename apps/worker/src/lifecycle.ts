@@ -212,7 +212,8 @@ export function ownChild(scope: AttemptScope, child: ChildProcess, name: string)
 
 // ── Processes another library spawned ───────────────────────────
 
-type ProcInfo = { pid: number; ppid: number; command: string };
+/** `state` is the kernel's one-letter state; "Z" is a zombie: exited, holding nothing but its pid until reaped. */
+type ProcInfo = { pid: number; ppid: number; state: string; command: string };
 
 /** Every process on a Linux /proc, with its parent and its argv[0] (or comm). Empty elsewhere. */
 export async function listProcesses(procRoot = "/proc"): Promise<ProcInfo[]> {
@@ -230,9 +231,9 @@ export async function listProcesses(procRoot = "/proc"): Promise<ProcInfo[]> {
         // "pid (comm) state ppid ...": comm may contain spaces and parens, so split at the last ')'.
         const close = stat.lastIndexOf(")");
         const comm = stat.slice(stat.indexOf("(") + 1, close);
-        const ppid = Number(stat.slice(close + 2).split(" ")[1]);
+        const [state, ppid] = stat.slice(close + 2).split(" ");
         const cmdline = await readFile(path.join(procRoot, entry, "cmdline"), "utf8").catch(() => "");
-        out.push({ pid: Number(entry), ppid, command: cmdline.split("\0")[0] || comm });
+        out.push({ pid: Number(entry), ppid: Number(ppid), state, command: cmdline.split("\0")[0] || comm });
       } catch {
         // Exited while we looked.
       }
@@ -256,13 +257,15 @@ export function descendantsOf(root: number, processes: ProcInfo[]): ProcInfo[] {
   return out;
 }
 
-function alive(pid: number): boolean {
+/** Whether a process still runs. A zombie counts as gone: signal 0 reaches it, but it holds nothing. */
+async function pidRunning(pid: number, procRoot: string): Promise<boolean> {
   try {
     process.kill(pid, 0);
-    return true;
   } catch {
     return false;
   }
+  const stat = await readFile(path.join(procRoot, String(pid), "stat"), "utf8").catch(() => null);
+  return stat !== null && stat.charAt(stat.lastIndexOf(")") + 2) !== "Z";
 }
 
 /** Processes Remotion starts: headless Chrome and its helpers, the compositor and its ffmpeg. */
@@ -279,17 +282,22 @@ export const REMOTION_PROCESSES = /chrome|headless_shell|remotion/i;
  * pids it signalled.
  */
 export async function killDescendants(options: { match: RegExp; graceMs: number; root?: number; procRoot?: string }): Promise<number[]> {
-  const targets = descendantsOf(options.root ?? process.pid, await listProcesses(options.procRoot))
-    .filter((proc) => options.match.test(proc.command))
+  const procRoot = options.procRoot ?? "/proc";
+  const targets = descendantsOf(options.root ?? process.pid, await listProcesses(procRoot))
+    .filter((proc) => proc.state !== "Z" && options.match.test(proc.command))
     .map((proc) => proc.pid);
   const signal = (pid: number, name: NodeJS.Signals) => { try { process.kill(pid, name); } catch { /* gone */ } };
+  const left = async () => {
+    const states = await Promise.all(targets.map((pid) => pidRunning(pid, procRoot)));
+    return targets.filter((_, index) => states[index]);
+  };
   const waitGone = async (ms: number) => {
     const until = Date.now() + ms;
-    while (targets.some(alive) && Date.now() < until) await new Promise((resolve) => setTimeout(resolve, 50));
+    while ((await left()).length > 0 && Date.now() < until) await new Promise((resolve) => setTimeout(resolve, 50));
   };
   for (const pid of targets) signal(pid, "SIGTERM");
   await waitGone(options.graceMs / 2);
-  for (const pid of targets.filter(alive)) signal(pid, "SIGKILL");
+  for (const pid of await left()) signal(pid, "SIGKILL");
   await waitGone(options.graceMs / 2);
   return targets;
 }

@@ -93,5 +93,19 @@ reported after the grace regardless. W4 and later job kinds can reuse
   and on its own timeout and settles after the exit; the grace and
   release ordering of `runAttempt`; a hung release cannot hold an attempt;
   the `/proc` walk.
-- `apps/worker/scripts/cancel-smoke.ts` in the worker image: see the PR
-  for what was observed.
+- `apps/worker/scripts/cancel-smoke.ts` in the worker image
+  (`reelwalk-ai-worker:local` with this branch's worker sources and
+  `render-reel.ts` copied in), deadline 6 s counted from the first render
+  progress, grace 5 s. Just before the deadline the tree under the worker
+  held headless Chrome and five helpers, Remotion's compositor ffmpeg and
+  the script's own ffmpeg. The attempt settled 2.6 s after the deadline;
+  afterwards only the two in-process esbuild services (tsx and the
+  bundler) remained, plus Remotion's ffmpeg as a zombie (`Z`, exited, not
+  yet reaped by Node), and the temp dir was gone. Earlier runs found two
+  bugs fixed here: `execFile` ignores `detached`, so `run()` now uses
+  `spawn` (checked in the image: a shell's two grandchildren die with it on
+  abort); and the backstop counted zombies as alive and sent its SIGKILL
+  after its release window had closed, leaving a Chrome behind once when
+  Chrome failed to connect under load.
+- Not exercised for real: SIGTERM to a running worker container (covered by
+  the handler test only) and an S3 transfer interrupted mid-flight.

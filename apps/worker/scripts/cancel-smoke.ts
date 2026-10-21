@@ -27,7 +27,7 @@ const deadlineMs = Number(process.argv[2] ?? 8000);
 const fromRender = process.argv[3] === "from-render";
 
 async function tree(): Promise<string[]> {
-  return descendantsOf(process.pid, await listProcesses()).map((proc) => `${proc.pid} <- ${proc.ppid} ${proc.command}`);
+  return descendantsOf(process.pid, await listProcesses()).map((proc) => `${proc.pid} <- ${proc.ppid} [${proc.state}] ${proc.command}`);
 }
 
 async function main() {
@@ -96,7 +96,8 @@ async function main() {
   const left = await tree();
   console.log(`cancel-smoke: process tree after the attempt was reported:\n  ${left.join("\n  ") || "(none)"}`);
   console.log(`cancel-smoke: temp dir ${dir} ${existsSync(dir) ? "STILL EXISTS" : "removed"}; scope holds ${JSON.stringify(scope.held())}`);
-  const survivors = left.filter((line) => /chrome|headless|remotion|ffmpeg/i.test(line));
+  // A zombie ([Z]) has exited and holds nothing but its pid until Node reaps it; anything else is a survivor.
+  const survivors = left.filter((line) => !line.includes("[Z]") && /chrome|headless|remotion|ffmpeg/i.test(line));
   if (survivors.length || existsSync(dir)) {
     console.log("cancel-smoke: FAILED, resources survived the attempt");
     process.exitCode = 1;

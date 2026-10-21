@@ -11,8 +11,9 @@
  *               hook, a camera move, or motion in the picture)
  *   safe-zone   no title in Instagram's UI dead zones (INSTAGRAM.safeZonePx)
  *   dead-air    no stretch over 2 s without a cut, motion or title change
- *   face        an AI presenter's face is at least 220 px tall at 1080 in a
- *               speaking shot, and the identity gate (ADR 0056) passed it
+ *   face        an AI presenter's face is over the floor the identity gate
+ *               recorded for the take (ADR 0056), 220 px when she speaks
+ *               (advice), and the gate passed it
  *               comfortably
  *   legibility  a title's contrast with the frame behind it, and its size
  *               on a phone
@@ -49,6 +50,7 @@ import { beatPeriodMs, nearestBeatMs } from "./beats";
 import { estimateLineWidth } from "./cinematic";
 import { applyCommand, type BatchableCommand, type Command } from "./commands";
 import { INSTAGRAM } from "./instagram";
+import { MIN_SPEAKING_FACE_PX, minFacePx } from "./presenter";
 import { evaluateTitle, TITLE_LEADING, type Measure, type TitleFont } from "./scene";
 import {
   clipDurationMs,
@@ -79,9 +81,10 @@ export const CRITIC = {
   motion: 0.02,
   /**
    * The presenter face, in px of a 1080×1920 frame, a speaking shot should have so her eyes and mouth hold
-   * on a phone. Advice, above the identity gate's hard floor for speaking takes (165 px, ADR 0056 amendment).
+   * on a phone. Advice only: the hard floor is the identity gate's (MIN_SPEAKING_FACE_PX in presenter.ts),
+   * read from what the gate recorded on the take.
    */
-  minFacePx: 220,
+  speakingAdvicePx: 220,
   /** An identity gate score below this passed, but only just (the gate's own bar is 0.6). */
   faceReviewScore: 0.7,
   /** A phone's width in CSS px (the editor's reference phone, 412×915). */
@@ -120,8 +123,12 @@ export type CriticFrame = { width: number; height: number; luma: Float32Array };
 /** What the editor knows about an AI take in the reel, from its generation row (ADR 0056). */
 export type CriticFace = {
   assetId: string;
-  /** The shot has a spoken line (ADR 0038). */
-  speaking: boolean;
+  /**
+   * The identity gate's face floor for this take, px at 1080×1920, as the gate recorded it on each check
+   * (MIN_SPEAKING_FACE_PX for a speaking end, MIN_GATE_FACE_PX otherwise; the largest across ends).
+   * Rows checked before the gate recorded it fall back to the shot's spoken line; null when neither is known.
+   */
+  floorPx: number | null;
   /** The face's height in the composed keyframe the take was made from (1080×1920), smallest of its ends; null when not measured. */
   faceHeightPx: number | null;
   /** The identity gate's lowest accepted confidence; null when the gate did not run. */
@@ -137,7 +144,9 @@ export type CriticFace = {
  */
 export function criticFaceFromGeneration(row: { assetId: string; shot: unknown; identityChecks: unknown; identityScore: number | null }): CriticFace {
   const shot = row.shot && typeof row.shot === "object" ? (row.shot as { line?: unknown }) : {};
-  const checks = Array.isArray(row.identityChecks) ? (row.identityChecks as { end?: unknown; attempt?: unknown; faceHeightPx?: unknown; eyesAndMouthRendered?: unknown }[]) : [];
+  const checks = Array.isArray(row.identityChecks) ? (row.identityChecks as { end?: unknown; attempt?: unknown; faceHeightPx?: unknown; minFacePx?: unknown; eyesAndMouthRendered?: unknown }[]) : [];
+  const floors = checks.flatMap((check) => (check && typeof check === "object" && typeof check.minFacePx === "number" ? [check.minFacePx] : []));
+  const spoken = typeof shot.line === "string" && shot.line.trim().length > 0;
   const accepted = new Map<string, { attempt: number; faceHeightPx: number | null; eyesAndMouth: boolean | null }>();
   for (const check of checks) {
     if (!check || typeof check !== "object") continue;
@@ -151,7 +160,7 @@ export function criticFaceFromGeneration(row: { assetId: string; shot: unknown; 
   const heights = [...accepted.values()].flatMap((check) => (check.faceHeightPx === null ? [] : [check.faceHeightPx]));
   return {
     assetId: row.assetId,
-    speaking: typeof shot.line === "string" && shot.line.trim().length > 0,
+    floorPx: floors.length ? Math.max(...floors) : spoken ? minFacePx(true) : null,
     faceHeightPx: heights.length ? Math.min(...heights) : null,
     identityScore: typeof row.identityScore === "number" ? row.identityScore : null,
     eyesAndMouthRendered: looked.length ? looked.every(Boolean) : null,
@@ -492,6 +501,9 @@ function titleChecks(ctx: Context): CriticFinding[] {
     if (!geometry) continue;
     const moment = momentAt(ctx.timeline, titleMoment(text));
     const base = { atMs: moment?.reelMs ?? text.startMs, clipId: moment?.clipId ?? null, sourceMs: moment?.sourceMs ?? null, box: geometry.box, textId: text.id };
+    // Only a plain screen title moves by its x/y. A surface title's corners decide where it is, and a pinned
+    // title's tracked path is offsets from x/y (cinematic.ts textPositionAt): moving x/y drags it off its object.
+    const movable = geometry.kind === "screen" && !text.pin;
 
     // Safe zones.
     const into = intrusion(geometry.box);
@@ -499,23 +511,29 @@ function titleChecks(ctx: Context): CriticFinding[] {
     if (worst > CRITIC.intrusionPx) {
       const where = into.bottom === worst ? "the caption" : into.top === worst ? "the header" : into.right === worst ? "the like and share buttons" : "the screen edge";
       const fixes: CriticFix[] = [];
-      if (geometry.kind === "screen") {
+      if (movable) {
         const centre = safeCentre(text, geometry.box);
         if (Math.abs(centre.x - text.x) > 0.001 || Math.abs(centre.y - text.y) > 0.001) {
           fixes.push({ kind: "command", label: "Move it in", command: { type: "updateText", textId: text.id, patch: { x: centre.x, y: centre.y } }, safe: true });
         }
       }
       findings.push({ ...base, id: `safe-zone:${text.id}`, check: "safe-zone", severity: "high",
-        reason: `${quote(text)} runs under ${where}${geometry.kind === "surface" ? "; it is on a surface, so move its corners" : ""}.`, fixes });
+        reason: `${quote(text)} runs under ${where}${geometry.kind === "surface" ? "; it is on a surface, so move its corners" : text.pin ? "; it is tracked, so place it again" : ""}.`, fixes });
     }
 
     // Size on a phone (a surface title is sized by its surface, not by `size`).
     const phonePx = (geometry.fontPx * CRITIC.phoneWidthPx) / W;
     if (geometry.kind === "screen" && phonePx < CRITIC.minPhoneFontPx && text.size < TEXT_SIZE_MAX) {
       const size = Math.min(TEXT_SIZE_MAX, Math.ceil(((text.size * CRITIC.minPhoneFontPx) / phonePx) * 20) / 20);
+      // Bigger type takes more room: if at its new size the box would reach into Instagram's zones, the same
+      // step moves it in (from the box at the new size), so making it bigger never undoes a move.
+      const bigger = { ...text, size };
+      const grown = movable ? titleGeometry(ctx.timeline, bigger, ctx.titleFont(bigger), ctx.measure) : null;
+      const reach = grown ? intrusion(grown.box) : null;
+      const centre = grown && reach && Math.max(reach.left, reach.right, reach.top, reach.bottom) > 0 ? safeCentre(text, grown.box) : null;
       findings.push({ ...base, id: `legibility-size:${text.id}`, check: "legibility", severity: "medium",
         reason: `${quote(text)} is about ${Math.round(phonePx)} px on a phone; small type is skipped.`,
-        fixes: [{ kind: "command", label: "Make it bigger", command: { type: "updateText", textId: text.id, patch: { size } }, safe: true }] });
+        fixes: [{ kind: "command", label: "Make it bigger", command: { type: "updateText", textId: text.id, patch: centre ? { size, x: centre.x, y: centre.y } : { size } }, safe: true }] });
     }
 
     // Contrast with the frame behind it. A label, sticker or outline brings its own; a strong shadow or extrusion is already the fix.
@@ -621,9 +639,14 @@ function faceChecks(ctx: Context): CriticFinding[] {
       fixes: [{ kind: "open", label: "Make a closer take", sheet: "ai-video", clipId: clip.id }] as CriticFix[] };
     // The composed keyframe is 1080×1920 like the reel; Fill and the clip's zoom scale her face with the picture.
     const shownPx = face.faceHeightPx !== null ? Math.round(face.faceHeightPx * clip.zoom) : null;
-    if (face.speaking && shownPx !== null && shownPx < CRITIC.minFacePx) {
+    const speaking = face.floorPx !== null && face.floorPx >= MIN_SPEAKING_FACE_PX;
+    if (shownPx !== null && face.floorPx !== null && shownPx < face.floorPx) {
       findings.push({ ...base, id: `face-small:${clip.id}`, check: "face", severity: "high",
-        reason: `She speaks in shot ${index + 1} but her face is only about ${shownPx} px tall; eyes and lips go soft below ${CRITIC.minFacePx}.` });
+        reason: `Her face in shot ${index + 1} is about ${shownPx} px tall, under the ${face.floorPx} px the likeness check needs${speaking ? " for a speaking take" : ""}.` });
+    } else if (speaking && shownPx !== null && shownPx < CRITIC.speakingAdvicePx) {
+      // Above the gate's floor: advice, with no credit-spending fix offered.
+      findings.push({ ...base, fixes: [], id: `face-small:${clip.id}`, check: "face", severity: "low",
+        reason: `She speaks in shot ${index + 1} with her face about ${shownPx} px tall; on a phone her eyes and lips read better from ${CRITIC.speakingAdvicePx} px.` });
     } else if (face.eyesAndMouthRendered === false) {
       findings.push({ ...base, id: `face-features:${clip.id}`, check: "face", severity: "high",
         reason: `The likeness check saw her eyes or mouth badly drawn in shot ${index + 1}.` });
@@ -744,13 +767,28 @@ export async function settleUndecided(findings: CriticFinding[], judge: CriticJu
   return out;
 }
 
-/** The fixes "Fix all" applies: one safe command per finding, text changes before the beat snap. */
+/**
+ * The fixes "Fix all" applies: one safe command per finding, with every change to one title merged into
+ * one `updateText` (a resize, which places the box at its new size, applied over a move), then the beat
+ * snap. Running the critic again afterwards finds nothing left to fix safely.
+ */
 export function safeFixes(findings: readonly CriticFinding[]): BatchableCommand[] {
   const commands = findings.flatMap((finding) => {
     const fix = finding.fixes.find((f): f is Extract<CriticFix, { kind: "command" }> => f.kind === "command" && f.safe);
     return fix ? [fix.command] : [];
   });
-  return [...commands.filter((c) => c.type !== "snapToBeat"), ...commands.filter((c) => c.type === "snapToBeat").slice(0, 1)];
+  const patches = new Map<string, Extract<BatchableCommand, { type: "updateText" }>["patch"]>();
+  const others: BatchableCommand[] = [];
+  const updates = commands.filter((c): c is Extract<BatchableCommand, { type: "updateText" }> => c.type === "updateText");
+  for (const command of [...updates.filter((c) => c.patch.size === undefined), ...updates.filter((c) => c.patch.size !== undefined)]) {
+    patches.set(command.textId, { ...patches.get(command.textId), ...command.patch });
+  }
+  for (const command of commands) if (command.type !== "updateText" && command.type !== "snapToBeat") others.push(command);
+  return [
+    ...[...patches].map(([textId, patch]): BatchableCommand => ({ type: "updateText", textId, patch })),
+    ...others,
+    ...commands.filter((c) => c.type === "snapToBeat").slice(0, 1),
+  ];
 }
 
 /** "Fix all" as one command (one step, one undo), or null when nothing safe is left to fix. */

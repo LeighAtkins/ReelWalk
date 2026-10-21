@@ -179,11 +179,16 @@ function run(timeline: Timeline, command: Command, context: CommandContext): Tim
       const { snap, ...music } = command.music;
       return withMusic(proposal, music, Boolean(snap), durations);
     }
+    // Both throw rather than quietly changing nothing, so a batch holding them is all or nothing.
     case "updateText":
-      return timeline.texts.some((text) => text.id === command.textId) ? updateText(timeline, command.textId, command.patch) : timeline;
-    case "addText":
+      if (!timeline.texts.some((text) => text.id === command.textId)) throw new Error(`There is no text called ${command.textId} in the reel.`);
+      return updateText(timeline, command.textId, command.patch);
+    case "addText": {
       if (timeline.texts.some((text) => text.id === command.text.id)) throw new Error(`A text called ${command.text.id} is already in the reel.`);
-      return addText(timeline, command.text);
+      const added = addText(timeline, command.text);
+      if (added === timeline) throw new Error("There is no room in the reel for that text.");
+      return added;
+    }
     case "batch":
       // Each step runs against the result of the one before; a failing step throws, so the whole batch is rejected.
       return command.commands.reduce((current, step) => run(current, step, { ...context, gestureBase: undefined }), timeline);

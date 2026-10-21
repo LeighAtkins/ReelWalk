@@ -15,6 +15,7 @@ import {
   type CriticInput,
   type CriticSample,
 } from "../src/critic";
+import { MIN_GATE_FACE_PX, MIN_SPEAKING_FACE_PX } from "../src/presenter";
 import type { Measure, TitleFont } from "../src/scene";
 import { parseTimeline, timelineDurationMs, type TextOverlay, type Timeline } from "../src/timeline";
 
@@ -163,6 +164,14 @@ describe("safe zones", () => {
     expect(run(labelled).filter((f) => f.textId === "room-a")).toEqual([]);
   });
 
+  it("a tracked title is never moved by x/y (its path is offsets from them), so Fix all leaves it alone", () => {
+    const pinned = titled({ y: 0.08, pin: { assetId: "v1", fromMs: 0, toMs: 1200 }, path: [{ t: 0, x: 0, y: 0 }, { t: 1, x: 0.05, y: 0.01 }] });
+    const [finding] = ofCheck(run(pinned), "safe-zone");
+    expect(finding.fixes).toEqual([]);
+    expect(finding.reason).toMatch(/tracked/);
+    expect(fixAllCommand(run(pinned))).toBeNull();
+  });
+
   it("a title well inside is not flagged", () => {
     expect(ofCheck(run(titled({ y: 0.4 })), "safe-zone")).toEqual([]);
   });
@@ -208,20 +217,29 @@ describe("dead air", () => {
 
 describe("faces", () => {
   const ai = reel({ clips: [{ id: "say", assetId: "ai1", kind: "VIDEO", sourceStartMs: 0, sourceEndMs: 4000 }, ...reel().clips] });
-  const face = (patch: Partial<CriticFace>): CriticFace => ({ assetId: "ai1", speaking: true, faceHeightPx: 180, identityScore: 0.9, eyesAndMouthRendered: true, ...patch });
+  const face = (patch: Partial<CriticFace>): CriticFace => ({ assetId: "ai1", floorPx: MIN_SPEAKING_FACE_PX, faceHeightPx: 150, identityScore: 0.9, eyesAndMouthRendered: true, ...patch });
 
-  it("a speaking presenter under 220 px is flagged with a new take as the fix, never a timeline change", () => {
+  it("a face under the gate's own floor is flagged high, with a new take offered (never a timeline change)", () => {
     const [finding] = ofCheck(run(ai, { faces: [face({})] }), "face");
     expect(finding.severity).toBe("high");
-    expect(finding.reason).toMatch(/180 px/);
+    expect(finding.reason).toMatch(/150 px.*165 px/);
     expect(finding.fixes).toEqual([{ kind: "open", label: "Make a closer take", sheet: "ai-video", clipId: "say" }]);
     expect(fixAllCommand([finding])).toBeNull();
   });
 
-  it("the clip's zoom counts; a silent shot is not held to the speaking size; a borderline identity score is flagged", () => {
-    const zoomed = parseTimeline({ ...ai, clips: ai.clips.map((clip, i) => (i === 0 ? { ...clip, zoom: 1.4 } : clip)) });
+  it("between the speaking floor and 220 px it is low advice with no credit-spending fix", () => {
+    const [advice] = ofCheck(run(ai, { faces: [face({ faceHeightPx: 190 })] }), "face");
+    expect(advice).toMatchObject({ severity: "low", fixes: [] });
+    expect(advice.reason).toMatch(/190 px/);
+    expect(ofCheck(run(ai, { faces: [face({ faceHeightPx: 230 })] }), "face")).toEqual([]);
+  });
+
+  it("the clip's zoom counts; a silent take is held only to the gate's floor for it; a borderline identity score is flagged", () => {
+    const zoomed = parseTimeline({ ...ai, clips: ai.clips.map((clip, i) => (i === 0 ? { ...clip, zoom: 1.5 } : clip)) });
     expect(ofCheck(run(zoomed, { faces: [face({})] }), "face")).toEqual([]);
-    expect(ofCheck(run(ai, { faces: [face({ speaking: false })] }), "face")).toEqual([]);
+    expect(ofCheck(run(ai, { faces: [face({ floorPx: MIN_GATE_FACE_PX })] }), "face")).toEqual([]);
+    expect(ofCheck(run(ai, { faces: [face({ floorPx: MIN_GATE_FACE_PX, faceHeightPx: 100 })] }), "face")[0]).toMatchObject({ severity: "high" });
+    expect(ofCheck(run(ai, { faces: [face({ floorPx: null })] }), "face")).toEqual([]);
     const [borderline] = ofCheck(run(ai, { faces: [face({ faceHeightPx: 300, identityScore: 0.64 })] }), "face");
     expect(borderline.severity).toBe("medium");
     expect(borderline.reason).toMatch(/0\.64/);
@@ -238,11 +256,16 @@ describe("faces", () => {
         { end: "last", attempt: 1, samePerson: true, confidence: 0.9, faceHeightPx: 240, minFacePx: 165, eyesAndMouthRendered: true },
       ],
     };
-    expect(criticFaceFromGeneration(row)).toEqual({ assetId: "ai1", speaking: true, faceHeightPx: 240, identityScore: 0.82, eyesAndMouthRendered: true });
+    expect(criticFaceFromGeneration(row)).toEqual({ assetId: "ai1", floorPx: 165, faceHeightPx: 240, identityScore: 0.82, eyesAndMouthRendered: true });
+    // The floor is what the gate recorded, not re-derived from the shot: a line the gate held to 120 stays at 120.
+    const recorded = { ...row, identityChecks: row.identityChecks.map((check) => ({ ...check, minFacePx: 120 })) };
+    expect(criticFaceFromGeneration(recorded).floorPx).toBe(MIN_GATE_FACE_PX);
     // An accepted end without eyes and mouth (a take from before the gate required them) is flagged; a row the gate never saw is unknown.
     const smeared = { ...row, identityChecks: [{ end: "first", attempt: 1, samePerson: true, confidence: 0.8, faceHeightPx: 250, eyesAndMouthRendered: false }] };
     expect(criticFaceFromGeneration(smeared).eyesAndMouthRendered).toBe(false);
-    expect(criticFaceFromGeneration({ assetId: "x", shot: null, identityChecks: null, identityScore: null })).toEqual({ assetId: "x", speaking: false, faceHeightPx: null, identityScore: null, eyesAndMouthRendered: null });
+    // Checks from before the gate recorded its floor: a spoken line means the speaking floor.
+    expect(criticFaceFromGeneration(smeared).floorPx).toBe(MIN_SPEAKING_FACE_PX);
+    expect(criticFaceFromGeneration({ assetId: "x", shot: null, identityChecks: null, identityScore: null })).toEqual({ assetId: "x", floorPx: null, faceHeightPx: null, identityScore: null, eyesAndMouthRendered: null });
   });
 });
 
@@ -396,7 +419,9 @@ describe("fix all", () => {
     const command = fixAllCommand(findings)!;
     expect(command.type).toBe("batch");
     const commands = (command as Extract<Command, { type: "batch" }>).commands;
-    expect(commands.map((c) => c.type)).toEqual(["updateText", "updateText", "updateText", "snapToBeat"]);
+    // One updateText per title (the flagged one's move and shadow merged), then the snap.
+    expect(commands.map((c) => c.type)).toEqual(["updateText", "updateText", "snapToBeat"]);
+    expect(commands[0]).toMatchObject({ type: "updateText", textId: "high", patch: { shadow: "strong" } });
     const fixed = applyCommand(timeline, command, ctx);
     expect(fixed.rejected).toBeUndefined();
     // Titles change where they were flagged; the cut changes only by the snap (the still photo is not trimmed).
@@ -404,6 +429,22 @@ describe("fix all", () => {
     expect(fixed.timeline.clips).toEqual(snapped.clips);
     expect(fixed.timeline.music).toEqual(timeline.music);
     expect(diffTimelines(timeline, fixed.timeline).filter((c) => c.kind === "text").map((c) => (c as { id: string }).id).sort()).toEqual(["high", "ok"]);
+  });
+
+  it("a small title low in the frame is made bigger and moved in one step, and the critic then has nothing safe left", () => {
+    const timeline = reel({ clips: [{ id: "a", assetId: "v1", kind: "VIDEO", sourceStartMs: 0, sourceEndMs: 4000 }],
+      texts: [{ id: "low", text: "Four\nlines\nof\ncopy", startMs: 200, endMs: 3500, y: 0.8, style: "elegant", size: 0.3 }] });
+    const findings = run(timeline);
+    expect(findings.map((f) => f.id).sort()).toEqual(["legibility-size:low", "safe-zone:low"]);
+    const commands = (fixAllCommand(findings) as Extract<Command, { type: "batch" }>).commands;
+    expect(commands).toHaveLength(1);
+    expect(commands[0]).toMatchObject({ type: "updateText", textId: "low", patch: { size: expect.any(Number), x: expect.any(Number), y: expect.any(Number) } });
+    const fixed = applyCommand(timeline, fixAllCommand(findings)!, ctx);
+    expect(fixed.changes).toEqual([{ kind: "text", id: "low" }]);
+    expect(run(fixed.timeline)).toEqual([]);
+    // "Make it bigger" alone also keeps it out of the caption.
+    const sizeOnly = applyCommand(timeline, commandOf(findings.find((f) => f.id === "legibility-size:low")!), ctx).timeline;
+    expect(ofCheck(run(sizeOnly), "safe-zone")).toEqual([]);
   });
 
   it("nothing safe to fix is no command", () => {
@@ -417,7 +458,13 @@ describe("the commands the fixes use", () => {
     const bad = applyCommand(timeline, { type: "batch", commands: [{ type: "updateText", textId: "t", patch: { y: 0.5 } }, { type: "addText", text: { id: "t", text: "Again", startMs: 0, x: 0.5, y: 0.5, style: "plain", color: "#ffffff", size: 1 } }] }, ctx);
     expect(bad.rejected).toMatch(/already/);
     expect(bad.timeline).toBe(timeline);
-    expect(applyCommand(timeline, { type: "updateText", textId: "missing", patch: { y: 0.5 } }, ctx).changes).toEqual([]);
+    expect(applyCommand(timeline, { type: "updateText", textId: "missing", patch: { y: 0.5 } }, ctx).rejected).toMatch(/no text/);
+    // A step that would quietly do nothing fails the whole batch too.
+    const hollow = applyCommand(timeline, { type: "batch", commands: [{ type: "updateText", textId: "t", patch: { y: 0.5 } }, { type: "updateText", textId: "gone", patch: { y: 0.6 } }] }, ctx);
+    expect(hollow.rejected).toBeTruthy();
+    expect(hollow.timeline).toBe(timeline);
+    const past = applyCommand(timeline, { type: "addText", text: { id: "late", text: "Late", startMs: 1000, endMs: 1000, x: 0.5, y: 0.5, style: "plain", color: "#ffffff", size: 1 } }, ctx);
+    expect(past.rejected).toMatch(/no room/);
   });
 });
 

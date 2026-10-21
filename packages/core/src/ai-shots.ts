@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { addClips, clipDurationMs, clipSchema, clipStartsMs, type Clip, type Filter, type Timeline } from "./timeline";
 import { luxuryFinish } from "./cinematic";
+import { CHAINED_REFERENCE_MESSAGE, PRESENTER_FRAMINGS, defaultFraming, isGeneratedAssetId } from "./presenter";
 
 /**
  * The listing shots a gimbal operator makes on every job (ADR 0040), as Veo
@@ -57,12 +58,25 @@ export const aiReplacesStill = (mode: AiShotMode) => ["gimbal", "drone", "orbit"
 const frame = z.object({
   assetId: z.string().min(1).max(64), atMs: z.number().int().min(0).max(86_400_000).default(0),
 });
-/** Compose the start/end stills with the presenter before Veo sees them (ADR 0036): where she is in a supplied frame, and what each composed frame shows. */
+/**
+ * Compose the start/end stills with the presenter before Veo sees them (ADR 0036): who she is, and what each composed frame shows.
+ * Who she is comes from the workspace's presenter kit (ADR 0056). A frame reference is kept for older callers, but never a
+ * generated take unless the caller says so explicitly: faces drift when takes are chained.
+ */
 export const aiComposeSchema = z.object({
-  presenter: frame,
+  presenterId: z.string().min(1).max(64).optional(),
+  presenter: frame.optional(),
+  allowGeneratedReference: z.boolean().optional(),
+  framing: z.enum(PRESENTER_FRAMINGS).optional(),
   first: z.string().trim().min(10).max(600).optional(),
   last: z.string().trim().min(10).max(600).optional(),
-}).refine(c => c.first || c.last, "Describe at least one composed frame.");
+}).superRefine((c, ctx) => {
+  if (!c.first && !c.last) ctx.addIssue({ code: "custom", message: "Describe at least one composed frame." });
+  if (!c.presenterId && !c.presenter) ctx.addIssue({ code: "custom", message: "Choose a presenter for the composed frames." });
+  if (!c.presenterId && c.presenter && isGeneratedAssetId(c.presenter.assetId) && !c.allowGeneratedReference) {
+    ctx.addIssue({ code: "custom", message: CHAINED_REFERENCE_MESSAGE });
+  }
+}).transform(c => ({ ...c, framing: c.framing ?? defaultFraming([c.first, c.last]) }));
 export const aiShotSchema = z.object({
   mode: z.enum(AI_SHOT_MODES), first: frame.optional(), last: frame.optional(),
   style: z.enum(AI_SHOT_STYLES).optional(), atmosphere: z.enum(AI_SHOT_ATMOSPHERES).optional(),
@@ -96,6 +110,17 @@ export const aiShotSchema = z.object({
   }
 });
 export type AiShot = z.infer<typeof aiShotSchema>;
+
+/**
+ * A shot the server already accepted, read back from its generation row. Rows from before ADR 0056 may name a
+ * generated take as the presenter; they were accepted then, so reading them back must not lose their voice or draft.
+ */
+export function parseStoredAiShot(stored: unknown) {
+  const raw = stored as { compose?: Record<string, unknown> } | null | undefined;
+  const lenient = raw && typeof raw === "object" && raw.compose && typeof raw.compose === "object"
+    ? { ...raw, compose: { ...raw.compose, allowGeneratedReference: raw.compose.allowGeneratedReference ?? true } } : raw;
+  return aiShotSchema.safeParse(lenient);
+}
 
 export function aiShotStyle(shot: AiShot): Exclude<AiShotStyle, "auto"> {
   if (shot.style !== "auto") return shot.style ?? "source";

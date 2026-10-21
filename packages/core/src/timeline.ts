@@ -280,6 +280,8 @@ export const musicSchema = z
     }).optional(),
     /** "On the beat" (ADR 0059): title entrances, particle bursts and whips go onto the bar when the cut changes. Absent (older reels) is off. */
     onBeat: z.boolean().optional(),
+    /** Chosen by ReelWalk (Make it for me, a finish), not by the studio: a finish may replace it (ADR 0064). Absent: the studio's choice. */
+    autoPicked: z.boolean().optional(),
   })
   // Instagram has no start offset for an attached sound, so neither does the edit.
   .transform((music) => (music.instagramAudioId ? { ...music, sourceStartMs: 0 } : music));

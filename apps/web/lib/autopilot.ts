@@ -51,7 +51,12 @@ export async function makeItForMe(input: {
   if (isAiAvailable()) {
     const asked = await askForChange({ user: input.user, reel: input.reel, timeline: input.timeline, request: autopilotRequest(style.id, input.info), maxLength: 2000 });
     if (asked.ok && asked.applied.length > 0 && usableCut(asked.timeline)) {
-      const { timeline, added, instagramPick } = finishAutopilot(asked.timeline, { ...local, instagramPick: asked.instagramPick });
+      const finished = finishAutopilot(asked.timeline, { ...local, instagramPick: asked.instagramPick });
+      const { added, instagramPick } = finished;
+      // A song the model chose for a reel that had none is an automatic pick: a finish may replace it (ADR 0064).
+      const timeline = !input.timeline.music && finished.timeline.music && !finished.timeline.music.autoPicked
+        ? { ...finished.timeline, music: { ...finished.timeline.music, autoPicked: true } }
+        : finished.timeline;
       return { ok: true, timeline, note: added.length ? `${asked.note} Added: ${added.join(", ")}.` : asked.note, byModel: true, instagramPick };
     }
     if (!asked.ok) console.warn("autopilot: model not used:", asked.message);

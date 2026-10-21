@@ -47,17 +47,20 @@ import { canExport, fixAllCommand, safeFixes, type CriticFinding, type CriticFix
   setLogo,
   setLook,
   keepTextsClearOfCard,
+  currentFinish,
+  FINISHES,
+  type FinishId,
 } from "@reelwalk/core";
 import { ELEGANT_FADE_S, type ReelAsset } from "@reelwalk/render/reel";
 import { deleteReel, exportReel, readyPreviews, saveCaption } from "@/app/actions";
 import { deleteBrief, saveBrief } from "@/app/ai-actions";
 import { analyseInstagramSound } from "@/app/instagram-audio-actions";
 import { runAiJob } from "@/lib/ai-jobs-client";
-import { LookChoices, MusicChoices, ReviewBar, TextChoices, TimingChoices } from "./review";
+import { LookChoices, MusicChoices, TextChoices, TimingChoices } from "./review";
 import { chooseSound } from "@/lib/instagram-sounds-client";
 import { formatDuration } from "@/lib/format";
 import type { LibraryAsset } from "@/lib/library";
-import { takePendingFiles } from "@/lib/pending-files";
+import { hasPendingFiles, takePendingFiles } from "@/lib/pending-files";
 import {
   CaptionIcon,
   CheckIcon,
@@ -93,7 +96,14 @@ import {
   TrimIcon,
   UndoIcon,
   VolumeIcon,
+  PopIcon,
+  PremiumIcon,
+  ReelSettingsIcon,
 } from "../icons";
+import { AskBox } from "./ask-box";
+import { BUILT_IN_CONTROLS, controlsFor, isPresenterClip, targetsFor, type ControlContext, type ResolvedControl } from "./controls";
+import { EXTENSION_CONTROLS } from "./control-extensions";
+import { replaceClipSource } from "./replace-clip";
 import { createClock, useClock, type Clock } from "./clock";
 import { ClipSourceInfo } from "./clip-source-info";
 import { DirectorSheet } from "./director-sheet";
@@ -102,7 +112,7 @@ import { Filmstrip, type PendingUpload, type Selection } from "./filmstrip";
 import { STALE_PROPOSAL, useDocument } from "./use-document";
 import { useCritic } from "./use-critic";
 import { CriticPanel } from "./critic-panel";
-import { runAutopilot } from "./autopilot-flow";
+import { polishDraft, runAutopilot, type AutopilotDraft } from "./autopilot-flow";
 import { landProposal, reviewGeneration } from "./proposals";
 import { HookSheet, PinSheet,
   AskSheet,
@@ -178,7 +188,17 @@ type SheetName =
   | "review-text"
   | "review-timing"
   | "review-music"
-  | "review-look";
+  | "review-look"
+  // ADR 0064: the Reel sheet, replacing a clip, a title's particles or walk-through, and extension panels.
+  | "reel"
+  | "replace"
+  | "text-particles"
+  | "text-walk"
+  | `ext:${string}`;
+
+/** Every control the toolbar can show: the editor's own and the ones other features mount (ADR 0064). */
+const CONTROL_SPECS = [...BUILT_IN_CONTROLS, ...EXTENSION_CONTROLS];
+type ControlHandler = { icon: React.ReactNode; onClick(): void; pressed?: boolean; disabled?: boolean; danger?: boolean };
 
 export type EditorProps = {
   /** Open the media library straight away (a reel started from the library). */
@@ -194,13 +214,16 @@ export type EditorProps = {
   briefs?: Brief[];
   /** Opened from "Make it for me": the panel opens at once, and the reel it makes opens in the review. */
   autopilot?: boolean;
-  /** Open in the draft review (ADR 0022) rather than the timeline. */
-  review?: boolean;
   /** Whether the Music sheet offers Instagram's sounds (null: not on this deployment). */
   instagramSounds?: InstagramSoundAccess;
+  /** This month's AI requests and allowance (null: no AI here), for the "Polish with AI" chip (ADR 0064). */
+  aiUsage?: { used: number; allowed: number } | null;
 };
 
 const newId = () => crypto.randomUUID();
+
+/** What the autopilot endpoint answers (ADR 0021, 0024). */
+type AutopilotCutResult = { ok: true; timeline: unknown; note: string; assets?: LibraryAsset[]; instagramPick?: InstagramAudioTrack } | { ok: false; message: string };
 
 /** A reel nobody has cut yet: clips as they were picked, no text, no music. */
 function isFresh(timeline: Timeline): boolean {
@@ -249,8 +272,11 @@ function Tool({
   disabled,
   pressed,
   danger,
+  ariaLabel,
 }: {
   label: string;
+  /** The accessible name when the visible label is a short form. */
+  ariaLabel?: string;
   onClick(): void;
   children: React.ReactNode;
   disabled?: boolean;
@@ -258,7 +284,7 @@ function Tool({
   danger?: boolean;
 }) {
   return (
-    <button type="button" className={`tool${danger ? " tool-danger" : ""}`} onClick={onClick} disabled={disabled} aria-pressed={pressed}>
+    <button type="button" className={`tool${danger ? " tool-danger" : ""}`} onClick={onClick} disabled={disabled} aria-pressed={pressed} aria-label={ariaLabel}>
       {children}
       {label}
     </button>
@@ -275,12 +301,24 @@ function songFields(asset: LibraryAsset): Pick<MusicChoice, "bpm" | "beatOffsetM
   return { bpm: asset.bpm, beatOffsetMs: asset.beatOffsetMs, ...(asset.songMap ? { downbeats: asset.songMap.downbeats, sections: asset.songMap.sections } : {}) };
 }
 
-export function Editor({ reel, timeline: initialTimeline, library: initialLibrary, openLibrary, tours = {}, instagramSounds = null, askAvailable = false, briefs: initialBriefs = [], autopilot = false, review: startInReview = false }: EditorProps) {
-  const [review, setReview] = useState(startInReview);
+export function Editor({ reel, timeline: initialTimeline, library: initialLibrary, openLibrary, tours = {}, instagramSounds = null, askAvailable = false, briefs: initialBriefs = [], autopilot = false, aiUsage: initialAiUsage = null }: EditorProps) {
+  const [aiUsage, setAiUsage] = useState(initialAiUsage);
   const [briefs, setBriefs] = useState<Brief[]>(initialBriefs);
-  const [autopilotPhase, setAutopilotPhase] = useState<AutopilotPhase>("form");
+  // One entry (ADR 0064): a reel started from the home screen goes straight from the upload to a
+  // finished first cut, with no form. Only when the picked files are waiting in this tab: a reload,
+  // a second tab or an old link with ?auto=1 opens the reel as it is.
+  const [autoStart] = useState(() => autopilot && isFresh(initialTimeline) && hasPendingFiles(reel.id));
+  const [autopilotPhase, setAutopilotPhase] = useState<AutopilotPhase>(autoStart ? "waiting" : "form");
   const [autopilotError, setAutopilotError] = useState<{ message: string; upgrade: boolean } | null>(null);
-  const autopilotRequest = useRef<{ style: string; info: AutopilotInfo } | null>(null);
+  const autopilotRequest = useRef<{ style: string; info: AutopilotInfo } | null>(autoStart ? { style: "just-listed", info: { address: "", price: "", beds: "", baths: "", area: "", openHouse: "" } } : null);
+  // Set once the files picked on the home screen have started uploading (or there were none), so the cut does not start before them.
+  const [uploadsArmed, setUploadsArmed] = useState(false);
+  // Rooms are named while the shots upload; the cut waits a few seconds for the names, never longer.
+  const [namingWaited, setNamingWaited] = useState(false);
+  // "Make it pop" / "Make it premium" while its song is being fetched.
+  const [finishing, setFinishing] = useState<FinishId | null>(null);
+  // Words sent from the Ask box, which the Ask sheet runs as it opens.
+  const [askSeed, setAskSeed] = useState<{ request: string; auto: boolean } | null>(null);
   const router = useRouter();
   const [library, setLibrary] = useState<Record<string, LibraryAsset>>(() => Object.fromEntries(initialLibrary.map((asset) => [asset.id, asset])));
   const libraryRef = useRef(library);
@@ -292,7 +330,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
   const [title, setTitle] = useState(reel.title);
   const [caption, setCaption] = useState(reel.caption);
   const [selection, setSelection] = useState<Selection>(null);
-  const [sheet, setSheet] = useState<SheetName | null>(autopilot ? "autopilot" : openLibrary && initialTimeline.clips.length === 0 ? "media" : null);
+  const [sheet, setSheet] = useState<SheetName | null>(autoStart ? "autopilot" : openLibrary && initialTimeline.clips.length === 0 ? "media" : null);
   const [uploads, setUploads] = useState<PendingUpload[]>([]);
   const [musicUploading, setMusicUploading] = useState(false);
   // Editing to the beat (ADR 0059): measured clip motion and song bars, gathered when the Music sheet opens.
@@ -382,6 +420,11 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
     },
     [showToast],
   );
+
+  // Words from the Ask box are for the Ask sheet they opened, never a later one.
+  useEffect(() => {
+    if (sheet !== "ask") setAskSeed(null);
+  }, [sheet]);
 
   // A tip is about the editor behind it; opening a sheet puts it away.
   useEffect(() => {
@@ -506,6 +549,11 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
     [apply, showToast],
   );
 
+  // ?auto=1 has done its work once the editor is open: reopening the address opens the reel.
+  useEffect(() => {
+    if (window.location.search.includes("auto=1")) window.history.replaceState(window.history.state, "", window.location.pathname);
+  }, []);
+
   // Files picked on the home screen arrive with the navigation.
   const pendingTaken = useRef(false);
   useEffect(() => {
@@ -513,6 +561,8 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
     pendingTaken.current = true;
     const files = takePendingFiles(reel.id);
     if (files.length > 0) void addFiles(files);
+    // Batched with addFiles' first state update: the next render already counts the uploads.
+    setUploadsArmed(true);
   }, [reel.id, addFiles]);
 
   const uploadMusic = useCallback(
@@ -627,6 +677,48 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
   /** How Ask, Make it for me and the director apply what they bring back (proposals.ts). */
   // The document's own runCommand: each path reports a refused proposal in its own words.
   const proposalDeps = useMemo(() => ({ runCommand: runDocumentCommand, snapshot, fetchSound: fetchInstagramSound }), [runDocumentCommand, snapshot, fetchInstagramSound]);
+
+  // ── Two finishes (ADR 0064) ─────────────────────────────────
+  // "Make it pop" / "Make it premium": the server picks a song for the mood from the same list Ask uses
+  // (or says keep this one); the song is fetched, then music, type, pace and look land as one command.
+  const finishReel = useCallback(
+    async (id: FinishId) => {
+      const finish = FINISHES[id];
+      setFinishing(id);
+      try {
+        const music = snapshot().timeline.music;
+        let choice: MusicChoice | null = null;
+        let songNote = music && !music.autoPicked ? "kept your song" : "kept the song";
+        try {
+          const response = await fetch(`/api/reels/${reel.id}/finish`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ finish: id, assetId: music?.assetId ?? null, instagramAudioId: music?.instagramAudioId ?? null, autoPicked: music?.autoPicked ?? false }),
+          });
+          const data = (await response.json()) as { ok: boolean; song?: { title: string; asset?: LibraryAsset; instagram?: InstagramAudioTrack } | null };
+          if (data.ok && data.song?.instagram) {
+            choice = await fetchInstagramSound(data.song.instagram);
+            if (choice) songNote = `“${data.song.title}”`;
+          } else if (data.ok && data.song?.asset) {
+            const asset = data.song.asset;
+            setLibrary((current) => ({ ...current, [asset.id]: asset }));
+            libraryRef.current = { ...libraryRef.current, [asset.id]: asset };
+            choice = { assetId: asset.id, sourceStartMs: 0, ...songFields(asset) };
+            songNote = `“${data.song.title}”`;
+          }
+        } catch {
+          // Offline or no song list: the finish still sets the type, pace and look.
+        }
+        // Paced like the Energy control (ADR 0059): measured clip motion so far, the song's bars when known, speech held.
+        const songId = choice?.assetId ?? music?.assetId;
+        const result = runCommand({ type: "applyFinish", finish: id, music: choice, speechAssetIds: speechAssetIds(libraryRef.current), clipEnergy: { ...clipEnergies.current }, songMap: songId ? (songMaps.current[songId] ?? libraryRef.current[songId]?.songMap ?? undefined) : undefined });
+        if (!result.rejected) showToast(`${finish.label.replace("Make it ", "").replace(/^./, (c) => c.toUpperCase())}: ${finish.summary}; ${songNote}. Undo takes it back.`, 6000);
+      } finally {
+        setFinishing(null);
+      }
+    },
+    [reel.id, snapshot, fetchInstagramSound, runCommand, showToast],
+  );
 
   // ── New version ─────────────────────────────────────────────
   // After a deploy, this page's uploads and exports (server actions) stop
@@ -876,8 +968,53 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
   // meantime: the polish is a proposal against the first cut's generation,
   // made from the same input as that cut (autopilot-flow.ts, ADR 0048).
   const [polishing, setPolishing] = useState(false);
+  // The first cut the model may polish, while the reel is still exactly that cut (ADR 0064).
+  const [polishable, setPolishable] = useState<{ draft: AutopilotDraft; style: string; info: AutopilotInfo } | null>(null);
+  const autopilotSteps = useCallback(
+    (style: string, info: AutopilotInfo) => ({
+      snapshot,
+      quick: async (from: Timeline) => {
+        const response = await fetch(`/api/reels/${reel.id}/autopilot`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ timeline: from, style, info, quick: true }) });
+        return (await response.json()) as AutopilotCutResult;
+      },
+      polish: (from: Timeline) => runAiJob<AutopilotCutResult>(`/api/reels/${reel.id}/autopilot`, { timeline: from, style, info }),
+      // The cut, and the Instagram sound it chose snapped to, land as one proposal against `baseGeneration`.
+      takeIn: (data: AutopilotCutResult & { ok: true }, baseGeneration: number) => {
+        if (data.assets?.length) setLibrary((current) => ({ ...current, ...Object.fromEntries(data.assets!.map((asset) => [asset.id, asset])) }));
+        return landProposal(proposalDeps, baseGeneration, data.timeline, data.instagramPick, { autoPicked: true });
+      },
+    }),
+    [reel.id, snapshot, proposalDeps],
+  );
+  const polishEvents = useMemo(
+    () => ({
+      polished: () => {
+        setPolishing(false);
+        showToast("Polished: order, cut and text by ReelWalk. Undo brings the first cut back.", 7000);
+      },
+      polishStale: () => {
+        setPolishing(false);
+        showToast("The reel changed while ReelWalk polished it, so your version stays. Review it, or ask for a change.", 6000);
+      },
+      polishFailed: (message: string) => {
+        setPolishing(false);
+        showToast(message, 6000);
+      },
+    }),
+    [showToast],
+  );
+  const [naming, setNaming] = useState(0);
+  // Once the shots are up, the room names get a few seconds to arrive.
+  const shotsUp = autopilotPhase === "waiting" && uploadsArmed && uploads.length === 0;
   useEffect(() => {
-    if (autopilotPhase !== "waiting" || uploads.length > 0 || !autopilotRequest.current) return;
+    if (!shotsUp || namingWaited) return;
+    const timer = setTimeout(() => setNamingWaited(true), 6000);
+    return () => clearTimeout(timer);
+  }, [shotsUp, namingWaited]);
+  useEffect(() => {
+    if (autopilotPhase !== "waiting" || !uploadsArmed || uploads.length > 0 || !autopilotRequest.current) return;
+    // The rooms named as the shots arrived go into the first cut's labels; a slow answer is not waited for.
+    if (!namingWaited && (naming > 0 || (sheet === "autopilot" && timeline.clips.some((clip) => !clip.room && !roomsAsked.current.has(clip.assetId))))) return;
     if (timeline.clips.length === 0) {
       setAutopilotPhase("form");
       setAutopilotError({ message: "None of the shots uploaded. Pick them again from the home screen.", upgrade: false });
@@ -886,55 +1023,41 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
     const { style, info } = autopilotRequest.current;
     autopilotRequest.current = null;
     setAutopilotPhase("cutting");
-    type Cut = { ok: true; timeline: unknown; note: string; assets?: LibraryAsset[]; instagramPick?: InstagramAudioTrack } | { ok: false; message: string };
-    void runAutopilot<Cut>(
-      {
-        snapshot,
-        quick: async (from) => {
-          const response = await fetch(`/api/reels/${reel.id}/autopilot`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ timeline: from, style, info, quick: true }) });
-          return (await response.json()) as Cut;
-        },
-        polish: (from) => runAiJob<Cut>(`/api/reels/${reel.id}/autopilot`, { timeline: from, style, info }),
-        // The cut, and the Instagram sound it chose snapped to, land as one proposal against `baseGeneration`.
-        takeIn: (data, baseGeneration) => {
-          if (data.assets?.length) setLibrary((current) => ({ ...current, ...Object.fromEntries(data.assets!.map((asset) => [asset.id, asset])) }));
-          return landProposal(proposalDeps, baseGeneration, data.timeline, data.instagramPick);
-        },
-      },
+    // Only the rule cut runs by itself: it spends no AI allowance. The model's polish is a one-tap chip on the cut (ADR 0064).
+    void runAutopilot<AutopilotCutResult>(
+      autopilotSteps(style, info),
       {
         fail: (message) => {
           setAutopilotPhase("form");
           setAutopilotError({ message, upgrade: false });
         },
-        // A draft, not an export (ADR 0022): it opens in the review, playing with its music;
-        // the studio changes what it wants and exports when it is right.
-        draft: () => {
+        // A draft, not an export (ADR 0022): the editor opens on the finished cut (ADR 0064), where
+        // tapping a title, a shot or the music changes it, and the two finishes restyle it whole.
+        draft: (draft) => {
           setAutopilotPhase("form");
           setSheet(null);
-          setReview(true);
-          setPolishing(true);
-          showToast("Here is a first cut. ReelWalk is polishing it; play it meanwhile.", 6000);
+          setSelection(null);
+          setPolishable({ draft, style, info });
+          showToast("Here is your first cut, with music, titles and a hook. Tap anything to change it.", 6000);
         },
-        polished: () => {
-          setPolishing(false);
-          showToast("Polished: order, cut and text by ReelWalk. Undo brings the first cut back.", 7000);
-        },
-        polishStale: () => {
-          setPolishing(false);
-          showToast("The reel changed while ReelWalk polished it, so your version stays. Review it, or ask for a change.", 6000);
-        },
-        polishFailed: (message) => {
-          setPolishing(false);
-          showToast(message, 6000);
-        },
+        ...polishEvents,
       },
       STALE_PROPOSAL,
+      "later",
     );
-  }, [autopilotPhase, uploads.length, timeline.clips.length, reel.id, showToast, snapshot, proposalDeps]);
+  }, [autopilotPhase, uploadsArmed, uploads.length, naming, namingWaited, sheet, timeline.clips, showToast, autopilotSteps, polishEvents]);
+
+  /** The model's polish of the first cut, when the studio taps for it: one AI request from the month's allowance. */
+  const polishNow = useCallback(() => {
+    if (!polishable) return;
+    const { draft, style, info } = polishable;
+    setPolishable(null);
+    setPolishing(true);
+    void polishDraft(autopilotSteps(style, info), draft, polishEvents).finally(() => setAiUsage((current) => (current ? { ...current, used: current.used + 1 } : current)));
+  }, [polishable, autopilotSteps, polishEvents]);
 
   // Rooms named as soon as the shots are up, so they show (and can be changed) before the reel is made.
   const roomsAsked = useRef(new Set<string>());
-  const [naming, setNaming] = useState(0);
   useEffect(() => {
     // Named as each shot lands, while the others are still uploading (ADR 0024).
     if (sheet !== "autopilot") return;
@@ -1064,8 +1187,123 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
     conflict: "Not saved",
   }[autosave.status];
 
-  // ── Toolbars ────────────────────────────────────────────────
-  let tools: React.ReactNode;
+  // ── Toolbars: what a tap reaches (ADR 0064) ─────────────────
+  // The controls come from one registry (controls.ts) for the thing selected:
+  // nothing (the reel), a clip (and the presenter, for an AI take), a title or the music.
+  const selectedAsset = selectedClip ? library[selectedClip.assetId] : undefined;
+  const presenterSelected = selectedClip ? isPresenterClip(selectedClip.id, selectedAsset) : false;
+  const controlContext: ControlContext = {
+    timeline,
+    clip: selectedClip,
+    clipIndex: selectedClipIndex,
+    text: selectedText,
+    asset: selectedAsset ? { kind: selectedAsset.kind, isPano: selectedAsset.isPano, isPresenterTake: selectedAsset.isPresenterTake } : null,
+    askAvailable,
+    instagram: instagramSounds !== null,
+  };
+  const controls = controlsFor(targetsFor(activeSelection, presenterSelected), controlContext, CONTROL_SPECS);
+  const finishOn = currentFinish(timeline);
+
+  /** What each built-in control does when tapped: its icon, and whether it is on or unavailable now. */
+  const handlers: Record<string, ControlHandler> = {
+    // The reel
+    "text-new": { icon: <TextIcon />, onClick: () => setSheet("text-new"), disabled: !hasClips },
+    "music-open": { icon: <MusicIcon />, onClick: () => setSheet("music"), disabled: !hasClips },
+    media: { icon: <PlusIcon />, onClick: () => setSheet("media") },
+    "finish-pop": { icon: <PopIcon />, onClick: () => void finishReel("pop"), pressed: finishOn === "pop", disabled: !hasClips || finishing !== null },
+    "finish-premium": { icon: <PremiumIcon />, onClick: () => void finishReel("premium"), pressed: finishOn === "premium", disabled: !hasClips || finishing !== null },
+    "reel-more": { icon: <ReelSettingsIcon />, onClick: () => setSheet("reel") },
+    pace: { icon: <ClockIcon />, onClick: () => setSheet("review-timing"), disabled: !hasClips },
+    "look-all": { icon: <FilterIcon />, onClick: () => setSheet("review-look"), disabled: !hasClips },
+    words: { icon: <EditIcon />, onClick: () => setSheet("review-text"), disabled: timeline.texts.length === 0 && !timeline.clips.some((clip) => clip.room) },
+    hook: { icon: <SparkIcon />, onClick: () => setSheet("hook"), disabled: !hasClips, pressed: timeline.hook !== null || timeline.texts.some((t) => t.id.startsWith("hook-word-")) },
+    details: { icon: <DetailsIcon />, onClick: () => setSheet("details") },
+    caption: { icon: <CaptionIcon />, onClick: () => setSheet("caption") },
+    logo: { icon: <LogoIcon />, onClick: () => setSheet("logo"), disabled: !hasClips, pressed: timeline.logo !== null },
+    plan: { icon: <PlanIcon />, onClick: () => setSheet("plan") },
+    "ai-video": { icon: <MotionIcon />, onClick: () => setSheet("ai-video") },
+    director: { icon: <AskIcon />, onClick: () => setSheet("director"), disabled: !hasClips },
+    split: { icon: <SplitIcon />, onClick: split, disabled: !hasClips },
+    guides: { icon: <GuidesIcon />, onClick: () => setGuides(!guides), pressed: guides },
+    "delete-reel": {
+      icon: <TrashIcon />,
+      danger: true,
+      onClick: async () => {
+        if (!window.confirm(`Delete "${title}"? Its exports are deleted too. Uploaded media stays in your library.`)) return;
+        const form = new FormData();
+        form.set("id", reel.id);
+        await deleteReel(form);
+      },
+    },
+    // A title
+    "text-edit": { icon: <EditIcon />, onClick: () => setSheet("text-edit") },
+    particles: { icon: <SparkIcon />, onClick: () => setSheet("text-particles"), pressed: Boolean(selectedText?.particles) },
+    "walk-through": { icon: <MoveRightIcon />, onClick: () => setSheet("text-walk"), pressed: Boolean(selectedText?.behind) },
+    pin: { icon: <MotionIcon />, onClick: () => setSheet("pin"), pressed: Boolean(selectedText?.path && selectedText.path.length > 2) },
+    timing: { icon: <ClockIcon />, onClick: () => setSheet("timing") },
+    // The music
+    "music-adjust": { icon: <VolumeIcon />, onClick: () => setSheet("music") },
+    "music-replace": { icon: <SwapIcon />, onClick: () => setSheet("music") },
+    "music-suggest": { icon: <SparkIcon />, onClick: () => setSheet("review-music") },
+    // The presenter
+    "redo-take": { icon: <SwapIcon />, onClick: () => setSheet("presenter") },
+    "new-take": { icon: <PlusIcon />, onClick: () => setSheet("presenter") },
+  };
+  if (selectedClip) {
+    const index = selectedClipIndex;
+    const isVideo = selectedClip.kind === "VIDEO";
+    Object.assign(handlers, {
+      trim: { icon: isVideo ? <TrimIcon /> : <ClockIcon />, onClick: () => setSheet("trim") },
+      speed: { icon: <SpeedIcon />, onClick: () => setSheet("speed") },
+      zoom: { icon: <ZoomIcon />, onClick: () => setSheet("zoom") },
+      replace: { icon: <SwapIcon />, onClick: () => setSheet("replace") },
+      volume: { icon: <VolumeIcon />, onClick: () => setSheet("volume") },
+      pano: { icon: <PanoIcon />, onClick: () => setSheet("pano") },
+      motion: { icon: <MotionIcon />, onClick: () => setSheet("motion") },
+      look: { icon: <FilterIcon />, onClick: () => setSheet("look") },
+      cover: {
+        icon: <CoverIcon />,
+        pressed: timeline.cover?.clipId === selectedClip.id,
+        onClick: () => {
+          // The frame under the playhead, inside this clip, is the cover Instagram shows; pressing again lets it go.
+          if (timeline.cover?.clipId === selectedClip.id) {
+            apply((current) => setCover(current, null));
+            showToast("The cover is the usual frame again.");
+            return;
+          }
+          const start = clipStartsMs(timeline)[index];
+          const offsetMs = Math.max(0, Math.min(clock.get() - start, clipDurationMs(selectedClip) - 100));
+          apply((current) => setCover(current, { clipId: selectedClip.id, offsetMs }));
+          showToast("This frame is the cover Instagram shows.");
+        },
+      },
+      fit: { icon: <FitIcon />, onClick: () => apply((current) => updateClip(current, selectedClip.id, { fit: selectedClip.fit === "cover" ? "contain" : "cover" })) },
+      transition: { icon: <TransitionIcon />, onClick: () => setSheet("transition"), disabled: index === 0 },
+      duplicate: { icon: <DuplicateIcon />, onClick: () => runCommand({ type: "duplicateClip", clipId: selectedClip.id, newId: newId() }) },
+      earlier: { icon: <MoveLeftIcon />, onClick: () => runCommand({ type: "moveClip", clipId: selectedClip.id, toIndex: index - 1 }), disabled: index === 0 },
+      later: { icon: <MoveRightIcon />, onClick: () => runCommand({ type: "moveClip", clipId: selectedClip.id, toIndex: index + 1 }), disabled: index === timeline.clips.length - 1 },
+      split: { icon: <SplitIcon />, onClick: split },
+    } satisfies Record<string, ControlHandler>);
+  }
+  /** A control as a tool button: built-ins by their handler, extensions open their panel in a sheet. */
+  const renderControl = (control: ResolvedControl) => {
+    const handler = handlers[control.id];
+    if (handler) {
+      return (
+        <Tool key={control.id} label={control.label} ariaLabel={control.ariaLabel} onClick={handler.onClick} pressed={handler.pressed} disabled={handler.disabled} danger={handler.danger}>
+          {handler.icon}
+        </Tool>
+      );
+    }
+    if (EXTENSION_CONTROLS.some((extension) => extension.id === control.id)) {
+      return (
+        <Tool key={control.id} label={control.label} onClick={() => setSheet(`ext:${control.id}`)}>
+          <SparkIcon />
+        </Tool>
+      );
+    }
+    return null;
+  };
   // With something selected, Done stays at the left and Delete at the right;
   // only the tools between them scroll.
   const selectionLead = activeSelection ? (
@@ -1078,171 +1316,17 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
       <TrashIcon />
     </Tool>
   ) : null;
-  if (selectedClip) {
-    const index = selectedClipIndex;
-    const isVideo = selectedClip.kind === "VIDEO";
-    tools = (
-      <>
-        <Tool label="Split" onClick={split}>
-          <SplitIcon />
-        </Tool>
-        <Tool label={isVideo ? "Trim" : "Length"} onClick={() => setSheet("trim")}>
-          {isVideo ? <TrimIcon /> : <ClockIcon />}
-        </Tool>
-        {isVideo ? (
-          <>
-            <Tool label="Speed" onClick={() => setSheet("speed")}>
-              <SpeedIcon />
-            </Tool>
-            <Tool label="Volume" onClick={() => setSheet("volume")}>
-              <VolumeIcon />
-            </Tool>
-            <Tool label="Motion" onClick={() => setSheet("motion")}><MotionIcon /></Tool>
-          </>
-        ) : (
-          <>
-            {library[selectedClip.assetId]?.isPano || selectedClip.pano ? (
-              <Tool label="360 view" onClick={() => setSheet("pano")}>
-                <PanoIcon />
-              </Tool>
-            ) : null}
-            {!selectedClip.pano ? (
-              <Tool label="Motion" onClick={() => setSheet("motion")}>
-                <MotionIcon />
-              </Tool>
-            ) : null}
-          </>
-        )}
-        <Tool label="Look" onClick={() => setSheet("look")}>
-          <FilterIcon />
-        </Tool>
-        <Tool label="Zoom" onClick={() => setSheet("zoom")}>
-          <ZoomIcon />
-        </Tool>
-        <Tool
-          label="Cover"
-          pressed={timeline.cover?.clipId === selectedClip.id}
-          onClick={() => {
-            // The frame under the playhead, inside this clip, is the cover Instagram shows; pressing again lets it go.
-            if (timeline.cover?.clipId === selectedClip.id) {
-              apply((current) => setCover(current, null));
-              showToast("The cover is the usual frame again.");
-              return;
-            }
-            const start = clipStartsMs(timeline)[index];
-            const offsetMs = Math.max(0, Math.min(clock.get() - start, clipDurationMs(selectedClip) - 100));
-            apply((current) => setCover(current, { clipId: selectedClip.id, offsetMs }));
-            showToast("This frame is the cover Instagram shows.");
-          }}
-        >
-          <CoverIcon />
-        </Tool>
-        <Tool
-          label={selectedClip.fit === "cover" ? "Fit" : "Fill"}
-          onClick={() => apply((current) => updateClip(current, selectedClip.id, { fit: selectedClip.fit === "cover" ? "contain" : "cover" }))}
-        >
-          <FitIcon />
-        </Tool>
-        <Tool label="Transition" disabled={index === 0} onClick={() => setSheet("transition")}>
-          <TransitionIcon />
-        </Tool>
-        <Tool label="Duplicate" onClick={() => runCommand({ type: "duplicateClip", clipId: selectedClip.id, newId: newId() })}>
-          <DuplicateIcon />
-        </Tool>
-        <Tool label="Earlier" disabled={index === 0} onClick={() => runCommand({ type: "moveClip", clipId: selectedClip.id, toIndex: index - 1 })}>
-          <MoveLeftIcon />
-        </Tool>
-        <Tool label="Later" disabled={index === timeline.clips.length - 1} onClick={() => runCommand({ type: "moveClip", clipId: selectedClip.id, toIndex: index + 1 })}>
-          <MoveRightIcon />
-        </Tool>
-      </>
-    );
-  } else if (selectedText) {
-    tools = (
-      <>
-        <Tool label="Edit" onClick={() => setSheet("text-edit")}>
-          <EditIcon />
-        </Tool>
-        <Tool label="Timing" onClick={() => setSheet("timing")}>
-          <ClockIcon />
-        </Tool>
-        <Tool label="Pin" pressed={Boolean(selectedText.path && selectedText.path.length > 2)} onClick={() => setSheet("pin")}>
-          <MotionIcon />
-        </Tool>
-        <Tool label="Guides" pressed={guides} onClick={() => setGuides(!guides)}>
-          <GuidesIcon />
-        </Tool>
-      </>
-    );
-  } else if (musicSelected) {
-    tools = (
-      <>
-        <Tool label="Adjust" onClick={() => setSheet("music")}>
-          <VolumeIcon />
-        </Tool>
-        <Tool label="Replace" onClick={() => setSheet("music")}>
-          <SwapIcon />
-        </Tool>
-      </>
-    );
-  } else {
-    tools = (
-      <>
-        <Tool label="Add media" onClick={() => setSheet("media")}>
-          <PlusIcon />
-        </Tool>
-        <Tool label="AI video" onClick={() => setSheet("ai-video")}>
-          <MotionIcon />
-        </Tool>
-        <Tool label="Text" disabled={!hasClips} onClick={() => setSheet("text-new")}>
-          <TextIcon />
-        </Tool>
-        <Tool label="Music" disabled={!hasClips} onClick={() => setSheet("music")}>
-          <MusicIcon />
-        </Tool>
-        {askAvailable ? (
-          <Tool label="Ask" disabled={!hasClips} onClick={() => setSheet("ask")}>
-            <AskIcon />
-          </Tool>
-        ) : null}
-        <Tool label="Split" disabled={!hasClips} onClick={split}>
-          <SplitIcon />
-        </Tool>
-        {timeline.plan ? (
-          <Tool label="Floor plan" onClick={() => setSheet("plan")}>
-            <PlanIcon />
-          </Tool>
-        ) : null}
-        <Tool label="Details" onClick={() => setSheet("details")}>
-          <DetailsIcon />
-        </Tool>
-        <Tool label="Hook" disabled={!hasClips} pressed={timeline.hook !== null || timeline.texts.some((t) => t.id.startsWith("hook-word-"))} onClick={() => setSheet("hook")}>
-          <SparkIcon />
-        </Tool>
-        <Tool label="Logo" disabled={!hasClips} pressed={timeline.logo !== null} onClick={() => setSheet("logo")}>
-          <LogoIcon />
-        </Tool>
-        <Tool label="Caption" onClick={() => setSheet("caption")}>
-          <CaptionIcon />
-        </Tool>
-        <Tool label="Guides" pressed={guides} onClick={() => setGuides(!guides)}>
-          <GuidesIcon />
-        </Tool>
-        <Tool
-          label="Delete reel"
-          danger
-          onClick={async () => {
-            if (!window.confirm(`Delete "${title}"? Its exports are deleted too. Uploaded media stays in your library.`)) return;
-            const form = new FormData();
-            form.set("id", reel.id);
-            await deleteReel(form);
-          }}
-        >
-          <TrashIcon />
-        </Tool>
-      </>
-    );
-  }
+  const tools = controls.filter((control) => control.place === "bar").map(renderControl);
+  const moreControls = controls.filter((control) => control.place === "more");
+  // Ask is scoped by what is selected: the request names it, so the change lands on that thing.
+  const askScope = selectedText
+    ? { placeholder: "Change this title…", prefix: `About the title “${selectedText.text.replace(/\s+/g, " ").slice(0, 60)}”: ` }
+    : selectedClip
+      ? { placeholder: "Change this shot…", prefix: `About shot ${selectedClipIndex + 1}${selectedClip.room ? ` (the ${selectedClip.room})` : ""}: ` }
+      : musicSelected
+        ? { placeholder: "Change the music…", prefix: "About the music: " }
+        : { placeholder: "Change anything…", prefix: "" };
+  const activeExtension = sheet?.startsWith("ext:") ? EXTENSION_CONTROLS.find((extension) => `ext:${extension.id}` === sheet) : undefined;
 
   const closeSheet = () => setSheet(null);
 
@@ -1265,7 +1349,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
   }, [selectedKind, selectedClip?.kind, markToolbar]);
 
   return (
-    <div className="editor" data-testid="editor" data-review={review || undefined}>
+    <div className="editor" data-testid="editor">
       <header className="editor-top">
         <button type="button" className="icon-btn" aria-label="Close editor" onClick={close}>
           <CloseIcon />
@@ -1357,19 +1441,6 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         }
       />
 
-      {review ? (
-        <ReviewBar
-          timeline={timeline}
-          polishing={polishing}
-          onChange={(change) => {
-            playerRef.current?.pause();
-            setSheet(change === "ask" ? "ask" : (`review-${change}` as SheetName));
-          }}
-          onFullEditor={() => setReview(false)}
-        />
-      ) : null}
-
-      {review ? null : (
       <>
       <div>
       <div className="transport">
@@ -1426,15 +1497,43 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         presenterReady={scriptRun.toPlace.length > 0}
       />
 
-      <nav className="toolbar" aria-label="Editing tools">
-        {selectionLead ? <span className="toolbar-context">{selectionLead}</span> : null}
-        <div className="toolbar-scroll" ref={toolbarRef} onScroll={markToolbar}>
-          {tools}
-        </div>
-        {selectionTail ? <span className="toolbar-end">{selectionTail}</span> : null}
-      </nav>
+      <div className="editor-bottom">
+        {askAvailable && hasClips ? (
+          <AskBox
+            placeholder={askScope.placeholder}
+            onSend={(request) => {
+              playerRef.current?.pause();
+              setAskSeed({ request: askScope.prefix + request, auto: true });
+              setSheet("ask");
+            }}
+            onOpen={() => {
+              setAskSeed(null);
+              setSheet("ask");
+            }}
+          />
+        ) : null}
+        {polishable && askAvailable && !polishing && generation === polishable.draft.generation ? (
+          <div className="polish-note">
+            <button type="button" className="chip chip-btn" onClick={polishNow} disabled={aiUsage !== null && aiUsage.used >= aiUsage.allowed} data-testid="polish-ai">
+              <SparkIcon size={16} />{" "}
+              {aiUsage === null ? "Polish with AI" : aiUsage.used >= aiUsage.allowed ? "No AI polishes left this month" : `Polish with AI (uses 1 of ${aiUsage.allowed - aiUsage.used} left)`}
+            </button>
+          </div>
+        ) : null}
+        {polishing ? (
+          <p className="polish-note muted small" role="status" data-testid="polishing">
+            <span className="music-spinner" aria-hidden="true" /> Polishing with AI…
+          </p>
+        ) : null}
+        <nav className="toolbar" aria-label="Editing tools">
+          {selectionLead ? <span className="toolbar-context">{selectionLead}</span> : null}
+          <div className="toolbar-scroll" ref={toolbarRef} onScroll={markToolbar}>
+            {tools}
+          </div>
+          {selectionTail ? <span className="toolbar-end">{selectionTail}</span> : null}
+        </nav>
+      </div>
       </>
-      )}
 
       {updated && !sheet ? (
         <div className="update-notice" role="status">
@@ -1555,7 +1654,53 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
       ) : null}
 
       {sheet === "text-new" ? <TextSheet initial={null} onSave={saveText} onClose={closeSheet} /> : null}
-      {sheet === "text-edit" && selectedText ? <TextSheet initial={selectedText} playheadNow={clock.get} title={selectedText} music={timeline.music} onSave={saveText} onClose={closeSheet} /> : null}
+      {(sheet === "text-edit" || sheet === "text-particles" || sheet === "text-walk") && selectedText ? (
+        <TextSheet initial={selectedText} playheadNow={clock.get} title={selectedText} music={timeline.music} focus={sheet === "text-particles" ? "particles" : sheet === "text-walk" ? "walk-through" : undefined} onSave={saveText} onClose={closeSheet} />
+      ) : null}
+
+      {sheet === "reel" ? (
+        // Reel-wide settings, used now and then (ADR 0064): what the old toolbar and review carried, in one place.
+        <Sheet title="This reel" onClose={closeSheet}>
+          <div className="reel-controls" role="group" aria-label="Reel settings">
+            {moreControls.map(renderControl)}
+          </div>
+          {autopilotPhase === "form" ? (
+            <button type="button" className="btn btn-quiet btn-block" disabled={!hasClips} onClick={() => setSheet("autopilot")} data-testid="remake">
+              Make it for me again: pick a style and the facts
+            </button>
+          ) : null}
+        </Sheet>
+      ) : null}
+
+      {sheet === "replace" && selectedClip ? (
+        <MediaSheet
+          replace
+          library={libraryList.filter((asset) => asset.id !== selectedClip.assetId)}
+          onUpload={addFiles}
+          onPick={([asset]) => {
+            if (asset) apply((current) => replaceClipSource(current, selectedClip.id, asset));
+            showToast("Clip replaced. Undo brings the old one back.");
+            setSheet(null);
+          }}
+          onClose={closeSheet}
+        />
+      ) : null}
+
+      {activeExtension ? (
+        <Sheet title={activeExtension.title ?? (typeof activeExtension.label === "function" ? activeExtension.label(controlContext) : activeExtension.label)} onClose={closeSheet}>
+          <activeExtension.Panel
+            timeline={timeline}
+            clip={selectedClip}
+            text={selectedText}
+            runCommand={runCommand}
+            apply={apply}
+            now={clock.get}
+            seek={seek}
+            toast={showToast}
+            onClose={closeSheet}
+          />
+        </Sheet>
+      ) : null}
       {sheet === "pin" && selectedText ? (() => {
         const at = locate(timeline, selectedText.startMs);
         const clip = at ? timeline.clips[at.index] : null;
@@ -1678,6 +1823,8 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
 
       {sheet === "ask" ? (
         <AskSheet
+          initialRequest={askSeed?.request}
+          autoSubmit={askSeed?.auto}
           onDirector={() => setSheet("director")}
           briefs={briefs}
           fresh={isFresh(timeline)}

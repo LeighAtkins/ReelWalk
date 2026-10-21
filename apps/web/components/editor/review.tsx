@@ -15,68 +15,14 @@ import {
 } from "@reelwalk/core";
 import { FILTER_LABELS } from "@reelwalk/render/reel";
 import { formatDuration } from "@/lib/format";
-import { AskIcon, MusicIcon, PauseIcon, PlayIcon, TextIcon } from "../icons";
+import { PauseIcon, PlayIcon } from "../icons";
 import { Sheet } from "../sheet";
 
 /**
- * The draft review (ADR 0022). A reel made for you opens here, not in the
- * timeline: full screen, playing with its music, and under it the few things
- * people change: the text, the pace, the music, the look, or anything in
- * words. Export is in the corner for when it is right; the full editor is one
- * tap away for those who want it.
+ * The draft review's choices (ADR 0022). The full-screen review itself is gone
+ * (ADR 0064): a made reel opens in the editor, and these sheets are reached
+ * from the Reel sheet (Pace, Look, Words) and the music (Suggestions).
  */
-export type ReviewChange = "text" | "timing" | "music" | "look" | "ask";
-
-const CHANGES: { id: ReviewChange; label: string }[] = [
-  { id: "text", label: "Text" },
-  { id: "timing", label: "Timing" },
-  { id: "music", label: "Music" },
-  { id: "look", label: "Look" },
-  { id: "ask", label: "Ask" },
-];
-
-export function ReviewBar({ timeline, polishing = false, onChange, onFullEditor }: { timeline: Timeline; /** The model's cut is still on its way (ADR 0024). */ polishing?: boolean; onChange(change: ReviewChange): void; onFullEditor(): void }) {
-  return (
-    <div className="review-bar" data-testid="review-bar" data-polishing={polishing || undefined}>
-      <p className="review-summary muted small">
-        {formatDuration(timelineDurationMs(timeline))} · {timeline.clips.length} shots{timeline.music ? "" : " · no music yet"}.{" "}
-        {polishing ? (
-          <span className="review-polishing" data-testid="review-polishing">
-            <span className="music-spinner" aria-hidden="true" /> Polishing with AI…
-          </span>
-        ) : (
-          "Tap what you want different."
-        )}
-      </p>
-      <div className="review-changes" role="group" aria-label="Change">
-        {CHANGES.map((change) => (
-          <button key={change.id} type="button" className="review-change" onClick={() => onChange(change.id)} data-testid={`review-${change.id}`}>
-            {change.id === "text" ? <TextIcon size={20} /> : change.id === "music" ? <MusicIcon size={20} /> : change.id === "ask" ? <AskIcon size={20} /> : change.id === "timing" ? <ClockGlyph /> : <LookGlyph />}
-            {change.label}
-          </button>
-        ))}
-      </div>
-      <button type="button" className="link review-full" onClick={onFullEditor} data-testid="review-full-editor">
-        Open the full editor
-      </button>
-    </div>
-  );
-}
-
-const ClockGlyph = () => (
-  <svg className="icon" width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" aria-hidden="true">
-    <circle cx="12" cy="13" r="8" />
-    <path d="M12 9v4l2.5 2.5M9 2.5h6" />
-  </svg>
-);
-const LookGlyph = () => (
-  <svg className="icon" width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} aria-hidden="true">
-    <circle cx="9" cy="10" r="5.5" />
-    <circle cx="15" cy="10" r="5.5" />
-    <circle cx="12" cy="15" r="5.5" />
-  </svg>
-);
-
 export function TimingChoices({ timeline, onPace, onLength, onClose }: { timeline: Timeline; onPace(shotMs: number): void; onLength(totalMs: number): void; onClose(): void }) {
   const pace = currentPace(timeline);
   const total = Math.round(timelineDurationMs(timeline) / 1000);

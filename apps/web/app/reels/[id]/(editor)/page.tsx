@@ -5,6 +5,7 @@ import { prisma } from "@reelwalk/db";
 import { Editor } from "@/components/editor/editor";
 import { isFakeInstagram, isInstagramConfigured } from "@/lib/instagram";
 import { isAiAvailable } from "@/lib/openai";
+import { aiEditUsage } from "@/lib/ai-edit";
 import { instagramSoundProblem } from "@/lib/instagram-sound";
 import { toLibraryAssets } from "@/lib/library";
 import { readTimeline } from "@/lib/reels";
@@ -19,10 +20,10 @@ export default async function EditReelPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ library?: string; auto?: string; review?: string }>;
+  searchParams: Promise<{ library?: string; auto?: string }>;
 }) {
   const { id } = await params;
-  const { library: openLibrary, auto, review } = await searchParams;
+  const { library: openLibrary, auto } = await searchParams;
   const user = await getCurrentUser();
   const reel = await prisma.reel.findFirst({ where: { id, workspaceId: user.workspaceId } });
   if (!reel) notFound();
@@ -64,7 +65,7 @@ export default async function EditReelPage({
       askAvailable={isAiAvailable()}
       briefs={briefs}
       autopilot={auto === "1"}
-      review={review === "1"}
+      aiUsage={await aiEditUsage(user.workspaceId)}
     />
   );
 }

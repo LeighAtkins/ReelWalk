@@ -3126,12 +3126,6 @@ video:-webkit-full-screen {
   font-weight: 600;
 }
 
-.review-polishing {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--paper);
-}
 .music-spinner {
   flex: none;
   width: 16px;
@@ -3228,54 +3222,6 @@ video:-webkit-full-screen {
 }
 
 /* ── Draft review (ADR 0022) ──────────────────────────────────── */
-
-.review-bar {
-  display: grid;
-  gap: 10px;
-  padding: 10px 14px calc(12px + var(--safe-bottom));
-  border-top: 1px solid var(--line);
-  background: var(--ink-deep);
-}
-
-.review-summary {
-  margin: 0;
-  text-align: center;
-}
-
-.review-changes {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 6px;
-}
-
-.review-change {
-  display: grid;
-  justify-items: center;
-  gap: 4px;
-  min-height: 60px;
-  padding: 8px 4px;
-  border: 0;
-  border-radius: var(--radius-m);
-  background: var(--panel);
-  color: var(--paper);
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.review-change:active {
-  background: #332f2a;
-}
-
-.review-full {
-  justify-self: center;
-  padding: 2px 0;
-  border: 0;
-  background: none;
-  color: var(--muted);
-  font-size: 13px;
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
 
 .choice-row {
   display: grid;
@@ -3889,4 +3835,93 @@ input.inspect-scrub {
   text-align: center;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+/* ── Simpler editor (ADR 0064) ────────────────────────────────── */
+
+/* The Ask box and the toolbar share one grid row at the bottom. */
+.editor-bottom {
+  display: grid;
+  /* Pinned to its own width like the editor's column: an auto track would grow to the
+     toolbar's full scrolling width and push the far tools off the screen. */
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+  background: var(--ink-deep);
+}
+
+/* "Change anything…": always one thumb away, scoped to what is selected. */
+.ask-box {
+  display: grid;
+  grid-template-columns: var(--tap) minmax(0, 1fr) var(--tap);
+  align-items: center;
+  gap: 4px;
+  margin: 8px 10px 0;
+  padding: 0 2px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+}
+
+.ask-box-input {
+  min-width: 0;
+  height: 40px;
+  border: 0;
+  background: transparent;
+  color: var(--paper);
+  /* 16px: smaller makes iOS zoom the page when it is tapped. */
+  font-size: 16px;
+  outline: none;
+}
+
+.ask-box-input::placeholder {
+  color: var(--muted);
+}
+
+.ask-box-open,
+.ask-box-send {
+  display: grid;
+  place-items: center;
+  width: var(--tap);
+  height: var(--tap);
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--paper);
+}
+
+.ask-box-send:disabled {
+  opacity: 0.35;
+}
+
+.polish-note {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 6px 0 0;
+}
+
+/* The Reel sheet: reel-wide settings as a grid of the same tool buttons. */
+.reel-controls {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.reel-controls .tool {
+  min-width: 0;
+  background: var(--panel);
+}
+
+/* The part of a sheet a contextual control opened it for. */
+.sheet-focus {
+  margin: 4px -8px;
+  padding: 4px 8px;
+  border-radius: var(--radius-m);
+  outline: 1px solid var(--line-strong);
+}
+
+.reel-controls .tool[aria-pressed="true"] {
+  outline: 1px solid var(--paper);
 }

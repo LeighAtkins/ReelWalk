@@ -18,12 +18,13 @@ export type ProposalDeps = Pick<DocumentStore, "runCommand" | "snapshot"> & {
  * song it chose fetched first and snapped to in the same step. A stale or
  * rejected proposal is a failure with a message, never a silent success.
  */
-export async function landProposal(deps: ProposalDeps, baseGeneration: number, proposal: unknown, pick?: InstagramAudioTrack | null): Promise<Landed> {
+export async function landProposal(deps: ProposalDeps, baseGeneration: number, proposal: unknown, pick?: InstagramAudioTrack | null, options: { autoPicked?: boolean } = {}): Promise<Landed> {
   const stale: Landed = { ok: false, reason: "stale", message: STALE_PROPOSAL };
   // Not worth fetching a song for a reel that has already moved on.
   if (deps.snapshot().generation !== baseGeneration) return stale;
   const music = pick ? await deps.fetchSound(pick) : null;
-  const result = deps.runCommand({ type: "applyProposal", baseGeneration, proposal, ...(music ? { music: { ...music, snap: true } } : {}) });
+  // A sound picked for the studio (Make it for me) is marked so, so a finish may replace it later (ADR 0064).
+  const result = deps.runCommand({ type: "applyProposal", baseGeneration, proposal, ...(music ? { music: { ...music, snap: true, ...(options.autoPicked ? { autoPicked: true } : {}) } } : {}) });
   if (result.stale) return stale;
   if (result.rejected) return { ok: false, reason: "rejected", message: REJECTED_PROPOSAL };
   return { ok: true, generation: result.generation, timeline: result.timeline };

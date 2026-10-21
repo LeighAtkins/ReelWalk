@@ -200,3 +200,25 @@ test("corner placing at phone size: a true loupe and a clear centre", async ({ p
     expect(overlapsCentre, "the play badge covers the stage centre").toBe(false);
   }
 });
+
+// ADR 0064: with nothing selected the whole bar fits a 412 px phone, so Reel (every reel-wide setting) and the two
+// finishes are reachable without a swipe; and the always-there Ask box sits on screen above it.
+test("the editor's bar fits a phone: Reel and both finishes are on screen without a swipe", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTestId("new-reel-input").setInputFiles([path.join(fixtures, "walkthrough.mp4")]);
+  await expect(page).toHaveURL(/\/reels\/[^/]+$/, { timeout: 30_000 });
+  await expect(page.getByTestId("clip")).toHaveCount(1, { timeout: 60_000 });
+  const screen = page.viewportSize()!;
+  const bar = page.getByRole("navigation", { name: "Editing tools" });
+  for (const name of ["Text", "Music", "Add media", "Make it pop", "Make it premium", "Reel"]) {
+    const box = (await bar.getByRole("button", { name, exact: true }).boundingBox())!;
+    test.info().annotations.push({ type: "tool", description: `${name} at ${Math.round(box.x)}..${Math.round(box.x + box.width)} on a ${screen.width} px screen` });
+    expect.soft(box.x >= 0 && box.x + box.width <= screen.width && box.y + box.height <= screen.height, `${name} is off the screen`).toBe(true);
+    expect.soft(box.height, `${name} is too small to tap`).toBeGreaterThanOrEqual(44);
+  }
+  const ask = page.getByTestId("ask-box");
+  if ((await ask.count()) > 0) {
+    const box = (await ask.boundingBox())!;
+    expect.soft(box.x >= 0 && box.x + box.width <= screen.width, "the Ask box is off the screen").toBe(true);
+  }
+});

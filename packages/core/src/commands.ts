@@ -14,6 +14,7 @@
 import { snapCutsToBeats } from "./beats";
 import { paceTimeline, putOnTheBeat } from "./pacing";
 import type { SongMap } from "./song";
+import { applyFinish, type FinishId } from "./finishes";
 import { retime, retimeToLength } from "./review";
 import { insertPresenterTakes, type PresenterTakeInsert } from "./script";
 import { attachedAnchors, retimeTexts } from "./text-timing";
@@ -67,6 +68,8 @@ export type Command =
   | { type: "retimeToLength"; totalMs: number }
   /** A script's finished presenter takes (ADR 0060), all placed in one step. */
   | { type: "insertPresenterTakes"; takes: PresenterTakeInsert[] }
+  /** "Make it pop" / "Make it premium" (ADR 0064): music mood, type, pace and look in one step; `music` is the song it picked, if any. */
+  | { type: "applyFinish"; finish: FinishId; music?: MusicChoice | null; /** Assets whose clips carry speech: those clips are held (`heldByFinish`). */ speechAssetIds?: string[]; clipEnergy?: Record<string, number>; songMap?: SongMap }
   /**
    * A whole timeline computed elsewhere (an AI edit, the autopilot, the
    * director) against `baseGeneration`. Applied only when that is still the
@@ -199,6 +202,8 @@ function run(timeline: Timeline, command: Command, context: CommandContext): Tim
       return retimeToLength(timeline, command.totalMs, durations);
     case "insertPresenterTakes":
       return cut(insertPresenterTakes(timeline, command.takes));
+    case "applyFinish":
+      return applyFinish(timeline, command.finish, { music: command.music, sourceDurationsMs: durations, speechAssetIds: command.speechAssetIds, clipEnergy: command.clipEnergy, songMap: command.songMap });
     case "applyProposal": {
       // The proposal already placed its texts (through retimeTexts, in applyAiEditPlan); it is taken as it is.
       const proposal = parseTimeline(command.proposal);

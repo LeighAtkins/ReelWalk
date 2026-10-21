@@ -17,7 +17,7 @@ export default tseslint.config(
       // Pre-existing scratch scripts and the standalone editor are not part of the lint gate yet.
       "*.mjs",
       "apps/editor/**",
-      "packages/render/scripts/**",
+      "packages/render/scripts/*.mjs",
     ],
   },
   js.configs.recommended,

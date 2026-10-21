@@ -15,6 +15,7 @@ import { handleDeadLetter, handleDelivery, type Delivery } from "./handler";
 import { renderJob } from "./render";
 import { createJobStore } from "./store";
 import { processAiVideo } from "./ai-video";
+import { processPresenterKit } from "./presenter-kits";
 import { AI_STEP_QUEUE_RETENTION_MS, AI_STEP_REAP_AFTER_MS } from "@reelwalk/core";
 import { createAiStepStore, type AiStepDeps } from "./ai-jobs";
 import { aiStepExecutor } from "./ai-executor";
@@ -183,7 +184,9 @@ async function aiVideoLoop() {
   while (!stopping) {
     try {
       aiBusy = true;
-      if (await processAiVideo(s3, config.s3Bucket)) lastWorkAt = Date.now();
+      // A presenter kit's face crop first (ADR 0056): a composed take may be waiting for it.
+      const kit = await processPresenterKit(s3, config.s3Bucket).catch(() => { console.error("presenter: face crop temporarily unavailable"); return false; });
+      if (await processAiVideo(s3, config.s3Bucket) || kit) lastWorkAt = Date.now();
     } catch {
       console.error("ai-video: processing temporarily unavailable");
     } finally { aiBusy = false; }

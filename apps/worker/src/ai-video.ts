@@ -10,7 +10,8 @@ import { aiFrames, keyframes, type DecodedFrame } from "./ai-frames";
 import { VertexImages, type InlineImage } from "./vertex-images";
 import { fetchVideo, lipsyncConfigured, pollLipsync, startLipsync, synthesiseLine, voicedPrompt } from "./voice";
 import { transcribeVideo, transcriptionAvailable } from "./transcribe";
-import { aiShotSchema, clipSchema, insertAiShot, timelineSchema, type AiShot } from "@reelwalk/core";
+import { clipSchema, insertAiShot, parseStoredAiShot, timelineSchema, type AiShot } from "@reelwalk/core";
+import { identityDecision, type IdentityVerdict } from "./identity";
 
 let provider: VertexVideo | undefined;
 let images: VertexImages | undefined;
@@ -32,12 +33,13 @@ export async function processAiVideo(s3: S3Client, bucket: string): Promise<bool
   }
   const job = await claimAiGeneration(prisma);
   if (!job) return false;
-  const shot = aiShotSchema.safeParse(job.shot);
+  const shot = parseStoredAiShot(job.shot);
   const voice = voiceOf(shot.success ? shot.data : undefined);
   try {
     provider ??= new VertexVideo(undefined, undefined, s3.config.credentials);
     if (job.status === "SUBMITTING") {
       let image: InlineImage | undefined, lastFrame: InlineImage | undefined;
+      let identity: { identityScore: number; identityChecks: IdentityCheck[] } | undefined;
       if (job.frameSources) {
         let frames: ReturnType<typeof keyframes>;
         try {
@@ -47,21 +49,13 @@ export async function processAiVideo(s3: S3Client, bucket: string): Promise<bool
           return true;
         }
         image = inline(frames.image); lastFrame = inline(frames.lastFrame);
-        // Composed keyframes (ADR 0036): the presenter placed into the real frame before Veo sees it.
+        // Composed keyframes (ADR 0036): the presenter placed into the real frame before Veo sees it,
+        // and (ADR 0056) checked against her face before anything is paid.
         if (frames.presenter && (frames.image?.compose || frames.lastFrame?.compose)) {
-          try {
-            images ??= new VertexImages(undefined, undefined, s3.config.credentials);
-            for (const [end, frame] of [["first", frames.image], ["last", frames.lastFrame]] as const) {
-              if (!frame?.compose) continue;
-              const composed = await images.compose(end, frame.compose, inline(frame)!, inline(frames.presenter)!);
-              // Kept beside the take so the studio can see what Veo was given.
-              await s3.send(new PutObjectCommand({ Bucket: bucket, Key: `workspaces/${job.workspaceId}/ai/${job.id}-${end}.jpg`, Body: Buffer.from(composed.bytesBase64Encoded, "base64"), ContentType: "image/jpeg" }));
-              if (end === "first") image = composed; else lastFrame = composed;
-            }
-          } catch {
-            await failAiGeneration(prisma, job.id, "The start and end stills could not be composed. Your credit was returned.", true);
-            return true;
-          }
+          const outcome = await composeAndGate(s3, bucket, job, frames);
+          if (!outcome.ok) return true;
+          image = outcome.image ?? image; lastFrame = outcome.lastFrame ?? lastFrame;
+          identity = outcome.identity;
         }
       } else if (job.referenceKey) {
         const result = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: job.referenceKey }));
@@ -80,6 +74,7 @@ export async function processAiVideo(s3: S3Client, bucket: string): Promise<bool
       const operationName = await provider.submit(job.model, job.durationSeconds, prompt, image, lastFrame, voice?.mode === "veo");
       await prisma.aiGeneration.updateMany({ where: { id: job.id, leaseToken: job.leaseToken, status: "SUBMITTING" }, data: {
         status: "RUNNING", operationName, nextPollAt: new Date(Date.now() + 15_000), leaseToken: null, leaseUntil: null,
+        ...(identity ? { identityScore: identity.identityScore, identityChecks: identity.identityChecks } : {}),
       } });
     } else {
       if (!job.operationName) throw new Error("Missing video operation.");
@@ -129,6 +124,56 @@ export async function processAiVideo(s3: S3Client, bucket: string): Promise<bool
     console.error(`ai-video: ${job.id}: ${error instanceof VertexError ? error.message : "temporary processing error"}`);
   }
   return true;
+}
+
+type IdentityCheck = { end: "first" | "last"; attempt: 1 | 2; samePerson: boolean | null; confidence: number | null; faceHeightPx: number | null };
+
+/**
+ * Compose each described end and check her face before Veo is paid (ADR 0056).
+ * A miss is recomposed once with a stronger instruction; a second miss
+ * refunds the credit and records identity_rejected with both scores.
+ */
+async function composeAndGate(s3: S3Client, bucket: string, job: Job, frames: ReturnType<typeof keyframes>): Promise<
+  { ok: true; image?: InlineImage; lastFrame?: InlineImage; identity: { identityScore: number; identityChecks: IdentityCheck[] } } | { ok: false }> {
+  const presenter = inline(frames.presenter)!, face = inline(frames.face);
+  // Who she should be: the kit's face crop, or for an older frame-only request the presenter frame itself.
+  const reference = face ?? presenter;
+  const checks: IdentityCheck[] = [];
+  const result: { image?: InlineImage; lastFrame?: InlineImage } = {};
+  images ??= new VertexImages(undefined, undefined, s3.config.credentials);
+  for (const [end, frame] of [["first", frames.image], ["last", frames.lastFrame]] as const) {
+    if (!frame?.compose) continue;
+    let accepted: InlineImage | null = null;
+    for (const attempt of [1, 2] as const) {
+      let composed: InlineImage;
+      try {
+        composed = await images.compose(end, frame.compose, inline(frame)!, presenter, face, { framing: frame.framing ?? "medium", stronger: attempt === 2 });
+      } catch {
+        await failAiGeneration(prisma, job.id, "The start and end stills could not be composed. Your credit was returned.", true, { identityChecks: checks });
+        return { ok: false };
+      }
+      let verdict: IdentityVerdict | null = null;
+      try { verdict = await images.checkIdentity(composed, reference); } catch { verdict = null; }
+      checks.push({ end, attempt, samePerson: verdict?.samePerson ?? null, confidence: verdict?.confidence ?? null, faceHeightPx: verdict?.faceHeightPx ?? null });
+      console.log(`ai-video: ${job.id}: identity ${end} attempt ${attempt}: ${verdict ? `${verdict.samePerson ? "same" : "different"} person, confidence ${verdict.confidence.toFixed(2)}, face ${verdict.faceHeightPx ?? "?"} px` : "check unavailable"}`);
+      // Kept beside the take so the studio can see what Veo was (or would have been) given.
+      await s3.send(new PutObjectCommand({ Bucket: bucket, Key: `workspaces/${job.workspaceId}/ai/${job.id}-${end}${attempt === 2 ? "-retry" : ""}.jpg`, Body: Buffer.from(composed.bytesBase64Encoded, "base64"), ContentType: "image/jpeg" }));
+      const decision = identityDecision(attempt, verdict);
+      if (decision === "pass") { accepted = composed; break; }
+      if (decision === "reject") {
+        const scores = checks.filter(check => check.end === end).map(check => check.confidence === null ? "unchecked" : check.confidence.toFixed(2));
+        const lowest = Math.min(...checks.map(check => check.confidence ?? 0));
+        await failAiGeneration(prisma, job.id, `Her face did not match the presenter in the composed ${end === "first" ? "start" : "end"} still after two tries (scores ${scores.join(", ")}), so the shot was not made. Your credit was returned.`, true,
+          { failureCode: "identity_rejected", identityScore: lowest, identityChecks: checks });
+        return { ok: false };
+      }
+    }
+    if (end === "first") result.image = accepted!; else result.lastFrame = accepted!;
+  }
+  // The lowest accepted score across the composed ends (each end's last check passed): drift shows up here over time.
+  const finals = (["first", "last"] as const).flatMap(end => checks.filter(check => check.end === end).slice(-1).map(check => check.confidence ?? 0));
+  const identityScore = Math.min(...finals);
+  return { ok: true, ...result, identity: { identityScore, identityChecks: checks } };
 }
 
 /** Speak the line in the fixed voice, hand the silent take and the audio to sync.so, and poll it like Veo. */

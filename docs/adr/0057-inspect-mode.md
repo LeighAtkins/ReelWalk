@@ -119,6 +119,13 @@ the frame, never on it.
   name), switches to Final (the Player's transform is `matrix(8, …)`),
   double-taps to 1× and to 3×, and leaves with the Player's transform
   cleared. Screenshots are uploaded as the `e2e-screenshots` artefact.
+  Result in CI (run 39612753168, whole suite 39 passed; also run 39607643272): frame x 44–368 on the
+  412 px screen; 405.0 source px across at 1×, 101.3 at 4×; canvas vs source
+  0.9/255, vs 12 source px aside 21.6; 8.40 canvas px per source px; source
+  1280×720; download `reelwalk-inspect-0m01.533s-8x-footage.png`.
+- The first CI runs also showed the worker cannot load web code from outside
+  `apps/web/lib` (its image copies that directory alone); the face-hint
+  parser therefore lives in `apps/web/lib/face-hint.ts` with no imports.
 - `pnpm check` passes.
 
 Not verified: on a real phone (iOS Safari's pinch on a `touch-action: none`

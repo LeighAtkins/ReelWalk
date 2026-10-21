@@ -611,7 +611,8 @@ export function addRoomLabels(timeline: Timeline): Timeline {
   const clearFrom = card > 0 && timeline.details!.placement !== "end" ? card : 0;
   const clearUntil = card > 0 && timeline.details!.placement !== "start" ? total - card : total;
   const managed = new Set(timeline.clips.map((clip) => roomLabelId(clip.id)));
-  const labels: TextOverlay[] = [];
+  // Plain windows first: a label is only validated once it is known to be long enough (a 167 ms clip at 3x has no room for one).
+  const labels: { id: string; text: string; startMs: number; endMs: number }[] = [];
   timeline.clips.forEach((clip, index) => {
     if (!clip.room) return;
     // Consecutive shots of the same room share one label.
@@ -620,24 +621,18 @@ export function addRoomLabels(timeline: Timeline): Timeline {
       if (previous) previous.endMs = starts[index] + clipDurationMs(clip);
       return;
     }
-    labels.push(
-      textSchema.parse({
-        id: roomLabelId(clip.id),
-        text: roomTitle(clip.room),
-        // A room is named once the camera has walked most of the way into it.
-        startMs: starts[index] + 200 + Math.round((walkInto(timeline.plan?.geometry ?? null, timeline.clips[index - 1], clip, clipDurationMs(clip))?.durationMs ?? 0) * 0.6),
-        endMs: starts[index] + clipDurationMs(clip),
-        x: 0.5,
-        y: 0.74,
-        style: "box",
-        color: "#ffffff",
-        size: 0.8,
-      }),
-    );
+    labels.push({
+      id: roomLabelId(clip.id),
+      text: roomTitle(clip.room),
+      // A room is named once the camera has walked most of the way into it.
+      startMs: starts[index] + 200 + Math.round((walkInto(timeline.plan?.geometry ?? null, timeline.clips[index - 1], clip, clipDurationMs(clip))?.durationMs ?? 0) * 0.6),
+      endMs: starts[index] + clipDurationMs(clip),
+    });
   });
   const fitted = labels
     .map((label) => ({ ...label, startMs: Math.max(label.startMs, clearFrom), endMs: Math.min(label.endMs, clearUntil) }))
-    .filter((label) => label.endMs - label.startMs >= 600);
+    .filter((label) => label.endMs - label.startMs >= 600)
+    .map((label) => textSchema.parse({ ...label, x: 0.5, y: 0.74, style: "box", color: "#ffffff", size: 0.8 }));
   return { ...timeline, texts: [...timeline.texts.filter((text) => !managed.has(text.id) && !text.id.startsWith("room-")), ...fitted] };
 }
 

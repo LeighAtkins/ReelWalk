@@ -25,6 +25,7 @@ import {
   splitAt,
   trimClip,
   updateClip,
+  timelineSchema,
   type Music,
   type Timeline,
 } from "./timeline";
@@ -78,13 +79,26 @@ export type CommandResult = {
   changes: Change[];
   /** Set when a proposal was computed against an older generation; `timeline` is then the current one, untouched. */
   stale?: true;
+  /** Set when the command could not be applied (it threw, or its result is not a valid timeline); `timeline` is the current one, untouched. */
+  rejected?: string;
 };
 
 /** Applies one command. Pure: the same timeline and command always give the same result. */
 export function applyCommand(timeline: Timeline, command: Command, context: CommandContext): CommandResult {
   if (command.type === "applyProposal" && command.baseGeneration !== context.generation) return { timeline, changes: [], stale: true };
-  const next = run(timeline, command, context);
-  return { timeline: next, changes: next === timeline ? [] : diffTimelines(timeline, next) };
+  let next: Timeline;
+  try {
+    next = run(timeline, command, context);
+  } catch (error) {
+    return { timeline, changes: [], rejected: error instanceof Error ? error.message : String(error) };
+  }
+  if (next === timeline) return { timeline, changes: [] };
+  // Nothing invalid enters the history: the result must still be a timeline the schema accepts.
+  const check = timelineSchema.safeParse(next);
+  if (!check.success) return { timeline, changes: [], rejected: check.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ") };
+  const changes = diffTimelines(timeline, next);
+  // A command that changed nothing (a clip moved to where it is) is no step at all.
+  return changes.length === 0 ? { timeline, changes } : { timeline: next, changes };
 }
 
 function run(timeline: Timeline, command: Command, context: CommandContext): Timeline {

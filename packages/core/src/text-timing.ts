@@ -102,15 +102,35 @@ export function reflowTexts(timeline: Timeline, anchors: TextAnchor[], original:
 export type TextAttachment = { kind: "clip"; clipId: string } | { kind: "reel" } | { kind: "managed" };
 
 /**
+ * Where the picture a clip starts stops: the end of that clip, or of the run
+ * of clips after it that continue the same source without a jump (the two
+ * pieces of a split). A plain attached title may run to here, no further.
+ */
+export function clipRunEndMs(timeline: Timeline, index: number, starts: number[] = clipStartsMs(timeline)): number {
+  let end = index;
+  while (end + 1 < timeline.clips.length) {
+    const here = timeline.clips[end];
+    const next = timeline.clips[end + 1];
+    if (next.assetId !== here.assetId || next.kind !== here.kind || next.sourceStartMs !== here.sourceEndMs || next.speed !== here.speed) break;
+    end++;
+  }
+  return starts[end] + clipDurationMs(timeline.clips[end]);
+}
+
+/**
  * The rule (ADR 0048), derived from the saved data because v1 timelines have
  * no attachment field, and conservative on purpose (a text only follows a
  * clip when there is no doubt which one it belongs to):
  * - a room label (`room-…`) is managed;
  * - a pinned text (`pin`) is attached to the clip it starts over when that
  *   clip shows the pinned asset: its path was tracked on that picture;
- * - a text that starts and ends inside one clip is attached to that clip;
+ * - a text that starts and ends inside one clip (or inside the pieces of
+ *   one split clip, which continue its source) is attached to that clip;
  * - anything else (a caption or hook spanning a cut, a text past the end) is
  *   reel-relative: it keeps its seconds and is only cut short at the end.
+ *
+ * Retiming keeps a plain attached text inside its clip (`retimeTexts`), so a
+ * trim never turns it into a reel-relative one by pushing it over a cut.
  */
 export function textAttachment(timeline: Timeline, text: TextOverlay): TextAttachment {
   if (text.id.startsWith("room-")) return { kind: "managed" };
@@ -119,7 +139,7 @@ export function textAttachment(timeline: Timeline, text: TextOverlay): TextAttac
   if (index === -1) return { kind: "reel" };
   const clip = timeline.clips[index];
   if (text.pin && clip.assetId === text.pin.assetId) return { kind: "clip", clipId: clip.id };
-  return text.endMs <= starts[index] + clipDurationMs(clip) ? { kind: "clip", clipId: clip.id } : { kind: "reel" };
+  return text.endMs <= clipRunEndMs(timeline, index, starts) ? { kind: "clip", clipId: clip.id } : { kind: "reel" };
 }
 
 /** `anchorTexts`, for the texts attached to a clip only. */
@@ -139,18 +159,52 @@ export type TextRetimeOptions = {
 
 /**
  * The one way texts are retimed after the cut changed from `before` to
- * `after`: attached texts go back over their clip's picture (`reflowTexts`),
- * reel-relative texts keep their seconds, nothing runs past the end, and room
- * labels, when the reel has them, are drawn again for the new cut.
+ * `after`:
+ * - attached texts go back over their clip's picture (`reflowTexts`); a plain
+ *   (unpinned) one is kept inside its clip, so it stays attached;
+ * - reel-relative texts keep the seconds they had in `before`: one the change
+ *   only cut short, or dropped off the end, gets its time back (a trim
+ *   dragged in and out again, AI steps that shorten the reel on the way);
+ * - nothing runs past the end, and room labels, when the reel has them, are
+ *   drawn again for the new cut.
+ * Texts in `except`, and texts left out of `kept`, are not touched.
  */
 export function retimeTexts(before: Timeline, after: Timeline, options: TextRetimeOptions = {}): Timeline {
   const except = options.except ?? new Set<string>();
+  const kept = options.kept ?? before.texts;
   const anchors = (options.anchors ?? attachedAnchors(before)).filter((anchor) => !except.has(anchor.textId));
-  let current = reflowTexts(after, anchors, options.kept ?? before.texts);
+  let current = reflowTexts(after, anchors, kept);
+  if (current.clips.length === 0) return { ...current, texts: [] };
+
+  // Plain attached texts stay inside the clip (or split run) they follow.
+  const starts = clipStartsMs(current);
+  const pinned = new Set(before.texts.filter((text) => text.pin).map((text) => text.id));
+  const owner = new Map(anchors.filter((anchor) => !pinned.has(anchor.textId)).map((anchor) => {
+    let index = current.clips.findIndex((clip) => clip.id === anchor.clipId);
+    if (index === -1) index = Math.min(anchor.clipIndex, current.clips.length - 1);
+    return [anchor.textId, index] as const;
+  }));
+  // Reel-relative texts get back the seconds they had before the change, unless it moved them on purpose.
+  const anchored = new Set(anchors.map((anchor) => anchor.textId));
+  const keptIds = new Set(kept.map((text) => text.id));
+  const relative = new Map(
+    before.texts
+      .filter((text) => !anchored.has(text.id) && !except.has(text.id) && keptIds.has(text.id) && textAttachment(before, text).kind === "reel")
+      .map((text) => [text.id, text]),
+  );
+  const present = new Set(current.texts.map((text) => text.id));
+  const texts = [...current.texts, ...[...relative.values()].filter((text) => !present.has(text.id))].map((text) => {
+    const index = owner.get(text.id);
+    if (index !== undefined) {
+      const end = clipRunEndMs(current, index, starts);
+      return text.endMs > end && end > text.startMs ? { ...text, endMs: end } : text;
+    }
+    const was = relative.get(text.id);
+    // Only cut short (same start, earlier end): the original end comes back.
+    if (was && text.startMs === was.startMs && text.endMs <= was.endMs) return { ...text, endMs: was.endMs };
+    return text;
+  });
   const total = timelineDurationMs(current);
-  current = {
-    ...current,
-    texts: current.texts.filter((text) => text.startMs < total).map((text) => (text.endMs > total ? { ...text, endMs: total } : text)),
-  };
+  current = { ...current, texts: texts.filter((text) => text.startMs < total).map((text) => (text.endMs > total ? { ...text, endMs: total } : text)) };
   return hasRoomLabels(current) ? addRoomLabels(current) : current;
 }

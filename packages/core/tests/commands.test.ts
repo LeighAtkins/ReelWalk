@@ -89,8 +89,8 @@ describe("the same cut change through trim, an AI proposal and the review", () =
 
     expect(times(manual)).toEqual(times(review));
     expect(times(proposal.timeline)).toEqual(times(review));
-    // The title kept its frame (source 5.5 s → 2 s into the trimmed clip a); the caption kept its seconds.
-    expect(times(review).title).toEqual([2000, 3500]);
+    // The title kept its frame (source 5.5 s → 2 s into the trimmed clip a) and stays inside a, which now ends at 3 s; the caption kept its seconds.
+    expect(times(review).title).toEqual([2000, 3000]);
     expect(times(review).caption).toEqual([4000, 9000]);
   });
 });
@@ -179,8 +179,72 @@ describe("proposals", () => {
     for (const start of clipStartsMs(result.timeline)) expect(start % 500).toBe(0);
   });
 
-  it("an invalid proposal throws, so the history leaves the reel as it was", () => {
-    expect(() => applyCommand(reel(), { type: "applyProposal", baseGeneration: 0, proposal: { version: 2 } }, ctx)).toThrow();
+  it("an invalid proposal is rejected with a reason and leaves the reel as it was", () => {
+    const current = reel();
+    const result = applyCommand(current, { type: "applyProposal", baseGeneration: 0, proposal: { version: 2 } }, ctx);
+    expect(result.rejected).toBeTruthy();
+    expect(result.timeline).toBe(current);
+    expect(result.changes).toEqual([]);
+  });
+});
+
+describe("review fixes (PR #191)", () => {
+  function twoClips(texts: object[]): Timeline {
+    return parseTimeline({
+      version: 1,
+      clips: [
+        { id: "a", assetId: "v1", kind: "VIDEO", sourceStartMs: 0, sourceEndMs: 4000 },
+        { id: "b", assetId: "v2", kind: "VIDEO", sourceStartMs: 0, sourceEndMs: 4000 },
+      ],
+      texts,
+      music: null,
+    });
+  }
+
+  it("a spanning caption shortened inside a trim gesture gets its time back when the gesture undoes the trim", () => {
+    const start = twoClips([{ id: "cap", text: "Just listed", startMs: 3000, endMs: 7500 }]);
+    const step = (timeline: Timeline, sourceEndMs: number) =>
+      applyCommand(timeline, { type: "trimClip", clipId: "a", window: { sourceStartMs: 0, sourceEndMs } }, { ...ctx, gestureBase: start }).timeline;
+    const short = step(start, 500);
+    expect(times(short).cap).toEqual([3000, 4500]);
+    expect(times(step(short, 4000)).cap).toEqual([3000, 7500]);
+  });
+
+  it("AI steps that shorten the reel on the way do not shorten a spanning caption", () => {
+    const start = twoClips([{ id: "cap", text: "Just listed", startMs: 3000, endMs: 7500 }]);
+    const plan = applyAiEditPlan(start, { ops: [op({ op: "trim", clip: 1, startMs: 0, endMs: 600 }), op({ op: "trim", clip: 1, startMs: 0, endMs: 4000 })], note: "" }, { assets, songs: [], newId: () => "n" });
+    expect(times(plan.timeline).cap).toEqual([3000, 7500]);
+  });
+
+  it("a caption deleted on purpose does not come back", () => {
+    const start = twoClips([{ id: "cap", text: "Just listed", startMs: 3000, endMs: 7500 }]);
+    const plan = applyAiEditPlan(start, { ops: [op({ op: "removeText", text: 1 }), op({ op: "trim", clip: 1, startMs: 0, endMs: 600 })], note: "" }, { assets, songs: [], newId: () => "n" });
+    expect(plan.timeline.texts).toEqual([]);
+  });
+
+  it("trimming a clip keeps its title inside it, so it still follows the clip later", () => {
+    const start = twoClips([{ id: "t", text: "Hall", startMs: 2500, endMs: 3500 }]);
+    const trimmed = apply(start, { type: "trimClip", clipId: "a", window: { sourceStartMs: 0, sourceEndMs: 2000 } }).timeline;
+    const title = trimmed.texts[0];
+    expect(title.endMs).toBeLessThanOrEqual(2000);
+    expect(textAttachment(trimmed, title)).toEqual({ kind: "clip", clipId: "a" });
+    const moved = apply(trimmed, { type: "moveClip", clipId: "a", toIndex: 1 }).timeline;
+    expect(times(moved).t).toEqual([title.startMs + 4000, title.endMs + 4000]);
+  });
+
+  it("a speed-up that leaves no room for a room label still applies", () => {
+    const labelled = parseTimeline({
+      version: 1,
+      clips: [
+        { id: "a", assetId: "v1", kind: "VIDEO", sourceStartMs: 0, sourceEndMs: 500, room: "hall" },
+        { id: "b", assetId: "v2", kind: "VIDEO", sourceStartMs: 0, sourceEndMs: 4000, room: "kitchen" },
+      ],
+      texts: [{ id: "room-b", text: "Kitchen", startMs: 700, endMs: 4500 }],
+      music: null,
+    });
+    const result = apply(labelled, { type: "setSpeed", clipId: "a", speed: 3 });
+    expect(result.rejected).toBeUndefined();
+    expect(result.timeline.clips[0].speed).toBe(3);
   });
 });
 

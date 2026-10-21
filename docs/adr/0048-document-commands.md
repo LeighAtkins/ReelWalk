@@ -77,6 +77,39 @@ snapped to, in the same command: the edit and its music are one undo.
 which dispatches one `apply` to the history. Picking a song and snapping
 the cuts to it is one entry.
 
+## Amendments after review (GPT-6 Astra, PR #191)
+
+- **The autopilot polish is made from the accepted first cut's input.** When
+  the first cut had to be asked for again, the polish used to be made from
+  the original reel yet applied against the retry's generation, so a clip
+  removed meanwhile could come back. `autopilot-flow.ts` keeps the input of
+  the first cut that landed and makes the polish from it.
+- **Reel-relative texts get their seconds back within one change.**
+  `retimeTexts` restores a reel-relative text that the change only cut
+  short (same start, earlier end) or dropped off the end, from `before`,
+  then clamps to the new length. A trim dragged in and out, or AI steps that
+  shorten the reel on the way, no longer shorten a spanning caption. Texts
+  deleted or retimed on purpose (`kept`, `except`) are left alone.
+- **A plain attached title stays inside its clip.** After reflowing, an
+  unpinned attached title is cut at the end of its clip, or of the run of
+  pieces continuing the same source (a split), so a trim never pushes it
+  over a cut where the next command would class it as reel-relative.
+  Pinned titles keep running past the cut, as tracked.
+- **Gesture baselines live as long as their undo step.** The document is a
+  framework-free store (`document-store.ts`, rendered by `useDocument` with
+  `useSyncExternalStore`). A keyed command continues a gesture only when the
+  history will merge it into the same entry (same key, nothing in between,
+  a `drag:` key or inside the 800 ms window, now exported from
+  `history.ts`). Undo, redo and reset end it; opening or closing a sheet
+  calls `endGesture`.
+- **No silent no-ops.** `applyCommand` catches a failing command and checks
+  its result against `timelineSchema` before it can enter the history; it
+  returns `rejected` with the reason, and the editor says the change could
+  not be made. A command that changes nothing returns the timeline as it
+  was (no undo step). `addRoomLabels` now skips label windows too short to
+  use before validating them, which made a 3x speed-up of a short named clip
+  fail silently.
+
 ## Consequences
 
 - AI edits no longer drag captions that span cuts along with the first
@@ -97,7 +130,9 @@ the cuts to it is one entry.
 ## What was verified
 
 - `pnpm check` passes: lint, typecheck of every package, and all unit tests
-  (core 396, including 19 in the new `commands.test.ts`; the existing
+  (core 401, including 24 in `commands.test.ts`; web 12, in
+  `document-store.test.ts` and `autopilot-flow.test.ts`, which drive the
+  store the editor uses; the existing
   `ai-edit`, `text-follows` and `review` tests pass unchanged).
 - `commands.test.ts` proves: the same cut change through `trimClip`, an AI
   plan applied with `applyProposal`, and the review's `retime` gives the

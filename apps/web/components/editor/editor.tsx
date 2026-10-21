@@ -93,6 +93,7 @@ import { ClipSourceInfo } from "./clip-source-info";
 import { DirectorSheet } from "./director-sheet";
 import { Filmstrip, type PendingUpload, type Selection } from "./filmstrip";
 import { STALE_PROPOSAL, useDocument } from "./use-document";
+import { runAutopilot } from "./autopilot-flow";
 import { HookSheet, PinSheet,
   AskSheet,
   AutopilotSheet,
@@ -262,7 +263,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
   libraryRef.current = library;
   const sourceDurations = useCallback(() => Object.fromEntries(Object.values(libraryRef.current).map((entry) => [entry.id, entry.durationMs])), []);
   // The reel, its undo history and its generation (ADR 0048). Changes to the cut go through runCommand.
-  const { history, generation, dispatch, runCommand, snapshot } = useDocument(initialTimeline, sourceDurations);
+  const { history, generation, dispatch, runCommand: runDocumentCommand, snapshot, endGesture } = useDocument(initialTimeline, sourceDurations);
   const timeline = history.present;
   const [title, setTitle] = useState(reel.title);
   const [caption, setCaption] = useState(reel.caption);
@@ -300,6 +301,22 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
     setToast(message);
     setTimeout(() => setToast((current) => (current === message ? null : current)), ms);
   }, []);
+
+  /** Every command goes through here: one that could not be applied says so instead of doing nothing (ADR 0048). */
+  const runCommand = useCallback(
+    (...args: Parameters<typeof runDocumentCommand>) => {
+      const result = runDocumentCommand(...args);
+      if (result.rejected) {
+        console.warn("command rejected", args[0].type, result.rejected);
+        showToast("That change could not be made, so the reel is as it was.", 4000);
+      }
+      return result;
+    },
+    [runDocumentCommand, showToast],
+  );
+
+  // A sheet opening or closing ends any slider gesture: the next change is its own step with its own baseline.
+  useEffect(() => endGesture(), [sheet, endGesture]);
 
   /** A hint shown the first time something comes up on this device, never again. */
   const tipShown = useRef<string | null>(null);
@@ -740,7 +757,8 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
   // Runs once the shots are up. A first cut by rule opens in the review within
   // a couple of seconds (ADR 0024); the model's cut follows in the background
   // and replaces it, as one undoable step, unless the reel has changed in the
-  // meantime: the polish is a proposal against the first cut's generation (ADR 0048).
+  // meantime: the polish is a proposal against the first cut's generation,
+  // made from the same input as that cut (autopilot-flow.ts, ADR 0048).
   const [polishing, setPolishing] = useState(false);
   useEffect(() => {
     if (autopilotPhase !== "waiting" || uploads.length > 0 || !autopilotRequest.current) return;
@@ -752,54 +770,52 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
     const { style, info } = autopilotRequest.current;
     autopilotRequest.current = null;
     setAutopilotPhase("cutting");
-    void (async () => {
-      const fail = (message: string, upgrade = false) => {
-        setAutopilotPhase("form");
-        setAutopilotError({ message, upgrade });
-      };
-      type Cut = { ok: true; timeline: unknown; note: string; assets?: LibraryAsset[]; instagramPick?: InstagramAudioTrack } | { ok: false; message: string };
-      // The cut, and the Instagram sound it chose snapped to, land as one proposal against `baseGeneration`.
-      const takeIn = async (data: Cut & { ok: true }, baseGeneration: number) => {
-        if (data.assets?.length) setLibrary((current) => ({ ...current, ...Object.fromEntries(data.assets!.map((asset) => [asset.id, asset])) }));
-        if (snapshot().generation !== baseGeneration) return { stale: true as const, generation: snapshot().generation };
-        const music = data.instagramPick ? await fetchInstagramSound(data.instagramPick) : null;
-        return runCommand({ type: "applyProposal", baseGeneration, proposal: data.timeline, ...(music ? { music: { ...music, snap: true } } : {}) });
-      };
-      const base = snapshot();
-      let draft: { stale?: true; generation: number } | null = null;
-      // The first cut is cheap: when a room name landed while it was being made, it is made again from the reel as it is now.
-      for (let attempt = 0; attempt < 2 && !draft; attempt++) {
-        const from = attempt === 0 ? base : snapshot();
-        let quick: Cut;
-        try {
-          const response = await fetch(`/api/reels/${reel.id}/autopilot`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ timeline: from.timeline, style, info, quick: true }) });
-          quick = (await response.json()) as Cut;
-        } catch {
-          return fail("Could not reach ReelWalk. Check the connection and try again.");
-        }
-        if (!quick.ok) return fail(quick.message);
-        const result = await takeIn(quick, from.generation);
-        if (!result.stale) draft = result;
-      }
-      if (!draft) return fail(STALE_PROPOSAL);
-      // A draft, not an export (ADR 0022): it opens in the review, playing with its music;
-      // the studio changes what it wants and exports when it is right.
-      setAutopilotPhase("form");
-      setSheet(null);
-      setReview(true);
-      setPolishing(true);
-      showToast("Here is a first cut. ReelWalk is polishing it; play it meanwhile.", 6000);
-      try {
-        const polished = await runAiJob<Cut>(`/api/reels/${reel.id}/autopilot`, { timeline: base.timeline, style, info });
-        if (!polished.ok) showToast(`The first cut stays: ${polished.message}`, 6000);
-        else if ((await takeIn(polished, draft.generation)).stale) showToast("The reel changed while ReelWalk polished it, so your version stays. Review it, or ask for a change.", 6000);
-        else showToast("Polished: order, cut and text by ReelWalk. Undo brings the first cut back.", 7000);
-      } catch {
-        showToast("The first cut stays; the polish could not reach ReelWalk.", 6000);
-      } finally {
-        setPolishing(false);
-      }
-    })();
+    type Cut = { ok: true; timeline: unknown; note: string; assets?: LibraryAsset[]; instagramPick?: InstagramAudioTrack } | { ok: false; message: string };
+    void runAutopilot<Cut>(
+      {
+        snapshot,
+        quick: async (from) => {
+          const response = await fetch(`/api/reels/${reel.id}/autopilot`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ timeline: from, style, info, quick: true }) });
+          return (await response.json()) as Cut;
+        },
+        polish: (from) => runAiJob<Cut>(`/api/reels/${reel.id}/autopilot`, { timeline: from, style, info }),
+        // The cut, and the Instagram sound it chose snapped to, land as one proposal against `baseGeneration`.
+        takeIn: async (data, baseGeneration) => {
+          if (data.assets?.length) setLibrary((current) => ({ ...current, ...Object.fromEntries(data.assets!.map((asset) => [asset.id, asset])) }));
+          if (snapshot().generation !== baseGeneration) return { stale: true as const, generation: snapshot().generation };
+          const music = data.instagramPick ? await fetchInstagramSound(data.instagramPick) : null;
+          return runCommand({ type: "applyProposal", baseGeneration, proposal: data.timeline, ...(music ? { music: { ...music, snap: true } } : {}) });
+        },
+      },
+      {
+        fail: (message) => {
+          setAutopilotPhase("form");
+          setAutopilotError({ message, upgrade: false });
+        },
+        // A draft, not an export (ADR 0022): it opens in the review, playing with its music;
+        // the studio changes what it wants and exports when it is right.
+        draft: () => {
+          setAutopilotPhase("form");
+          setSheet(null);
+          setReview(true);
+          setPolishing(true);
+          showToast("Here is a first cut. ReelWalk is polishing it; play it meanwhile.", 6000);
+        },
+        polished: () => {
+          setPolishing(false);
+          showToast("Polished: order, cut and text by ReelWalk. Undo brings the first cut back.", 7000);
+        },
+        polishStale: () => {
+          setPolishing(false);
+          showToast("The reel changed while ReelWalk polished it, so your version stays. Review it, or ask for a change.", 6000);
+        },
+        polishFailed: (message) => {
+          setPolishing(false);
+          showToast(message, 6000);
+        },
+      },
+      STALE_PROPOSAL,
+    );
   }, [autopilotPhase, uploads.length, timeline.clips.length, reel.id, showToast, snapshot, runCommand, fetchInstagramSound]);
 
   // Rooms named as soon as the shots are up, so they show (and can be changed) before the reel is made.

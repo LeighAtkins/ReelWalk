@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import type { PlayerRef } from "@remotion/player";
-import { fixAllCommand, safeFixes, type CriticFinding, type CriticFix,
+import { canExport, fixAllCommand, safeFixes, type CriticFinding, type CriticFix,
   setHook, wordsBehindHook, locate, orientQuad, reshapePin, placementVersion, storedFraction,
   addClips,
   insertAiShot,
@@ -1709,7 +1709,8 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         <ExportSheet
           // The critic's safe-zone check measures each title's box, so the export check's centre-point warning would repeat it.
           // Room labels are the exception: the critic leaves them to the editor, which redraws them.
-          issues={critic.failed ? issues : issues.filter((issue) => issue.code !== "text-unsafe" || issue.textId?.startsWith("room-"))}
+          // Only while the panel shows (a reel that can export): with a blocking problem the panel is hidden and the warning stays.
+          issues={critic.failed || !canExport(issues) ? issues : issues.filter((issue) => issue.code !== "text-unsafe" || issue.textId?.startsWith("room-"))}
           findingCount={critic.findings.length}
           critic={
             <CriticPanel findings={critic.findings} thumbs={critic.thumbs} checking={critic.checking} safeCount={criticSafeCount}

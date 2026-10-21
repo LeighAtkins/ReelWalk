@@ -18,6 +18,7 @@ import {
 import { textTreatmentCss } from "@reelwalk/render/reel";
 import type { LibraryAsset } from "@/lib/library";
 import { timelineFrames } from "./frame-service";
+import { readCriticFrames, type CriticFrameEntry } from "./critic-frames";
 
 /**
  * The critic before export (ADR 0062), in the editor: runs while the Export
@@ -54,7 +55,10 @@ export function useCritic({ timeline, library, active, headline, sourceDurations
   headline: string | null;
   sourceDurationsMs: () => Record<string, number | null | undefined>;
 }): CriticState {
-  const frames = useRef(new Map<string, { frame: CriticFrame; thumb: string | null }>());
+  const frames = useRef(new Map<string, CriticFrameEntry>());
+  // Sources that could not be read while this sheet is open: skipped by every later run, retried next time it opens.
+  const failedSources = useRef(new Set<string>());
+  useEffect(() => { if (!active) failedSources.current.clear(); }, [active]);
   const [state, setState] = useState<CriticState>({ findings: [], checking: false, thumbs: {} });
   const [faces, setFaces] = useState<CriticFace[]>([]);
 
@@ -106,39 +110,31 @@ export function useCritic({ timeline, library, active, headline, sourceDurations
     setState({ findings: first, checking: missing.length > 0, thumbs: thumbsFor(first) });
 
     const service = timelineFrames(timeline, assets);
-    const read = async (sample: CriticSample) => {
-      const key = frameKey(timeline, sample);
-      if (cache.has(key)) return;
-      const canvas = await service.frameAt(sample.clipId, sample.sourceMs, { width: SAMPLE_WIDTH, height: SAMPLE_HEIGHT, purpose: "view" });
-      if (!canvas || !canvas.width) return;
-      try {
-        // Read at once: the frame service frees canvases it evicts.
+    const clipSource = new Map(timeline.clips.map((clip) => [clip.id, assets[clip.assetId]?.src ?? null]));
+    const run = (list: CriticSample[]) => readCriticFrames(list, {
+      keyOf: (sample) => frameKey(timeline, sample),
+      sourceOf: (sample) => clipSource.get(sample.clipId) ?? null,
+      cache,
+      failed: failedSources.current,
+      draw: (sample) => service.frameAt(sample.clipId, sample.sourceMs, { width: SAMPLE_WIDTH, height: SAMPLE_HEIGHT, purpose: "view" }),
+      // Read at once: the frame service frees canvases it evicts. A tainted canvas (no CORS) throws here.
+      read: (canvas) => {
         const ctx = canvas.getContext("2d");
-        if (!ctx) return;
-        const frame = lumaFromRgba(ctx.getImageData(0, 0, canvas.width, canvas.height).data, canvas.width, canvas.height);
-        cache.set(key, { frame, thumb: canvas.toDataURL("image/jpeg", 0.7) });
-        while (cache.size > MAX_CACHED) cache.delete(cache.keys().next().value!);
-      } catch {
-        // Media served without CORS cannot be read back: the checks that need it are skipped, not guessed.
-      }
-    };
+        if (!ctx || !canvas.width) throw new Error("The frame could not be read.");
+        return { frame: lumaFromRgba(ctx.getImageData(0, 0, canvas.width, canvas.height).data, canvas.width, canvas.height), thumb: canvas.toDataURL("image/jpeg", 0.7) };
+      },
+      live: () => live,
+      maxCached: MAX_CACHED,
+    });
     (async () => {
       // By clip and time, so each source is seeked forwards once.
-      const order = [...missing].sort((a, b) => a.clipId.localeCompare(b.clipId) || a.sourceMs - b.sourceMs);
-      for (const sample of order) {
-        if (!live) return;
-        await read(sample);
-      }
-      if (!live) return;
+      if ((await run([...missing].sort((a, b) => a.clipId.localeCompare(b.clipId) || a.sourceMs - b.sourceMs))).cancelled) return;
       const findings = check();
       if (!findings) { setState({ findings: [], checking: false, thumbs: {}, failed: true }); return; }
       // Every finding gets a picture of its moment.
-      for (const finding of findings) {
-        if (!live) return;
-        const moment = momentAt(timeline, finding.atMs);
-        if (moment) await read(moment);
-      }
-      if (live) setState({ findings, checking: false, thumbs: thumbsFor(findings) });
+      const moments = findings.flatMap((finding) => { const moment = momentAt(timeline, finding.atMs); return moment ? [moment] : []; });
+      if ((await run(moments)).cancelled) return;
+      setState({ findings, checking: false, thumbs: thumbsFor(findings) });
     })().catch(() => { if (live) setState((current) => ({ ...current, checking: false })); });
     return () => { live = false; };
   }, [active, timeline, faces, headline, assets, sourceDurationsMs]);

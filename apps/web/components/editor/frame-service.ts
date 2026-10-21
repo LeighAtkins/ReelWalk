@@ -61,8 +61,10 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   const image = new Image();
   image.crossOrigin = "anonymous";
   return new Promise((resolve, reject) => {
-    image.onload = () => resolve(image);
-    image.onerror = () => reject(new Error("The photo could not be read."));
+    // Like a video's load: a photo that never arrives must not hold its source's queue forever.
+    const timer = setTimeout(() => { image.onload = image.onerror = null; image.src = ""; reject(new Error("The photo could not be read.")); }, 20_000);
+    image.onload = () => { clearTimeout(timer); resolve(image); };
+    image.onerror = () => { clearTimeout(timer); reject(new Error("The photo could not be read.")); };
     image.src = src;
   });
 }

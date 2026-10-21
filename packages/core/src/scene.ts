@@ -1,0 +1,322 @@
+/**
+ * Scene evaluation for titles (ADR 0046): where a text overlay is on one
+ * frame, and what draws above it. The renderer (ReelComposition's TextView)
+ * and the editor's handles consume this and nothing else; neither does its
+ * own placement geometry.
+ *
+ * API
+ *
+ *   evaluateTitle(input: TitleInput): TitlePlacement
+ *     input.text      the saved overlay (v1 schema, unchanged)
+ *     input.timeline  the reel (a pinned title reads the clip on screen from it)
+ *     input.frame     frames since the title's own first frame (its Sequence frame)
+ *     input.from      the title's first frame in the reel
+ *     input.durationInFrames, input.fps, input.width, input.height  the composition
+ *     input.font      the title's resolved font (family, weight, px size, tracking, stretch)
+ *     input.measure   (line, font) => { width, height } in composition px; injected,
+ *                     so this module never touches a DOM (the renderer passes a span
+ *                     measurer, tests pass a fixed-advance one)
+ *
+ *   returns one of
+ *     { kind: "hidden" }   a pinned title while a different shot is on screen
+ *     { kind: "screen", center, wrap, scale, rotation, opacity, occluderTaps }
+ *     { kind: "surface", plane, restPlane, rect, homography, placed, fitScale,
+ *       lineBox, lines, clipToPlane, maskShapes, occluderTaps, opacity }
+ *
+ *   sceneLayers(timeline, fps, hasVideo?): SceneLayer[]
+ *     the bottom-to-top order of titles and the mattes that occlude them.
+ *
+ * Coordinate spaces, always named:
+ *   fraction     0..1 of the composition; what the v1 schema saves (x, y, surface,
+ *                pin.quad, path q, bars, cutouts, occluders).
+ *   composition  pixels of the output frame (1080 × 1920). Everything this module
+ *                returns is in composition px unless it says otherwise.
+ *   viewport     the editor's CSS px; composition × (viewport width / composition width).
+ *                Not used here; a consumer scales uniformly.
+ *   plane        pixels of a surface title's own rectangle (rect.width × rect.height),
+ *                origin at its top-left corner; the text is laid out here and warped
+ *                to the frame by `homography`.
+ *   source       the footage's own pixels; not used here (mattes map it through fitRects).
+ *
+ * Invariants:
+ *   - One authority per title. The kind is derived once, here, from the saved
+ *     fields (the v1 adapter below); nothing else decides whether a title is on
+ *     the screen or on a surface.
+ *   - Saved data is never reinterpreted: corner order is resolved with
+ *     orientQuad/orientOrder exactly as before and nothing is written back.
+ *   - The fill rules are the ones existing reels were rendered with: a chosen
+ *     surface is filled to 94% of its width or 92% of its height (the average
+ *     opposite-edge rectangle); a tracked plane without a chosen surface is fitted
+ *     to the frame (`planarFitAndShift`, 92% of the frame).
+ *   - `opacity` here is placement opacity only (tracked `o`, the early-end tail);
+ *     the entrance animation multiplies it in the renderer.
+ *   - A title's occluders (presenter matte for `behind`, tapped objects) draw
+ *     above that title, never above a title that did not ask for them.
+ */
+import { applyHomography, homography, invertHomography, orientOrder, orientQuad, type Quad } from "./motion";
+import { endsBeforeShot, PINNED_ELSEWHERE, pinnedProgress, textPositionAt, textQuadAt } from "./cinematic";
+import { framePlan, REEL_FORMAT, type Clip, type TextOverlay, type Timeline } from "./timeline";
+
+/** A title's resolved font, as the renderer styles it. `fontSize` in composition px. */
+export type TitleFont = { fontFamily?: string; fontWeight?: string | number; fontSize: number; letterSpacing?: number; fontStretch?: string };
+
+/** Measures one line of text, unwrapped, in composition px. */
+export type Measure = (line: string, font: TitleFont) => { width: number; height: number };
+
+export type TitleInput = {
+  text: TextOverlay;
+  timeline: Timeline;
+  /** Frames since the title's first frame. */
+  frame: number;
+  /** The title's first frame in the reel. */
+  from: number;
+  durationInFrames: number;
+  fps: number;
+  width: number;
+  height: number;
+  font: TitleFont;
+  measure: Measure;
+};
+
+export type Point = { x: number; y: number };
+
+export type ScreenPlacement = {
+  kind: "screen";
+  /** Path progress the placement was read at (0..1 for a drift; a pin's source-time progress). */
+  progress: number;
+  /** Centre of the text box, composition px. */
+  center: Point;
+  /** A sentence wraps inside `width`; a single word stays on one line, up to `maxWidth`. */
+  wrap: { mode: "wrap"; width: number } | { mode: "line"; maxWidth: number };
+  /** Path scale and rotation (degrees). */
+  scale: number;
+  rotation: number;
+  opacity: number;
+  /** Tapped occluders on this frame, fractions. */
+  occluderTaps: Point[];
+};
+
+export type SurfacePlacement = {
+  kind: "surface";
+  progress: number;
+  /** The plane's corners on this frame (tl, tr, br, bl), composition px. */
+  plane: Quad;
+  /** The plane's corners where it was placed (pin time, or the bare surface), composition px. */
+  restPlane: Quad;
+  /** The plane rectangle: its size (plane px) and where its origin sits before warping (restPlane's tl, composition px). */
+  rect: { left: number; top: number; width: number; height: number };
+  /** Plane px → composition px on this frame (row-major 3×3), or null when the corners are degenerate. */
+  homography: number[] | null;
+  /** The same map relative to rect.left/top: what a CSS matrix3d on a box placed at left/top uses. */
+  placed: number[] | null;
+  /** Scale applied to the text's natural size so it fills the surface or fits the frame. */
+  fitScale: number;
+  /** The text block's natural size, composition px: the widest typed line by the house leading (1.12 × size per line). */
+  lineBox: { width: number; height: number };
+  lines: number;
+  /** A chosen surface clips the words to its rectangle; a tracked plane without one lets them overflow. */
+  clipToPlane: boolean;
+  /** Posts and cut-outs as polygons in plane px ([x0, y0, x1, y1, …]), or null when none apply. */
+  maskShapes: number[][] | null;
+  occluderTaps: Point[];
+  opacity: number;
+};
+
+export type TitlePlacement = { kind: "hidden"; progress: number; opacity: 0 } | ScreenPlacement | SurfacePlacement;
+
+/** The largest fraction of the frame a planar title may span. */
+export const PLANAR_MAX_WIDTH = 0.92;
+/** A chosen surface is filled to this share of its rectangle's width… */
+export const SURFACE_FILL_WIDTH = 0.94;
+/** …or of its height, whichever binds first. */
+export const SURFACE_FILL_HEIGHT = 0.92;
+/** The house line height, as a multiple of the font size. */
+export const TITLE_LEADING = 1.12;
+/** Seconds over which a pinned title shortened before its shot ends fades out (ADR 0044). */
+export const EARLY_END_FADE_S = 0.4;
+
+/**
+ * How much to shrink a planar title, and how far to move it, so its line fits
+ * the frame once it is warped onto the pinned plane: the text is centred in the
+ * plane's rectangle and projected through the homography to the (leaned)
+ * corners, so a near edge magnified by perspective counts. `fit` ≤ 1 scales the
+ * text; `shift` is the change to the title's centre x (frame fraction) that
+ * keeps the projected line 3% inside both edges. Fractions in, fractions out.
+ * This is the fit for a tracked plane without a chosen surface; a chosen
+ * surface is filled instead (see evaluateTitle).
+ */
+export function planarFitAndShift(quad0: readonly number[], widthFraction: number, maxWidth = PLANAR_MAX_WIDTH): { fit: number; shift: number; left: number; right: number } {
+  const left = quad0[0], top = quad0[1], w = Math.max(1e-6, quad0[2] - quad0[0]), h = Math.max(1e-6, quad0[7] - quad0[1]);
+  const now = quad0.map((v, i) => (i % 2 === 0 ? v - left : v - top)) as Quad;
+  const H = homography([0, 0, w, 0, w, h, 0, h], now);
+  const extents = (fit: number): [number, number] => {
+    const half = (widthFraction * fit) / 2, y = h / 2;
+    if (!H) return [left + w / 2 - half, left + w / 2 + half];
+    const a = applyHomography(H, w / 2 - half, y)[0] + left, b = applyHomography(H, w / 2 + half, y)[0] + left;
+    return [Math.min(a, b), Math.max(a, b)];
+  };
+  let fit = 1;
+  for (let i = 0; i < 4; i++) {
+    const [l, r] = extents(fit);
+    const span = r - l;
+    if (span <= maxWidth) break;
+    fit *= maxWidth / span;
+  }
+  const [l, r] = extents(fit);
+  const shift = l < 0.03 ? 0.03 - l : r > 0.97 ? 0.97 - r : 0;
+  return { fit, shift, left: l + shift, right: r + shift };
+}
+
+/**
+ * The v1 adapter: which corners, if any, the title is drawn on this frame.
+ * `plane` is the rest plane (pin quad, or the bare surface); `quad` where it is now.
+ * Both null → a screen title. Rules, unchanged from the pre-0046 renderer:
+ *   - a surface with no pin yet is drawn inside that surface as it stands, upright (orientQuad);
+ *   - a pin with a quad keeps its corners' placement order, and every keyframe is
+ *     re-ordered by the same permutation (orientOrder) so a mirrored placement reads upright;
+ *   - a pin whose keyframes carry no corners, or a pin without a quad, is a screen title.
+ */
+export function titleCorners(text: TextOverlay, progress: number): { plane: number[]; quad: number[] } | null {
+  const bare = text.surface && !text.pin ? orientQuad(text.surface) : null;
+  const order = text.pin?.quad ? orientOrder(text.pin.quad) : null;
+  const reorder = (q: number[] | null): number[] | null => (q && order ? order.flatMap((i) => [q[i * 2], q[i * 2 + 1]]) : q);
+  const quad = reorder(textQuadAt(text, progress)) ?? bare;
+  const plane = (text.pin?.quad ? reorder(text.pin.quad) : bare) ?? null;
+  return quad && plane ? { plane, quad } : null;
+}
+
+/** Where a title's tapped occluders (first-frame fractions) are at `progress`: carried by its tracked plane when it has one. */
+export function carryTaps(text: TextOverlay, progress: number): Point[] {
+  const taps = (text.occluders ?? []).map((tap) => ({ x: tap.x, y: tap.y }));
+  if (!text.pin?.quad) return taps;
+  const quad = textQuadAt(text, progress);
+  if (!quad) return taps;
+  const H = homography(text.pin.quad as Quad, quad as Quad);
+  if (!H) return taps;
+  return taps.map((tap) => { const [x, y] = applyHomography(H, tap.x, tap.y); return { x, y }; });
+}
+
+/** Path progress for a title on its `frame`: a pin runs on its clip's source time (ADR 0039), a drift over the title's own life. */
+export function titleProgress(input: Pick<TitleInput, "text" | "timeline" | "frame" | "from" | "durationInFrames" | "fps">): number {
+  const { text, timeline, frame, from, durationInFrames, fps } = input;
+  if (text.pin) return pinnedProgress(timeline, text, ((from + frame) * 1000) / fps, fps);
+  return durationInFrames > 1 ? frame / (durationInFrames - 1) : 0;
+}
+
+/** Linear 1 → 0 between frames a and b, clamped (Remotion's interpolate, without Remotion). */
+function fadeOut(frame: number, a: number, b: number): number {
+  if (frame <= a) return 1;
+  if (frame >= b) return 0;
+  return 1 - (frame - a) / (b - a);
+}
+
+function multiply3(a: number[], b: number[]): number[] {
+  const out: number[] = [];
+  for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) out.push(a[r * 3] * b[c] + a[r * 3 + 1] * b[3 + c] + a[r * 3 + 2] * b[6 + c]);
+  return out;
+}
+
+/** The single evaluated placement of one title on one frame. See the module comment. */
+export function evaluateTitle(input: TitleInput): TitlePlacement {
+  const { text, timeline, frame, durationInFrames, fps, width, height, font, measure } = input;
+  const progress = titleProgress(input);
+  // A pinned title belongs to its shot: while another clip is on screen it is not drawn at all.
+  if (text.pin && progress === PINNED_ELSEWHERE) return { kind: "hidden", progress, opacity: 0 };
+  const position = textPositionAt(text, progress);
+  // A tracked title fades where the tracker lost the surface (keyframe `o`); one taken off before its
+  // shot ends (ADR 0044) fades over its last 0.4 s rather than vanishing mid-shot.
+  const tail = text.pin && endsBeforeShot(timeline, text) ? fadeOut(frame, Math.max(0, durationInFrames - Math.round(EARLY_END_FADE_S * fps)), durationInFrames) : 1;
+  const opacity = position.opacity * tail;
+  const occluderTaps = carryTaps(text, progress);
+  const corners = titleCorners(text, progress);
+
+  if (!corners) {
+    // A single word never breaks mid-word (a tracked title is usually one word); sentences wrap inside the safe width.
+    const wrap: ScreenPlacement["wrap"] = /\s/.test(text.text) ? { mode: "wrap", width: width * 0.86 } : { mode: "line", maxWidth: width * 1.4 };
+    return { kind: "screen", progress, center: { x: position.x * width, y: position.y * height }, wrap, scale: position.scale, rotation: position.rotation, opacity, occluderTaps };
+  }
+
+  const { plane, quad } = corners;
+  // A planar title never wraps: the widest typed line sets the width (fraction of the frame).
+  const parts = text.text.split("\n");
+  const line = Math.max(...parts.map((part) => measure(part || " ", font).width / width));
+  // The plane's own rectangle: as wide as the average of its top and bottom edges and as tall as the
+  // average of its sides, in px. One edge alone (the top for width, the left for height) made a title
+  // grow to fill a long top edge and then warp thin onto a short bottom one as a corner was dragged.
+  const px = (i: number) => plane[i * 2] * width, py = (i: number) => plane[i * 2 + 1] * height;
+  const edge = (a: number, b: number) => Math.hypot(px(b) - px(a), py(b) - py(a));
+  const w = Math.max(1, (edge(0, 1) + edge(3, 2)) / 2), h = Math.max(1, (edge(0, 3) + edge(1, 2)) / 2);
+  const rectWidth = Math.max(0.05, w / width);
+  const rectHeight = Math.max(0.02, h / height);
+  const lines = parts.length;
+  const lineHeight = ((font.fontSize * TITLE_LEADING) / height) * lines;
+  // A chosen surface is filled (94% of its width, as long as it fits 92% of its height); a tracked plane
+  // without one is fitted to the frame.
+  const fitScale = text.surface ? Math.min((rectWidth * SURFACE_FILL_WIDTH) / line, (rectHeight * SURFACE_FILL_HEIGHT) / lineHeight) : planarFitAndShift(plane, line).fit;
+  const left = plane[0] * width, top = plane[1] * height;
+  const local = (q: readonly number[]) => q.map((v, i) => (i % 2 === 0 ? v * width - left : v * height - top)) as Quad;
+  const unit: Quad = [0, 0, w, 0, w, h, 0, h];
+  const placed = homography(unit, local(quad));
+  const absolute = placed ? multiply3([1, 0, left, 0, 1, top, 0, 0, 1], placed) : null;
+
+  // Posts and cut-outs stand in front of the surface: drawn at the rest plane, mapped into plane px so they warp with it.
+  let maskShapes: number[][] | null = null;
+  if (text.surface && (text.bars?.length || text.cutouts?.length)) {
+    const H0 = homography(unit, local(plane));
+    const inv = H0 ? invertHomography(H0) : null;
+    if (inv) {
+      const toPlane = (x: number, y: number): [number, number] => {
+        const sx = x * width - left, sy = y * height - top;
+        const d = inv[6] * sx + inv[7] * sy + inv[8] || 1e-9;
+        return [(inv[0] * sx + inv[1] * sy + inv[2]) / d, (inv[3] * sx + inv[4] * sy + inv[5]) / d];
+      };
+      maskShapes = [...(text.bars ?? []), ...(text.cutouts ?? [])].map((shape) => Array.from({ length: shape.length / 2 }, (_, i) => toPlane(shape[i * 2], shape[i * 2 + 1])).flat());
+    }
+  }
+
+  const toPx = (q: readonly number[]) => q.map((v, i) => (i % 2 === 0 ? v * width : v * height)) as Quad;
+  return {
+    kind: "surface", progress, plane: toPx(quad), restPlane: toPx(plane), rect: { left, top, width: w, height: h },
+    homography: absolute, placed, fitScale, lineBox: { width: line * width, height: lineHeight * height }, lines,
+    clipToPlane: Boolean(text.surface), maskShapes, occluderTaps, opacity,
+  };
+}
+
+export type SceneLayer =
+  | { kind: "title"; text: TextOverlay; from: number; durationInFrames: number }
+  /** The presenter matte of one clip, above every `behind` title on screen with it. */
+  | { kind: "person"; clipIndex: number; from: number; durationInFrames: number }
+  /** The objects tapped for one title, on one clip, above that title. */
+  | { kind: "object"; text: TextOverlay; clipIndex: number; from: number; durationInFrames: number };
+
+/**
+ * The bottom-to-top order of titles and their occluders on the reel:
+ *   1. `behind` titles, each followed by the objects tapped for it;
+ *   2. the presenter matte of every video clip a `behind` title overlaps (one per clip,
+ *      so it is segmented once however many titles sit behind the presenter);
+ *   3. titles with tapped objects but not `behind`, each followed by its objects;
+ *   4. every other title (a foreground caption), on top of all mattes.
+ * Within a group the saved order holds. Before ADR 0046 every matte sat above every
+ * title, so a caption on a shot with a `behind` title had the presenter drawn over it.
+ * `hasVideo` says whether a clip can be matted (the renderer checks its asset).
+ */
+export function sceneLayers(timeline: Timeline, fps: number = REEL_FORMAT.fps, hasVideo: (clip: Clip) => boolean = (clip) => clip.kind === "VIDEO"): SceneLayer[] {
+  const plan = framePlan(timeline, fps);
+  const clips = plan.clips.map((entry, clipIndex) => ({ ...entry, clipIndex, startMs: (entry.from * 1000) / fps, endMs: ((entry.from + entry.durationInFrames) * 1000) / fps }));
+  const overlaps = (text: TextOverlay, clip: (typeof clips)[number]) => text.startMs < clip.endMs && text.endMs > clip.startMs;
+  const objects = (text: TextOverlay): SceneLayer[] => text.occluders?.length
+    ? clips.filter((clip) => hasVideo(clip.clip) && overlaps(text, clip)).map((clip) => ({ kind: "object", text, clipIndex: clip.clipIndex, from: clip.from, durationInFrames: clip.durationInFrames }))
+    : [];
+  const title = (entry: (typeof plan.texts)[number]): SceneLayer => ({ kind: "title", text: entry.text, from: entry.from, durationInFrames: entry.durationInFrames });
+  const behind = plan.texts.filter((entry) => entry.text.behind);
+  const tapped = plan.texts.filter((entry) => !entry.text.behind && entry.text.occluders?.length);
+  const plain = plan.texts.filter((entry) => !entry.text.behind && !entry.text.occluders?.length);
+  return [
+    ...behind.flatMap((entry) => [title(entry), ...objects(entry.text)]),
+    // Every behind text of the reel, not just those with a plan entry, as before: a matte is mounted for the clip it overlaps.
+    ...clips.filter((clip) => hasVideo(clip.clip) && timeline.texts.some((text) => text.behind && overlaps(text, clip)))
+      .map((clip): SceneLayer => ({ kind: "person", clipIndex: clip.clipIndex, from: clip.from, durationInFrames: clip.durationInFrames })),
+    ...tapped.flatMap((entry) => [title(entry), ...objects(entry.text)]),
+    ...plain.map(title),
+  ];
+}

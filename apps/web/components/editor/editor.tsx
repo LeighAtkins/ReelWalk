@@ -91,6 +91,7 @@ import {
 import { createClock, useClock, type Clock } from "./clock";
 import { ClipSourceInfo } from "./clip-source-info";
 import { DirectorSheet } from "./director-sheet";
+import { ScriptSheet, useScriptRun } from "./script-sheet";
 import { Filmstrip, type PendingUpload, type Selection } from "./filmstrip";
 import { STALE_PROPOSAL, useDocument } from "./use-document";
 import { runAutopilot } from "./autopilot-flow";
@@ -161,6 +162,7 @@ type SheetName =
   | "export"
   | "ask"
   | "director"
+  | "presenter"
   | "autopilot"
   | "review-text"
   | "review-timing"
@@ -294,6 +296,9 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
     setPlayer(instance);
   }, []);
   const autosave = useAutosave(reel.id, reel.revision, timeline, title);
+  // Script mode (ADR 0060): an approved script's takes are followed while the editor is open, not only the sheet.
+  const scriptRun = useScriptRun(reel.id);
+  const scriptReady = scriptRun.toPlace.length;
 
   const totalMs = timelineDurationMs(timeline);
   const apply = useCallback((update: (timeline: Timeline) => Timeline, key?: string) => dispatch({ type: "apply", update, key }), []);
@@ -320,6 +325,11 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
     },
     [runDocumentCommand, showToast],
   );
+
+  // A script's takes finishing while the studio edits: say so once, and the Presenter button shows it.
+  useEffect(() => {
+    if (scriptReady > 0) showToast(`${scriptReady === 1 ? "A presenter take is" : `${scriptReady} presenter takes are`} ready. Tap Presenter on the timeline to place ${scriptReady === 1 ? "it" : "them"}.`, 5000);
+  }, [scriptReady, showToast]);
 
   // A sheet opening or closing ends any slider gesture: the next change is its own step with its own baseline.
   const sheetOpenedAt = useRef(0);
@@ -1292,6 +1302,8 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         onAddMedia={() => setSheet("media")}
         onAddText={() => setSheet("text-new")}
         onAddMusic={() => setSheet("music")}
+        onPresenter={() => setSheet("presenter")}
+        presenterReady={scriptRun.toPlace.length > 0}
       />
 
       <nav className="toolbar" aria-label="Editing tools">
@@ -1577,6 +1589,20 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         showToast("Applied Opus's proposed edit. Undo takes it back.");
         return landed;
       }} /> : null}
+
+      {sheet === "presenter" ? <Sheet title="Presenter" onClose={closeSheet}>
+        <ScriptSheet reelId={reel.id} timeline={timeline} library={library} run={scriptRun}
+          onAssets={(assets) => setLibrary((current) => ({ ...current, ...Object.fromEntries(assets.map((asset) => [asset.id, asset])) }))}
+          onPlace={(takes, assets) => {
+            setLibrary((current) => ({ ...current, ...Object.fromEntries(assets.map((asset) => [asset.id, asset])) }));
+            // Every take in one command: one undo step takes the whole script back out (ADR 0048).
+            const result = runCommand({ type: "insertPresenterTakes", takes });
+            if (result.rejected) return false;
+            showToast(result.changes.length ? `Placed ${takes.length === 1 ? "the take" : `${takes.length} takes`}. Undo takes them back out.` : "Those takes are already in the reel.");
+            setSheet(null);
+            return true;
+          }} />
+      </Sheet> : null}
 
       {sheet === "review-timing" ? (
         <TimingChoices

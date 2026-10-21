@@ -33,6 +33,8 @@ export type ComposeOptions = {
   framing?: PresenterFraming;
   /** The second attempt after the identity gate missed. */
   stronger?: boolean;
+  /** The miss was a face too small to judge: come in closer. */
+  closer?: boolean;
 };
 
 /** The instruction to the image model for one end of the shot. */
@@ -44,6 +46,7 @@ export function composePrompt(end: "first" | "last", instruction: string, option
       : "Place the person from the second image into that scene as described, keeping her face, hair, outfit, build and skin tone identical:",
     instruction.trim(),
     options.framing ? framingInstruction(options.framing) : "",
+    options.closer ? "Closer: her head about a quarter of the way down, face at least 220 px tall. The last attempt made her face too small to recognise." : "",
     "She must be at true human scale against the objects named and the architecture (a door is about 2.1 m, a chair seat 0.45 m, a kitchen bench 0.9 m); never larger than a doorway.",
     // The first reel's presenter stood on a coffee table: the model placed her by scale alone, not by the floor.
     "Her feet stand on visible, clear floor (never on or inside furniture, rugs' edges aside), below the horizon line; anything nearer the camera than that floor spot (a sofa back, a table, a counter) passes in front of her and hides the part of her it covers. She casts a soft contact shadow on the floor that matches the scene's light direction, and the scene's light falls on her the same way.",

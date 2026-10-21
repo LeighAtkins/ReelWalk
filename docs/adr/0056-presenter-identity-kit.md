@@ -89,8 +89,10 @@ an older frame-only request, the presenter frame), returning
 `{ samePerson, confidence }`. There is no Node face detector in the stack,
 so Gemini supplies the geometry. Decision table (`identityDecision`): the
 same person with confidence ≥ 0.6 on a measured face of at least 120 px
-passes; otherwise recompose once with a stronger
-identity instruction; a second miss refunds the credit and records
+passes; otherwise recompose once with a stronger instruction (and, when
+the miss was a face too small to judge, at medium framing with "Closer: her
+head about a quarter of the way down, face at least 220 px tall", even if
+wide was asked for); a second miss refunds the credit and records
 `failureCode = "identity_rejected"` with both scores. A check that cannot
 run counts as a miss, never a pass. Every attempt's composite is kept
 (`-first.jpg`, `-first-retry.jpg`), every verdict is stored in
@@ -107,11 +109,26 @@ renewal finds the row is no longer its own). Immediately before
 its lease token, `SUBMITTING` and `submitStartedAt IS NULL`; if that
 matches nothing it does not submit. Recovery distinguishes the two cases,
 each with a conditional update: a lapsed row without `submitStartedAt` was
-never sent and is refunded; one with it may have been sent and becomes
-`UNRESOLVED` with no refund and no retry (ADR 0049's rule). If the
-original submission does return, saving its operation moves the row from
-`UNRESOLVED` to `RUNNING`. Every refund on the preparation path is
-conditional on the lease token and `submitStartedAt IS NULL`.
+never sent and is refunded, credit and budget reservation both; one with
+it may have been sent and becomes `UNRESOLVED` with no refund and no retry
+(ADR 0049's rule). If the original submission does return, saving its
+operation moves the row from `UNRESOLVED` to `RUNNING`. Every refund on the
+preparation path is conditional on the lease token and `submitStartedAt IS
+NULL`.
+
+After the fence, failures are classified, never lumped together. A
+definite refusal (HTTP 4xx other than 408 whose body names a rejection
+code such as `INVALID_ARGUMENT`, `PERMISSION_DENIED` or
+`RESOURCE_EXHAUSTED`, so no operation exists; only the code is read, the
+body is never kept) is FAILED with credit and budget returned. Anything
+ambiguous (a timeout, network error, abort, 5xx, or a 4xx without such a
+code) is `UNRESOLVED`: the credit is held and the shot is never resent. If
+Google returned an operation but saving it fails, the save is retried with
+backoff (1, 3, 9 s) without resubmitting; if it still fails, the row is
+held `UNRESOLVED` with the operation name stored where the database allows
+and always logged. The message on an `UNRESOLVED` take is "We couldn't
+confirm whether this take was made. Your credit is held; it won't be
+charged twice."
 
 **Lineage.** `AiGeneration.referenceDepth`: 0 for the kit or real footage,
 the source take's depth + 1 for a generated reference (a take from before
@@ -144,7 +161,13 @@ again before uploading anything.
   wide arrivals must keep her large enough to recognise or be cut from real
   footage.
 - `UNRESOLVED` generations keep their credit and budget reservation until
-  someone looks; the AI panel shows their message.
+  someone looks; the AI panel shows their message. They need a
+  reconciliation tool (follow-up): look up the stored or logged operation
+  with Google, then either resume polling or refund.
+- Identity calls: 2 to 4 text calls per composed end (find and compare,
+  twice if recomposed; a face that cannot be judged skips the compare), so
+  up to 8 for a take composed at both ends, plus 1 to 2 composition (image)
+  calls per end.
 - Upload confirm (also behind `/api/uploads/confirm`) checks the stored
   object's metadata (content type, size), not the file signature; the
   worker's decoder rejects anything that is not an image. Recorded, not

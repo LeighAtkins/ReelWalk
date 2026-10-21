@@ -46,6 +46,7 @@ describe("presenter kit compose (ADR 0056)", () => {
     expect(composePrompt("first", "In the doorway.", { face: true, stronger: true })).toContain("Identity is the priority");
     expect(composePrompt("first", "In the doorway.", { face: true })).not.toContain("Identity is the priority");
     expect(composePrompt("first", "A small figure at the gate.", { framing: "wide" })).toContain("Wide framing");
+    expect(composePrompt("first", "At the gate.", { framing: "medium", closer: true })).toContain("Closer: her head about a quarter of the way down, face at least 220 px tall.");
   });
   it("reads a JSON answer, with or without a code fence", () => {
     const answer = (text: string) => ({ candidates: [{ content: { parts: [{ text }] } }] });

@@ -13,10 +13,13 @@ vi.mock("../src/vertex-images", () => ({ VertexImages: class { compose = compose
 vi.mock("../src/voice", () => ({ lipsyncConfigured: () => true, voicedPrompt: (p: string, l: string) => `${p} [${l}]`, synthesiseLine: tts, startLipsync: startSync, pollLipsync: pollSync, fetchVideo: fetchTake }));
 vi.mock("../src/transcribe", () => ({ transcriptionAvailable: () => false, transcribeVideo: async () => null }));
 vi.mock("@aws-sdk/s3-request-presigner", () => ({ getSignedUrl: async (_s3: unknown, command: { input: { Key: string } }) => `https://signed/${command.input.Key}` }));
-vi.mock("../src/vertex-video", () => ({
-  VertexError: class extends Error {}, VertexVideo: class { submit = submit; poll = poll; },
-}));
-import { processAiVideo } from "../src/ai-video";
+vi.mock("../src/vertex-video", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../src/vertex-video")>();
+  return { VertexError: original.VertexError, definitelyRejected: original.definitelyRejected, VertexVideo: class { submit = submit; poll = poll; } };
+});
+import { aiVideoTiming, processAiVideo, UNRESOLVED_MESSAGE } from "../src/ai-video";
+import { VertexError } from "../src/vertex-video";
+aiVideoTiming.saveBackoffMs = [0, 0, 0];
 
 const a = clipSchema.parse({ id: "a", assetId: "real-a", kind: "VIDEO", sourceStartMs: 1000, sourceEndMs: 5000 });
 const b = clipSchema.parse({ id: "b", assetId: "real-b", kind: "VIDEO", sourceStartMs: 0, sourceEndMs: 4000 });
@@ -82,7 +85,61 @@ describe("AI shot worker", () => {
   it("recovery refunds a stale row still being prepared, only if it is still unsent and lapsed", async () => {
     db.aiGeneration.findFirst.mockResolvedValueOnce({ id: "prep", status: "SUBMITTING", submitStartedAt: null });
     await processAiVideo(s3, "media");
-    expect(fail).toHaveBeenCalledWith(db, "prep", expect.stringContaining("interrupted"), false, { onlyIf: { status: "SUBMITTING", submitStartedAt: null, leaseUntil: { lt: expect.any(Date) } } });
+    // Provably unsent: the budget reservation is released too.
+    expect(fail).toHaveBeenCalledWith(db, "prep", expect.stringContaining("interrupted"), true, { onlyIf: { status: "SUBMITTING", submitStartedAt: null, leaseUntil: { lt: expect.any(Date) } } });
+  });
+  // Round 2: after the fence, only a definite refusal is refunded.
+  const unresolved = () => db.aiGeneration.updateMany.mock.calls.map(([args]) => args).filter(args => args.data.status === "UNRESOLVED");
+  it("a submit timeout is UNRESOLVED with the held-credit message, never refunded", async () => {
+    claim.mockResolvedValue(job); submit.mockRejectedValueOnce(new DOMException("The operation timed out.", "TimeoutError"));
+    await processAiVideo(s3, "media");
+    expect(fail).not.toHaveBeenCalled();
+    expect(unresolved()).toEqual([{ where: { id: "one", leaseToken: "mine", status: { in: ["SUBMITTING", "UNRESOLVED"] } }, data: { status: "UNRESOLVED", error: UNRESOLVED_MESSAGE } }]);
+    expect(UNRESOLVED_MESSAGE).toBe("We couldn't confirm whether this take was made. Your credit is held; it won't be charged twice.");
+  });
+  it("recovery marked it UNRESOLVED, then the submit fails ambiguously (5xx, or 4xx without a rejection code): still held", async () => {
+    claim.mockResolvedValue(job); submit.mockRejectedValueOnce(new VertexError("HTTP 503", 503, "UNAVAILABLE"));
+    await processAiVideo(s3, "media");
+    claim.mockResolvedValue(job); submit.mockRejectedValueOnce(new VertexError("HTTP 400", 400));
+    await processAiVideo(s3, "media");
+    expect(fail).not.toHaveBeenCalled();
+    expect(unresolved()).toHaveLength(2);
+    expect(submit).toHaveBeenCalledTimes(2);
+  });
+  it("a definite rejection (4xx with a rejection code, no operation) refunds the credit and budget", async () => {
+    claim.mockResolvedValue(job); submit.mockRejectedValueOnce(new VertexError("HTTP 400 (INVALID_ARGUMENT)", 400, "INVALID_ARGUMENT"));
+    await processAiVideo(s3, "media");
+    expect(fail).toHaveBeenCalledWith(db, "one", expect.stringContaining("could not start"), true, { onlyIf: { leaseToken: "mine" } });
+    expect(unresolved()).toHaveLength(0);
+  });
+  it("an operation that cannot be saved is retried without resubmitting", async () => {
+    claim.mockResolvedValue(job);
+    db.aiGeneration.updateMany.mockResolvedValueOnce({ count: 1 }) // the fence
+      .mockRejectedValueOnce(new Error("db down")).mockRejectedValueOnce(new Error("db down")).mockResolvedValueOnce({ count: 1 });
+    await processAiVideo(s3, "media");
+    expect(submit).toHaveBeenCalledTimes(1);
+    expect(db.aiGeneration.updateMany).toHaveBeenLastCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "RUNNING", operationName: "operation-one" }) }));
+    expect(fail).not.toHaveBeenCalled();
+  });
+  it("an operation that never saves is held UNRESOLVED with its name, not refunded or resubmitted", async () => {
+    claim.mockResolvedValue(job);
+    db.aiGeneration.updateMany.mockResolvedValueOnce({ count: 1 }) // the fence
+      .mockRejectedValueOnce(new Error("db down")).mockRejectedValueOnce(new Error("db down")).mockRejectedValueOnce(new Error("db down")).mockRejectedValueOnce(new Error("db down"))
+      .mockResolvedValueOnce({ count: 1 });
+    await processAiVideo(s3, "media");
+    expect(submit).toHaveBeenCalledTimes(1);
+    expect(fail).not.toHaveBeenCalled();
+    expect(unresolved()).toEqual([expect.objectContaining({ data: { status: "UNRESOLVED", error: UNRESOLVED_MESSAGE, operationName: "operation-one" } })]);
+  });
+  it("a face too small to judge is recomposed closer at medium framing, even when wide was asked for", async () => {
+    claim.mockResolvedValue(job); frames.mockResolvedValueOnce([{ ...kit[0], framing: "wide" }, kit[1], kit[2]]);
+    compose.mockResolvedValue({ bytesBase64Encoded: "composed", mimeType: "image/jpeg" });
+    identity.mockResolvedValueOnce({ samePerson: false, confidence: 0, faceHeightPx: 58, reason: "face-too-small" }).mockResolvedValueOnce({ samePerson: true, confidence: 0.8, faceHeightPx: 240 });
+    await processAiVideo(s3, "media");
+    expect(compose.mock.calls[0][5]).toEqual({ framing: "wide", stronger: false });
+    expect(compose.mock.calls[1][5]).toEqual({ framing: "medium", stronger: true, closer: true });
+    expect(submit).toHaveBeenCalledTimes(1);
+    compose.mockReset();
   });
   const composed = [{ bytesBase64Encoded: "first", mimeType: "image/jpeg", role: "first", compose: "At the door, head below the lintel." }, { bytesBase64Encoded: "last", mimeType: "image/jpeg", role: "last" }, { bytesBase64Encoded: "her", mimeType: "image/jpeg", role: "presenter" }];
   it("composes a described start still with the presenter before submitting, and keeps a copy", async () => {

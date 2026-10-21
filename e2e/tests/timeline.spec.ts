@@ -62,7 +62,8 @@ test("text timing and clips are edited by dragging on the timeline", async ({ pa
   await expect(page.getByTestId("save-state")).toHaveAttribute("data-status", "saved", { timeout: 20_000 });
   await page.reload();
   await expect(page.getByTestId("clip").first()).toHaveAttribute("aria-label", /video, 0:01\.5/);
-  await expect(page.getByTestId("text-bar")).toHaveAttribute("aria-label", /0:01\.0 to 0:02\.5/);
+  // The text sat inside the first photo, so it moved with it to after the 1.5 s video (ADR 0048: attached texts follow their clip).
+  await expect(page.getByTestId("text-bar")).toHaveAttribute("aria-label", /0:02\.5 to 0:04\.0/);
 });
 
 test("the timeline zooms and sheets drag closed by their grip", async ({ page }) => {

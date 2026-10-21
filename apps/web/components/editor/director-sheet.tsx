@@ -11,10 +11,13 @@ const VERDICTS = { ready: "Opus thinks this reel is ready", "changes-proposed": 
 const CHECKS: Record<string, string> = { scale: "Presenter's size", cameraContinuity: "Camera flow", presenterContinuity: "Presenter stays on screen", propertyIdentity: "House matches the real one" };
 const RESULTS = { pass: "looks right", fail: "needs fixing", uncertain: "not sure" } as const;
 
-type Review = { ok: true; editId: string; model: string; plan: DirectorPlan; baseline: Timeline; timeline: Timeline; applied: string[]; skipped: string[]; assets: LibraryAsset[]; evidence: { assetId: string; timesMs: number[] }[]; /** An Instagram sound the plan chose; the editor imports it when the review is applied. */ instagramPick?: InstagramAudioTrack | null };
-export function DirectorSheet({ reelId, timeline, library, onApply, onAssets, onClose }: {
+type Review = { ok: true; editId: string; model: string; plan: DirectorPlan; baseline: Timeline; timeline: Timeline; applied: string[]; skipped: string[]; assets: LibraryAsset[]; evidence: { assetId: string; timesMs: number[] }[]; /** An Instagram sound the plan chose; the editor imports it when the review is applied. */ instagramPick?: InstagramAudioTrack | null; /** The editor's document generation the review was asked against (ADR 0048); absent on a review saved earlier. */ generation?: number };
+export function DirectorSheet({ reelId, timeline, generation, library, onApply, onAssets, onClose }: {
   reelId: string; timeline: Timeline; library: LibraryAsset[];
-  onApply(review: Review): boolean;
+  /** The reel's current document generation: a review applies only against the generation it was asked for. */
+  generation: number;
+  /** Applies a review as one step: the new generation and reel, or why not (the reel changed since, or the edit is not a valid reel). */
+  onApply(review: Review): Promise<{ ok: true; generation: number; timeline: Timeline } | { ok: false; reason: "stale" | "rejected"; message: string }>;
   /** Media the director brought in (AI takes made or considered), so the editor's library and picker know them. */
   onAssets?(assets: LibraryAsset[]): void;
   onClose(): void;
@@ -53,7 +56,7 @@ export function DirectorSheet({ reelId, timeline, library, onApply, onAssets, on
     const used = new Set(base.clips.map(c => c.assetId));
     return { ids: assets.filter(a => !used.has(a.id) && a.kind === "VIDEO").map(a => a.id).slice(0, 4), assets };
   }
-  async function direct(request = brief, base = timeline, runId: string | null = null): Promise<Review | null> {
+  async function direct(request = brief, base = timeline, runId: string | null = null, baseGeneration = generation): Promise<Review | null> {
     setBusy(true); setMessage("Opus is getting your clips ready…");
     try {
       const key = JSON.stringify({ request, base, runId });
@@ -66,7 +69,8 @@ export function DirectorSheet({ reelId, timeline, library, onApply, onAssets, on
         retry.current = { key, body: { requestId: crypto.randomUUID(), request, timeline: base, candidates, evidence, ...(runId ? { runId } : {}) } };
       }
       setMessage("Opus is watching the frames and working out what to change. This takes a minute or two…");
-      const result = await runAiJob<Review>(`/api/reels/${reelId}/director`, retry.current.body);
+      const answer = await runAiJob<Review>(`/api/reels/${reelId}/director`, retry.current.body);
+      const result = answer.ok ? { ...answer, generation: baseGeneration } : answer;
       // A failed request keeps its id on the server, so asking again with the same brief would only fetch the same failure back.
       if (!result.ok) retry.current = null;
       await acceptResult(result);
@@ -92,14 +96,17 @@ export function DirectorSheet({ reelId, timeline, library, onApply, onAssets, on
   async function run() {
     const state = { runId: null as string | null, spent: 0, round: 0, stop: false };
     loop.current = state; setRunning(true);
-    let request = brief, base = timeline;
+    let request = brief, base = timeline, baseGeneration = generation;
     try {
       for (;;) {
-        const result = await direct(request, base, state.runId);
+        const result = await direct(request, base, state.runId, baseGeneration);
         if (!result || state.stop) return;
         state.runId ??= result.editId;
-        if ((result.applied.length || result.plan.edit.caption) && !onApply(result)) { setMessage("The timeline changed while Opus was working, so the run stopped before making anything."); return; }
-        base = result.timeline;
+        if (result.applied.length || result.plan.edit.caption) {
+          const applied = await onApply(result);
+          if (!applied.ok) { setMessage(applied.reason === "stale" ? "The timeline changed while Opus was working, so the run stopped before making anything." : `The run stopped before making anything: ${applied.message}`); return; }
+          base = applied.timeline; baseGeneration = applied.generation;
+        }
         const step = directorLoopStep(result.plan, { round: state.round, maxRounds: DIRECTOR_LOOP_MAX_ROUNDS, budgetCredits: budget, spentCredits: state.spent });
         if (step.kind === "done") { setMessage(step.reason); return; }
         const shot = result.plan.shots[step.index];
@@ -133,7 +140,7 @@ export function DirectorSheet({ reelId, timeline, library, onApply, onAssets, on
     } catch (error) { setMessage(error instanceof Error ? error.message : "Could not start this shot. Repeating the same approval reuses its request."); }
     finally { setApproving(null); }
   }
-  const current = review && sameTimeline(review.baseline, timeline);
+  const current = review && (review.generation !== undefined ? review.generation === generation : sameTimeline(review.baseline, timeline));
   return <Sheet title="Ask Opus" onClose={onClose}>
     <p className="muted">Tell Opus what you think, the way you would tell an editor. It looks through every clip, including AI takes you have not used, and suggests fixes. Nothing changes until you tap Apply, and new AI shots always ask first.</p>
     {pending.map(j => <button key={j.id} type="button" className="btn btn-quiet btn-block" disabled={busy} onClick={() => resume(j.id)}>Opus is still working on your last request · show it</button>)}
@@ -155,7 +162,7 @@ export function DirectorSheet({ reelId, timeline, library, onApply, onAssets, on
       {review.plan.issues.length ? <ul>{review.plan.issues.map((issue, i) => <li key={i}>{issue}</li>)}</ul> : null}
       <p className="muted small">{review.plan.limitations}</p>
       <details><summary>What Opus looked at</summary><p className="small">{review.evidence.length} clips, {review.evidence.reduce((n, e) => n + e.timesMs.length, 0)} frames. Opus sees still frames, not sound or the finished playback.</p></details>
-      {review.applied.length > 0 || review.plan.edit.caption ? <><details><summary>What Opus would change</summary><ul>{review.applied.map((s, i) => <li key={i}>{s}</li>)}</ul>{review.skipped.map((s, i) => <p key={i}>{s}</p>)}{review.plan.edit.caption ? <p style={{ whiteSpace: "pre-wrap" }}>Post caption: {review.plan.edit.caption}</p> : null}</details><button type="button" className="btn btn-signal btn-block" disabled={!current || busy} onClick={() => { if (onApply(review)) setMessage("Applied as one editable, undoable step."); else setMessage("The timeline changed. Ask Opus to review the current edit."); }}>Apply these changes</button>{!current ? <p className="small">You have edited the reel since. Ask Opus again before applying.</p> : null}</> : null}
+      {review.applied.length > 0 || review.plan.edit.caption ? <><details><summary>What Opus would change</summary><ul>{review.applied.map((s, i) => <li key={i}>{s}</li>)}</ul>{review.skipped.map((s, i) => <p key={i}>{s}</p>)}{review.plan.edit.caption ? <p style={{ whiteSpace: "pre-wrap" }}>Post caption: {review.plan.edit.caption}</p> : null}</details><button type="button" className="btn btn-signal btn-block" disabled={!current || busy} onClick={() => { void onApply(review).then((applied) => setMessage(applied.ok ? "Applied as one editable, undoable step." : applied.reason === "stale" ? "The timeline changed. Ask Opus to review the current edit." : applied.message)); }}>Apply these changes</button>{!current ? <p className="small">You have edited the reel since. Ask Opus again before applying.</p> : null}</> : null}
       {review.plan.shots.map((s, i) => <article key={`${review.editId}:${i}`}>
         <h3>{s.title}</h3><p>{s.reason}</p>{s.line ? <p className="small">She says: “{s.line}” · {s.voice === "veo" ? "Veo's own voice" : "the presenter voice, lip-synced"}</p> : null}<p className="small">New {s.durationSeconds}-second AI shot · {aiClipCredits(s.durationSeconds, Boolean(s.voice))} {aiClipCredits(s.durationSeconds, Boolean(s.voice)) === 1 ? "credit" : "credits"}</p>
         <details><summary>Opus's instructions for this shot</summary><p style={{ whiteSpace: "pre-wrap" }}>{s.prompt}</p><p className="small">First: {s.first ? `${media.find(a => a.id === s.first!.assetId)?.fileName ?? s.first.assetId} at ${(s.first.atMs / 1000).toFixed(2)}s` : "None"}<br />Last: {s.last ? `${media.find(a => a.id === s.last!.assetId)?.fileName ?? s.last.assetId} at ${(s.last.atMs / 1000).toFixed(2)}s` : "None"}{s.compose ? <><br />Start and end stills are composed first, placing the presenter from {media.find(a => a.id === s.compose!.presenter.assetId)?.fileName ?? s.compose.presenter.assetId} into the real frame at human scale.</> : null}</p></details>

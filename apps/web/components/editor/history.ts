@@ -18,7 +18,7 @@ export type History = {
 };
 
 const LIMIT = 100;
-const COALESCE_MS = 800;
+export const COALESCE_MS = 800;
 
 export type HistoryAction =
   | { type: "apply"; update: (timeline: Timeline) => Timeline; key?: string }

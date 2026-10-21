@@ -36,3 +36,5 @@ export * from "./surface";
 export * from "./ducking";
 export * from "./director-loop";
 export * from "./hooks";
+export * from "./text-timing";
+export * from "./commands";

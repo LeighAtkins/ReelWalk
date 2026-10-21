@@ -16,14 +16,14 @@ let scratch: HTMLCanvasElement | null = null;
 /** The clip each analysis video is presented as; a video without one is read whole (frame matching compares raw sources). */
 const presentedAs = new WeakMap<HTMLVideoElement, Clip>();
 
-/** The video's current frame as luminance at the analysis size, drawn as the composition shows its clip. */
+/** The video's current frame as luminance at the analysis size, drawn as the composition places its clip (the picture alone, on flat grey). */
 export function grayFrame(video: HTMLVideoElement, width = ANALYSIS_WIDTH, height = ANALYSIS_HEIGHT): Gray {
   scratch ??= document.createElement("canvas");
   scratch.width = width; scratch.height = height;
   const ctx = scratch.getContext("2d", { willReadFrequently: true });
   if (!ctx) throw new Error("Frame analysis is unavailable in this browser.");
   const clip = presentedAs.get(video);
-  if (clip) drawPresented(ctx, video, clip, clipMomentAtSource(clip, video.currentTime * 1000), width, height);
+  if (clip) drawPresented(ctx, video, clip, clipMomentAtSource(clip, video.currentTime * 1000), width, height, "analysis");
   else ctx.drawImage(video, 0, 0, width, height);
   return luminance(scratch);
 }
@@ -200,7 +200,7 @@ export async function detectSurface(asset: LibraryAsset, clip: Clip, clipStartMs
   const speed = clip.speed || 1;
   const sourceMs = clip.sourceStartMs + Math.max(0, text.startMs - clipStartMs) * speed;
   try {
-    const frame = await frameService.frameAt({ clip, media: { src: asset.url, kind: asset.kind } }, Math.min(sourceMs, Math.max(0, clip.sourceEndMs - 40)), TRACK_WIDTH * 2, TRACK_HEIGHT * 2);
+    const frame = await frameService.frameAt({ clip, media: { src: asset.url, kind: asset.kind } }, Math.min(sourceMs, Math.max(0, clip.sourceEndMs - 40)), { width: TRACK_WIDTH * 2, height: TRACK_HEIGHT * 2, purpose: "analysis" });
     if (!frame) return null;
     const gray = luminance(frame);
     const found = findSurfaceQuad(gray, text.x * gray.width, text.y * gray.height);

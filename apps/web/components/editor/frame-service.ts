@@ -1,5 +1,6 @@
-import { clipMomentAtSource, clipPicture, framePlan, pictureCanvasTransform, pictureRects, type Clip, type ClipMoment, type Timeline } from "@reelwalk/core";
+import { clipMomentAtSource, framePlan, midFrameMs, type Clip, type ClipMoment, type Timeline } from "@reelwalk/core";
 import { FILTER_CSS } from "@reelwalk/render/reel";
+import { drawClipFrame } from "./frame-draw";
 
 /**
  * Frames as the composition shows them (ADR 0047). Analysis (surface
@@ -16,45 +17,17 @@ export type FrameClip = { clip: Clip; media: { src: string; kind: string }; dura
 /** Composition-sized canvas for the loupe; analysis asks for its own smaller sizes. */
 export const FRAME_WIDTH = 1080, FRAME_HEIGHT = 1920;
 
+/** "view" is what the viewer sees (the loupe); "analysis" is the picture alone on flat grey (frame-draw.ts). */
+export type FramePurpose = "view" | "analysis";
+
 type Drawable = HTMLVideoElement | HTMLImageElement;
 
 const sizeOf = (media: Drawable) => (media instanceof HTMLVideoElement ? { width: media.videoWidth, height: media.videoHeight } : { width: media.naturalWidth, height: media.naturalHeight });
 
-const filterSupported = (ctx: CanvasRenderingContext2D) => typeof ctx.filter === "string";
-
-/**
- * Draws `media` at its current frame into `ctx` (a `width`×`height` canvas of
- * the composition) the way ReelComposition's ClipView shows `clip` at
- * `moment`: under Fit (contain) the blurred, enlarged backdrop first, then
- * the picture through its fit and its zoom/move transform, with the clip's
- * colour filter. Whips and fades are transitions and are not drawn.
- */
-export function drawPresented(ctx: CanvasRenderingContext2D, media: Drawable, clip: Pick<Clip, "fit" | "zoom" | "motion" | "filter">, moment: ClipMoment, width: number, height: number): void {
-  const source = sizeOf(media);
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.filter = "none";
-  ctx.fillStyle = "#000";
-  ctx.fillRect(0, 0, width, height);
-  if (!source.width || !source.height) return;
-  const grade = FILTER_CSS[clip.filter] ?? "";
-  const k = width / FRAME_WIDTH;
-  const canFilter = filterSupported(ctx);
-  if (clip.fit === "contain" && canFilter) {
-    // ClipView: <AbsoluteFill style="filter: blur(48px) brightness(0.7); transform: scale(1.25)"> with the picture covering it.
-    const cover = pictureRects(clipPicture({ fit: "cover", zoom: 1, motion: "none" }, source, moment));
-    ctx.save();
-    ctx.filter = `${grade} blur(${48 * k}px) brightness(0.7)`.trim();
-    ctx.setTransform(1.25, 0, 0, 1.25, width / 2 - 1.25 * (width / 2), height / 2 - 1.25 * (height / 2));
-    ctx.drawImage(media, cover.sx, cover.sy, cover.sw, cover.sh, cover.dx * k, cover.dy * k, cover.dw * k, cover.dh * k);
-    ctx.restore();
-  }
-  const picture = clipPicture(clip, source, moment);
-  const r = pictureRects(picture);
-  ctx.save();
-  if (canFilter && grade) ctx.filter = grade;
-  ctx.setTransform(...pictureCanvasTransform(picture, width, height));
-  ctx.drawImage(media, r.sx, r.sy, r.sw, r.sh, r.dx * k, r.dy * k, r.dw * k, r.dh * k);
-  ctx.restore();
+/** Draws `media` at its current frame as the composition shows `clip` at `moment`, for viewing or for analysis. */
+export function drawPresented(ctx: CanvasRenderingContext2D, media: Drawable, clip: Pick<Clip, "fit" | "zoom" | "motion" | "filter">, moment: ClipMoment, width: number, height: number, purpose: FramePurpose): void {
+  drawClipFrame(ctx, media, sizeOf(media), clip, moment, width, height,
+    purpose === "analysis" ? { kind: "analysis" } : { kind: "view", grade: FILTER_CSS[clip.filter] ?? "", canFilter: typeof ctx.filter === "string" });
 }
 
 // ── Media elements ──────────────────────────────────────────────
@@ -100,55 +73,82 @@ export function releaseVideo(video: HTMLVideoElement): void {
 
 // ── The service ─────────────────────────────────────────────────
 
-/** Two sources open at a time, six frames kept: about 50 MB at composition size, the most a phone should hold for this. */
-const MAX_MEDIA = 2, MAX_FRAMES = 6;
+/** Two sources open, four frames kept: about 33 MB at composition size, as much as a phone should give this. */
+const MAX_MEDIA = 2, MAX_FRAMES = 4;
 
-type MediaEntry = { media: Promise<Drawable>; queue: Promise<unknown> };
+type MediaEntry = { media: Promise<Drawable>; queue: Promise<unknown>; latest: Map<string, number> };
+type FrameEntry = { promise: Promise<HTMLCanvasElement | null>; canvas: HTMLCanvasElement | null };
 
-/** What a frame depends on besides the source time: the clip instance and everything about how it is presented. */
-function frameKey(target: FrameClip, sourceMs: number, width: number, height: number): string {
-  const c = target.clip;
-  return [c.id, target.media.src, c.sourceStartMs, c.sourceEndMs, c.speed, c.fit, c.zoom, c.motion, c.filter, target.durationInFrames ?? "", Math.round(sourceMs), width, height].join("|");
-}
+export type FrameRequest = {
+  width?: number;
+  height?: number;
+  purpose?: FramePurpose;
+  /**
+   * Latest wins within a channel: a request on the same source and channel
+   * made after this one drops it before it seeks (resolving null), so
+   * scrubbing with the loupe never queues a backlog of stale seeks. Analysis
+   * passes none and is never dropped.
+   */
+  channel?: string;
+};
+
+/** Frees a canvas's backing store now (iOS caps total canvas memory and frees it lazily). */
+const freeCanvas = (canvas: HTMLCanvasElement | null) => { if (canvas) { canvas.width = 0; canvas.height = 0; } };
+
+let tickets = 0;
 
 export class FrameService {
   private media = new Map<string, MediaEntry>();
-  private frames = new Map<string, { promise: Promise<HTMLCanvasElement | null>; canvas: HTMLCanvasElement | null }>();
+  private frames = new Map<string, FrameEntry>();
+
+  /** What a frame depends on: the clip instance, everything about how it is presented, the seek time, size and purpose. */
+  private key(target: FrameClip, seekMs: number, width: number, height: number, purpose: FramePurpose): string {
+    const c = target.clip;
+    return [c.id, target.media.src, c.sourceStartMs, c.sourceEndMs, c.speed, c.fit, c.zoom, c.motion, c.filter, target.durationInFrames ?? "", seekMs.toFixed(2), width, height, purpose].join("|");
+  }
 
   /**
-   * The composition's picture of `target` at `sourceMs` of its source,
-   * `width`×`height`; null for a 360 clip (not a flat picture) or media that
-   * cannot be read. Cached by clip instance, presentation and time.
+   * The composition's picture of `target` at `sourceMs` of its source; null
+   * for a 360 photo (not a flat picture), unreadable media, or a request
+   * superseded in its channel. The video is seeked to the middle of the
+   * frame `sourceMs` falls in, so it cannot land on the frame before.
    */
-  frameAt(target: FrameClip, sourceMs: number, width = FRAME_WIDTH, height = FRAME_HEIGHT): Promise<HTMLCanvasElement | null> {
-    const key = frameKey(target, sourceMs, width, height);
+  frameAt(target: FrameClip, sourceMs: number, request: FrameRequest = {}): Promise<HTMLCanvasElement | null> {
+    const { width = FRAME_WIDTH, height = FRAME_HEIGHT, purpose = "view", channel } = request;
+    const seekMs = target.media.kind === "VIDEO" ? midFrameMs(sourceMs) : 0;
+    const key = this.key(target, seekMs, width, height, purpose);
     const hit = this.frames.get(key);
     if (hit) {
       this.frames.delete(key); this.frames.set(key, hit);
+      if (channel) this.media.get(target.media.src)?.latest.set(channel, -1);
       return hit.promise;
     }
-    const entry: { promise: Promise<HTMLCanvasElement | null>; canvas: HTMLCanvasElement | null } = { promise: Promise.resolve(null), canvas: null };
-    entry.promise = this.draw(target, sourceMs, width, height).then((canvas) => { entry.canvas = canvas; if (!canvas) this.frames.delete(key); return canvas; });
+    const entry: FrameEntry = { promise: Promise.resolve(null), canvas: null };
+    entry.promise = this.draw(target, seekMs, width, height, purpose, channel).then((canvas) => {
+      entry.canvas = canvas;
+      if (!canvas && this.frames.get(key) === entry) this.frames.delete(key);
+      return canvas;
+    });
     this.frames.set(key, entry);
-    while (this.frames.size > MAX_FRAMES) this.frames.delete(this.frames.keys().next().value!);
+    while (this.frames.size > MAX_FRAMES) {
+      const [oldest, old] = this.frames.entries().next().value!;
+      this.frames.delete(oldest);
+      freeCanvas(old.canvas);
+    }
     return entry.promise;
-  }
-
-  /** The frame if it is already drawn, without waiting (for drawing on every pointer move). */
-  peek(target: FrameClip, sourceMs: number, width = FRAME_WIDTH, height = FRAME_HEIGHT): HTMLCanvasElement | null {
-    return this.frames.get(frameKey(target, sourceMs, width, height))?.canvas ?? null;
   }
 
   /** Frees every source and frame. */
   dispose(): void {
     for (const entry of this.media.values()) entry.media.then((m) => { if (m instanceof HTMLVideoElement) releaseVideo(m); }).catch(() => undefined);
+    for (const entry of this.frames.values()) freeCanvas(entry.canvas);
     this.media.clear(); this.frames.clear();
   }
 
   private open(src: string, kind: string): MediaEntry {
     const held = this.media.get(src);
     if (held) { this.media.delete(src); this.media.set(src, held); return held; }
-    const entry: MediaEntry = { media: kind === "IMAGE" ? loadImage(src) : loadVideo(src), queue: Promise.resolve() };
+    const entry: MediaEntry = { media: kind === "IMAGE" ? loadImage(src) : loadVideo(src), queue: Promise.resolve(), latest: new Map() };
     entry.media.catch(() => this.media.delete(src));
     this.media.set(src, entry);
     while (this.media.size > MAX_MEDIA) {
@@ -160,18 +160,24 @@ export class FrameService {
     return entry;
   }
 
-  private draw(target: FrameClip, sourceMs: number, width: number, height: number): Promise<HTMLCanvasElement | null> {
-    if (target.clip.pano || (target.media.kind !== "VIDEO" && target.media.kind !== "IMAGE")) return Promise.resolve(null);
+  private draw(target: FrameClip, seekMs: number, width: number, height: number, purpose: FramePurpose, channel: string | undefined): Promise<HTMLCanvasElement | null> {
+    // Only a 360 photo is drawn as a panorama by the composition; a 360 video plays as a flat picture.
+    if ((target.clip.pano && target.media.kind === "IMAGE") || (target.media.kind !== "VIDEO" && target.media.kind !== "IMAGE")) return Promise.resolve(null);
     const entry = this.open(target.media.src, target.media.kind);
-    // One seek at a time per source: reads queue behind each other.
+    const ticket = ++tickets;
+    if (channel) entry.latest.set(channel, ticket);
+    // One seek at a time per source: reads queue behind each other, and a superseded one is skipped before it seeks.
     const run = entry.queue.then(async () => {
+      if (channel && entry.latest.get(channel) !== ticket) return null;
       const media = await entry.media;
-      if (media instanceof HTMLVideoElement) await seekVideo(media, Math.max(0, Math.min(sourceMs, media.duration * 1000 - 40)));
+      if (media instanceof HTMLVideoElement) await seekVideo(media, Math.max(0, Math.min(seekMs, media.duration * 1000 - 20)));
+      if (channel && entry.latest.get(channel) !== ticket) return null;
       const canvas = document.createElement("canvas");
       canvas.width = width; canvas.height = height;
-      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      // Analysis reads its pixels back; the loupe only draws from it, which is faster on the GPU.
+      const ctx = canvas.getContext("2d", purpose === "analysis" ? { willReadFrequently: true } : undefined);
       if (!ctx) return null;
-      drawPresented(ctx, media, target.clip, clipMomentAtSource(target.clip, sourceMs, undefined, target.durationInFrames), width, height);
+      drawPresented(ctx, media, target.clip, clipMomentAtSource(target.clip, seekMs, undefined, target.durationInFrames), width, height, purpose);
       return canvas;
     }).catch(() => null);
     entry.queue = run;
@@ -208,13 +214,9 @@ export function timelineFrames(timeline: Timeline, assets: Record<string, { src:
   };
   return {
     target,
-    frameAt(clipId: string, sourceMs: number, width = FRAME_WIDTH, height = FRAME_HEIGHT): Promise<HTMLCanvasElement | null> {
+    frameAt(clipId: string, sourceMs: number, request?: FrameRequest): Promise<HTMLCanvasElement | null> {
       const t = target(clipId);
-      return t ? service.frameAt(t, sourceMs, width, height) : Promise.resolve(null);
-    },
-    peek(clipId: string, sourceMs: number, width = FRAME_WIDTH, height = FRAME_HEIGHT): HTMLCanvasElement | null {
-      const t = target(clipId);
-      return t ? service.peek(t, sourceMs, width, height) : null;
+      return t ? service.frameAt(t, sourceMs, request) : Promise.resolve(null);
     },
   };
 }

@@ -3278,15 +3278,23 @@ video:-webkit-full-screen {
   gap: 4px;
 }
 
-/* Placing full screen: room around the frame so a corner on the picture's edge is still under a thumb. */
+/* Placing full screen: room around the frame so a corner on the picture's edge is still under a thumb.
+   A 44 px gutter each side holds a whole 44 px handle on a corner at the frame's edge (ADR 0047). The
+   grid track is pinned to the box (an auto track grew to the frame's height-derived width and pushed
+   the right-hand corners off a 412 px phone), and the frame is sized to fit both ways at 9:16. */
 .stage-theater.is-placing {
-  padding-left: calc(env(safe-area-inset-left) + 30px);
-  padding-right: calc(env(safe-area-inset-right) + 30px);
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  padding-left: calc(env(safe-area-inset-left) + 44px);
+  padding-right: calc(env(safe-area-inset-right) + 44px);
   padding-top: calc(env(safe-area-inset-top) + 76px);
-  padding-bottom: calc(env(safe-area-inset-bottom) + 30px);
+  padding-bottom: calc(env(safe-area-inset-bottom) + 96px);
 }
 .stage-theater.is-placing .stage-frame {
   overflow: visible;
+  height: auto;
+  max-height: none;
+  width: min(100%, calc((100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 172px) * 9 / 16));
 }
 .corners-bar .small {
   white-space: nowrap;
@@ -3314,9 +3322,7 @@ video:-webkit-full-screen {
   color: #fff;
   font-size: 12px;
 }
-.stage-theater.is-placing {
-  padding-bottom: calc(env(safe-area-inset-bottom) + 96px);
-}
+
 
 /* Taps naming things in front (ADR 0044). */
 .occluder-tap {

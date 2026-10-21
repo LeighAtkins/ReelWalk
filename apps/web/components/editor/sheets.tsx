@@ -895,20 +895,24 @@ export function PinSheet({ text, clip, asset, clipStartMs, placementVersionNow, 
   // A track answers for the placement it started from (ADR 0047): closing the sheet cancels it, and a
   // result for corners or a shot changed meanwhile is dropped rather than written over the new placement.
   const tracking = useRef<AbortController | null>(null);
+  const lean = useRef({ yaw, pitch });
+  lean.current = { yaw, pitch };
   useEffect(() => () => tracking.current?.abort(), []);
   async function pin() {
     if (!clip || !asset) return;
     tracking.current?.abort();
     const controller = new AbortController();
     tracking.current = controller;
-    const version = placementVersionNow?.();
+    // The lean set here is part of the placement too, until it is stored with the pin.
+    const versionNow = () => `${placementVersionNow?.() ?? ""}|${lean.current.yaw}|${lean.current.pitch}`;
+    const version = versionNow();
     setBusy(true); setStatus("Following the surface under the text…");
     const result = await pinTitle({ text, clip, asset, clipStartMs, wholeShot, lean: { yaw, pitch }, signal: controller.signal, onProgress: fraction => setStatus(`Following the surface under the text… ${Math.round(fraction * 100)}%`) });
     if (controller.signal.aborted) return;
     tracking.current = null;
     setBusy(false);
     if ("error" in result) { setStatus(result.error); return; }
-    if (placementVersionNow && placementVersionNow() !== version) { setStatus("The title or its shot changed while tracking, so that track was discarded. Pin again."); return; }
+    if (versionNow() !== version) { setStatus("The title or its shot changed while tracking, so that track was discarded. Pin again."); return; }
     onPath(result.pinned, result.patch);
     setStatus(result.status);
   }

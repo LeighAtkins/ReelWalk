@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   cameraMoveAt, clipMomentAtSource, clipPicture, clipSchema, compositionScale, compositionToSource, compositionToViewport, emptyTimeline, fitRects, framePlan,
   mapPoints, MOTIONS, onScreenAt, parseTimeline, pictureCanvasTransform, pictureRects, placementVersion, planeFrame, planeMotion, sourceToComposition,
-  stageRect, STILL_PLANE, textSchema, viewportToComposition, type ClipPicture, type PictureFit,
+  midFrameMs, stageRect, STILL_PLANE, textSchema, viewportToComposition, type ClipPicture, type PictureFit,
 } from "../src";
 
 /** The implementation that lived in packages/render/src/reel/presentation.ts before ADR 0047, kept verbatim as the reference. */
@@ -257,6 +257,8 @@ describe("placementVersion", () => {
     expect(placementVersion(base, "t")).toBe(v);
     const tracked = { ...base, texts: [{ ...text, path: [{ t: 0, x: 0, y: 0 }, { t: 1, x: 0.1, y: 0 }] }] };
     expect(placementVersion(tracked, "t")).toBe(v);
+    // Posts cut the title but do not move its plane.
+    expect(placementVersion({ ...base, texts: [{ ...text, bars: [[0.3, 0.3, 0.32, 0.3, 0.32, 0.5, 0.3, 0.5]] }] }, "t")).toBe(v);
   });
 
   it("changes when a corner moves, the shot is refitted or trimmed, or the text is gone", () => {
@@ -264,5 +266,16 @@ describe("placementVersion", () => {
     expect(placementVersion({ ...base, clips: [{ ...clip, fit: "contain" }] }, "t")).not.toBe(v);
     expect(placementVersion({ ...base, clips: [{ ...clip, sourceStartMs: 100 }] }, "t")).not.toBe(v);
     expect(placementVersion({ ...base, texts: [] }, "t")).toBe("");
+  });
+});
+
+describe("midFrameMs", () => {
+  it("lands inside the frame a time falls in, even on a boundary rounded down", () => {
+    // 33 ms is in frame 0 (frame 1 starts at 33.33 ms); 33.34 ms is in frame 1.
+    expect(midFrameMs(33)).toBeCloseTo(1000 / 60, 9);
+    expect(midFrameMs(1000 / 30)).toBeCloseTo(50, 9);
+    expect(midFrameMs(33.34)).toBeCloseTo(50, 9);
+    expect(midFrameMs(0)).toBeCloseTo(1000 / 60, 9);
+    expect(midFrameMs(33.33)).toBeCloseTo(50, 9);
   });
 });

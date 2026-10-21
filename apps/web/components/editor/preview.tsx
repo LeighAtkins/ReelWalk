@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Player, type PlayerRef } from "@remotion/player";
 import { prefetch } from "remotion";
-import { compositionScale, INSTAGRAM, mapPoints, minTextSize, onScreenAt, pinnedProgress, PLANAR_MAX_WIDTH, planeFrame, planeMotion, REEL_FORMAT, stageRect, STILL_PLANE, storedFraction, TEXT_SIZE_MAX, textsAt, textPositionAt, textQuadAt, tapSourceMs, viewportToComposition, type PlaneMotion, type TextOverlay, type Timeline, type ViewportRect, type XY } from "@reelwalk/core";
+import { compositionScale, emptyTimeline, INSTAGRAM, mapPoints, minTextSize, onScreenAt, pinnedProgress, PLANAR_MAX_WIDTH, planeFrame, planeMotion, REEL_FORMAT, stageRect, STILL_PLANE, storedFraction, TEXT_SIZE_MAX, textsAt, textPositionAt, textQuadAt, tapSourceMs, viewportToComposition, type PlaneMotion, type TextOverlay, type Timeline, type ViewportRect, type XY } from "@reelwalk/core";
 import { ReelComposition, reelDurationInFrames, textTreatmentCss, type ReelAsset } from "@reelwalk/render/reel";
 import { timelineFrames } from "./frame-service";
 import { pinnedLineFit } from "./title-metrics";
@@ -111,16 +111,19 @@ function displayedPlane(timeline: Timeline, text: TextOverlay, now: number): num
  * 0047): the clip on screen drawn through its fit, zoom and move at the
  * media time the stage's own video is at. Null while it loads.
  */
-function useStageFrame(timeline: Timeline, assets: Record<string, ReelAsset>, now: number): HTMLCanvasElement | null {
+const EMPTY_TIMELINE = emptyTimeline();
+type StageMoment = { timeline: Timeline; assets: Record<string, ReelAsset>; now: number };
+function useStageFrame({ timeline, assets, now }: StageMoment): HTMLCanvasElement | null {
   const frames = useMemo(() => timelineFrames(timeline, assets), [timeline, assets]);
   const at = onScreenAt(timeline, now);
-  const clipId = at?.clip.id ?? null, mediaMs = at ? Math.round(at.mediaMs) : null;
+  const clipId = at?.clip.id ?? null, mediaMs = at ? Number(at.mediaMs.toFixed(2)) : null;
   const [picture, setPicture] = useState<{ key: string; canvas: HTMLCanvasElement | null } | null>(null);
   const key = `${clipId}|${mediaMs}`;
   useEffect(() => {
     if (!clipId || mediaMs === null) return;
     let live = true;
-    frames.frameAt(clipId, mediaMs).then((canvas) => { if (live) setPicture({ key, canvas }); });
+    // Latest wins: dragging across a scrub never queues stale seeks behind the frame wanted now.
+    frames.frameAt(clipId, mediaMs, { channel: "loupe" }).then((canvas) => { if (live) setPicture({ key, canvas }); });
     return () => { live = false; };
   }, [frames, clipId, mediaMs, key]);
   // A frame for another moment is never shown: the loupe stays black until this one is drawn.
@@ -136,7 +139,9 @@ const LOUPE_SIZE = 150, LOUPE_ZOOM = 2.5;
  * picture of the composition (ADR 0047), so a composition fraction is simply
  * a pixel of it, whatever the clip's fit, zoom or move.
  */
-function Loupe({ picture, frame, x, y }: { picture: HTMLCanvasElement | null; frame: RefObject<HTMLDivElement | null>; x: number; y: number }) {
+function Loupe({ stage, frame, x, y }: { stage: StageMoment | null; frame: RefObject<HTMLDivElement | null>; x: number; y: number }) {
+  // Mounted only while a point is held, so a frame is decoded only then (ADR 0047: phones).
+  const picture = useStageFrame(stage ?? { timeline: EMPTY_TIMELINE, assets: {}, now: 0 });
   const canvas = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const out = canvas.current, plane = frame.current;
@@ -149,7 +154,7 @@ function Loupe({ picture, frame, x, y }: { picture: HTMLCanvasElement | null; fr
       // Picture px per on-screen px; the picture and the plane are both the composition, so one ratio serves both axes.
       const span = (LOUPE_SIZE / LOUPE_ZOOM) * (picture.width / width);
       ctx.imageSmoothingQuality = "high";
-      ctx.drawImage(picture, x * picture.width - span / 2, y * picture.height - span / 2, span, span, 0, 0, LOUPE_SIZE, LOUPE_SIZE);
+      try { ctx.drawImage(picture, x * picture.width - span / 2, y * picture.height - span / 2, span, span, 0, 0, LOUPE_SIZE, LOUPE_SIZE); } catch { /* a frame freed by the cache: the black stays */ }
     }
     ctx.strokeStyle = "rgba(255,90,95,0.95)"; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(LOUPE_SIZE / 2, 0); ctx.lineTo(LOUPE_SIZE / 2, LOUPE_SIZE); ctx.moveTo(0, LOUPE_SIZE / 2); ctx.lineTo(LOUPE_SIZE, LOUPE_SIZE / 2); ctx.stroke();
@@ -186,13 +191,13 @@ function PerspectiveGrid({ quad }: { quad: number[] }) {
  * cross-hair through it helps land it on the wall's edge. Posts in front of
  * the surface (a mullion, a pole) are strips whose two edges drag sideways.
  */
-function SurfaceHandles({ quad: stored, bars: storedBars = [], frame, onChange, onBars, large = false, view = STILL_PLANE, picture = null }: { quad: number[]; bars?: number[][]; frame: RefObject<HTMLDivElement | null>; onChange(quad: number[], gesture: string): void; onBars?(bars: number[][], gesture: string): void; large?: boolean; view?: PlaneMotion; picture?: HTMLCanvasElement | null }) {
+function SurfaceHandles({ quad: stored, bars: storedBars = [], frame, onChange, onBars, large = false, view = STILL_PLANE, stage = null }: { quad: number[]; bars?: number[][]; frame: RefObject<HTMLDivElement | null>; onChange(quad: number[], gesture: string): void; onBars?(bars: number[][], gesture: string): void; large?: boolean; view?: PlaneMotion; stage?: StageMoment | null }) {
   const [active, setActive] = useState<{ x: number; y: number } | null>(null);
   // Shown where the plane is on this frame; stored (and edited) in the first frame's coordinates.
   const quad = mapPoints(stored, view.toNow), bars = storedBars.map((bar) => mapPoints(bar, view.toNow));
   return (
     <>
-      {large && active ? <Loupe picture={picture} frame={frame} x={active.x} y={active.y} /> : null}
+      {large && active ? <Loupe stage={stage} frame={frame} x={active.x} y={active.y} /> : null}
       <svg className="surface-outline" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" }}>
         <polygon points={quadPoints(quad)} fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.85)" strokeWidth={0.4} strokeDasharray="1.2 0.8" vectorEffect="non-scaling-stroke" />
         {large ? <PerspectiveGrid quad={quad} /> : null}
@@ -257,7 +262,7 @@ const polygonPoints = (points: readonly number[]) => Array.from({ length: points
  * new one is built by tapping its points in order; existing points drag, with
  * the loupe. Finish needs three points; the title is cut out inside each.
  */
-function CutoutEditor({ cutouts: stored, frame, onChange, view = STILL_PLANE, picture = null }: { cutouts: number[][]; frame: RefObject<HTMLDivElement | null>; onChange(cutouts: number[][], gesture: string): void; view?: PlaneMotion; picture?: HTMLCanvasElement | null }) {
+function CutoutEditor({ cutouts: stored, frame, onChange, view = STILL_PLANE, stage = null }: { cutouts: number[][]; frame: RefObject<HTMLDivElement | null>; onChange(cutouts: number[][], gesture: string): void; view?: PlaneMotion; stage?: StageMoment | null }) {
   // Drafts are kept in first-frame coordinates too, so a shape begun on one frame reads right on another.
   const [draft, setDraft] = useState<number[] | null>(null);
   const [active, setActive] = useState<{ x: number; y: number } | null>(null);
@@ -276,7 +281,7 @@ function CutoutEditor({ cutouts: stored, frame, onChange, view = STILL_PLANE, pi
   };
   return (
     <>
-      {active ? <Loupe picture={picture} frame={frame} x={active.x} y={active.y} /> : null}
+      {active ? <Loupe stage={stage} frame={frame} x={active.x} y={active.y} /> : null}
       {drafting ? <div className="cutout-canvas" data-testid="cutout-canvas" onPointerDown={place} /> : null}
       <svg className="surface-outline" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" }}>
         {cutouts.map((shape, i) => <polygon key={i} points={polygonPoints(shape)} fill="rgba(20,20,20,0.45)" stroke="rgba(120,200,255,0.95)" strokeWidth={0.4} vectorEffect="non-scaling-stroke" />)}
@@ -327,7 +332,7 @@ function CutoutEditor({ cutouts: stored, frame, onChange, view = STILL_PLANE, pi
  * are stored in first-frame coordinates and shown where the plane carries
  * them. Drawing a shape by hand remains for what the segmenter cannot find.
  */
-function OccluderEditor({ text, frame, view, atMs, picture, onOccluders, onCutouts, onBehind }: { text: TextOverlay; frame: RefObject<HTMLDivElement | null>; view: PlaneMotion; /** The pinned source time on screen: where the tracker starts from (ADR 0051). */ atMs: number | null; picture: HTMLCanvasElement | null; onOccluders(occluders: NonNullable<TextOverlay["occluders"]>, gesture: string): void; onCutouts?(cutouts: number[][], gesture: string): void; onBehind?(behind: boolean): void }) {
+function OccluderEditor({ text, frame, view, atMs, stage, onOccluders, onCutouts, onBehind }: { text: TextOverlay; frame: RefObject<HTMLDivElement | null>; view: PlaneMotion; /** The pinned source time on screen: where the tracker starts from (ADR 0051). */ atMs: number | null; stage: StageMoment; onOccluders(occluders: NonNullable<TextOverlay["occluders"]>, gesture: string): void; onCutouts?(cutouts: number[][], gesture: string): void; onBehind?(behind: boolean): void }) {
   const [byHand, setByHand] = useState(false);
   const taps = text.occluders ?? [];
   const tap = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -337,7 +342,7 @@ function OccluderEditor({ text, frame, view, atMs, picture, onOccluders, onCutou
   };
   if (byHand && onCutouts) {
     return (<>
-      <CutoutEditor cutouts={text.cutouts ?? []} frame={frame} onChange={onCutouts} view={view} picture={picture} />
+      <CutoutEditor cutouts={text.cutouts ?? []} frame={frame} onChange={onCutouts} view={view} stage={stage} />
       <button type="button" className="btn btn-quiet occluder-mode" onClick={() => setByHand(false)}>Back to tapping</button>
     </>);
   }
@@ -368,17 +373,17 @@ function OccluderEditor({ text, frame, view, atMs, picture, onOccluders, onCutou
  */
 function PlacingOverlay({ clock, timeline, assets, text, frame, tool, onSurface, onBars, onCutouts, onOccluders, onBehind }: { clock: Clock; timeline: Timeline; assets: Record<string, ReelAsset>; text: TextOverlay; frame: RefObject<HTMLDivElement | null>; tool: "corners" | "cutouts"; onSurface(quad: number[], gesture: string): void; onBars?(bars: number[][], gesture: string): void; onCutouts?(cutouts: number[][], gesture: string): void; onOccluders?(occluders: { x: number; y: number }[], gesture: string): void; onBehind?(behind: boolean): void }) {
   const now = useClock(clock);
-  const picture = useStageFrame(timeline, assets, now);
+  const stage: StageMoment = { timeline, assets, now };
   const tracked = displayedPlane(timeline, text, now);
   // ADR 0052: while the tracked surface is lost (o = 0) its corners are not measured; no handles to drag through them.
-  // After every hook (ADR 0047): returning before one crashes React when scrubbing into a lost stretch.
+  // Keep this after every hook (ADR 0047): returning before one crashes React when scrubbing into a lost stretch.
   if (tracked && textPositionAt(text, pinnedProgress(timeline, text, now)).opacity <= 0) return null;
   const view = planeMotion(text.pin?.quad, tracked);
   if (tool === "cutouts") {
-    if (onOccluders) return <OccluderEditor text={text} frame={frame} view={view} atMs={tapSourceMs(timeline, text, now)} picture={picture} onOccluders={onOccluders} onCutouts={onCutouts} onBehind={onBehind} />;
-    return onCutouts ? <CutoutEditor cutouts={text.cutouts ?? []} frame={frame} onChange={onCutouts} view={view} picture={picture} /> : null;
+    if (onOccluders) return <OccluderEditor text={text} frame={frame} view={view} atMs={tapSourceMs(timeline, text, now)} stage={stage} onOccluders={onOccluders} onCutouts={onCutouts} onBehind={onBehind} />;
+    return onCutouts ? <CutoutEditor cutouts={text.cutouts ?? []} frame={frame} onChange={onCutouts} view={view} stage={stage} /> : null;
   }
-  return <SurfaceHandles large quad={text.surface!} bars={text.bars} frame={frame} onChange={onSurface} onBars={onBars} view={view} picture={picture} />;
+  return <SurfaceHandles large quad={text.surface!} bars={text.bars} frame={frame} onChange={onSurface} onBars={onBars} view={view} stage={stage} />;
 }
 
 /** Check mode: every title on screen now, its surface (tracked where it is pinned) outlined, so a drift or a miss shows at full size before an export (ADR 0044). */

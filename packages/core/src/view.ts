@@ -228,12 +228,15 @@ export function storedFraction(value: number): number {
 
 /**
  * Everything that decides where a title's plane is and what tracking it
- * would produce: its own placement (spot, surface, posts, timing, lean, the
+ * would produce: its own placement (spot, surface, timing, stored lean, the
  * words that size a box pin) and the shot it starts on (which footage, which
  * part of it, how it is fitted, zoomed and moved, and where the shot starts).
  * A track captures this when it starts and applies its result only if it is
  * unchanged when the result arrives (ADR 0047): a corner dragged or a clip
  * trimmed meanwhile means the result answers a question nobody is asking now.
+ * Posts are left out: they cut the title, they do not move its plane, so a
+ * post dragged during a track keeps the track. A lean set in the Pin sheet
+ * but not yet stored is the sheet's to add.
  *
  * Takes a timeline and a text id; returns an opaque version string ("" when the text is gone).
  */
@@ -247,8 +250,21 @@ export function placementVersion(timeline: Timeline, textId: string): string {
     start += length;
   }
   return JSON.stringify([
-    text.x, text.y, text.surface ?? null, text.bars ?? null, text.startMs, text.endMs, text.pin?.quad ?? null, text.pin?.lean ?? null,
+    text.x, text.y, text.surface ?? null, text.startMs, text.endMs, text.pin?.quad ?? null, text.pin?.lean ?? null,
     text.text, text.size, text.style, text.font ?? null, text.tracking ?? null,
     clip ? [clip.id, clip.assetId, clip.kind, clip.sourceStartMs, clip.sourceEndMs, clip.speed, clip.fit, clip.zoom, clip.motion, start] : null,
   ]);
+}
+
+/**
+ * The middle of the composition frame that `ms` falls in. Seeking a video to
+ * a frame's start can land on the previous frame (33 ms is before 33.33 ms);
+ * the middle is safely inside it. Exact for sources at the composition's
+ * frame rate; for others it stays within the same composition frame.
+ *
+ * Takes media ms; returns media ms.
+ */
+export function midFrameMs(ms: number, fps: number = REEL_FORMAT.fps): number {
+  // The tolerance (a thousandth of a frame) absorbs times rounded to the hundredth of a ms.
+  return ((Math.floor((ms * fps) / 1000 + 1e-3) + 0.5) * 1000) / fps;
 }

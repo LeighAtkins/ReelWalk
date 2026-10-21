@@ -76,7 +76,8 @@ export async function runAcceptance(input: {
   await mkdir(outDir, { recursive: true });
   const plan = framePlan(timeline, fps);
   const rows = plan.clips.map(({ from, durationInFrames }) => fiveOf(from, from + durationInFrames));
-  const planar = timeline.texts.filter((text) => text.pin?.quad || text.surface);
+  // A callout (ADR 0061) pins a point, not a plane to paint on: its label is a screen title.
+  const planar = timeline.texts.filter((text) => (text.pin?.quad || text.surface) && !text.callout);
   const attachFrames = new Map(planar.map((text) => [text.id, fiveFrames(timeline, text, fps, evaluate)]));
 
   // Every still the checks need, drawn once.
@@ -120,7 +121,9 @@ export async function runAcceptance(input: {
     // in solid magenta with no surface blend or shadow, so its letters stand out on any footage (white letters
     // hard-lit onto a white window or a pale wall drew almost nothing to measure). Colour, blend and shadow do
     // not enter the placement code, so the probe sits exactly where the title does. Its particles (ADR 0055) are left out: they are not glyphs.
-    const probe: Timeline = { ...timeline, texts: timeline.texts.map((other) => (other.id === text.id ? { ...other, color: PROBE_COLOUR, blend: undefined, shadow: "none" as const, particles: undefined } : other)) };
+    // Nor its shine or kinetic move (ADR 0061): light on the letters is not their shape, and a slide or a word still
+    // arriving is not where the letters rest on the plane.
+    const probe: Timeline = { ...timeline, texts: timeline.texts.map((other) => (other.id === text.id ? { ...other, color: PROBE_COLOUR, blend: undefined, shadow: "none" as const, particles: undefined, shine: undefined, kinetic: undefined } : other)) };
     const without: Timeline = { ...timeline, texts: timeline.texts.filter((other) => other.id !== text.id) };
     const probeDir = path.join(outDir, `probe-${text.id}`), bareDir = path.join(outDir, `without-${text.id}`);
     await mkdir(probeDir, { recursive: true });

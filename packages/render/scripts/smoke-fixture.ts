@@ -94,7 +94,8 @@ export function smokeTimeline(): Timeline {
         occluders: [{ x: 0.6, y: 0.85, atMs: 1000 }],
         pin: { assetId: "walk", fromMs: 0, toMs: 2500, quad: window }, path: [{ t: 0, x: 0, y: 0, s: 1, r: 0, q: window }, { t: 1, x: -0.02, y: 0.01, s: 1, r: 0, q: windowMoved }] },
       // A whole-shot planar pin that overlaps the next cut by a few frames (the React 300 case), painted on the surface, fading at the end.
-      { id: "p1", text: "OCEAN VIEWS", startMs: 2500, endMs: 5000, x: 0.5, y: 0.38, style: "headline", size: 1.1, animation: "none", blend: "surface",
+      // A light sweep crosses it in its plane (ADR 0061): 0.4 s in, so the second compared frame of the shot is mid-sweep.
+      { id: "p1", text: "OCEAN VIEWS", startMs: 2500, endMs: 5000, x: 0.5, y: 0.38, style: "headline", size: 1.1, animation: "none", blend: "surface", shine: { preset: "sweep" },
         pin: { assetId: "room", fromMs: 200, toMs: 2600, quad }, path: [{ t: 0, x: 0, y: 0, s: 1, r: 0, q: quad }, { t: 0.6, x: 0.02, y: 0.01, s: 1.02, r: 0.5, q: moved }, { t: 1, x: 0.02, y: 0.01, s: 1.02, r: 0.5, q: moved, o: 0 }] },
       // A title painted inside a chosen surface, with posts cut out of it (ADR 0043/0044), two lines, on the same shot.
       { id: "s1", text: "STEP\nOUT", startMs: 2500, endMs: 4900, x: 0.45, y: 0.38, style: "headline", size: 1, animation: "none", blend: "surface", surface, bars,

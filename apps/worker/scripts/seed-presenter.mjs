@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* global console, process, fetch, WebSocket, atob, setTimeout, Buffer */
+/* global console, process, fetch, WebSocket, atob, setTimeout, Buffer, URL, location */
 /**
  * Seed a workspace's presenter kit (ADR 0056) from two local stills, through
  * a signed-in browser tab: the photos go up through the app's own upload API
@@ -19,6 +19,7 @@
  */
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 function parseArgs(argv) {
   const args = { name: "Maya", origin: "https://reelwalking.com", cdp: "http://127.0.0.1:9333", isDefault: true, dryRun: false };
@@ -63,7 +64,9 @@ async function load(file) {
 }
 
 /** Runs in the signed-in tab: upload each still through the app's upload API, then create the kit. */
-async function inTab({ stills, name, isDefault }) {
+async function inTab({ expectedOrigin, stills, name, isDefault }) {
+  // The bytes are already in this tab's memory, but nothing is sent unless it is the right site.
+  if (location.origin !== expectedOrigin) throw new Error(`This tab is on ${location.origin}, not ${expectedOrigin}.`);
   const post = async (url, body) => {
     const response = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
     const data = await response.json().catch(() => ({}));
@@ -92,19 +95,33 @@ async function inTab({ stills, name, isDefault }) {
   return { presenter, portraitAssetId, fullBodyAssetId };
 }
 
+/** The origin of a URL, or null; compared exactly, so https://reelwalking.com.attacker.invalid never matches. */
+export function originOf(url) {
+  try { return new URL(url).origin; } catch { return null; }
+}
+
 async function evaluateInTab(cdp, origin, fn, arg) {
+  const expected = originOf(origin);
+  if (!expected || expected === "null") throw new Error(`${origin} is not a site origin.`);
   const targets = await (await fetch(`${cdp}/json/list`)).json();
-  const page = targets.find(target => target.type === "page" && target.url.startsWith(origin));
+  const page = targets.find(target => target.type === "page" && originOf(target.url) === expected);
   if (!page) throw new Error(`No tab on ${origin} in the Chrome at ${cdp}. Open ${origin}, sign in to the workspace, and run this again.`);
   const socket = new WebSocket(page.webSocketDebuggerUrl);
   await new Promise((resolve, reject) => { socket.onopen = resolve; socket.onerror = () => reject(new Error("Could not attach to the tab.")); });
+  let next = 0;
+  const pending = new Map();
+  socket.onmessage = event => { const message = JSON.parse(event.data); pending.get(message.id)?.(message); pending.delete(message.id); };
+  const call = (expression) => new Promise((resolve, reject) => {
+    const id = ++next;
+    pending.set(id, resolve);
+    socket.onclose = () => reject(new Error("The tab closed."));
+    socket.send(JSON.stringify({ id, method: "Runtime.evaluate", params: { expression, awaitPromise: true, returnByValue: true } }));
+  });
   try {
-    const answer = new Promise((resolve, reject) => {
-      socket.onmessage = event => { const message = JSON.parse(event.data); if (message.id === 1) resolve(message); };
-      socket.onclose = () => reject(new Error("The tab closed."));
-    });
-    socket.send(JSON.stringify({ id: 1, method: "Runtime.evaluate", params: { expression: `(${fn.toString()})(${JSON.stringify(arg)})`, awaitPromise: true, returnByValue: true } }));
-    const message = await answer;
+    // Check the page's own execution context before any photo is sent to it (the tab may have navigated since the listing).
+    const where = await call("location.origin");
+    if (where.result?.result?.value !== expected) throw new Error(`The tab is on ${where.result?.result?.value ?? "an unknown page"}, not ${expected}; nothing was sent.`);
+    const message = await call(`(${fn.toString()})(${JSON.stringify({ ...arg, expectedOrigin: expected })})`);
     if (message.error) throw new Error(message.error.message);
     if (message.result.exceptionDetails) throw new Error(message.result.exceptionDetails.exception?.description ?? message.result.exceptionDetails.text);
     return { tab: page.url, value: message.result.result.value };
@@ -127,4 +144,7 @@ async function main() {
   console.log(`presenter ${value.presenter.id} "${value.presenter.name}"${value.presenter.isDefault ? " (default)" : ""}: ${value.presenter.status}`);
 }
 
-main().catch(error => { console.error(error instanceof Error ? error.message : error); process.exit(1); });
+// Run only as a script; tests import originOf.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch(error => { console.error(error instanceof Error ? error.message : error); process.exit(1); });
+}

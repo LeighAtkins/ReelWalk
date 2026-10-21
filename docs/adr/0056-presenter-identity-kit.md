@@ -31,11 +31,22 @@ are scoped to the session's workspace like assets, with the same origin
 check as the other mutating routes. The first kit is the default.
 
 The worker makes the face crop (`processPresenterKit`, in the AI loop,
-leased like a generation, three tries): it decodes the portrait to PNG
-(never upscaled), asks a Gemini text model (`AI_IDENTITY_MODEL`, default
-`gemini-2.5-flash`) for the face box, cuts a square 2.2× the face so the
-hairline and hair length are in, and stores a 768×768 RGB PNG at
-`workspaces/<ws>/presenters/<id>/face.png`. The measured face height is
+three tries): it decodes the portrait to PNG (never upscaled), asks a
+Gemini text model (`AI_IDENTITY_MODEL`, default `gemini-2.5-flash`) for the
+face box, cuts a square 2.2× the face so the hairline and hair length are
+in, and stores a 768×768 RGB PNG at
+`workspaces/<ws>/presenters/<id>/<portraitAssetId>/<claim token>.png`. The
+claim records a token and the portrait it was taken for, and every write
+after it (the crop, an error) is conditional on both still holding. A
+PATCH that changes the portrait (or a retry) clears the token, so a worker
+still cutting the old portrait cannot publish it. Keys are written once and
+never overwritten, and `createAiGeneration` snapshots the exact face-crop
+and full-length keys into the generation's `frameSources` at reserve time,
+so a queued generation reads the bytes it was promised whatever happens to
+the kit. A worker that dies on its last try leaves a lapsed claim with the
+tries used up; the next scan settles it with an error, the picker shows it
+as failed (not "Preparing") at once, and a Retry action (`PATCH { retry:
+true }`) resets the tries. The measured face height is
 kept; under 400 px the kit still works but the picker says a closer
 head-and-shoulders photo would hold her likeness better. MediaPipe was
 not used: the render package runs it in the browser, not in Node.
@@ -67,19 +78,40 @@ name an `ai-` asset, and to use medium for any spoken line; the structured
 output schema gains a nullable `framing`.
 
 **Identity gate before paying.** After each composed end and before
-`provider.submit`, a Gemini text call gets the composite and the kit's face
-crop (or, for an older frame-only request, the presenter frame) and returns
-`{ samePerson, confidence, faceHeightPx, faceBox }`. The face is located in
-the same call (the box gives the face height; the model's own pixel count
-is only a fallback) rather than cropped first, since there is no Node face
-detector in the stack. Decision table (`identityDecision`): same person
-with confidence ≥ 0.6 passes; otherwise recompose once with a stronger
+`provider.submit`, the gate makes two Gemini text calls. The first finds
+the face in the 1080×1920 composite. With no box, an empty or inverted
+box, or a face under 120 px tall (`MIN_GATE_FACE_PX`), there is nothing to
+judge: the verdict is a miss (`reason: "no-face"` or `"face-too-small"`)
+and no comparison is made. Otherwise the composite is cropped to the face
+square (2.2× the box, with the hair, at 768×768 PNG) and the second call
+compares that crop, not the whole frame, with the kit's face crop (or, for
+an older frame-only request, the presenter frame), returning
+`{ samePerson, confidence }`. There is no Node face detector in the stack,
+so Gemini supplies the geometry. Decision table (`identityDecision`): the
+same person with confidence ≥ 0.6 on a measured face of at least 120 px
+passes; otherwise recompose once with a stronger
 identity instruction; a second miss refunds the credit and records
 `failureCode = "identity_rejected"` with both scores. A check that cannot
 run counts as a miss, never a pass. Every attempt's composite is kept
 (`-first.jpg`, `-first-retry.jpg`), every verdict is stored in
 `identityChecks`, and the lowest accepted score in `identityScore`, so drift
 can be queried over time.
+
+**The paid call is fenced.** Composing and checking both ends can take
+several minutes, longer than the 300 s claim, and stale-job recovery used
+to refund any lapsed SUBMITTING row while the original worker could still
+submit it. Now the worker renews its claim every 30 s and after every
+compose/check attempt while it prepares (stopping, unpaid, as soon as a
+renewal finds the row is no longer its own). Immediately before
+`provider.submit` it sets `submitStartedAt` with a conditional update on
+its lease token, `SUBMITTING` and `submitStartedAt IS NULL`; if that
+matches nothing it does not submit. Recovery distinguishes the two cases,
+each with a conditional update: a lapsed row without `submitStartedAt` was
+never sent and is refunded; one with it may have been sent and becomes
+`UNRESOLVED` with no refund and no retry (ADR 0049's rule). If the
+original submission does return, saving its operation moves the row from
+`UNRESOLVED` to `RUNNING`. Every refund on the preparation path is
+conditional on the lease token and `submitStartedAt IS NULL`.
 
 **Lineage.** `AiGeneration.referenceDepth`: 0 for the kit or real footage,
 the source take's depth + 1 for a generated reference (a take from before
@@ -92,15 +124,31 @@ on a proposal that would be made from an AI take, with its depth, and
 stills through a signed-in tab (via CDP) with the app's own upload API,
 exposed as `POST /api/uploads` and `/api/uploads/confirm` (thin wrappers
 over the existing `createUpload`/`confirmUpload` actions, with an origin
-check), then creates the kit. No photo is committed.
+check), then creates the kit. No photo is committed. The tab is chosen by
+exact parsed-origin equality (`https://reelwalking.com.attacker.invalid`
+does not match), and before the photos are sent the script asks the tab's
+own execution context for `location.origin`; the in-tab function checks it
+again before uploading anything.
 
 ## Consequences
 
-- Cost: the identity check is one text call with two images, well under a
-  cent at Gemini 2.5 Flash list prices; a face crop is one such call per
-  kit. A recompose adds one image call (a few cents) and a second check.
-  None of it is metered as a credit; a rejected take is refunded and Veo is
-  never called for it.
+- Cost: the identity check is two text calls (find the face, then compare
+  two 768 px crops), each well under a cent at Gemini 2.5 Flash list
+  prices; a face crop is one such call per kit. A recompose adds one image
+  call (a few cents) and a second check. None of it is metered as a credit;
+  a rejected take is refunded and Veo is never called for it.
+- Request size: a compose request carries three images, up to about 14 MB
+  of PNG (about 19 MB base64), each under Vertex's 7 MB per-image inline
+  limit. Recorded, not changed.
+- A wide composite whose face is under 120 px is refused even if it is her;
+  wide arrivals must keep her large enough to recognise or be cut from real
+  footage.
+- `UNRESOLVED` generations keep their credit and budget reservation until
+  someone looks; the AI panel shows their message.
+- Upload confirm (also behind `/api/uploads/confirm`) checks the stored
+  object's metadata (content type, size), not the file signature; the
+  worker's decoder rejects anything that is not an image. Recorded, not
+  changed.
 - A shot with composed stills now needs a kit (or an explicit
   `allowGeneratedReference`). Existing saved reels are unaffected: this
   only changes what new generations are made from. Generation rows saved
@@ -118,6 +166,15 @@ check), then creates the kit. No photo is committed.
 ## What was verified
 
 - `pnpm check` (lint, typecheck, all tests) passes.
+- Review fixes (Astra): the fence in both orderings (refunded then the
+  worker reaches the fence: no submit; fenced then recovery: UNRESOLVED,
+  no refund), a lost renewal stopping the compose loop, recovery refunding
+  only an unsent lapsed row; versioned face-crop keys published only under
+  the claim (a portrait replaced mid-crop is not overwritten) and
+  snapshotted into the generation; the gate refusing a null, zero-area or
+  under-120 px face box without a comparison call and comparing a crop;
+  exact-origin tab matching; settling a kit whose worker died on its last
+  try, and Retry.
 - Unit tests: schema (rejecting an `ai-` reference, the explicit opt-in,
   framing default), compose payload (three PNG parts in order, the face
   instruction, the stronger retry), frame decoding (PNG for references and

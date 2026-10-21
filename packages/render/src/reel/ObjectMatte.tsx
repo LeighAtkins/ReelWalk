@@ -90,9 +90,16 @@ export const ObjectMatteView: React.FC<{ clip: Clip; asset: ReelAsset; text: Tex
     else { console.warn(message); setWarning(message); }
   };
 
+  // The load holds the render until the first frame's own job has taken its handle (the effect after the
+  // frame effect below releases it): releasing it when the promise settled left a gap before React ran the
+  // frame effect, and a still could be taken with no matte drawn (acceptance harness, frame 75).
+  const loadHandle = useRef<number | null>(null);
+  const releaseLoad = () => { if (loadHandle.current !== null) { continueRender(loadHandle.current); loadHandle.current = null; } };
+
   useEffect(() => {
-    const handle = delayRender("Loading the object matte", { timeoutInMilliseconds: 60_000 });
-    loadTouch(isRendering).then(setSegmenter).catch((error) => fatal("the segmenter did not load", error)).finally(() => continueRender(handle));
+    loadHandle.current = delayRender("Loading the object matte", { timeoutInMilliseconds: 60_000 });
+    loadTouch(isRendering).then(setSegmenter).catch((error) => { fatal("the segmenter did not load", error); releaseLoad(); });
+    return releaseLoad;
   }, [isRendering]);
 
   useEffect(() => {
@@ -153,6 +160,10 @@ export const ObjectMatteView: React.FC<{ clip: Clip; asset: ReelAsset; text: Tex
     void queue.run(job);
     return () => { cancelled = true; controller.abort(); continueRender(handle); };
   }, [segmenter, frame, fps, width, height, asset.src, clip.id, clip.sourceStartMs, clip.speed, clip.fit, tapKey, active, warning]);
+
+  // Declared after the frame effect, so on the render where the segmenter arrives that effect has already
+  // taken the frame's handle when this lets the load's go.
+  useEffect(() => { if (segmenter || warning) releaseLoad(); }, [segmenter, warning]);
 
   if (asset.kind !== "VIDEO" || !refTaps.length) return null;
   if (warning) return isRendering ? null : <AbsoluteFill style={{ pointerEvents: "none" }}><MatteWarning text={warning} /></AbsoluteFill>;

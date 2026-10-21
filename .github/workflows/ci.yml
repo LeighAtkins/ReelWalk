@@ -53,6 +53,37 @@ jobs:
           helm lint infra/helm/reelwalk
           helm lint infra/helm/reelwalk -f infra/helm/reelwalk/values-kind.yaml
 
+  # Which of the slow checks this run needs (ADR 0054). Pushes to main run
+  # everything; a PR runs the end-to-end suite only when it touches what the
+  # suite drives: the web app, the domain and database packages, the suite,
+  # the stack it starts (compose, nginx), dependencies, or this workflow.
+  changes:
+    name: What changed
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      e2e: ${{ steps.paths.outputs.e2e }}
+    steps:
+      - id: paths
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" != "pull_request" ]; then
+            echo "e2e=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Renames count under both names. If the list cannot be read, run everything.
+          if ! files=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files" --jq '.[] | .filename, (.previous_filename // empty)'); then
+            echo "e2e=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          printf '%s\n' "$files"
+          touches() { if printf '%s\n' "$files" | grep -qE "$1"; then echo true; else echo false; fi; }
+          echo "e2e=$(touches '^(apps/web/|packages/(core|db)/|e2e/|infra/nginx/|pnpm-lock\.yaml$|pnpm-workspace\.yaml$|package\.json$|docker-compose(\.override)?\.yml$|\.github/workflows/ci\.yml$)')" | tee -a "$GITHUB_OUTPUT"
+
   dependency-scan:
     name: Dependency and config scan
     runs-on: ubuntu-latest
@@ -210,25 +241,42 @@ jobs:
   e2e:
     name: End-to-end tests
     runs-on: ubuntu-latest
-    needs: verify
+    needs: [verify, changes]
     # A normal run takes 4 minutes; a stuck runner should not hold the PR for 6 hours.
     timeout-minutes: 30
+    # A PR that touches nothing the suite drives (docs, ADRs, the worker or the
+    # renderer alone: the worker image's smoke covers those) skips the steps,
+    # and the job still reports success, so branch checks and ship.sh, which
+    # wait on "End-to-end tests", read it as passed (ADR 0054).
+    env:
+      RUN: ${{ needs.changes.outputs.e2e }}
     steps:
+      - name: Nothing the suite covers changed
+        if: env.RUN != 'true'
+        run: |
+          echo "End-to-end tests skipped: this PR changes nothing under the paths in the 'What changed' job (ADR 0054)." >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/checkout@v7
+        if: env.RUN == 'true'
       - uses: pnpm/action-setup@v6
+        if: env.RUN == 'true'
       - uses: actions/setup-node@v7
+        if: env.RUN == 'true'
         with:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+        if: env.RUN == 'true'
       # Once hung for 37 minutes downloading on the runner.
       - run: pnpm --filter @reelwalk/e2e exec playwright install --with-deps chromium
+        if: env.RUN == 'true'
         timeout-minutes: 8
       - name: Start the stack
+        if: env.RUN == 'true'
         run: |
           docker compose up -d --build
           curl --fail --silent --retry 60 --retry-delay 2 --retry-all-errors http://localhost:8080/api/ready
       - run: pnpm e2e
+        if: env.RUN == 'true'
         env:
           CI: "true"
       - name: Collect logs

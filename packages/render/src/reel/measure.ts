@@ -21,6 +21,8 @@ export const domMeasure: Measure = (line: string, font: TitleFont) => {
     Object.assign(span.style, {
       fontFamily: font.fontFamily ?? "sans-serif", fontWeight: String(font.fontWeight ?? 600), fontSize: `${font.fontSize}px`,
       fontStretch: font.fontStretch ?? "normal", letterSpacing: font.letterSpacing !== undefined ? `${font.letterSpacing}em` : "normal",
+      // Tabular figures (a count-up) are wider than proportional ones in most faces: measure what is drawn.
+      fontVariantNumeric: font.fontVariantNumeric ?? "normal",
     });
     span.textContent = line;
     const box = span.getBoundingClientRect();

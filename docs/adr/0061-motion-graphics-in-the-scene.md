@@ -62,12 +62,21 @@ hash particles already use (`hash01`). They return data or rounded strings
   past the edge the clip opens over the last 15% so the rest shows (the
   post's own cut still hides what it covers). `revealEdge` picks the edge:
   the post or cut-out (`maskShapes`, plane px) or the tapped object (its
-  carried tap, taken back into plane px through this frame's homography)
-  nearest the words, else their own left edge. `countUpText` counts every
+  carried tap, taken back into plane px through this frame's homography,
+  `occluderTapsInPlane`) nearest the words **among those level with the
+  line**: a shape whose height overlaps the words' band, a tap inside the
+  band grown by a quarter of its height. Otherwise their own left edge: a
+  post above the words is not something they can be behind (review of #211:
+  picking by x alone made words emerge from an invisible edge).
+  `behindInPlane(placement)` is the whole computation for a surface title,
+  and is what the renderer calls. `countUpText` counts every
   number in the text from 0 in its own format (decimals, thousands
   separators: "$1.2M", "4 BED", "2,400 sq ft"), rounded down so the last
   frame is the first to show the full number; the size is held by a hidden
-  full copy, as the typewriter does, with tabular figures.
+  full copy, as the typewriter does, with tabular figures. The title is
+  **measured with tabular figures too** (`TitleFont.fontVariantNumeric`,
+  set by the renderer's `titleFont` and honoured by `domMeasure`): measured
+  proportional, a long number fitted to a surface was clipped once drawn.
 - **Callout.** `calloutQuad(point)` is a square ±8% × ±4.5% around the point
   (about 170 px at 1080); Pin tracks it with the ordinary pin path
   (`calloutTrackTarget` hands `pinTitle` the point as x/y and the square as
@@ -85,7 +94,12 @@ One addition to `evaluateTitle` (ADR 0046): a title with `callout` is a
 point's travel) and which carries `callout.anchor` (composition px). Scale
 and rotation are 1 and 0 (a label is read, not painted on a wall), it never
 wraps, and its opacity is the path's tracked `o`, so **it fades where the
-track was lost** and is hidden on another shot like any pin. `titleCorners`
+track was lost** and is hidden on another shot like any pin. An unpinned
+callout is hidden once the clip it starts on is cut away (it points at
+something in that shot). The label's centre is kept inside Instagram's safe
+area (`calloutLabelInSafeArea`: its measured line, at most 86% of the frame,
+plus room for the label's padding; a label wider than the safe area is
+centred in it), and the leader line follows the label. `titleCorners`
 returns null for a callout, so nothing treats its tracked square as a plane.
 
 ### The renderer
@@ -96,12 +110,22 @@ span lives in the plane's box under the plane's `matrix3d`, so the band, the
 glints, the streak and the words' slide are laid out in plane px and warp
 and travel with the tracked surface; the "from behind" clip is a polygon on
 the plane box, also in plane px. A screen title gets the same in its own
-box. The flare is screen-blended. A callout's dot and line are one SVG over
-the composition, under the label, at the placement's opacity.
+box. The golden-hour streak is **not** drawn inside the words' box, where a
+blend mode would only mix it with the letters (the first cut said it was
+screen-blended; it was plain paint): `FlareLayer` is a sibling of the title
+with the same position and warp (the plane's `matrix3d` and the words' box
+in plane px, or the screen title's transform), `mix-blend-mode: screen`, the
+same arrangement as the ember sparks of ADR 0055, so it lightens the
+footage under it. A callout's dot and line are one SVG over the
+composition, under the label, at the placement's opacity; the label's
+reveal multiplies the surface blend's own 0.92 rather than being
+overwritten by it, and choosing Callout clears the blend.
 
 Kinetic words and from-behind bring the words in themselves, so the
-title's entrance (`animation`) is not applied with them; a count keeps the
-entrance but replaces the typewriter. A callout uses its own reveal.
+title's *entrance* is not applied with them, but its way out is
+(`textExit`: an elegant or chosen fade still fades over its last 0.6 s); a
+count keeps the entrance but replaces the typewriter. A callout uses its
+own reveal and exit.
 
 ### Pacing seam (ADR 0059)
 
@@ -109,8 +133,19 @@ entrance but replaces the typewriter. A callout uses its own reveal.
 in reel ms; `setTypeMotionCue(text, key, reelMs)` stores one back relative to
 the title, on a whole frame and inside the title; `snapTypeMotionToBeat`
 moves every cue to the nearest beat of the music's grid (`nearestBeatMs`),
-never before the title appears. The pacing work can snap with these without
-knowing the field layout.
+never before the title appears; starts are clamped to the schema's 60 s
+(`TYPE_MOTION_START_MAX_MS`). Because `startMs` is relative to the title, a
+title moved onto a beat keeps its motion with it.
+
+This is the integration seam with ADR 0059 (PR #212, not merged when this was
+written), and it is not wired here so neither PR depends on the other. In
+#212's `putOnTheBeat`, after a text's own entrance is snapped, the move
+would be:
+
+    for (const cue of typeMotionCues(next)) {
+      const at = nearestWithin(cue.reelMs, next.startMs, next.endMs);
+      if (at !== null && at !== cue.reelMs) next = setTypeMotionCue(next, cue.key, at);
+    }
 
 ### Editor
 
@@ -135,9 +170,11 @@ knowing the field layout.
 
 The smoke fixture's OCEAN VIEWS (p1, pinned on the room shot) carries
 `shine: { preset: "sweep" }`, so preview-against-export compares a sweep in a
-warped, tracked plane. The attachment probe drops a title's shine and
-kinetic move (light is not glyph shape; a slide is not where the letters
-rest), and a callout is not a planar title for the attachment check.
+warped, tracked plane. The attachment probe **keeps** the shine (the first
+cut dropped it, so the harness never drew the new code in a probe): the
+band's copies are clipped to the glyphs in the plane, so the probe checks
+they land on the letters. It drops a kinetic move (a slide is not where the
+letters rest), and a callout is not a planar title for the attachment check.
 
 ## Consequences
 
@@ -157,7 +194,8 @@ rest), and a callout is not a planar title for the attachment check.
   - A callout pinned with Pin uses the tracker as is; a point on a
     featureless floor may be refused ("too few features"), and the callout
     then stays still.
-  - The pacing work (ADR 0059) is not wired to the cues yet; the seam exists.
+  - The pacing work (ADR 0059) is not wired to the cues yet; the seam and the
+    four lines it needs are above.
   - The text sheet was not driven on a phone in this change (no e2e for it).
 
 ## What was verified
@@ -209,3 +247,34 @@ rest), and a callout is not a planar title for the attachment check.
 - Not verified: the text sheet and the callout dot on a phone or in a
   browser (no dev server with a database here, no e2e added); a real Pin of
   a callout with the browser tracker (the stills use a synthetic track).
+
+### After the review of #211
+
+- `type-motion.test.ts` now 27 tests. The plane-space test goes through the
+  render path: a tapped object on a tracked surface, carried forward on
+  screen by `carryTaps` (it moves over 10 px), carried back by
+  `occluderTapsInPlane` through the frame's inverse homography, lands on the
+  same plane point on four frames as an independent map of the rest plane
+  gives, and is the edge `behindInPlane` picks; a post above the line and a
+  tap above the surface are ignored (the edge is the words' own left edge,
+  and without the band the old rule would have taken them). Also: band
+  filtering of `revealEdge`; a callout label kept inside the safe area at
+  the frame's corners and centred when wider than it; an unpinned callout
+  hidden after its clip's cut; cue starts clamped to 60 s.
+- `packages/render/tests/title-motion.test.ts` (4): a word-by-word elegant
+  title still fades out over its last 0.6 s and no other animation has an
+  exit; a count-up's font asks for tabular figures, and with a measurer
+  that sets them wider, "$1,111,111" fitted that way fits its surface when
+  drawn tabular, where fitted proportional (the bug) it overflows.
+- `type-motion-draft.test.ts`: the 60 s clamp; choosing Callout clears the
+  surface blend.
+- `pnpm check` passes (core 609, render 72, web 27, worker 175, db 6).
+- The render smoke with acceptance again, **with the shine kept in the
+  probe**: preview against export ok on all ten frames (SSIM 0.980–0.993,
+  worst block ≤ 14.9); OCEAN VIEWS with its sweep in the probe is on its
+  plane (drift 1.3 px), shape ok (stroke 10.77 px against the reference's
+  10.41, inside the 4% bound but closer to it than before) and present in
+  the export.
+- Stills re-rendered, with a Golden hour title over the dark fireplace hood:
+  the streak, now its own screen-blended layer, lightens the hood under it;
+  over the white window it no longer shows, as screen cannot lighten white.

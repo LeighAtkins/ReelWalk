@@ -54,12 +54,14 @@
  *     above that title, never above a title that did not ask for them.
  */
 import { applyHomography, homography, invertHomography, orientOrder, orientQuad, type Quad } from "./motion";
-import { endsBeforeShot, PINNED_ELSEWHERE, pinnedProgress, textPositionAt, textQuadAt } from "./cinematic";
+import { endsBeforeShot, locateFrame, PINNED_ELSEWHERE, pinnedProgress, textPositionAt, textQuadAt } from "./cinematic";
+import { INSTAGRAM } from "./instagram";
 import { framePlan, REEL_FORMAT, type Clip, type TextOverlay, type Timeline } from "./timeline";
 import { calloutAnchorAt } from "./callout";
 
 /** A title's resolved font, as the renderer styles it. `fontSize` in composition px. */
-export type TitleFont = { fontFamily?: string; fontWeight?: string | number; fontSize: number; letterSpacing?: number; fontStretch?: string };
+/** `fontVariantNumeric` is set when the figures are drawn tabular (a count-up, ADR 0061), so the measure matches what is drawn. */
+export type TitleFont = { fontFamily?: string; fontWeight?: string | number; fontSize: number; letterSpacing?: number; fontStretch?: string; fontVariantNumeric?: string };
 
 /** Measures one line of text, unwrapped, in composition px. */
 export type Measure = (line: string, font: TitleFont) => { width: number; height: number };
@@ -222,6 +224,24 @@ function multiply3(a: number[], b: number[]): number[] {
   return out;
 }
 
+/** A callout's label is at most this share of the frame wide (ADR 0061). */
+export const CALLOUT_MAX_WIDTH = 0.86;
+
+/**
+ * A callout label's centre (composition px), kept inside Instagram's safe area: its measured line (at most
+ * CALLOUT_MAX_WIDTH of the frame) plus room for a label's padding (0.4 em a side, 0.2 em above and below) stays clear
+ * of the caption and buttons whatever the tracked point does. The leader line follows the label.
+ */
+export function calloutLabelInSafeArea(text: TextOverlay, label: { x: number; y: number }, input: Pick<TitleInput, "width" | "height" | "font" | "measure">): ScenePoint {
+  const { width, height, font, measure } = input;
+  const lines = text.text.split(/\n/);
+  const lineW = Math.min(width * CALLOUT_MAX_WIDTH, Math.max(...lines.map((line) => measure(line || " ", font).width)));
+  const halfW = lineW / 2 + font.fontSize * 0.4, halfH = (font.fontSize * TITLE_LEADING * lines.length) / 2 + font.fontSize * 0.2;
+  const safe = INSTAGRAM.safeZonePx, sx = width / REEL_FORMAT.width, sy = height / REEL_FORMAT.height;
+  const fit = (v: number, lo: number, hi: number) => (lo > hi ? (lo + hi) / 2 : Math.min(hi, Math.max(lo, v)));
+  return { x: fit(label.x * width, safe.left * sx + halfW, width - safe.right * sx - halfW), y: fit(label.y * height, safe.top * sy + halfH, height - safe.bottom * sy - halfH) };
+}
+
 /** The single evaluated placement of one title on one frame. See the module comment. */
 export function evaluateTitle(input: TitleInput): TitlePlacement {
   const { text, timeline, frame, durationInFrames, fps, width, height, font, measure } = input;
@@ -238,10 +258,15 @@ export function evaluateTitle(input: TitleInput): TitlePlacement {
 
   if (!corners && text.callout) {
     // A callout (ADR 0061): the label keeps its size and angle and travels with its tracked point; one line, never wrapped.
+    // Unpinned, it points at something in the shot it starts on: once the cut lands it goes, rather than point at the next shot.
+    if (!text.pin) {
+      const first = locateFrame(timeline, (input.from * 1000) / fps, fps), now = locateFrame(timeline, ((input.from + frame) * 1000) / fps, fps);
+      if (first && now && first.index !== now.index) return { kind: "hidden", progress, opacity: 0 };
+    }
     const anchor = calloutAnchorAt(text, progress);
     const label = text.pin?.quad ? { x: text.x + anchor.x - text.callout.x, y: text.y + anchor.y - text.callout.y } : { x: position.x, y: position.y };
     return {
-      kind: "screen", progress, center: { x: label.x * width, y: label.y * height }, wrap: { mode: "line", maxWidth: width * 0.9 }, scale: 1, rotation: 0, opacity, occluderTaps,
+      kind: "screen", progress, center: calloutLabelInSafeArea(text, label, input), wrap: { mode: "line", maxWidth: width * CALLOUT_MAX_WIDTH }, scale: 1, rotation: 0, opacity, occluderTaps,
       callout: { anchor: { x: anchor.x * width, y: anchor.y * height } },
     };
   }

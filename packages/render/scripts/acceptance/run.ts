@@ -121,9 +121,10 @@ export async function runAcceptance(input: {
     // in solid magenta with no surface blend or shadow, so its letters stand out on any footage (white letters
     // hard-lit onto a white window or a pale wall drew almost nothing to measure). Colour, blend and shadow do
     // not enter the placement code, so the probe sits exactly where the title does. Its particles (ADR 0055) are left out: they are not glyphs.
-    // Nor its shine or kinetic move (ADR 0061): light on the letters is not their shape, and a slide or a word still
-    // arriving is not where the letters rest on the plane.
-    const probe: Timeline = { ...timeline, texts: timeline.texts.map((other) => (other.id === text.id ? { ...other, color: PROBE_COLOUR, blend: undefined, shadow: "none" as const, particles: undefined, shine: undefined, kinetic: undefined } : other)) };
+    // Its shine (ADR 0061) stays: the band is drawn in the plane, clipped to the glyphs, so the probe checks that the
+    // light's copies of the letters land on the letters. Its kinetic move is left out: a slide or a word still arriving
+    // is not where the letters rest on the plane.
+    const probe: Timeline = { ...timeline, texts: timeline.texts.map((other) => (other.id === text.id ? { ...other, color: PROBE_COLOUR, blend: undefined, shadow: "none" as const, particles: undefined, kinetic: undefined } : other)) };
     const without: Timeline = { ...timeline, texts: timeline.texts.filter((other) => other.id !== text.id) };
     const probeDir = path.join(outDir, `probe-${text.id}`), bareDir = path.join(outDir, `without-${text.id}`);
     await mkdir(probeDir, { recursive: true });

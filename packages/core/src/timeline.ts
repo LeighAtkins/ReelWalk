@@ -49,6 +49,8 @@ export type ShinePreset = (typeof SHINE_PRESETS)[number];
 /** Kinetic type (ADR 0061): word by word, sliding out from behind something in front of the surface, or a number counting up. */
 export const KINETIC_PRESETS = ["words", "behind", "count"] as const;
 export type KineticPreset = (typeof KINETIC_PRESETS)[number];
+/** The latest a shine or kinetic move may start, ms after its title appears (the schema's bound; ADR 0061). */
+export const TYPE_MOTION_START_MAX_MS = 60_000;
 /** Where a logo may sit. */
 export const CORNERS = ["top-left", "top-right", "bottom-left", "bottom-right"] as const;
 /** Where the status tag sits: the top of the safe area, above the hook. */
@@ -187,7 +189,7 @@ export const textSchema = z
     shine: z.object({
       preset: z.enum(SHINE_PRESETS),
       angle: z.number().min(-75).max(75).optional(),
-      startMs: z.number().int().min(0).max(60_000).optional(),
+      startMs: z.number().int().min(0).max(TYPE_MOTION_START_MAX_MS).optional(),
       everyMs: z.number().int().min(0).max(20_000).optional(),
       /** An anamorphic streak across the plane at the sweep's peak; the golden preset has one by default. */
       flare: z.boolean().optional(),
@@ -195,7 +197,7 @@ export const textSchema = z
     /** Kinetic type (ADR 0061): how the words arrive. `startMs` is ms after the title appears; `durationMs` how long the move takes. */
     kinetic: z.object({
       preset: z.enum(KINETIC_PRESETS),
-      startMs: z.number().int().min(0).max(60_000).optional(),
+      startMs: z.number().int().min(0).max(TYPE_MOTION_START_MAX_MS).optional(),
       durationMs: z.number().int().min(100).max(10_000).optional(),
     }).optional(),
     /**

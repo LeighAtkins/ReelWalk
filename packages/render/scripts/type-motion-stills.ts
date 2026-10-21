@@ -31,6 +31,8 @@ const CASES: Case[] = [
   { name: "sweep", frames: [20, 26, 32], title: { text: "BY THE FIRE", style: "headline", size: 1, animation: "none", blend: "surface", surface: window, shine: { preset: "sweep" } } },
   { name: "glint", frames: [18, 30, 45], title: { text: "BY THE FIRE", style: "headline", size: 1, animation: "none", blend: "surface", surface: window, shine: { preset: "glint" } } },
   { name: "golden", frames: [24, 33, 42], title: { text: "BY THE FIRE", style: "headline", size: 1, animation: "none", blend: "surface", surface: window, shine: { preset: "golden" } } },
+  // Golden hour on a screen title over the dark hood: the streak screens onto the footage, so it shows on dark, not on the white sky.
+  { name: "golden-dark", frames: [30, 36], title: { text: "WARM UP", x: 0.42, y: 0.3, style: "headline", size: 1.1, animation: "none", shine: { preset: "golden" } } },
   { name: "words", frames: [6, 14, 30], title: { text: "Four beds by the sea", x: 0.5, y: 0.42, style: "elegant", size: 1.2, kinetic: { preset: "words" } } },
   // The window's right pane, with the middle mullion beside it marked as a post: the words slide out from behind the mullion.
   { name: "behind", frames: [4, 9, 30], title: { text: "SNOW", style: "headline", size: 1, animation: "none", blend: "surface", surface: [0.645, 0.05, 0.92, 0.05, 0.92, 0.2, 0.645, 0.2], bars: [[0.6, 0.05, 0.64, 0.05, 0.64, 0.2, 0.6, 0.2]], kinetic: { preset: "behind" } } },

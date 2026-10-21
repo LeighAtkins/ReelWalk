@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  applyHomography, calloutAnchorAt, calloutGeometry, calloutQuad, calloutSvg, calloutTrackTarget, CALLOUT_GAP_PX, CALLOUT_TRACK_HALF, countUpText, evaluateTitle, flareCss,
+  applyHomography, behindInPlane, calloutAnchorAt, calloutLabelInSafeArea, CALLOUT_MAX_WIDTH, homography, INSTAGRAM, occluderTapsInPlane, TYPE_MOTION_START_MAX_MS, calloutGeometry, calloutQuad, calloutSvg, calloutTrackTarget, CALLOUT_GAP_PX, CALLOUT_TRACK_HALF, countUpText, evaluateTitle, flareCss,
   framePlan, glintLetter, glintSvg, hasCountableNumber, kineticProgress, parseTimeline, PINNED_ELSEWHERE, revealEdge, setTypeMotionCue, shineAt, shineBandCss, SHINE_PRESET,
   slideFromBehind, snapTypeMotionToBeat, textSchema, typeMotionCues, wordReveal,
   type Measure, type ShineSpec, type SurfacePlacement, type TextOverlay, type Timeline, type TitleFont,
@@ -12,7 +12,6 @@ const font: TitleFont = { fontFamily: "Archivo", fontWeight: 800, fontSize: 96 }
 
 const surface = [0.1, 0.2, 0.8, 0.26, 0.8, 0.5, 0.1, 0.56];
 const surfaceMoved = [0.12, 0.21, 0.82, 0.27, 0.82, 0.51, 0.12, 0.57];
-const bar = [0.6, 0.2, 0.65, 0.2, 0.65, 0.56, 0.6, 0.56];
 
 function reel(texts: unknown[]): Timeline {
   return parseTimeline({
@@ -181,6 +180,12 @@ describe("kinetic type (ADR 0061)", () => {
     expect(revealEdge({ textLeft: 300, textRight: 700, shapes: [[100, 0, 140, 0, 140, 50, 100, 50], [720, 0, 760, 0, 760, 50, 720, 50]] })).toBe(740);
     expect(revealEdge({ textLeft: 300, textRight: 700, points: [{ x: 200, y: 5 }] })).toBe(200);
     expect(revealEdge({ textLeft: 300, textRight: 700 })).toBe(300);
+    // Only what is level with the line: a post above it, or a tap below it, is not an edge.
+    const band = { textLeft: 300, textRight: 700, textTop: 100, textBottom: 200 };
+    expect(revealEdge({ ...band, shapes: [[720, 0, 760, 0, 760, 60, 720, 60]] })).toBe(300);
+    expect(revealEdge({ ...band, shapes: [[720, 150, 760, 150, 760, 400, 720, 400]] })).toBe(740);
+    expect(revealEdge({ ...band, points: [{ x: 200, y: 300 }] })).toBe(300);
+    expect(revealEdge({ ...band, points: [{ x: 200, y: 210 }] })).toBe(200);
   });
 
   it("count up: every number counts from zero in its own format and lands exactly", () => {
@@ -228,6 +233,10 @@ describe("cues for the pacing work (ADR 0059 seam)", () => {
     expect(setTypeMotionCue(title, "shine", 2520).shine!.startMs).toBe(533);
     expect(setTypeMotionCue(title, "shine", 100).shine!.startMs).toBe(0);
     expect(setTypeMotionCue(title, "shine", 99_000).shine!.startMs).toBe(2999);
+    // Never past the schema's bound, however long the title.
+    const long = textSchema.parse({ ...title, endMs: 120_000 });
+    expect(setTypeMotionCue(long, "shine", 99_000).shine!.startMs).toBe(TYPE_MOTION_START_MAX_MS);
+    expect(textSchema.parse(setTypeMotionCue(long, "kinetic", 99_000))).toBeTruthy();
     const plain = textSchema.parse({ id: "q", text: "x", startMs: 0, endMs: 10 });
     expect(setTypeMotionCue(plain, "shine", 5)).toBe(plain);
     expect(textSchema.parse(moved)).toEqual(moved);
@@ -244,33 +253,44 @@ describe("cues for the pacing work (ADR 0059 seam)", () => {
 });
 
 describe("plane space: the motion is laid out in the title's plane and carried by it", () => {
+  // A tracked surface; a tapped object (first-frame fraction) level with the words, right of them; a post high above them.
+  const tap = { x: 0.7, y: 0.38 };
+  const above = [0.3, 0.2, 0.34, 0.2, 0.34, 0.21, 0.3, 0.21];
   const timeline = reel([
-    { id: "s", text: "OUT", startMs: 2500, endMs: 4900, x: 0.45, y: 0.38, style: "headline", blend: "surface", surface, bars: [bar], kinetic: { preset: "behind" }, shine: { preset: "sweep" },
+    { id: "s", text: "OUT", startMs: 2500, endMs: 4900, x: 0.45, y: 0.38, style: "headline", blend: "surface", surface, bars: [above], occluders: [tap], kinetic: { preset: "behind" },
       pin: { assetId: "room", fromMs: 200, toMs: 2600, quad: surface }, path: [{ t: 0, x: 0, y: 0, s: 1, r: 0, q: surface }, { t: 1, x: 0.02, y: 0.01, s: 1, r: 0, q: surfaceMoved }] },
   ]);
 
-  it("the post's edge, found in plane px, lands on the post in the frame on every frame", () => {
+  it("carries a tapped object back into the plane through the frame's homography: one fixed place on the surface, on every frame", () => {
+    // Independently of the evaluator: the tap's place in the plane is where the rest plane's own map sends it.
+    const first = evalAt(timeline, "s", 76) as SurfacePlacement;
+    const { width: w, height: h } = first.rect;
+    const toPlane = homography(first.restPlane, [0, 0, w, 0, w, h, 0, h])!;
+    const [ex, ey] = applyHomography(toPlane, tap.x * W, tap.y * H);
+    let travelled = 0;
     for (const frame of [76, 100, 130, 146]) {
       const placement = evalAt(timeline, "s", frame) as SurfacePlacement;
-      expect(placement.kind).toBe("surface");
-      const lineW = placement.lineBox.width * placement.fitScale;
-      const textLeft = (placement.rect.width - lineW) / 2;
-      const edge = revealEdge({ textLeft, textRight: textLeft + lineW, shapes: placement.maskShapes });
-      // The plane's homography carries the edge (mid-height) to the frame; the post moves with the plane (ADR 0043),
-      // so the same point of the stored post, carried by the tracked corners, is where the edge must land.
-      const [x, y] = applyHomography(placement.homography!, edge, placement.rect.height / 2);
-      const stored = placement.maskShapes![0];
-      const centreX = (stored[0] + stored[2] + stored[4] + stored[6]) / 4;
-      expect(edge).toBeCloseTo(centreX, 6);
-      const [px, py] = applyHomography(placement.homography!, centreX, placement.rect.height / 2);
-      expect(Math.hypot(x - px, y - py)).toBeLessThan(1e-6);
-      // And it sits between the post's frame-space edges at rest-plane fractions, shifted with the track.
-      if (frame === 76) expect(x / W).toBeGreaterThan(0.59);
-      if (frame === 76) expect(x / W).toBeLessThan(0.66);
+      // On screen the tap moves with the track (carryTaps); in the plane it stays put.
+      travelled = Math.max(travelled, Math.abs(placement.occluderTaps[0].x - tap.x) * W);
+      const [inPlane] = occluderTapsInPlane(placement, { width: W, height: H });
+      expect(inPlane.x).toBeCloseTo(ex, 3);
+      expect(inPlane.y).toBeCloseTo(ey, 3);
+      const behind = behindInPlane(placement, { width: W, height: H });
+      // Level with the words, it is the edge; the post above the line is ignored.
+      expect(behind.taps[0].y).toBeGreaterThanOrEqual(behind.textTop);
+      expect(behind.edge).toBeCloseTo(ex, 3);
     }
-    const early = evalAt(timeline, "s", 76) as SurfacePlacement, late = evalAt(timeline, "s", 146) as SurfacePlacement;
-    const edgeAt = (p: SurfacePlacement) => { const lw = p.lineBox.width * p.fitScale; const l = (p.rect.width - lw) / 2; return applyHomography(p.homography!, revealEdge({ textLeft: l, textRight: l + lw, shapes: p.maskShapes }), p.rect.height / 2)[0]; };
-    expect(edgeAt(late) - edgeAt(early)).toBeGreaterThan(0.01 * W);
+    expect(travelled).toBeGreaterThan(10);
+  });
+
+  it("a post or tap above or below the line is not an edge: the words come from their own left edge", () => {
+    const high = reel([{ ...timeline.texts[0], occluders: [{ x: 0.7, y: 0.08 }] }]);
+    const placement = evalAt(high, "s", 100) as SurfacePlacement;
+    const behind = behindInPlane(placement, { width: W, height: H });
+    expect(placement.maskShapes).toHaveLength(1);
+    expect(behind.edge).toBe(behind.textLeft);
+    // Without the band (older callers), the nearest by x would have been taken.
+    expect(revealEdge({ textLeft: behind.textLeft, textRight: behind.textRight, shapes: placement.maskShapes, points: behind.taps })).not.toBe(behind.textLeft);
   });
 });
 
@@ -279,7 +299,7 @@ describe("pinned callouts (ADR 0061)", () => {
   const square = calloutQuad(point);
   const shifted = square.map((v, i) => Number((v + (i % 2 === 0 ? 0.05 : -0.02)).toFixed(4)));
   const callout = (extra: Record<string, unknown> = {}) => reel([{
-    id: "k", text: "Heated floors", startMs: 2500, endMs: 4900, x: 0.55, y: 0.6, style: "box", size: 0.6, callout: point,
+    id: "k", text: "Oak", startMs: 2500, endMs: 4900, x: 0.55, y: 0.6, style: "box", size: 0.6, callout: point,
     pin: { assetId: "room", fromMs: 200, toMs: 2600, quad: square },
     path: [{ t: 0, x: 0, y: 0, s: 1, r: 0, q: square }, { t: 0.5, x: 0.05, y: -0.02, s: 1.3, r: 12, q: shifted }, { t: 1, x: 0.05, y: -0.02, s: 1.3, r: 12, q: shifted }],
     ...extra,
@@ -359,6 +379,37 @@ describe("pinned callouts (ADR 0061)", () => {
     const size = { width: W, height: H };
     expect(calloutSvg(calloutGeometry({ anchor, label, titleMs: 300, lifeMs: 3000 }), size, "#fff")).toBe(calloutSvg(calloutGeometry({ anchor, label, titleMs: 300, lifeMs: 3000 }), size, "#fff"));
     expect(calloutSvg(g, size, "#ffffff")).toMatchSnapshot();
+  });
+
+  it("keeps the label inside Instagram's safe area and at most 86% of the frame wide", () => {
+    // A callout's label at its starting size (0.6 of the base, about 58 px).
+    const small = { ...font, fontSize: 58 };
+    const long = textSchema.parse({ id: "k", text: "Underfloor heating", startMs: 0, endMs: 1000, callout: point });
+    const input = { width: W, height: H, font: small, measure };
+    const safe = INSTAGRAM.safeZonePx;
+    for (const at of [{ x: 0.99, y: 0.99 }, { x: 0, y: 0 }, { x: 0.5, y: 0.5 }]) {
+      const c = calloutLabelInSafeArea(long, at, input);
+      const half = Math.min(W * CALLOUT_MAX_WIDTH, measure(long.text, small).width) / 2;
+      expect(c.x - half).toBeGreaterThanOrEqual(safe.left - 1e-6);
+      expect(c.x + half).toBeLessThanOrEqual(W - safe.right + 1e-6);
+      expect(c.y).toBeGreaterThan(safe.top);
+      expect(c.y).toBeLessThan(H - safe.bottom);
+    }
+    // Wider than the safe area: centred in it rather than pushed off one side.
+    const huge = calloutLabelInSafeArea(textSchema.parse({ id: "k", text: "Underfloor heating in every single room", startMs: 0, endMs: 1000, callout: point }), { x: 0.95, y: 0.5 }, input);
+    expect(huge.x).toBeCloseTo((safe.left + W - safe.right) / 2, 6);
+    const middle = calloutLabelInSafeArea(textSchema.parse({ id: "k", text: "Oak", startMs: 0, endMs: 1000, callout: point }), { x: 0.5, y: 0.5 }, input);
+    expect(middle).toEqual({ x: 540, y: 960 });
+    const placement = evalAt(callout({ x: 0.99, y: 0.99 }), "k", 80);
+    if (placement.kind !== "screen") throw new Error("screen");
+    expect(placement.center.y).toBeLessThan(H - safe.bottom);
+    expect(placement.wrap).toEqual({ mode: "line", maxWidth: W * CALLOUT_MAX_WIDTH });
+  });
+
+  it("unpinned, goes with the cut instead of pointing into the next shot", () => {
+    const loose = reel([{ id: "k", text: "Oak", startMs: 2000, endMs: 3500, x: 0.5, y: 0.5, callout: point }]);
+    expect(evalAt(loose, "k", 70).kind).toBe("screen");
+    expect(evalAt(loose, "k", 80).kind).toBe("hidden");
   });
 
   it("does not change a title that is not a callout", () => {

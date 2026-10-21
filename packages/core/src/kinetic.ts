@@ -17,9 +17,17 @@
  *     clipped at that edge so they appear from behind it. All in one px space
  *     (plane px for a surface title).
  *
- *   revealEdge({ textLeft, textRight, shapes, points }): number
+ *   revealEdge({ textLeft, textRight, textTop, textBottom, shapes, points }): number
  *     the edge to slide out from: the centre of the post, cut-out or tapped
- *     point nearest the text's centre, or the text's left edge when there is none.
+ *     point nearest the text's centre, among those level with the words (a
+ *     shape whose height overlaps the line band, a tap inside the band grown by
+ *     a quarter of its height); the text's left edge when there is none.
+ *
+ *   behindInPlane(placement, size): { textLeft, textRight, textTop, textBottom, taps, edge }
+ *     the same for a surface title, everything in plane px: the words' box
+ *     centred in the plane's rectangle, the tapped objects carried back into
+ *     the plane through this frame's homography (`occluderTapsInPlane`), and
+ *     the edge the renderer slides from.
  *
  *   countUpText(text, progress): string
  *     "count": every number in the text counts up from 0, in the text's own
@@ -32,7 +40,9 @@
  */
 import { beatPeriodMs, nearestBeatMs } from "./beats";
 import type { KineticPreset, Music, TextOverlay } from "./timeline";
-import { REEL_FORMAT } from "./timeline";
+import { REEL_FORMAT, TYPE_MOTION_START_MAX_MS } from "./timeline";
+import { applyHomography, invertHomography } from "./motion";
+import type { ScenePoint, SurfacePlacement } from "./scene";
 import { SHINE_PRESET } from "./shine";
 
 export type KineticSpec = NonNullable<TextOverlay["kinetic"]>;
@@ -107,15 +117,46 @@ export function slideFromBehind(input: { spec: KineticSpec; titleMs: number; tex
   return { dx, clipRight: clip, progress };
 }
 
-/** The edge to slide out from: the post, cut-out or tapped point (x, px) nearest the text's centre; the text's left edge when there is none. */
-export function revealEdge(input: { textLeft: number; textRight: number; shapes?: readonly (readonly number[])[] | null; points?: readonly { x: number; y: number }[] | null }): number {
+/**
+ * The edge to slide out from: the post, cut-out or tapped point (x, px) nearest the text's centre, among those level
+ * with the words when the line band is given; the text's left edge when there is none. A post above or below the
+ * line is not something the words could be behind.
+ */
+export function revealEdge(input: {
+  textLeft: number; textRight: number; textTop?: number; textBottom?: number;
+  shapes?: readonly (readonly number[])[] | null; points?: readonly { x: number; y: number }[] | null;
+}): number {
   const centre = (input.textLeft + input.textRight) / 2;
+  const banded = input.textTop !== undefined && input.textBottom !== undefined;
+  const top = input.textTop ?? -Infinity, bottom = input.textBottom ?? Infinity;
+  const grow = banded ? (bottom - top) / 4 : 0;
+  const level = (shape: readonly number[]) => {
+    if (!banded) return true;
+    const ys = shape.filter((_, i) => i % 2 === 1);
+    return Math.max(...ys) >= top && Math.min(...ys) <= bottom;
+  };
   const candidates = [
-    ...(input.shapes ?? []).map((shape) => { const xs = shape.filter((_, i) => i % 2 === 0); return xs.reduce((a, b) => a + b, 0) / Math.max(1, xs.length); }),
-    ...(input.points ?? []).map((point) => point.x),
+    ...(input.shapes ?? []).filter(level).map((shape) => { const xs = shape.filter((_, i) => i % 2 === 0); return xs.reduce((a, b) => a + b, 0) / Math.max(1, xs.length); }),
+    ...(input.points ?? []).filter((point) => point.y >= top - grow && point.y <= bottom + grow).map((point) => point.x),
   ].filter((x) => Number.isFinite(x));
   if (!candidates.length) return input.textLeft;
   return candidates.reduce((best, x) => (Math.abs(x - centre) < Math.abs(best - centre) ? x : best));
+}
+
+/** A surface title's tapped objects on this frame (`occluderTaps`, fractions) carried back into its plane (plane px) through this frame's homography. */
+export function occluderTapsInPlane(placement: Pick<SurfacePlacement, "homography" | "occluderTaps">, size: { width: number; height: number }): ScenePoint[] {
+  const inverse = placement.homography ? invertHomography(placement.homography) : null;
+  if (!inverse) return [];
+  return placement.occluderTaps.map((tap) => { const [x, y] = applyHomography(inverse, tap.x * size.width, tap.y * size.height); return { x, y }; });
+}
+
+/** "From behind" on a surface title: the words' box in plane px (centred in the rectangle, at the fit scale), the taps in plane px, and the edge to slide from. */
+export function behindInPlane(placement: Pick<SurfacePlacement, "rect" | "lineBox" | "fitScale" | "maskShapes" | "homography" | "occluderTaps">, size: { width: number; height: number }): { textLeft: number; textRight: number; textTop: number; textBottom: number; taps: ScenePoint[]; edge: number } {
+  const lineW = placement.lineBox.width * placement.fitScale, lineH = placement.lineBox.height * placement.fitScale;
+  const textLeft = (placement.rect.width - lineW) / 2, textTop = (placement.rect.height - lineH) / 2;
+  const box = { textLeft, textRight: textLeft + lineW, textTop, textBottom: textTop + lineH };
+  const taps = occluderTapsInPlane(placement, size);
+  return { ...box, taps, edge: revealEdge({ ...box, shapes: placement.maskShapes, points: taps }) };
 }
 
 /** A number as written in the text: "1,250", "1.2", "4". */
@@ -160,7 +201,7 @@ export function setTypeMotionCue(text: TextOverlay, key: TypeMotionKey, reelMs: 
   const motion = text[key];
   if (!motion) return text;
   const onFrame = Math.round((Math.round(((reelMs - text.startMs) * fps) / 1000) * 1000) / fps);
-  const startMs = Math.max(0, Math.min(text.endMs - text.startMs - 1, onFrame));
+  const startMs = Math.max(0, Math.min(text.endMs - text.startMs - 1, TYPE_MOTION_START_MAX_MS, onFrame));
   return { ...text, [key]: { ...motion, startMs } };
 }
 

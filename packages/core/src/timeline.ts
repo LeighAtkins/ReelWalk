@@ -3,6 +3,7 @@ import { z } from "zod";
 import { cameraSchema } from "./camera";
 import { rampSchema, rampUnwarp, rampWarp, sliceRamp } from "./ramp";
 import { planOverlaySchema, roomTitle, spotSchema, type PlanOverlay } from "./plan";
+import { colorMatchSchema, colorStatsSchema, lookSchema } from "./look";
 
 /**
  * A reel's edit, as a plain JSON document. The browser edits it, Postgres
@@ -154,6 +155,10 @@ export const clipSchema = z
     ramp: rampSchema.nullable().optional(),
     /** An eased camera move (ADR 0067): keyframed scale and position. When set, `motion` is not read. Absent or null: `motion` as before. */
     camera: cameraSchema.nullable().optional(),
+    /** Measured colour statistics of this clip's source (ADR 0070), kept so the look can be re-matched without reading pixels again. */
+    colorStats: colorStatsSchema.optional(),
+    /** The colour transform that moves this clip onto the reel's reference look (ADR 0070), applied under the `filter` preset. Absent: none. */
+    colorMatch: colorMatchSchema.optional(),
   })
   .refine((clip) => clip.sourceEndMs > clip.sourceStartMs, { message: "Clip must have a positive length" });
 
@@ -444,6 +449,8 @@ export const timelineSchema = z.object({
   endCard: endCardSchema.optional(),
   /** The designed opening (ADR 0068). Absent on every saved reel; the hook command sets it, null clears it. */
   opening: openingSchema.nullable().optional(),
+  /** The reel's matched look (ADR 0070): the reference clip and the strength every other clip was matched at. Absent: no matching. */
+  look: lookSchema.optional(),
 });
 
 export type Clip = z.infer<typeof clipSchema>;

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { AI_PLAN_CREDITS, AI_TRIAL_CREDITS, aiClipCredits, aiCreditWindow, type AiClipSeconds } from "@reelwalk/core";
+import { AI_PLAN_CREDITS, AI_QUEUE_LIMIT, AI_TRIAL_CREDITS, IN_FLIGHT_STATUSES, aiClipCredits, aiCreditWindow, queueDecision, type AiClipSeconds } from "@reelwalk/core";
 import type { Prisma, PrismaClient } from "./generated/prisma/client";
 
 type Tx = Prisma.TransactionClient;
@@ -68,10 +68,10 @@ export async function reserveAiGeneration(db: PrismaClient, input: {
       where: { workspaceId_requestId: { workspaceId: input.workspaceId, requestId: input.requestId } },
     });
     if (existing) return existing;
-    const inFlight = await tx.aiGeneration.count({ where: { workspaceId: input.workspaceId, status: { in: ["QUEUED", "SUBMITTING", "RUNNING"] } } });
-    if (inFlight >= 2) throw new AiCreditError("Two clips are already generating. Wait for one to finish.");
-    const recent = await tx.aiGeneration.count({ where: { workspaceId: input.workspaceId, createdAt: { gt: new Date(now.getTime() - 3600_000) } } });
-    if (recent >= 10) throw new AiCreditError("You've reached the hourly generation limit. Please try again later.");
+    // A take queue, not a cap (ADR 0069): takes wait their turn; only the queue's length is bounded, since every
+    // queued take holds its credits. The hour's limit on Veo submissions is kept by the worker when it starts a take.
+    const inFlight = await tx.aiGeneration.count({ where: { workspaceId: input.workspaceId, status: { in: [...IN_FLIGHT_STATUSES] } } });
+    if (inFlight >= AI_QUEUE_LIMIT) throw new AiCreditError(`The take queue is full (${AI_QUEUE_LIMIT} waiting or generating). Wait for one to finish.`);
     // Spend expiring monthly credits before lifetime trial/purchased credits.
     // An 8-second clip may draw on two grants, so plan the whole debit before taking any of it.
     const credits = aiClipCredits(input.durationSeconds, input.voiced);
@@ -132,18 +132,33 @@ export async function failAiGeneration(db: PrismaClient, id: string, error: stri
   });
 }
 
-/** Durable leases let multiple workers resume polling without submitting twice. */
+/**
+ * Durable leases let multiple workers resume polling without submitting twice.
+ * A queued take starts only when its workspace's queue says so (ADR 0069):
+ * oldest first, never while another of its takes is being composed, and never
+ * past the hour's Veo submissions. Polling a running take is always allowed.
+ */
 export async function claimAiGeneration(db: PrismaClient, now = new Date()) {
   return db.$transaction(async (tx) => {
-    const [row] = await tx.$queryRaw<{ id: string }[]>`
-      SELECT "id" FROM "AiGeneration" WHERE "status" IN ('QUEUED', 'RUNNING')
+    const rows = await tx.$queryRaw<{ id: string; workspaceId: string; status: string }[]>`
+      SELECT "id", "workspaceId", "status" FROM "AiGeneration" WHERE "status" IN ('QUEUED', 'RUNNING')
       AND "nextPollAt" <= ${now} AND ("leaseUntil" IS NULL OR "leaseUntil" < ${now})
-      ORDER BY "createdAt" LIMIT 1 FOR UPDATE SKIP LOCKED`;
-    if (!row) return null;
-    const job = await tx.aiGeneration.findUniqueOrThrow({ where: { id: row.id } });
-    return tx.aiGeneration.update({ where: { id: job.id }, data: {
-      status: job.status === "QUEUED" ? "SUBMITTING" : "RUNNING",
-      leaseToken: randomUUID(), leaseUntil: new Date(now.getTime() + 300_000),
-    } });
+      ORDER BY "createdAt" LIMIT 25 FOR UPDATE SKIP LOCKED`;
+    const refused = new Set<string>();
+    for (const row of rows) {
+      if (row.status === "QUEUED") {
+        if (refused.has(row.workspaceId)) continue;
+        const queue = await tx.aiGeneration.findMany({
+          where: { workspaceId: row.workspaceId, OR: [{ status: { in: ["QUEUED", "SUBMITTING"] } }, { submitStartedAt: { gt: new Date(now.getTime() - 3600_000) } }] },
+          select: { id: true, status: true, createdAt: true, submitStartedAt: true, leaseUntil: true },
+        });
+        if (queueDecision(queue, now).nextId !== row.id) { refused.add(row.workspaceId); continue; }
+      }
+      return tx.aiGeneration.update({ where: { id: row.id }, data: {
+        status: row.status === "QUEUED" ? "SUBMITTING" : "RUNNING",
+        leaseToken: randomUUID(), leaseUntil: new Date(now.getTime() + 300_000),
+      } });
+    }
+    return null;
   });
 }

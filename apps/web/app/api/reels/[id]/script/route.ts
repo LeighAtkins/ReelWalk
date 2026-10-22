@@ -9,8 +9,6 @@ import { toLibraryAssets } from "@/lib/library";
 
 export const runtime = "nodejs";
 
-/** Takes the workspace may have generating at once (the reservation enforces the same limit). */
-const IN_FLIGHT_LIMIT = 2;
 const IN_FLIGHT = ["QUEUED", "SUBMITTING", "RUNNING"] as const;
 
 /**
@@ -49,8 +47,9 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
  * quote once; the server rebuilds every prompt, duration and credit from the
  * lines and refuses a quote that does not match. Each take has a request id
  * derived from the script, so sending the same approval again never charges
- * a take twice: the editor sends it again as earlier takes finish, because
- * only two takes may generate at once.
+ * a take twice. Every take goes into the workspace's take queue at once
+ * (ADR 0069); one waits only when the queue is full, and the editor sends the
+ * approval again as the queue drains.
  */
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const user = await getSessionUser();
@@ -86,26 +85,24 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   const started: { index: number; id: string }[] = [];
   const waiting: number[] = [];
-  // Why some takes wait: two are generating, or the hourly limit is reached. Both pass; the editor asks again later.
+  // Why some takes wait: the take queue is full. It passes; the editor asks again as the queue drains.
   let paused: "busy" | "hourly" | null = null;
   try {
-    let inFlight = await prisma.aiGeneration.count({ where: { workspaceId: user.workspaceId, status: { in: [...IN_FLIGHT] } } });
     for (const [index, shot] of shots.entries()) {
       const known = made.get(requestIds[index]);
       if (known) { started.push({ index, id: known }); continue; }
-      if (paused === "hourly" || inFlight >= IN_FLIGHT_LIMIT) { waiting.push(index); paused ??= "busy"; continue; }
-      // The generation path every AI shot takes: kit, composed still, identity gate, credit reservation.
+      if (paused) { waiting.push(index); continue; }
+      // The generation path every AI shot takes: kit, composed still, identity gate, credit reservation, the queue.
       let job: { id: string };
       try {
         job = await createAiGeneration(user, { requestId: requestIds[index], prompt: shot.prompt, durationSeconds: shot.durationSeconds, shot: shot.shot }, { exactPrompt: true });
       } catch (error) {
-        // Another take started meanwhile: this one waits its turn rather than failing the script.
-        if (error instanceof Error && /already generating/i.test(error.message)) { waiting.push(index); inFlight = IN_FLIGHT_LIMIT; paused ??= "busy"; continue; }
+        // The queue is full: this one waits its turn rather than failing the script.
+        if (error instanceof Error && /queue is full|already generating/i.test(error.message)) { waiting.push(index); paused = "busy"; continue; }
         if (error instanceof Error && /hourly generation limit/i.test(error.message)) { waiting.push(index); paused = "hourly"; continue; }
         throw error;
       }
       started.push({ index, id: job.id });
-      inFlight += 1;
     }
     // The takes are reserved; a lost wake is picked up by the next poll of this script.
     if (started.length > existing.length) await ensureWorkerRunning().catch(() => undefined);

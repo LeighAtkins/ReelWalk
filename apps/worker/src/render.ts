@@ -4,11 +4,11 @@ import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import { GetObjectCommand, HeadObjectCommand, PutObjectCommand, type S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { checksKeyFor, frameThumbKeyFor, inputFilenameFor, outputKeyFor, parseReelExportPayload, reelRenderPlan, renderSourceKeyFor, type RenderChecks } from "@reelwalk/core";
+import { checksKeyFor, exportAudioKeyFor, frameThumbKeyFor, inputFilenameFor, outputKeyFor, parseReelExportPayload, reelRenderPlan, renderSourceKeyFor, type RenderChecks } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
 import { probe, run } from "./library/tools";
 import { createAttemptScope, killDescendants, REMOTION_PROCESSES, type AttemptScope } from "./lifecycle";
-import { normaliseLoudness } from "./loudness";
+import { measureExportAudio, normaliseLoudness } from "./loudness";
 import { transcribeVideo, transcriptionAvailable } from "./transcribe";
 import { verifyRender } from "./verify";
 
@@ -62,6 +62,7 @@ async function renderSourceKey(
   await rm(outPath, { force: true });
   return key;
 }
+import { sfxAssets } from "@reelwalk/render/reel-sfx";
 import type { ReelAsset } from "@reelwalk/render/reel-types";
 import { renderStubReel } from "@reelwalk/render/render-job";
 import { preflightReel, renderReel } from "@reelwalk/render/render-reel";
@@ -115,6 +116,8 @@ export async function renderJob(
   const report = (fraction: number) => onProgress(Math.min(100, Math.round(fraction * 100)));
   // The render checks (ADR 0071), stored beside a reel export; null when they could not be made.
   let checks: RenderChecks | null = null;
+  // The export's measured audio (ADR 0066), uploaded beside the MP4.
+  let exportAudio: Buffer | null = null;
 
   try {
     if (job.kind === "PREVIEW") {
@@ -206,6 +209,8 @@ export async function renderJob(
         // Preparing sources is the first fifth of the bar; Remotion reports the rest.
         report(((index + 1) / entries.length) * 0.2);
       }
+      // The bundled sound design files (ADR 0066), served by the bundle's public dir.
+      Object.assign(assets, sfxAssets(plan.timeline));
       // Draw the first and last frame of every shot first (ADR 0042): a frame that
       // errors or hangs fails in seconds, naming the shot, not minutes into the render.
       if (process.env.RENDER_PREFLIGHT !== "0") {
@@ -222,6 +227,17 @@ export async function renderJob(
           attempt.throwIfStopped();
           console.warn(`[${job.id}] checks not made: ${error instanceof Error ? error.message : error}`);
         }
+      }
+      // What the finished track holds (ADR 0066), for the export page's mix preview and the audio trace. Best effort.
+      try {
+        const audio = await measureExportAudio(outputPath, attempt);
+        if (audio) {
+          exportAudio = Buffer.from(JSON.stringify(audio));
+          console.log(`[${job.id}] audio: ${audio.integratedLufs ?? "silent"} LUFS integrated, ${audio.truePeakDb ?? "-"} dBTP, ${audio.lufs.length} steps`);
+        }
+      } catch (error) {
+        attempt.throwIfStopped();
+        console.warn(`[${job.id}] audio not measured: ${error instanceof Error ? error.message : error}`);
       }
     } else if (job.kind === "EDITOR") {
       // Editor projects carried media URLs chosen by the client, so rendering
@@ -243,6 +259,9 @@ export async function renderJob(
     // Each attempt uploads to its own key: a worker that was declared stale and finishes late cannot
     // overwrite the file the job's current attempt published (the output row names the key that won).
     const objectKey = outputKeyFor(job.id, job.attempt);
+    if (exportAudio) {
+      await s3.send(new PutObjectCommand({ Bucket: bucket, Key: exportAudioKeyFor(objectKey), Body: exportAudio, ContentLength: exportAudio.byteLength, ContentType: "application/json" }), { abortSignal: signal });
+    }
     const { size } = await stat(outputPath);
     console.log(`[${job.id}] upload ${size} bytes to s3://${bucket}/${objectKey}`);
     await s3.send(

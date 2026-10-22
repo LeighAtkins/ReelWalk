@@ -1,4 +1,4 @@
-import { analyseSong, BEAT_SAMPLE_RATE, detectBeats, mediaKindFor, resolveUploadType, type BeatGrid, type MediaKind, type SongMap } from "@reelwalk/core";
+import { analyseAudio as analyseTrack, analyseSong, BEAT_SAMPLE_RATE, detectBeats, mediaKindFor, resolveUploadType, type AudioAnalysis as TrackAnalysis, type BeatGrid, type MediaKind, type SongMap } from "@reelwalk/core";
 import { abortUpload, completeUpload, confirmUpload, createUpload } from "@/app/actions";
 import type { LibraryAsset } from "@/lib/library";
 import { roomHintFor } from "@/lib/pending-files";
@@ -149,8 +149,15 @@ async function detectTempo(file: File): Promise<{ beat: BeatGrid | null; songMap
   return { beat, songMap };
 }
 
-export type AudioAnalysis = { durationMs: number | null; beat: BeatGrid | null; /** Bars and sections (ADR 0059), when it has a tempo. */ songMap: SongMap | null };
-const UNREADABLE: AudioAnalysis = { durationMs: null, beat: null, songMap: null };
+export type AudioAnalysis = {
+  durationMs: number | null;
+  beat: BeatGrid | null;
+  /** Bars and sections (ADR 0059), when it has a tempo. */
+  songMap: SongMap | null;
+  /** The full track analysis (ADR 0066: beat list, energy curve, drop), from the same samples; null when not decodable. */
+  track: TrackAnalysis | null;
+};
+const UNREADABLE: AudioAnalysis = { durationMs: null, beat: null, songMap: null, track: null };
 
 /** Decodes a song and finds its length and tempo. Both are null when the browser cannot decode it. */
 async function analyseAudio(data: ArrayBuffer): Promise<AudioAnalysis> {
@@ -167,10 +174,24 @@ async function analyseAudio(data: ArrayBuffer): Promise<AudioAnalysis> {
     const rendered = await offline.startRendering();
     const samples = rendered.getChannelData(0);
     const beat = detectBeats(samples);
-    return { durationMs: Math.round(decoded.duration * 1000), beat, songMap: beat ? analyseSong(samples, beat) : null };
+    return { durationMs: Math.round(decoded.duration * 1000), beat, songMap: beat ? analyseSong(samples, beat) : null, track: analyseTrack(samples) };
   } catch {
     // Not decodable here: the song still works, just without beat snapping.
     return UNREADABLE;
+  }
+}
+
+/**
+ * Stores the browser's track analysis where agents and the export page read
+ * it (`GET /api/music/:audioId/analysis`, ADR 0066). Best effort: a failure
+ * only means the worker analyses the track later.
+ */
+export async function storeTrackAnalysis(audioId: string, track: TrackAnalysis | null): Promise<void> {
+  if (!track) return;
+  try {
+    await fetch(`/api/music/${encodeURIComponent(audioId)}/analysis`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ analysis: track }) });
+  } catch {
+    // The worker's analysis step covers it.
   }
 }
 

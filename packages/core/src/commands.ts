@@ -13,9 +13,11 @@
  */
 import { snapCutsToBeats } from "./beats";
 import { cameraPreset, CAMERA_PRESETS, type Camera, type CameraPreset } from "./camera";
+import { placeDropOnCut } from "./drop";
 import { suggestMatchCuts, type ClipMotion, type WhipDirection } from "./match-cut";
 import { paceTimeline, putOnTheBeat } from "./pacing";
 import { rampPreset, RAMP_PRESETS, type Ramp, type RampPreset } from "./ramp";
+import { autoPlaceSfx, trimSfxToReel, withSfx, type AutoSfxOptions } from "./sfx";
 import type { SongMap } from "./song";
 import { applyFinish, type FinishId } from "./finishes";
 import { planHook, stripHook, type HookInputs } from "./hook";
@@ -41,6 +43,7 @@ import {
   type ClipSettings,
   type HookPattern,
   type Music,
+  type SfxClip,
   type TextOverlay,
   type Timeline,
 } from "./timeline";
@@ -118,6 +121,12 @@ export type Command =
   | { type: "matchLook"; referenceClipId?: string | null; strength?: number; stats?: Record<string, ColorStats> }
   /** A new title. */
   | { type: "addText"; text: Omit<TextOverlay, "endMs" | "animation"> & { endMs?: number; animation?: TextOverlay["animation"] } }
+  /** Sound design placed by the rule (ADR 0066): whooshes on whips, a riser and impact into the reveal, ambience by tag. Replaces what it placed before, keeps hand-placed sounds. */
+  | { type: "autoSfx"; options?: AutoSfxOptions }
+  /** The whole `sfx` track set by hand (an agent, a sheet); an empty list removes it. */
+  | { type: "setSfx"; sfx: SfxClip[] }
+  /** The song's drop put on cut `cut` (1 = the start of the second clip): your own song is moved, an Instagram sound's cut is (ADR 0066). */
+  | { type: "dropOnCut"; cut: number; dropSongMs: number }
   /** Several commands as one step and one undo ("Fix all", ADR 0062): all of them land, or none. */
   | { type: "batch"; commands: BatchableCommand[] };
 
@@ -313,6 +322,17 @@ function run(timeline: Timeline, command: Command, context: CommandContext): Tim
     }
     case "matchLook":
       return matchLook(timeline, command);
+    case "autoSfx":
+      return withSfx(timeline, autoPlaceSfx(timeline, command.options));
+    case "setSfx":
+      return withSfx(timeline, command.sfx);
+    case "dropOnCut": {
+      if (!timeline.music) throw new Error("The reel has no song to place a drop from.");
+      if (command.cut < 1 || command.cut >= timeline.clips.length) throw new Error(`There is no cut ${command.cut}: the reel has ${Math.max(0, timeline.clips.length - 1)} cut(s).`);
+      const placed = placeDropOnCut(timeline, command.cut, command.dropSongMs, durations);
+      if (placed === timeline) throw new Error("The shots before that cut cannot be stretched or squeezed enough to put the drop on it.");
+      return trimSfxToReel(cut(placed));
+    }
     case "batch":
       // Each step runs against the result of the one before; a failing step throws, so the whole batch is rejected.
       return command.commands.reduce((current, step) => run(current, step, { ...context, gestureBase: undefined }), timeline);
@@ -354,7 +374,7 @@ export function diffTimelines(before: Timeline, after: Timeline): Change[] {
     if (!a || !b || !same(a, b)) changes.push({ kind: "text", id });
   }
   if (!same(before.music, after.music)) changes.push({ kind: "music" });
-  for (const key of ["plan", "details", "logo", "cover", "hook", "opening", "look"] as const) {
+  for (const key of ["plan", "details", "logo", "cover", "hook", "opening", "look", "sfx"] as const) {
     if (!same(before[key], after[key])) changes.push({ kind: "other", key });
   }
   return changes;

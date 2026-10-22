@@ -15,7 +15,7 @@ import {
 // WebCodecs-based video, used when the worker renders: about twice as fast as
 // OffthreadVideo here, and it falls back to it for files it cannot decode.
 import { Video as RenderVideo } from "@remotion/media";
-import { behindInPlane, calloutGeometry, calloutSvg, cameraAt, colorMatchFilterId, colorMatrixValues, countUpText, duckGain, evaluateTitle, flareCss, framePlan, mediaWindow, glintLetter, glintSvg, INSTAGRAM, isInstagramMusic, kineticProgress, matrix3d, particleField, particleSvg, personLayerOpacity, REEL_FORMAT, sceneLayers, shineAt, shineBandCss, shineSpec, slideFromBehind, speechWindows, TITLE_LEADING, timelineDurationMs, walkInto, wordReveal, type Clip, type Logo, type ParticleField, type PersonPass, type Plan, type ShineFlare, type ShineGlint, type TextOverlay, type Timeline } from "@reelwalk/core";
+import { behindInPlane, calloutGeometry, calloutSvg, cameraAt, colorMatchFilterId, colorMatrixValues, countUpText, duckGain, evaluateTitle, flareCss, framePlan, mediaWindow, glintLetter, glintSvg, INSTAGRAM, isInstagramMusic, kineticProgress, matrix3d, particleField, particleSvg, personLayerOpacity, REEL_FORMAT, sceneLayers, SFX_DUCK, SFX_SOUNDS, sfxAssetKey, sfxEndMs, sfxGainAt, shineAt, shineBandCss, shineSpec, slideFromBehind, speechWindows, TITLE_LEADING, timelineDurationMs, walkInto, wordReveal, type Clip, type Logo, type ParticleField, type PersonPass, type Plan, type SfxClip, type ShineFlare, type ShineGlint, type TextOverlay, type Timeline } from "@reelwalk/core";
 import { domMeasure } from "./measure";
 import { textExit, titleFont } from "./title-motion";
 import { whipGeometry } from "./whip";
@@ -589,6 +589,42 @@ const MusicTrack: React.FC<{ timeline: Timeline; asset: ReelAsset; assets: Recor
 };
 
 /**
+ * Sound design (ADR 0066): each placed sound in its own sequence, at its
+ * gain through its fades, ducked under speech more deeply than the music.
+ * An ambience loops to fill its window; the rest play once from `offsetMs`.
+ * The sound files come through `assets` under `sfx:<sound>`, so the preview
+ * and the worker play the same bytes from their own URLs.
+ */
+const SfxTrack: React.FC<{ timeline: Timeline; assets: Record<string, ReelAsset>; speech: ReturnType<typeof speechWindows> }> = ({ timeline, assets, speech }) => {
+  const { fps } = useVideoConfig();
+  const toFrame = (ms: number) => Math.round((ms * fps) / 1000);
+  return (
+    <>
+      {(timeline.sfx ?? []).map((clip: SfxClip) => {
+        const asset = assets[sfxAssetKey(clip.sound)];
+        if (!asset) return null;
+        const from = toFrame(clip.atMs);
+        const durationInFrames = Math.max(1, toFrame(sfxEndMs(clip)) - from);
+        const spec = SFX_SOUNDS[clip.sound];
+        return (
+          <Sequence key={clip.id} from={from} durationInFrames={durationInFrames} name={`sfx ${clip.sound}`}>
+            <Audio
+              src={resolveSrc(asset.src)}
+              trimBefore={toFrame(clip.offsetMs ?? 0)}
+              loop={spec.loop}
+              volume={(frame) => {
+                const atMs = clip.atMs + (frame * 1000) / fps;
+                return sfxGainAt(clip, atMs) * duckGain(speech, atMs, SFX_DUCK);
+              }}
+            />
+          </Sequence>
+        );
+      })}
+    </>
+  );
+};
+
+/**
  * The whole reel. Used by the Player in the editor and by the worker for the
  * final MP4, so the export always matches the preview.
  */
@@ -596,6 +632,11 @@ export const ReelComposition: React.FC<ReelProps> = ({ timeline, assets, waterma
   const { fps } = useVideoConfig();
   const plan = framePlan(timeline, fps);
   const musicAsset = timeline.music ? assets[timeline.music.assetId] : undefined;
+  // Speech in reel time, for ducking the sound design (the music track finds its own, ADR 0035).
+  const sfxSpeech = React.useMemo(
+    () => (timeline.sfx?.length ? speechWindows(timeline, Object.fromEntries(Object.entries(assets).map(([id, entry]) => [id, entry.transcript]))) : []),
+    [timeline, assets],
+  );
 
   return (
     <AbsoluteFill style={{ backgroundColor: "#000" }}>
@@ -666,7 +707,7 @@ export const ReelComposition: React.FC<ReelProps> = ({ timeline, assets, waterma
       {timeline.logo ? <LogoView logo={timeline.logo} asset={assets[timeline.logo.assetId]} /> : null}
       {watermark ? <Watermark /> : null}
       {musicAsset ? <MusicTrack timeline={timeline} asset={musicAsset} assets={assets} /> : null}
-
+      {timeline.sfx?.length ? <SfxTrack timeline={timeline} assets={assets} speech={sfxSpeech} /> : null}
     </AbsoluteFill>
   );
 };

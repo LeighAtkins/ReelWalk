@@ -77,7 +77,8 @@ export function run(file: string, args: readonly string[], options: RunOptions &
 }
 
 const config = getConfig();
-const s3 = new S3Client({
+/** The worker's storage client, shared with the music-analysis step (ADR 0066). */
+export const s3 = new S3Client({
   endpoint: config.s3EndpointUrl,
   region: config.s3Region,
   forcePathStyle: config.s3ForcePathStyle,
@@ -120,13 +121,39 @@ export async function analyseMusic(file: string): Promise<{ beat: BeatGrid | nul
   return { beat, songMap: beat ? analyseSong(samples, beat) : null };
 }
 
-async function decodeMono(file: string): Promise<Float32Array> {
+/** The first 90 s of a file as mono samples at the beat detectors' rate (ADR 0066 shares it with the music-analysis step). */
+export async function decodeMono(file: string, scope?: AttemptScope): Promise<Float32Array> {
   const { stdout } = await run(
     "ffmpeg",
     ["-v", "error", "-t", "90", "-i", file, "-ac", "1", "-ar", String(BEAT_SAMPLE_RATE), "-f", "f32le", "pipe:1"],
-    { encoding: "buffer", maxBuffer: 64 * 1024 * 1024 },
+    { encoding: "buffer", maxBuffer: 64 * 1024 * 1024, scope },
   );
-  // Copied: a Buffer may start at an offset a Float32Array cannot be aligned to.
+  return floats(stdout);
+}
+
+/**
+ * A file's audio as interleaved stereo at 48 kHz, for loudness measurement
+ * (ADR 0066): up to `maxSeconds` (a 3-minute reel is 69 MB of samples).
+ */
+export async function decodeStereo48k(file: string, maxSeconds = 180, scope?: AttemptScope): Promise<{ left: Float32Array; right: Float32Array }> {
+  const { stdout } = await run(
+    "ffmpeg",
+    ["-v", "error", "-t", String(maxSeconds), "-i", file, "-vn", "-ac", "2", "-ar", "48000", "-f", "f32le", "pipe:1"],
+    { encoding: "buffer", maxBuffer: 80 * 1024 * 1024, scope },
+  );
+  const both = floats(stdout);
+  const frames = Math.floor(both.length / 2);
+  const left = new Float32Array(frames);
+  const right = new Float32Array(frames);
+  for (let i = 0; i < frames; i++) {
+    left[i] = both[2 * i];
+    right[i] = both[2 * i + 1];
+  }
+  return { left, right };
+}
+
+/** Raw little-endian floats from ffmpeg's stdout, copied: a Buffer may start at an offset a Float32Array cannot be aligned to. */
+function floats(stdout: Buffer): Float32Array {
   const bytes = Math.floor(stdout.byteLength / 4) * 4;
   return new Float32Array(stdout.buffer.slice(stdout.byteOffset, stdout.byteOffset + bytes));
 }

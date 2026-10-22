@@ -1,53 +1,30 @@
 import { rename } from "node:fs/promises";
 import path from "node:path";
-import { run } from "./library/tools";
+import { loudnormFilter, loudnormMeasureFilter, LOUDNESS_TARGET, measureLoudness, parseLoudnorm, resampleLoudness, TRACE_STEP_MS, truePeakDb, withinTarget, type ExportLoudness, type LoudnessMeasure } from "@reelwalk/core";
+import { decodeStereo48k, run } from "./library/tools";
 import type { AttemptScope } from "./lifecycle";
 
 /**
- * Exports come out at a broadcast-style level (−14 LUFS integrated, −1 dBTP)
- * so a reel with a quiet presenter and a loud score does not clip or sit
- * under the posts around it. Two ffmpeg passes: measure, then correct
- * linearly by the measurement, which keeps the mix's own dynamics.
+ * Exports come out at a streaming level (−16 LUFS integrated, −1 dBTP, ADR
+ * 0066; ADR 0045 chose −14 before the library sound Instagram mixes on top
+ * was taken into account) so a reel with a quiet presenter and a loud score
+ * does not clip or sit under the posts around it. Two ffmpeg passes:
+ * measure, then correct linearly by the measurement, which keeps the mix's
+ * own dynamics. The filter strings and the target live in @reelwalk/core,
+ * shared with the render fixture.
  */
 
-export const LOUDNESS_TARGET = { I: -14, TP: -1, LRA: 11 };
-
-export type LoudnessMeasure = { input_i: string; input_tp: string; input_lra: string; input_thresh: string; target_offset: string };
-
-/** The measurement block ffmpeg's loudnorm prints (as JSON, after the usual log lines). */
-export function parseLoudnorm(output: string): LoudnessMeasure | null {
-  const start = output.lastIndexOf("{");
-  const end = output.lastIndexOf("}");
-  if (start < 0 || end < start) return null;
-  try {
-    const data = JSON.parse(output.slice(start, end + 1)) as Partial<LoudnessMeasure>;
-    if (!data.input_i || !data.input_tp || !data.input_lra || !data.input_thresh || !data.target_offset) return null;
-    return data as LoudnessMeasure;
-  } catch {
-    return null;
-  }
-}
-
-/** The second-pass filter: the first pass's numbers fed back so the correction is one fixed gain. */
-export function loudnormFilter(measured: LoudnessMeasure): string {
-  const { I, TP, LRA } = LOUDNESS_TARGET;
-  return `loudnorm=I=${I}:TP=${TP}:LRA=${LRA}:measured_I=${measured.input_i}:measured_TP=${measured.input_tp}:measured_LRA=${measured.input_lra}:measured_thresh=${measured.input_thresh}:offset=${measured.target_offset}:linear=true`;
-}
-
-/** Whether the level is close enough to the target that re-encoding the audio would change nothing audible. */
-export function withinTarget(measured: LoudnessMeasure, toleranceLu = 1): boolean {
-  return Math.abs(Number(measured.input_i) - LOUDNESS_TARGET.I) <= toleranceLu && Number(measured.input_tp) <= LOUDNESS_TARGET.TP;
-}
+export { LOUDNESS_TARGET, loudnormFilter, parseLoudnorm, withinTarget, type LoudnessMeasure };
 
 /**
  * Normalises `file` in place, copying the video stream. A file without
  * audio, or one that is silent, is left alone. Returns what was measured.
  */
 export async function normaliseLoudness(file: string, log: (line: string) => void, scope?: AttemptScope): Promise<LoudnessMeasure | null> {
-  const { I, TP, LRA } = LOUDNESS_TARGET;
+  const { I, TP } = LOUDNESS_TARGET;
   let measured: LoudnessMeasure | null = null;
   try {
-    const { stderr } = await run("ffmpeg", ["-hide_banner", "-nostats", "-i", file, "-vn", "-af", `loudnorm=I=${I}:TP=${TP}:LRA=${LRA}:print_format=json`, "-f", "null", "-"], { scope });
+    const { stderr } = await run("ffmpeg", ["-hide_banner", "-nostats", "-i", file, "-vn", "-af", loudnormMeasureFilter(), "-f", "null", "-"], { scope });
     measured = parseLoudnorm(stderr);
   } catch (error) {
     const stderr = (error as { stderr?: string }).stderr ?? "";
@@ -66,4 +43,30 @@ export async function normaliseLoudness(file: string, log: (line: string) => voi
   await rename(levelled, file);
   log(`loudness: levelled to ${I} LUFS, ${TP} dBTP`);
   return measured;
+}
+
+/**
+ * What the finished export's own track holds (ADR 0066): integrated
+ * loudness, true peak and momentary loudness every 250 ms, measured with
+ * the pure BS.1770 code in @reelwalk/core on ffmpeg's decode. Null for a
+ * file with no audio stream.
+ */
+export async function measureExportAudio(file: string, scope?: AttemptScope): Promise<ExportLoudness | null> {
+  let channels: { left: Float32Array; right: Float32Array };
+  try {
+    channels = await decodeStereo48k(file, 180, scope);
+  } catch (error) {
+    const stderr = (error as { stderr?: string }).stderr ?? "";
+    if (/does not contain any stream|Stream map .* matches no streams|Output file #0 does not contain any stream/.test(stderr)) return null;
+    throw error;
+  }
+  if (channels.left.length === 0) return null;
+  const { integrated, blocks } = measureLoudness([channels.left, channels.right], 48_000, 50);
+  const peak = truePeakDb([channels.left, channels.right]);
+  return {
+    stepMs: TRACE_STEP_MS,
+    lufs: resampleLoudness(blocks, TRACE_STEP_MS),
+    integratedLufs: Number.isFinite(integrated) ? Math.round(integrated * 10) / 10 : null,
+    truePeakDb: Number.isFinite(peak) && peak > -120 ? Math.round(peak * 10) / 10 : null,
+  };
 }

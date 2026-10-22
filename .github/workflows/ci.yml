@@ -273,10 +273,38 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
         if: env.RUN == 'true'
-      # Once hung for 37 minutes downloading on the runner.
-      - run: pnpm --filter @reelwalk/e2e exec playwright install --with-deps chromium
+      # Once hung for 37 minutes downloading on the runner. The Azure apt
+      # mirror also crawls on some days (2026-10-22: main and PR #219 both spent
+      # the whole 8 minutes on the 20 MB of CJK fonts --with-deps adds, while
+      # every library Chromium needs was already on the runner). So: fetch the
+      # browser from Playwright's CDN, prove it launches, and only then fall back
+      # to apt for the system packages, with a 10 s per-fetch cap and retries.
+      - name: Install Chromium for Playwright
         if: env.RUN == 'true'
         timeout-minutes: 8
+        run: |
+          launches() {
+            pnpm --filter @reelwalk/e2e exec node -e "require('@playwright/test').chromium.launch().then((b) => b.close())"
+          }
+          for attempt in 1 2 3; do
+            pnpm --filter @reelwalk/e2e exec playwright install chromium && break
+            echo "playwright install attempt $attempt failed; retrying"
+          done
+          if launches; then
+            echo "Chromium launches with the runner's own libraries; skipping apt."
+            exit 0
+          fi
+          echo "Chromium would not launch; installing its system packages."
+          sudo tee /etc/apt/apt.conf.d/99-ci-fast-fail >/dev/null <<'APT'
+          Acquire::http::Timeout "10";
+          Acquire::https::Timeout "10";
+          Acquire::Retries "3";
+          APT
+          for attempt in 1 2 3; do
+            pnpm --filter @reelwalk/e2e exec playwright install-deps chromium && launches && exit 0
+            echo "playwright install-deps attempt $attempt failed; retrying"
+          done
+          exit 1
       - name: Start the stack
         if: env.RUN == 'true'
         run: |

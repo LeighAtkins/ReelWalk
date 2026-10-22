@@ -57,7 +57,9 @@ import { canExport, fixAllCommand, safeFixes, type CriticFinding, type CriticFix
   type FinishId,
   hookTextRequest,
 } from "@reelwalk/core";
-import { ELEGANT_FADE_S, type ReelAsset } from "@reelwalk/render/reel";
+import { ELEGANT_FADE_S, sfxAssets, type ReelAsset } from "@reelwalk/render/reel";
+import { parseAudioAnalysis, type AudioAnalysis as TrackAnalysis } from "@reelwalk/core";
+import { SoundControl } from "./sound-control";
 import { deleteReel, exportReel, readyPreviews, saveCaption } from "@/app/actions";
 import { deleteBrief, saveBrief } from "@/app/ai-actions";
 import { analyseInstagramSound } from "@/app/instagram-audio-actions";
@@ -148,7 +150,7 @@ import { HookSheet, PinSheet,
   type TextDraft,
   pinTitle,
 } from "./sheets";
-import { analyseStoredAudio, uploadFile } from "./upload";
+import { analyseStoredAudio, storeTrackAnalysis, uploadFile } from "./upload";
 import { measureLook } from "./look-measure";
 import { BeatControl } from "./beat-control";
 import { energiesOf, measureAssetMotion, measureClipMotion } from "./clip-energy";
@@ -636,6 +638,9 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
   // Editing to an Instagram sound (ADR 0019): the server keeps a private copy
   // of its preview; its length and tempo are found here, like an upload's.
   const [instagramBusy, setInstagramBusy] = useState<string | null>(null);
+  // Track analyses by asset id (ADR 0066): the browser's own when it decoded the sound, else fetched when the Music sheet opens.
+  const trackAnalyses = useRef<Record<string, TrackAnalysis>>({});
+  const [trackAnalysis, setTrackAnalysis] = useState<TrackAnalysis | null>(null);
   /** Gets an Instagram sound ready to set (its private copy, length and tempo) without changing the reel. Null when it could not. */
   const fetchInstagramSound = useCallback(
     async (track: InstagramAudioTrack): Promise<MusicChoice | null> => {
@@ -660,6 +665,9 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
               songMap: analysis.songMap,
               catalogueMs: track.durationMs,
             }).catch(() => undefined);
+            // The full analysis (beats, energy, drop; ADR 0066) goes where agents and the export page read it.
+            if (analysis.track) trackAnalyses.current[asset.id] = analysis.track;
+            void storeTrackAnalysis(track.id, analysis.track);
           }
         }
         const chosen = asset;
@@ -692,6 +700,45 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
       if (analysis.songMap) songMaps.current[asset.id] = analysis.songMap;
     });
   }, [musicSheetOpen, timeline.music?.assetId, timeline.music?.bpm, snapshot]);
+
+  // The song's full analysis (ADR 0066), for the drop: cached in storage by whoever decoded it first (this browser, another,
+  // or the worker). When nobody has, the private copy is decoded here and the result stored for everyone.
+  const musicAssetId = timeline.music?.assetId ?? null;
+  const musicAudioId = timeline.music?.instagramAudioId ?? musicAssetId;
+  useEffect(() => {
+    if (!musicSheetOpen || !musicAssetId || !musicAudioId) {
+      setTrackAnalysis(null);
+      return;
+    }
+    const known = trackAnalyses.current[musicAssetId];
+    if (known) {
+      setTrackAnalysis(known);
+      return;
+    }
+    let cancelled = false;
+    const keep = (analysis: TrackAnalysis | null) => {
+      if (cancelled || !analysis) return;
+      trackAnalyses.current[musicAssetId] = analysis;
+      setTrackAnalysis(analysis);
+    };
+    void (async () => {
+      try {
+        const response = await fetch(`/api/music/${encodeURIComponent(musicAudioId)}/analysis`);
+        const body = (await response.json()) as { status?: string; analysis?: unknown };
+        if (body.status === "ready") return keep(parseAudioAnalysis(body.analysis));
+        const asset = libraryRef.current[musicAssetId];
+        if (!asset || cancelled) return;
+        const analysis = await analyseStoredAudio(asset.url);
+        keep(analysis.track);
+        void storeTrackAnalysis(musicAudioId, analysis.track);
+      } catch {
+        // Without an analysis the sheet simply has no drop to offer.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [musicSheetOpen, musicAssetId, musicAudioId]);
 
   /**
    * How much each clip moves, measured on the first Energy change only (five small frames per video: too much work for
@@ -1210,8 +1257,12 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
   }, [activeSelection, clock, deleteSelection, exitTheater, inspecting, openInspect, seek, sheet, split, theater, timeline.clips.length, togglePlay, totalMs]);
 
   const assets = useMemo<Record<string, ReelAsset>>(
-    () => Object.fromEntries(Object.values(library).map((asset) => [asset.id, { src: asset.url, kind: asset.kind, transcript: asset.transcript }])),
-    [library],
+    () => ({
+      ...Object.fromEntries(Object.values(library).map((asset) => [asset.id, { src: asset.url, kind: asset.kind, transcript: asset.transcript }])),
+      // The bundled sound design files (ADR 0066), served from the app's public dir; the worker plays the same bytes from its bundle.
+      ...sfxAssets({ sfx: timeline.sfx }, (file) => `/sfx/${file}`),
+    }),
+    [library, timeline.sfx],
   );
   // What Inspect reads beyond the Player's media: the size and an AI take's face hint (the original is asked for on demand).
   const inspectSources = useMemo<Record<string, InspectSource>>(
@@ -1862,33 +1913,52 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
           instagramBusyId={instagramBusy}
           onPickInstagram={pickInstagramSound}
           onPick={(asset) => runCommand({ type: "setMusic", music: { assetId: asset.id, sourceStartMs: 0, ...songFields(asset) } })}
-          beat={timeline.music?.bpm ? (
-            <BeatControl
-              music={timeline.music}
-              measuring={beatMeasuring}
-              onEnergy={(energy) => {
-                measureForPace();
-                const music = snapshot().timeline.music;
-                // One drag across the stops is one undo step, planned from the reel before it (ADR 0059).
-                const result = runCommand({ type: "pace", energy, clipEnergy: { ...clipEnergies.current }, songMap: music ? songMaps.current[music.assetId] : undefined, speechAssetIds: speechAssetIds(libraryRef.current) }, "pace");
-                // A song shorter than the reel leaves the end silent: say so once.
-                const past = pastSongEndMs(result.timeline, music ? libraryRef.current[music.assetId]?.durationMs : null);
-                if (past >= 500 && !pastSongWarned.current) showToast(`The reel runs ${(past / 1000).toFixed(1)} s past the end of the song.`, 4000);
-                pastSongWarned.current = past >= 500;
-              }}
-              onOnBeat={(on) => {
-                runCommand({ type: "setOnBeat", on, speechAssetIds: speechAssetIds(libraryRef.current) });
-                showToast(on ? "Titles, bursts and whips on the beat." : "On the beat is off.");
-              }}
-              onRamps={(on) => {
-                // Recut at the current energy with ramps on or off (ADR 0067): one undo step, like a drag of Energy.
-                measureForPace();
-                const music = snapshot().timeline.music;
-                runCommand({ type: "pace", energy: music?.energy ?? DEFAULT_ENERGY, ramps: on, clipEnergy: { ...clipEnergies.current }, songMap: music ? songMaps.current[music.assetId] : undefined, speechAssetIds: speechAssetIds(libraryRef.current) });
-                showToast(on ? "Shots in the build and the drop now speed up into their cuts." : "Speed ramps off.");
-              }}
-            />
-          ) : null}
+          beat={(
+            <>
+              {timeline.music?.bpm ? (
+                <BeatControl
+                  music={timeline.music}
+                  measuring={beatMeasuring}
+                  onEnergy={(energy) => {
+                    measureForPace();
+                    const music = snapshot().timeline.music;
+                    // One drag across the stops is one undo step, planned from the reel before it (ADR 0059).
+                    const result = runCommand({ type: "pace", energy, clipEnergy: { ...clipEnergies.current }, songMap: music ? songMaps.current[music.assetId] : undefined, speechAssetIds: speechAssetIds(libraryRef.current) }, "pace");
+                    // A song shorter than the reel leaves the end silent: say so once.
+                    const past = pastSongEndMs(result.timeline, music ? libraryRef.current[music.assetId]?.durationMs : null);
+                    if (past >= 500 && !pastSongWarned.current) showToast(`The reel runs ${(past / 1000).toFixed(1)} s past the end of the song.`, 4000);
+                    pastSongWarned.current = past >= 500;
+                  }}
+                  onOnBeat={(on) => {
+                    runCommand({ type: "setOnBeat", on, speechAssetIds: speechAssetIds(libraryRef.current) });
+                    showToast(on ? "Titles, bursts and whips on the beat." : "On the beat is off.");
+                  }}
+                  onRamps={(on) => {
+                    // Recut at the current energy with ramps on or off (ADR 0067): one undo step, like a drag of Energy.
+                    measureForPace();
+                    const music = snapshot().timeline.music;
+                    runCommand({ type: "pace", energy: music?.energy ?? DEFAULT_ENERGY, ramps: on, clipEnergy: { ...clipEnergies.current }, songMap: music ? songMaps.current[music.assetId] : undefined, speechAssetIds: speechAssetIds(libraryRef.current) });
+                    showToast(on ? "Shots in the build and the drop now speed up into their cuts." : "Speed ramps off.");
+                  }}
+                />
+              ) : null}
+              {/* Sound design and the drop (ADR 0066), where the studio taps the music. */}
+              <SoundControl
+                timeline={timeline}
+                analysis={trackAnalysis}
+                cut={selectedClipIndex > 0 ? selectedClipIndex : null}
+                onSoundDesign={(on, dropMs) => {
+                  const result = runCommand(on ? { type: "autoSfx", options: { dropMs } } : { type: "setSfx", sfx: [] });
+                  if (result.rejected) showToast(result.rejected, 4000);
+                  else showToast(on ? `${result.timeline.sfx?.length ?? 0} sound${(result.timeline.sfx?.length ?? 0) === 1 ? "" : "s"} placed: whooshes, a riser, ambience.` : "Sound design removed.");
+                }}
+                onDropOnCut={(cut, dropSongMs) => {
+                  const result = runCommand({ type: "dropOnCut", cut, dropSongMs });
+                  showToast(result.rejected ?? `The drop lands on cut ${cut}.`, 4000);
+                }}
+              />
+            </>
+          )}
           onSnap={() => {
             // Titles and room names follow their clips to the new cut points (retimeTexts).
             runCommand({ type: "snapToBeat" });

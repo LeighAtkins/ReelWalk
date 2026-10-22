@@ -13,7 +13,8 @@ import { withProviderGate, type ProviderGate } from "./provider-gate";
  * must stay free of Next.js: the worker imports it.
  */
 
-export type AiStepKind = "ask" | "autopilot" | "director-review";
+/** "music-analysis" (ADR 0066) decodes a track with ffmpeg: it runs only in the worker and never calls a paid provider. */
+export type AiStepKind = "ask" | "autopilot" | "director-review" | "music-analysis";
 
 export const askPayload = z.object({
   request: z.string(),
@@ -48,6 +49,7 @@ export async function runAiStep(input: { kind: AiStepKind; user: StepUser; reelI
 }
 
 async function runStep(input: { kind: AiStepKind; user: StepUser; reelId: string; payload: unknown }): Promise<unknown> {
+  if (input.kind === "music-analysis") throw new Error("A track is analysed by the worker, not here.");
   const reel = await prisma.reel.findFirst({ where: { id: input.reelId, workspaceId: input.user.workspaceId }, select: { id: true, title: true } });
   if (!reel) throw new Error("This reel was deleted.");
   if (input.kind === "ask") {

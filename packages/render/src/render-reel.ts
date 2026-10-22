@@ -18,7 +18,9 @@ let bundled: Promise<string> | null = null;
 function getServeUrl(): Promise<string> {
   if (!bundled) {
     const entryPoint = path.join(path.dirname(fileURLToPath(import.meta.url)), "index.ts");
-    bundled = bundle({ entryPoint, webpackOverride: (config) => config }).catch((error) => {
+    // The bundled sound set (ADR 0066) is served from the package's public dir, so `staticFile("sfx/…")` resolves in the worker.
+    const publicDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "public");
+    bundled = bundle({ entryPoint, publicDir, webpackOverride: (config) => config }).catch((error) => {
       bundled = null;
       throw error;
     });

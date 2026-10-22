@@ -7,9 +7,10 @@ describe("export loudness", () => {
   it("reads ffmpeg's measurement and feeds it back as a linear correction", () => {
     const measured = parseLoudnorm(output);
     expect(measured).toMatchObject({ input_i: "-17.31", input_tp: "0.12" });
-    expect(loudnormFilter(measured!)).toBe("loudnorm=I=-14:TP=-1:LRA=11:measured_I=-17.31:measured_TP=0.12:measured_LRA=9.80:measured_thresh=-27.60:offset=0.02:linear=true");
+    // −16 LUFS since ADR 0066 (ADR 0045 chose −14 before the library sound Instagram mixes on top was accounted for).
+    expect(loudnormFilter(measured!)).toBe("loudnorm=I=-16:TP=-1:LRA=11:measured_I=-17.31:measured_TP=0.12:measured_LRA=9.80:measured_thresh=-27.60:offset=0.02:linear=true");
     expect(withinTarget(measured!)).toBe(false);
-    expect(withinTarget({ ...measured!, input_i: "-14.4", input_tp: "-1.3" })).toBe(true);
+    expect(withinTarget({ ...measured!, input_i: "-16.4", input_tp: "-1.3" })).toBe(true);
   });
 
   it("ignores output without a measurement", () => {

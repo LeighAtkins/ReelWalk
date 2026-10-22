@@ -101,3 +101,31 @@ export function defaultScheduleLocal(now: Date, timeZone: string): string {
   const tomorrow = new Date(Date.UTC(year, month - 1, day + 1));
   return `${tomorrow.toISOString().slice(0, 10)}T09:00`;
 }
+
+/**
+ * Posts closer together than this split Instagram's first seeding of a reel
+ * (ADR 0065: two reels 24 minutes apart on 2026-10-21 each got half a batch).
+ */
+export const POST_SPACING_MS = 60 * 60_000;
+
+export type SpacingNeighbour = { publishAt: Date; kind: "REEL" | "STORY"; title: string | null };
+
+/**
+ * A warning when another post or story of the account falls within the
+ * spacing window of `publishAt`, naming the nearest; null when the slot is
+ * clear. A story that follows the reel being scheduled is not a neighbour:
+ * the caller leaves it out.
+ */
+export function spacingWarning(publishAt: Date, neighbours: SpacingNeighbour[], windowMs: number = POST_SPACING_MS): string | null {
+  const near = neighbours
+    .map((post) => ({ post, gapMs: Math.abs(post.publishAt.getTime() - publishAt.getTime()) }))
+    .filter(({ gapMs }) => gapMs < windowMs)
+    .sort((a, b) => a.gapMs - b.gapMs);
+  if (near.length === 0) return null;
+  const { post, gapMs } = near[0];
+  const minutes = Math.round(gapMs / 60_000);
+  const what = post.kind === "STORY" ? "a story" : post.title ? `the reel “${post.title}”` : "another reel";
+  const when = minutes === 0 ? "at the same time" : `${minutes} minute${minutes === 1 ? "" : "s"} ${post.publishAt.getTime() < publishAt.getTime() ? "before" : "after"}`;
+  const others = near.length > 1 ? ` (${near.length - 1} more within the hour)` : "";
+  return `${what} is set to go out ${when}${others}. Posts closer than an hour share Instagram's first batch of viewers; an hour apart each gets its own.`;
+}

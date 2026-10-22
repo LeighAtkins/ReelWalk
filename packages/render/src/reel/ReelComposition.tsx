@@ -23,6 +23,7 @@ import { clipPresentation } from "./presentation";
 import { useFontsFor } from "./fonts";
 import { ELEGANT_FADE_S, FILTER_CSS, textTreatmentCss } from "./look";
 import { DetailsCardView } from "./DetailsCardView";
+import { EndCardView } from "./EndCardView";
 import { PanoView } from "./PanoView";
 import { PlanOverlayView } from "./PlanOverlayView";
 import type { ReelAsset, ReelProps } from "./types";
@@ -634,6 +635,7 @@ export const ReelComposition: React.FC<ReelProps> = ({ timeline, assets, waterma
       })}
       {timeline.hook && plan.clips[0] ? <HookView timeline={timeline} hook={timeline.hook} firstClip={plan.clips[0].clip} asset={assets[plan.clips[0].clip.assetId]} /> : null}
       <DetailsCardView timeline={timeline} />
+      <EndCardView timeline={timeline} />
       {timeline.logo ? <LogoView logo={timeline.logo} asset={assets[timeline.logo.assetId]} /> : null}
       {watermark ? <Watermark /> : null}
       {musicAsset ? <MusicTrack timeline={timeline} asset={musicAsset} assets={assets} /> : null}

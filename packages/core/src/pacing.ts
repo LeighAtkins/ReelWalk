@@ -127,7 +127,7 @@ const SHOT_BEATS: Record<SectionKind | "none", [number, number]> = {
 /** The hero shot, on the drop, holds longer than the shots around it. */
 const HERO_BEATS: [number, number] = [8, 4];
 /** A 360 photo needs time for its sweep to read. */
-const PANO_MIN_MS = 3500;
+export const PANO_MIN_MS = 3500;
 
 export type PaceShot = { clipId: string; startMs: number; endMs: number; beats: number; section: SectionKind | "none"; hero: boolean; held: boolean };
 export type PacePlan = { clips: Clip[]; shots: PaceShot[]; heroClipId: string | null };

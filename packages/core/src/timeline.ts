@@ -301,6 +301,11 @@ export const musicSchema = z
     ramps: z.boolean().optional(),
     /** Chosen by ReelWalk (Make it for me, a finish), not by the studio: a finish may replace it (ADR 0064). Absent: the studio's choice. */
     autoPicked: z.boolean().optional(),
+    /**
+     * Where the song's drop was placed (ADR 0066): the drop's song time as analysed, and the cut it was put on
+     * (`dropOnCut`), so the track start offset and the cut can be found again. Absent on every saved reel.
+     */
+    drop: z.object({ songMs: ms, cutIndex: z.number().int().min(1).nullable() }).optional(),
   })
   // Instagram has no start offset for an attached sound, so neither does the edit.
   .transform((music) => (music.instagramAudioId ? { ...music, sourceStartMs: 0 } : music));
@@ -427,6 +432,33 @@ export const endCardSchema = z.object({
 });
 export type EndCard = z.infer<typeof endCardSchema>;
 
+/**
+ * Sound design (ADR 0066): short bundled sounds on an additive `sfx` track.
+ * The sounds themselves are listed in sfx.ts; this is only what a reel stores.
+ */
+export const SFX_SOUND_IDS = ["whoosh-1", "whoosh-2", "whoosh-3", "riser", "impact-soft", "fire", "water", "wind", "room-tone"] as const;
+export type SfxSoundId = (typeof SFX_SOUND_IDS)[number];
+export const MAX_SFX = 64;
+export const sfxClipSchema = z.object({
+  id: z.string().min(1),
+  sound: z.enum(SFX_SOUND_IDS),
+  /** Reel time (ms) the sound starts. */
+  atMs: ms,
+  /** How long it plays (ms); an ambience loops to fill it. Absent: the sound's own length, once. */
+  durationMs: z.number().int().positive().max(10 * 60_000).optional(),
+  /** Start this far into the sound (ms): a riser cut short so its end still lands on the cut. */
+  offsetMs: ms.optional(),
+  /** Level, 0 to 1, before ducking under speech. Absent: the sound's usual level. */
+  gain: unit.optional(),
+  fadeInMs: z.number().int().min(0).max(10_000).optional(),
+  fadeOutMs: z.number().int().min(0).max(10_000).optional(),
+  /** Placed by the `autoSfx` command: the next run replaces it; hand-placed sounds (absent) are kept. */
+  auto: z.boolean().optional(),
+  /** Why it is there, in a few words ("whoosh on the whip into clip 3"), for the trace and the sheet. */
+  reason: z.string().max(80).optional(),
+});
+export type SfxClip = z.infer<typeof sfxClipSchema>;
+
 /** Most text overlays a reel may carry. */
 export const MAX_TEXTS = 50;
 
@@ -451,6 +483,8 @@ export const timelineSchema = z.object({
   opening: openingSchema.nullable().optional(),
   /** The reel's matched look (ADR 0070): the reference clip and the strength every other clip was matched at. Absent: no matching. */
   look: lookSchema.optional(),
+  /** Sound design (ADR 0066): whooshes, a riser, ambience, on top of the clips' sound and the music. Absent on every saved reel: silent. */
+  sfx: z.array(sfxClipSchema).max(MAX_SFX).optional(),
 });
 
 export type Clip = z.infer<typeof clipSchema>;

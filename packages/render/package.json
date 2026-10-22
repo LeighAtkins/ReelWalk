@@ -41,6 +41,7 @@
     "./reel": "./src/reel/index.ts",
     "./reel/look": "./src/reel/look.ts",
     "./render-reel": "./src/render-reel.ts",
-    "./reel-types": "./src/reel/types.ts"
+    "./reel-types": "./src/reel/types.ts",
+    "./reel-sfx": "./src/reel/sfx-assets.ts"
   }
 }

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { exportProgressText, isActive, referencedAssetIds } from "@reelwalk/core";
+import { exportProgressText, isActive, reelSources, referencedAssetIds, sourcesCaption, STOCK_SOURCE_LABELS } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
 import { retryRenderJob } from "@/app/actions";
 import { AskForChange } from "@/components/ask-for-change";
@@ -23,7 +23,7 @@ import { exportDurationMs, fullReelStoryIssue, storyCutOf } from "@/lib/posting"
 import { outputUrls } from "@/lib/render-jobs";
 import { ensureChecks, gateFor, type ChecksResult } from "@/lib/render-verify";
 import { coverUrls, readTimeline } from "@/lib/reels";
-import { getCurrentUser } from "@/lib/workspace";
+import { getCurrentUser, mediaScope } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
 
@@ -47,6 +47,12 @@ export default async function ExportPage({
   const assetIds = referencedAssetIds(readTimeline(reel.timeline));
   const aiContent = assetIds.some((assetId) => assetId.startsWith("ai-"))
     || (await prisma.aiGeneration.count({ where: { workspaceId: user.workspaceId, status: "SUCCEEDED", assetId: { in: assetIds } } })) > 0;
+  // Sources (ADR 0070): the stock clips the reel uses, with their licence, read off the assets' own columns.
+  const stockAssets = await prisma.mediaAsset.findMany({
+    where: { id: { in: assetIds }, sourceUrl: { not: null }, ...mediaScope(user.workspaceId) },
+    select: { id: true, sourceUrl: true, license: true, attribution: true, createdAt: true },
+  });
+  const sources = reelSources(readTimeline(reel.timeline), Object.fromEntries(stockAssets.map((asset) => [asset.id, asset])));
 
   const [urls, [cover], base, instagram, { plan, id: planId }, aiUsage] = await Promise.all([
     outputUrls(job),
@@ -179,6 +185,29 @@ export default async function ExportPage({
           {urls && isAiAvailable() ? <AskForChange reelId={reel.id} usage={aiUsage} /> : null}
 
           <CaptionEditor reelId={reel.id} initial={reel.caption} />
+
+          {sources.length > 0 ? (
+            <section className="export-sources" data-testid="export-sources">
+              <h2>Sources</h2>
+              <p className="muted small">Stock footage in this reel and its licence. Pixabay&apos;s licence asks for no credit; the lines below are there if you want to give it.</p>
+              <ul className="export-sources-list">
+                {sources.map((source) => (
+                  <li key={source.assetId}>
+                    <a href={source.url} target="_blank" rel="noreferrer">
+                      {source.creator ?? `#${source.id}`}
+                    </a>{" "}
+                    <span className="muted small">
+                      {STOCK_SOURCE_LABELS[source.source]} · {source.license ?? "licence not recorded"}
+                      {source.importedAt ? ` · imported ${new Date(source.importedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}` : ""}
+                      {" · "}
+                      {source.clipIds.length === 1 ? "1 clip" : `${source.clipIds.length} clips`}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              <p className="muted small" style={{ whiteSpace: "pre-line" }}>{sourcesCaption(sources)}</p>
+            </section>
+          ) : null}
 
           {urls ? (
             <FeatureConsent

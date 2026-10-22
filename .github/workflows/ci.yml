@@ -273,10 +273,25 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
         if: env.RUN == 'true'
-      # Once hung for 37 minutes downloading on the runner.
-      - run: pnpm --filter @reelwalk/e2e exec playwright install --with-deps chromium
+      # Once hung for 37 minutes downloading on the runner. The Azure apt
+      # mirror also stalls for 30 s per package on some runners (three runs of
+      # PR #219 hit the cap on fonts alone while main took 20 s): give up on a
+      # slow fetch after 10 s so apt moves on to the next mirror, and try the
+      # whole install up to three times.
+      - name: Install Chromium for Playwright
         if: env.RUN == 'true'
         timeout-minutes: 8
+        run: |
+          sudo tee /etc/apt/apt.conf.d/99-ci-fast-fail >/dev/null <<'APT'
+          Acquire::http::Timeout "10";
+          Acquire::https::Timeout "10";
+          Acquire::Retries "3";
+          APT
+          for attempt in 1 2 3; do
+            pnpm --filter @reelwalk/e2e exec playwright install --with-deps chromium && exit 0
+            echo "playwright install attempt $attempt failed; retrying"
+          done
+          exit 1
       - name: Start the stack
         if: env.RUN == 'true'
         run: |

@@ -37,7 +37,7 @@ type PlayState = "idle" | "loading" | "playing" | "paused";
  * With "keep my reel's own music" the video's sound plays underneath, as
  * Instagram will mix it.
  */
-export function PlayWithSound({ sound, label = "Play with sound", hint }: { sound: InstagramAudioChoice; /** The idle button's words ("Mix preview" on the export page's mix strip, ADR 0066). */ label?: string; hint?: string }) {
+export function PlayWithSound({ sound, label = "Play with sound", hint, testId = "play-with-sound" }: { sound: InstagramAudioChoice; /** The idle button's words ("Mix preview" on the export page's mix strip, ADR 0066). */ label?: string; hint?: string; /** Prefix for the data-testids; a second player on the same page (the mix strip) needs its own so the Post panel's stays unique. */ testId?: string }) {
   const stage = useContext(StageContext);
   const video = stage?.video ?? null;
   const audio = useRef<HTMLAudioElement>(null);
@@ -156,17 +156,17 @@ export function PlayWithSound({ sound, label = "Play with sound", hint }: { soun
   }
 
   return (
-    <div className="play-with-sound" data-testid="play-with-sound" data-state={state}>
-      <button type="button" className="btn btn-quiet btn-block" onClick={toggle} disabled={!video || state === "loading"} data-testid="play-with-sound-button">
+    <div className="play-with-sound" data-testid={testId} data-state={state}>
+      <button type="button" className="btn btn-quiet btn-block" onClick={toggle} disabled={!video || state === "loading"} data-testid={`${testId}-button`}>
         {state === "playing" ? <PauseIcon size={18} /> : <PlayIcon size={18} />}
         {state === "loading" ? "Getting the sound…" : state === "playing" ? "Pause" : state === "paused" ? "Resume with sound" : label}
       </button>
       {active ? (
-        <button type="button" className="btn btn-quiet" onClick={stop} data-testid="play-with-sound-stop">
+        <button type="button" className="btn btn-quiet" onClick={stop} data-testid={`${testId}-stop`}>
           Stop
         </button>
       ) : null}
-      <audio ref={audio} preload="auto" hidden data-testid="play-with-sound-audio" />
+      <audio ref={audio} preload="auto" hidden data-testid={`${testId}-audio`} />
       {error ? (
         <p className="error small" role="alert" style={{ gridColumn: "1 / -1" }}>
           {error}

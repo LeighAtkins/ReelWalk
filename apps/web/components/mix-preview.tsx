@@ -107,7 +107,7 @@ export function MixPreview({ reelId, sound }: { reelId: string; sound: Instagram
           ))}
         </ul>
       ) : null}
-      {mixed ? <PlayWithSound sound={mixed} label="Mix preview" hint="The export's own track with the Instagram sound mixed in at the level above, as Instagram will mix it." /> : null}
+      {mixed ? <PlayWithSound sound={mixed} testId="mix-play" label="Mix preview" hint="The export's own track with the Instagram sound mixed in at the level above, as Instagram will mix it." /> : null}
     </section>
   );
 }

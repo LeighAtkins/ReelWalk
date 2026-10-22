@@ -22,6 +22,9 @@ enum RenderJobKind {
   // Export of a Reel from the mobile editor. payload holds a frozen copy of
   // the timeline and the object keys of every asset it uses.
   REEL
+  // A story cut of a finished REEL export (ADR 0065): the reel's opening and
+  // a closing plate, rendered the same way. sourceJobId names the export.
+  STORY
 }
 
 // Legal transitions live in @reelwalk/core (job-status.ts).
@@ -258,6 +261,12 @@ model AuthThrottle {
   @@index([windowStart])
 }
 
+// What a ScheduledPost publishes (ADR 0065): a Reel to the feed, or a Story.
+enum ScheduledPostKind {
+  REEL
+  STORY
+}
+
 enum ScheduledPostStatus {
   SCHEDULED
   PUBLISHING
@@ -278,6 +287,14 @@ model ScheduledPost {
   renderJob   RenderJob           @relation(fields: [renderJobId], references: [id], onDelete: Cascade)
   createdById String?
   createdBy   User?               @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  // A Reel to the feed, or a Story (ADR 0065). Immediate posts are rows
+  // with publishAt = now, so closing the page never loses one.
+  kind        ScheduledPostKind   @default(REEL)
+  // A story that follows a reel: it is not started before that post is
+  // PUBLISHED, and fails if the reel fails or is cancelled.
+  afterPostId String?
+  after       ScheduledPost?      @relation("StoryAfter", fields: [afterPostId], references: [id], onDelete: Cascade)
+  stories     ScheduledPost[]     @relation("StoryAfter")
   // Copied from the reel when scheduled, so later edits do not change a queued post.
   caption     String
   // Instagram's thumb_offset: where the cover frame is taken from.
@@ -318,6 +335,7 @@ model ScheduledPost {
   @@index([status, nextCheckAt])
   @@index([workspaceId, publishAt])
   @@index([renderJobId])
+  @@index([afterPostId])
 }
 
 // A connected publishing account, e.g. an Instagram professional account.
@@ -728,6 +746,11 @@ model RenderJob {
   template     Template?       @relation(fields: [templateId], references: [id], onDelete: SetNull)
   createdById  String?
   createdBy    User?           @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  // For a STORY job: the REEL export it was cut from (ADR 0065). No reel link
+  // of its own, so a story cut is never mistaken for the reel's latest export.
+  sourceJobId  String?
+  sourceJob    RenderJob?      @relation("StoryCuts", fields: [sourceJobId], references: [id], onDelete: Cascade)
+  storyCuts    RenderJob[]     @relation("StoryCuts")
   kind         RenderJobKind   @default(TEMPLATE)
   status       RenderJobStatus @default(QUEUED)
   // 0-100, written by the worker while rendering.
@@ -751,6 +774,7 @@ model RenderJob {
   @@index([workspaceId, createdAt])
   @@index([propertyId, createdAt])
   @@index([reelId, createdAt])
+  @@index([sourceJobId])
 }
 
 // Transactional outbox: a queue message that still has to be sent. The row is

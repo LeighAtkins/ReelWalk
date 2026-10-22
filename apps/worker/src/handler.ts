@@ -15,7 +15,7 @@ export type ClaimedJob = {
   generation: number;
   /** The attempt this claim wrote (a per-job counter the claim increments), part of the lease and of the output's key. */
   attempt: number;
-  kind: "TEMPLATE" | "EDITOR" | "REEL" | "PREVIEW";
+  kind: "TEMPLATE" | "EDITOR" | "REEL" | "PREVIEW" | "STORY";
   caption: string | null;
   payload: unknown;
   inputKey: string | null;

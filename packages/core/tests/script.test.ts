@@ -145,12 +145,12 @@ describe("continuity in every prompt", () => {
     expect(lipsync.every(s => s.shot.voice === "lipsync" && !s.prompt.includes("Australian"))).toBe(true);
   });
 
-  it("builds shots the generation path accepts: the kit, medium framing, the plate as the first frame, the line, the script on record", () => {
+  it("builds shots the generation path accepts: the kit, close framing, the plate as the first frame, the line, the script on record", () => {
     const shots = buildScriptShots(script(), "reel1");
     expect(shots.map(s => [s.durationSeconds, s.credits])).toEqual([[4, 2], [8, 3], [4, 2]]);
     shots.forEach((s, index) => {
       const parsed = aiShotSchema.parse(s.shot);
-      expect(parsed.compose).toMatchObject({ presenterId: "kit1", framing: "medium" });
+      expect(parsed.compose).toMatchObject({ presenterId: "kit1", framing: "close" });
       expect(parsed.first).toEqual(script().takes[index].plate);
       expect(parsed.script).toMatchObject({ id: script().scriptId, reelId: "reel1", index, count: 3, outfit: "a cream linen blazer over a white tee, light jeans" });
       expect(s.shot.compose.first!.length).toBeLessThanOrEqual(600);

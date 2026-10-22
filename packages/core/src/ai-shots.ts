@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { addClips, clipDurationMs, clipSchema, clipStartsMs, type Clip, type Filter, type Timeline } from "./timeline";
 import { luxuryFinish } from "./cinematic";
-import { CHAINED_REFERENCE_MESSAGE, PRESENTER_FRAMINGS, defaultFraming, isGeneratedAssetId } from "./presenter";
+import { CHAINED_REFERENCE_MESSAGE, PRESENTER_FRAMINGS, defaultFraming, isGeneratedAssetId, type PresenterFraming } from "./presenter";
+import { aiDirectionSchema, directionPrompt, hasDirection } from "./direction";
 
 /**
  * The listing shots a gimbal operator makes on every job (ADR 0040), as Veo
@@ -76,7 +77,11 @@ export const aiComposeSchema = z.object({
   if (!c.presenterId && c.presenter && isGeneratedAssetId(c.presenter.assetId) && !c.allowGeneratedReference) {
     ctx.addIssue({ code: "custom", message: CHAINED_REFERENCE_MESSAGE });
   }
-}).transform(c => ({ ...c, framing: c.framing ?? defaultFraming([c.first, c.last]) }));
+});
+/** The framing a shot's composed stills use (ADR 0069): as asked, else close for a spoken line, medium otherwise, wide when described so. */
+export function composeFraming(shot: { compose?: { framing?: PresenterFraming; first?: string; last?: string } | null; voice?: string | null }): PresenterFraming {
+  return shot.compose?.framing ?? defaultFraming([shot.compose?.first, shot.compose?.last], Boolean(shot.voice));
+}
 /**
  * A take made for Script mode (ADR 0060): which script it belongs to, its line's place in it, where it goes in the reel and
  * the outfit every take of the script was told to wear. Stored with the generation so an open editor can find the script's
@@ -102,6 +107,8 @@ export const aiShotSchema = z.object({
   /** A spoken line and how it is voiced (ADR 0038): lipsync = fixed voice over the silent take; veo = Veo's own audio. */
   line: z.string().trim().min(3).max(200).optional(),
   voice: z.enum(["lipsync", "veo"]).optional(),
+  /** How she plays it (ADR 0069): tone, energy, eye line, blocking, a reference performance. */
+  direction: aiDirectionSchema.optional(),
   // Snapshots prevent inserting against a boundary the user has since changed.
   anchor: clipSchema.optional(), next: clipSchema.optional(),
   draftReelId: z.string().min(1).max(64).optional(),
@@ -124,7 +131,8 @@ export const aiShotSchema = z.object({
   if (aiReplacesStill(shot.mode) && shot.anchor?.kind === "IMAGE" && clipDurationMs(shot.anchor) > 32000) {
     ctx.addIssue({ code: "custom", message: "Trim this still to 32 seconds or less before animating it." });
   }
-});
+  // The composed framing is settled here, where the voice is known: a spoken line is composed close unless asked otherwise (ADR 0069).
+}).transform(shot => shot.compose ? { ...shot, compose: { ...shot.compose, framing: composeFraming(shot) } } : shot);
 export type AiShot = z.infer<typeof aiShotSchema>;
 
 /**
@@ -150,7 +158,7 @@ export function aiShotGrade(shot: AiShot): Filter | undefined {
 }
 
 export function aiShotPrompt(mode: AiShotMode, direction: string, recipe?: AiShot): string {
-  const shot = recipe ?? { mode };
+  const shot: Partial<AiShot> & { mode: AiShotMode } = recipe ?? { mode };
   const moves: Record<AiShotMode, string> = {
     custom: "", continue: "Continue the camera movement naturally from the supplied first frame.",
     bridge: "Create one continuous camera move from the supplied first frame to the supplied last frame. Settle exactly into the ending composition.",
@@ -186,7 +194,9 @@ export function aiShotPrompt(mode: AiShotMode, direction: string, recipe?: AiSho
     mode === "day-night" ? "The day-to-night lighting progression takes priority over any fixed weather or time-of-day choice." : shot.atmosphere === "source" && aiShotStyle(shot) !== "source" ? "Keep original weather; lighting may follow the selected cinematic style." : atmospheres[shot.atmosphere ?? "source"],
     shot.energy === "bold" ? ["day-night", "construction"].includes(mode) ? "Make the timelapse progression dramatic and high-impact while keeping the camera locked." : "Lean into a bold high-impact promo: strong depth, expressive motion and dramatic light, while keeping the subject readable." : "Keep motion controlled and elegant.",
     shot.last ? "Match the supplied ending frame's composition, geometry and lighting at the finish; place creative lighting changes in the middle of the move." : "",
-    "No text, logos or unrequested people. Photorealistic cinematic property footage.", direction].filter(Boolean).join(" ");
+    "No text, logos or unrequested people. Photorealistic cinematic property footage.", direction,
+    // How she plays the line (ADR 0069), after the studio's own words so it is the last thing Veo reads.
+    hasDirection(shot.direction) ? directionPrompt(shot.direction) : ""].filter(Boolean).join(" ");
 }
 
 /** Use the last displayed source frame, not the end of the untrimmed file. */

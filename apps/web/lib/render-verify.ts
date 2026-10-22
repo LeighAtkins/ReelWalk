@@ -22,7 +22,9 @@ import {
   type Timeline,
   type TitleFont,
 } from "@reelwalk/core";
-import { textTreatmentCss } from "@reelwalk/render/reel";
+// Import the pure look helpers, not the reel barrel: that pulls Remotion
+// components (hooks) into this server-only module and breaks the RSC build.
+import { textTreatmentCss } from "@reelwalk/render/reel/look";
 
 /**
  * Verification of a rendered reel over HTTP (ADR 0071): the frames and the

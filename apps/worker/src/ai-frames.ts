@@ -3,6 +3,7 @@ import { promisify } from "node:util";
 import { GetObjectCommand, type S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { z } from "zod";
+import { PRESENTER_FRAMINGS, plateCropRect, type PresenterFraming } from "@reelwalk/core";
 
 const run = promisify(execFile);
 // "face" is the presenter kit's 768×768 face crop (ADR 0056).
@@ -11,10 +12,13 @@ const sources = z.array(z.object({
   key: z.string().min(1), kind: z.enum(["IMAGE", "VIDEO"]), atMs: z.number().int().min(0).max(86_400_000),
   // Rows from before composed keyframes (ADR 0036) have no role: they are the start frame, then the end frame.
   role: roles.optional(), compose: z.string().max(1000).optional(),
-  framing: z.enum(["medium", "wide"]).optional(),
+  framing: z.enum(PRESENTER_FRAMINGS).optional(),
 })).min(1).max(4);
+export type FrameSource = z.infer<typeof sources>[number];
 
-export type DecodedFrame = { bytesBase64Encoded: string; mimeType: string; role?: z.infer<typeof roles>; compose?: string; framing?: "medium" | "wide" };
+export type DecodedFrame = { bytesBase64Encoded: string; mimeType: string; role?: z.infer<typeof roles>; compose?: string; framing?: PresenterFraming;
+  /** Where the frame came from, so a scene can be cropped again closer (ADR 0069). */
+  source?: Pick<FrameSource, "key" | "kind" | "atMs"> };
 
 /** The decoded frames by what they are for. */
 export function keyframes(frames: DecodedFrame[]): { image?: DecodedFrame; lastFrame?: DecodedFrame; presenter?: DecodedFrame; face?: DecodedFrame } {
@@ -40,9 +44,20 @@ export function frameOutput(role: z.infer<typeof roles> | undefined, composed: b
   return composed ? "scene-png" : "veo-jpeg";
 }
 
-export function frameArguments(url: string, atMs: number, output: FrameOutput = "veo-jpeg") {
+/**
+ * The plate crop before compose (ADR 0069): close and tight framings zoom
+ * into the plate (a longer lens from the same spot) so she can be composed
+ * near the camera with a face Veo can keep. Only a scene is cropped;
+ * references keep their shape and a frame Veo sees as-is is never changed.
+ */
+export function plateCropFilter(framing: PresenterFraming | undefined): string {
+  const rect = plateCropRect(framing ?? "medium");
+  return rect.zoom > 1 ? `,crop=${rect.width}:${rect.height}:${rect.x}:${rect.y},scale=1080:1920:flags=lanczos` : "";
+}
+
+export function frameArguments(url: string, atMs: number, output: FrameOutput = "veo-jpeg", framing?: PresenterFraming) {
   const filter = output === "reference-png" ? "scale=w='min(1080,iw)':h='min(1920,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2,setsar=1"
-    : "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1";
+    : `scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920${output === "scene-png" ? plateCropFilter(framing) : ""},setsar=1`;
   const encode = output === "veo-jpeg" ? ["-vcodec", "mjpeg", "-pix_fmt", "yuvj420p", "-q:v", "2"] : ["-vcodec", "png", "-pix_fmt", "rgb24"];
   return ["-v", "error", "-nostdin", "-threads", "2", "-protocol_whitelist", "https,http,tcp,tls,crypto",
     "-format_whitelist", "mov,matroska,jpeg_pipe,png_pipe",
@@ -60,9 +75,9 @@ export function pngSize(bytes: Buffer): { width: number; height: number } {
 }
 
 /** Decode one stored frame with short-lived signed URLs that are never stored. */
-export async function decodeFrame(s3: S3Client, bucket: string, key: string, atMs: number, output: FrameOutput): Promise<Buffer> {
+export async function decodeFrame(s3: S3Client, bucket: string, key: string, atMs: number, output: FrameOutput, framing?: PresenterFraming): Promise<Buffer> {
   const url = await getSignedUrl(s3, new GetObjectCommand({ Bucket: bucket, Key: key }), { expiresIn: 120 });
-  const { stdout } = await run("ffmpeg", frameArguments(url, atMs, output), {
+  const { stdout } = await run("ffmpeg", frameArguments(url, atMs, output, framing), {
     encoding: "buffer", maxBuffer: 32 * 1024 * 1024, timeout: 60_000, windowsHide: true,
   }) as unknown as { stdout: Buffer };
   if (!(output === "veo-jpeg" ? isJpeg(stdout) : isPng(stdout))) throw new Error("Source frame could not be decoded.");
@@ -74,9 +89,10 @@ export async function aiFrames(s3: S3Client, bucket: string, input: unknown): Pr
   const frames: DecodedFrame[] = [];
   for (const source of sources.parse(input)) {
     const output = frameOutput(source.role, Boolean(source.compose));
-    const bytes = await decodeFrame(s3, bucket, source.key, source.atMs, output);
+    const bytes = await decodeFrame(s3, bucket, source.key, source.atMs, output, source.framing);
     frames.push({ bytesBase64Encoded: bytes.toString("base64"), mimeType: output === "veo-jpeg" ? "image/jpeg" : "image/png",
-      ...(source.role ? { role: source.role } : {}), ...(source.compose ? { compose: source.compose } : {}), ...(source.framing ? { framing: source.framing } : {}) });
+      ...(source.role ? { role: source.role } : {}), ...(source.compose ? { compose: source.compose } : {}), ...(source.framing ? { framing: source.framing } : {}),
+      source: { key: source.key, kind: source.kind, atMs: source.atMs } });
   }
   return frames;
 }

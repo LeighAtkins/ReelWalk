@@ -17,9 +17,9 @@ describe("compose references (ADR 0056)", () => {
     expect(aiShotSchema.safeParse(shot({ presenterId: "kit", first })).success).toBe(true);
     expect(aiShotSchema.safeParse(shot({ first })).success).toBe(false);
   });
-  it("defaults composed stills to medium framing unless asked for or described as wide", () => {
+  it("defaults composed stills to medium framing (close for a spoken line, ADR 0069) unless asked for or described as wide", () => {
     expect(aiShotSchema.parse(shot({ presenterId: "kit", first })).compose?.framing).toBe("medium");
-    expect(aiShotSchema.parse(shot({ presenterId: "kit", first }, { line: "Welcome home.", voice: "lipsync" })).compose?.framing).toBe("medium");
+    expect(aiShotSchema.parse(shot({ presenterId: "kit", first }, { line: "Welcome home.", voice: "lipsync" })).compose?.framing).toBe("close");
     expect(aiShotSchema.parse(shot({ presenterId: "kit", first: "Wide: a small figure walking up the drive." })).compose?.framing).toBe("wide");
     expect(aiShotSchema.parse(shot({ presenterId: "kit", first, framing: "wide" })).compose?.framing).toBe("wide");
     expect(defaultFraming([null, "Widely smiling at the bench."])).toBe("medium");

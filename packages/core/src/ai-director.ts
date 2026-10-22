@@ -79,7 +79,7 @@ export const DIRECTOR_PLAN_JSON_SCHEMA = {
             presenter: { ...frameJson(), description: "Null to use the workspace's presenter kit (preferred). Never a generated take (an assetId starting ai-)." },
             first: { type: ["string", "null"], description: "Where she is in the composed starting still and her size against a named object. Under 500 characters." },
             last: { type: ["string", "null"], description: "Where she is in the composed ending still and her size against a named object. Under 500 characters." },
-            framing: { anyOf: [{ type: "string", enum: ["medium", "wide"] }, { type: "null" }], description: "medium (default, always for a spoken line): head a quarter of the way down, knees near the bottom edge. wide: only for arrivals and stunts where she must be small." },
+            framing: { anyOf: [{ type: "string", enum: ["tight", "close", "medium", "wide"] }, { type: "null" }], description: "null lets the app choose: close for a spoken line, medium for a silent one. close: waist-up, near the camera (face 300 px or more); tight: chest-up (420 px or more); medium: head a quarter of the way down, knees near the bottom edge; wide: only for arrivals and stunts where she must be small." },
           } },
         line: { type: ["string", "null"], description: "The one line she says in this take, under 200 characters, or null for a silent take." },
         // Claude's structured outputs reject an enum on a nullable type; a nullable enum is written as anyOf.

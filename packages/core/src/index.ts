@@ -19,6 +19,7 @@ export * from "./ramp";
 export * from "./frames";
 export * from "./match-cut";
 export * from "./scene";
+export * from "./font-metrics";
 export * from "./particles";
 export * from "./shine";
 export * from "./kinetic";

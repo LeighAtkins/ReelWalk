@@ -5,6 +5,7 @@ import {
   lumaFromRgba,
   momentAt,
   oneLineWidth,
+  letterSpacingEm,
   TITLE_LEADING,
   type CriticFace,
   type CriticFinding,
@@ -39,7 +40,7 @@ export type CriticState = { findings: CriticFinding[]; checking: boolean; thumbs
 /** A title's font as the renderer styles it. */
 function titleFont(text: TextOverlay): TitleFont {
   const css = textTreatmentCss(text);
-  return { fontFamily: String(css.fontFamily ?? ""), fontWeight: css.fontWeight, fontSize: Number(css.fontSize) || 64, letterSpacing: text.tracking, fontStretch: css.fontStretch ? String(css.fontStretch) : undefined };
+  return { fontFamily: String(css.fontFamily ?? ""), fontWeight: css.fontWeight, fontSize: Number(css.fontSize) || 64, letterSpacing: text.tracking ?? letterSpacingEm(css.letterSpacing), fontStretch: css.fontStretch ? String(css.fontStretch) : undefined };
 }
 /** Lines measured in the DOM with the title's own font, as the composition measures them. */
 const measure: Measure = (line, font) => ({ width: oneLineWidth(line, font) * 1080, height: font.fontSize * TITLE_LEADING });

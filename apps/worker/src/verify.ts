@@ -1,4 +1,4 @@
-import { checkDecodeArgs, renderChecks, seriesFromGreyFrames, type RenderChecks, type TextOverlay, type Timeline, type TitleFont } from "@reelwalk/core";
+import { checkDecodeArgs, letterSpacingEm, renderChecks, seriesFromGreyFrames, type RenderChecks, type TextOverlay, type Timeline, type TitleFont } from "@reelwalk/core";
 // The barrel pulls in the font CSS files, which Node cannot load; the look subpath is pure.
 import { textTreatmentCss } from "@reelwalk/render/reel/look";
 import type { AttemptScope } from "./lifecycle";
@@ -19,7 +19,7 @@ const DECODE_TIMEOUT_MS = 180_000;
 /** A title's font as the renderer styles it (the same mapping the editor's critic uses). */
 export function titleFontOf(text: TextOverlay): TitleFont {
   const css = textTreatmentCss(text);
-  return { fontFamily: String(css.fontFamily ?? ""), fontWeight: css.fontWeight, fontSize: Number(css.fontSize) || 64, letterSpacing: text.tracking, fontStretch: css.fontStretch ? String(css.fontStretch) : undefined };
+  return { fontFamily: String(css.fontFamily ?? ""), fontWeight: css.fontWeight, fontSize: Number(css.fontSize) || 64, letterSpacing: text.tracking ?? letterSpacingEm(css.letterSpacing), fontStretch: css.fontStretch ? String(css.fontStretch) : undefined };
 }
 
 export async function verifyRender(videoPath: string, timeline: Timeline, log: (line: string) => void, scope?: AttemptScope): Promise<RenderChecks> {

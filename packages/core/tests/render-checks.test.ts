@@ -242,3 +242,46 @@ describe("the render's decode and the Judge moments", () => {
     expect(checksKeyFor("renders/job1-2.mp4")).toBe("renders/job1-2.checks.json");
   });
 });
+
+describe("the title zone check on the owner's series titles (the live false positive)", () => {
+  // D4's real records (output/series/d4-save.js): serif labels centred at x 0.5, as the server styles them
+  // (76 px × size, no DOM, so the character-count estimate). Before the fix every one of them "reached
+  // 44 px under the like and share column": the wrap column (86% of the frame) was taken for the box.
+  const serverFont = (text: { size: number }) => ({ fontFamily: "Cormorant", fontWeight: 700, fontSize: 76 * text.size });
+  const label = { style: "box", font: "serif", animation: "none", shadow: "none", color: "#111111" };
+  const d4 = (hookX = 0.5) => reel({
+    clips: [{ id: "d4-0", assetId: "v1", kind: "VIDEO", sourceStartMs: 0, sourceEndMs: 14100 }],
+    texts: [
+      { ...label, id: "d4-hook", text: "every room in 15 seconds", startMs: 0, endMs: 2017, x: hookX, y: 0.3, size: 1 },
+      { ...label, id: "d4-n0", text: "01 / 12", startMs: 0, endMs: 2017, x: 0.5, y: 0.17, size: 0.9 },
+      { ...label, id: "d4-r5", text: "the sea-view bedroom", startMs: 6110, endMs: 7059, x: 0.5, y: 0.3, size: 1.15, kinetic: { preset: "words", startMs: 0, durationMs: 300 } },
+    ],
+  });
+
+  it("passes a centred label whose lines stay inside the column, and says where its box is", () => {
+    const checks = renderChecks({ timeline: d4(), series: [], titleFont: serverFont });
+    expect(checks.blocked).toBe(false);
+    expect(checks.checks.filter((c) => c.id.startsWith("title-"))).toEqual([]);
+    expect(checks.facts.zoneReach).toEqual([]);
+  });
+
+  it("still blocks a label whose words really sit under the buttons, with the measured edge against the column's", () => {
+    const checks = renderChecks({ timeline: d4(0.9), series: [], titleFont: serverFont });
+    expect(checks.blocked).toBe(true);
+    const [block] = checks.checks.filter((c) => c.level === "block");
+    expect(block.id).toBe("title-under-buttons:d4-hook");
+    const reach = checks.facts.zoneReach.find((r) => r.textId === "d4-hook")!;
+    expect(reach.edges.right).toBeGreaterThan(960);
+    expect(reach.right).toBe(reach.edges.right - 960);
+    expect(block.detail).toBe(`“every room in 15 seconds” reaches ${reach.right} px under the like and share column: its right edge is at ${reach.edges.right} px, the column starts at 960 px.`);
+    expect(checks.facts.zoneReach.map((r) => r.textId)).toEqual(["d4-hook"]);
+  });
+
+  it("names the measured edge for a dead-zone warning too", () => {
+    const timeline = reel({ texts: [{ ...label, id: "high", text: "01 / 12", startMs: 0, endMs: 2000, x: 0.5, y: 0.05, size: 0.9 }] });
+    const checks = renderChecks({ timeline, series: [], titleFont: serverFont });
+    const warn = checks.checks.find((c) => c.id === "title-in-zone:high")!;
+    expect(warn.level).toBe("warn");
+    expect(warn.detail).toMatch(/^“01 \/ 12” runs \d+ px under the header: its top edge is at \d+ px, the header ends at 250 px\.$/);
+  });
+});

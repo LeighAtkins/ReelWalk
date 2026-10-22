@@ -33,7 +33,7 @@ checks with a level (`block` | `warn`) and an impact (`hook` | `hold` |
 | --- | --- | --- |
 | Empty first frame | frame 0 near-black (mean ≤ 0.035, p95 ≤ 0.1) or one flat colour (std ≤ 0.015) | block |
 | Black frame | a near-black run of ≤ 4 frames between lit frames (the renderer's glitch, not a fade) | block |
-| Title under the buttons | a title's box (scene evaluator, ADR 0046) more than 24 px into Instagram's right column | block |
+| Title under the buttons | a title's drawn box (scene evaluator, ADR 0046; the wrapped lines plus the style's padding, see the amendment below) more than 24 px into Instagram's right column; the reason names the measured right edge and the column's | block |
 | Title in a dead zone | the same into the header, caption or edge | warn |
 | Frozen picture | the same picture (difference ≤ 0.004) held over 1.5 s inside a video clip | warn |
 | Opening title arrives slowly | the first title starting in the opening 300 ms is not fully in by 300 ms, by the hook planner's reading of the composition's entrances (`titleLegibleAtMs`, ADR 0068: a pop settles at 150 ms, a fade 600, a rise 500, the typewriter 14 characters a second) | warn |
@@ -132,8 +132,9 @@ strip scrolls, every control is a 44 px button, nothing sits on the frames.
   or a tap asks with ffmpeg present.
 - The retention thresholds are first guesses from the house style and the
   pacing engine, in one table to tune against measured retention.
-- Title boxes on the server use the character-count measure (no DOM), so a
-  zone reach there can differ by a few px from the editor's.
+- Title boxes on the server have no DOM to measure in: they sum the
+  renderer's own faces' advance widths (`font-metrics.ts`, the amendment
+  below), so a zone reach there can differ by a few px from the editor's.
 - The checks route makes one same-origin fetch to the audio-trace route
   with the caller's cookie; it is bounded by a 4 s timeout.
 
@@ -176,3 +177,62 @@ verification on a real export in ECS; the gate against a live Instagram
 account; the audio-trace merge against W3-A's real route (its shape is read
 defensively); ffmpeg in the web image (the Dockerfile line is added, not
 built here).
+
+## Amendment (2026-10-22): zone reach uses the title's drawn extent
+
+The first live run blocked all five series reels with the same line: every
+hook title "reaches 44 px under the like and share column", including
+labels centred at x 0.5 whose box ends 30 px short of the column on the
+render. Three causes, all in how a title's box was derived, none in the
+frame facts.
+
+- **The wrap column was taken for the box.** The renderer centres a
+  sentence's words in a column 86 % of the frame wide (928.8 px, ADR 0046),
+  and `titleGeometry` used `min(column, unwrapped width)` as the box: for
+  any sentence wider than the column the box was the column, whose right
+  edge at 1004.4 px is 44.4 px past the column of buttons at 960 px. So
+  every centred sentence that wrapped was "under the buttons", always by
+  44 px. The same box fed the critic's safe-zone check (ADR 0062), the hook
+  rules' zones (ADR 0068) and this gate. Now `screenTitleExtent` wraps the
+  words greedily at spaces with the measure (as the browser does, inside
+  the column less the style's padding) and the box is the longest line plus
+  the padding a label or sticker draws (`TITLE_PADDING_EM`, from look.ts).
+- **The server's measure was 0.62 em a character for every face.** The
+  serif the owner's reels use (Cormorant Garamond) is 0.45 em a lowercase
+  letter, so the server saw one-line labels as two-line ones and sentences
+  as wider than they are. `font-metrics.ts` now holds the advance width of
+  each printable character for the renderer's three title faces at the
+  weights and stretches look.ts uses, measured once in a headless Chromium
+  from the same @fontsource files the composition loads
+  (`packages/core/scripts/font-metrics.mjs`). `estimateLineWidth` sums them
+  for a known family and falls back to 0.62 em otherwise; it does not apply
+  kerning, so a line can read a few px wide of the drawn one, never narrow.
+  Measured against Chromium's own layout of the owner's titles the sums are
+  within 1 %; against the D4 render's label box, within 2 %.
+- **A surface title was its whole plane.** The words on a surface are
+  fitted to 94 % of its width or 92 % of its height, whichever binds, and
+  centred; a wide, low strip (D1's snow quads reach x 0.95 and 0.99) drew
+  words a third narrower than its corners. `surfaceTextQuad` maps the fitted
+  text block through the plane's homography (clipped to the plane where a
+  chosen surface clips the words) and that is the box.
+
+The elegant face's own 0.06 em letter spacing is drawn but was not in the
+`TitleFont` the measures saw (only a title's `tracking` was); the four
+builders of that font (render, editor critic, web verify, worker verify)
+now carry a style's spacing when the title has no tracking of its own
+(`letterSpacingEm`).
+
+The gate's reason says what it measured, so a wrong box is visible from the
+Post button's line: "… reaches 32 px under the like and share column: its
+right edge is at 992 px, the column starts at 960 px." `facts.zoneReach`
+carries the box's four edges in px.
+
+Verified: `packages/core/tests/scene.test.ts` (wrapping, the padding, the
+clamp of a one-line title), `render-checks.test.ts` (D4's real label
+records pass; the same label at x 0.9 still blocks, with the edges in the
+reason; a header warning names its edge), the whole core suite; the five
+series timelines as saved by the owner's scripts through the web verify
+path: D4 clean, D1/D2/D3/D5 lose their 44 px blocks, and what remains is
+within a few per cent of the zone edge, where the live timelines (edited
+after the scripts were saved) and the renderer's own placement decide.
+Not verified: the live routes against the deployed renders.

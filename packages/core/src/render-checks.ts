@@ -124,8 +124,11 @@ export type RenderChecks = {
     offBarMs: number | null;
     /** When the first title that starts in the opening 300 ms is fully in (null when none starts there). */
     titleLegibleByMs: number | null;
-    /** Each title's reach into Instagram's zones, px of 1080×1920, where it reaches at all. */
-    zoneReach: { textId: string; text: string; left: number; right: number; top: number; bottom: number }[];
+    /**
+     * Each title's reach into Instagram's zones, px of 1080×1920, where it reaches at all, with the
+     * drawn box's edges (px) so a reach can be read against the zone's edge.
+     */
+    zoneReach: { textId: string; text: string; left: number; right: number; top: number; bottom: number; edges: BoxEdges }[];
   };
   checks: RenderCheck[];
   blocked: boolean;
@@ -367,6 +370,19 @@ export function offBarMs(timeline: Timeline): number | null {
 const managed = (text: TextOverlay) => text.id.startsWith("room-");
 const quote = (text: TextOverlay) => `“${text.text.length > 24 ? `${text.text.slice(0, 23)}…` : text.text}”`;
 
+/** A title's drawn box, px of 1080×1920, rounded. */
+export type BoxEdges = { left: number; right: number; top: number; bottom: number };
+
+/** Where a title's box sits, in px of the frame. */
+function boxEdges(box: CriticBox): BoxEdges {
+  return { left: Math.round(box.x * W), right: Math.round((box.x + box.w) * W), top: Math.round(box.y * H), bottom: Math.round((box.y + box.h) * H) };
+}
+
+/** Where Instagram's zones begin, in px of the frame: a box past these edges is under the UI. */
+export const ZONE_EDGES_PX: BoxEdges = {
+  left: INSTAGRAM.safeZonePx.left, right: W - INSTAGRAM.safeZonePx.right, top: INSTAGRAM.safeZonePx.top, bottom: H - INSTAGRAM.safeZonePx.bottom,
+};
+
 function zoneReach(box: CriticBox) {
   const zone = INSTAGRAM.safeZonePx;
   return {
@@ -419,15 +435,20 @@ export function renderChecks(input: RenderChecksInput): RenderChecks {
       const geometry = titleGeometry(timeline, text, font(text), input.measure);
       if (!geometry) continue;
       const into = zoneReach(geometry.box);
-      if (into.left || into.right || into.top || into.bottom) reach.push({ textId: text.id, text: text.text, ...into });
+      const edges = boxEdges(geometry.box);
+      if (into.left || into.right || into.top || into.bottom) reach.push({ textId: text.id, text: text.text, ...into, edges });
       const at = (text.startMs + text.endMs) / 2;
+      // The reason says what was measured, so a wrong box is visible from the gate's own line.
       if (into.right > CRITIC.intrusionPx) {
         checks.push({ id: `title-under-buttons:${text.id}`, level: "block", impact: impactAt(at), atMs: at, textId: text.id, box: geometry.box, title: "Title under the buttons",
-          detail: `${quote(text)} reaches ${into.right} px under the like and share column.` });
+          detail: `${quote(text)} reaches ${into.right} px under the like and share column: its right edge is at ${edges.right} px, the column starts at ${ZONE_EDGES_PX.right} px.` });
       } else if (Math.max(into.left, into.top, into.bottom) > CRITIC.intrusionPx) {
-        const where = into.bottom >= into.top && into.bottom >= into.left ? "the caption" : into.top >= into.left ? "the header" : "the screen edge";
+        const worst = Math.max(into.left, into.top, into.bottom);
+        const side = into.bottom === worst ? "bottom" : into.top === worst ? "top" : "left";
+        const where = side === "bottom" ? "the caption" : side === "top" ? "the header" : "the screen edge";
+        const measured = side === "bottom" ? `its bottom edge is at ${edges.bottom} px, the caption starts at ${ZONE_EDGES_PX.bottom} px` : side === "top" ? `its top edge is at ${edges.top} px, the header ends at ${ZONE_EDGES_PX.top} px` : `its left edge is at ${edges.left} px, the edge zone ends at ${ZONE_EDGES_PX.left} px`;
         checks.push({ id: `title-in-zone:${text.id}`, level: "warn", impact: impactAt(at), atMs: at, textId: text.id, box: geometry.box, title: "Title in a dead zone",
-          detail: `${quote(text)} runs ${Math.max(into.left, into.top, into.bottom)} px under ${where}.` });
+          detail: `${quote(text)} runs ${worst} px under ${where}: ${measured}.` });
       }
     }
     if (input.hook?.titleLegibleByMs === undefined) {

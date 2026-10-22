@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import type { TextOverlay, TitleFont } from "@reelwalk/core";
+import { letterSpacingEm, type TextOverlay, type TitleFont } from "@reelwalk/core";
 import { ELEGANT_FADE_S } from "./look";
 
 /**
@@ -18,7 +18,7 @@ import { ELEGANT_FADE_S } from "./look";
  */
 export function titleFont(text: Pick<TextOverlay, "tracking" | "kinetic">, css: CSSProperties): TitleFont {
   return {
-    fontFamily: String(css.fontFamily ?? ""), fontWeight: css.fontWeight as TitleFont["fontWeight"], fontSize: Number(css.fontSize) || 64, letterSpacing: text.tracking,
+    fontFamily: String(css.fontFamily ?? ""), fontWeight: css.fontWeight as TitleFont["fontWeight"], fontSize: Number(css.fontSize) || 64, letterSpacing: text.tracking ?? letterSpacingEm(css.letterSpacing),
     fontStretch: css.fontStretch ? String(css.fontStretch) : undefined,
     ...(text.kinetic?.preset === "count" ? { fontVariantNumeric: "tabular-nums" } : {}),
   };

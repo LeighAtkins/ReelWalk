@@ -56,7 +56,8 @@ import { retentionFindings, seriesFromSamples, type RetentionInput } from "./ret
 import type { FrameSeries } from "./render-checks";
 import { INSTAGRAM } from "./instagram";
 import { MIN_SPEAKING_FACE_PX, minFacePx } from "./presenter";
-import { evaluateTitle, TITLE_LEADING, type Measure, type TitleFont } from "./scene";
+import { evaluateTitle, screenTitleExtent, TITLE_LEADING, type Measure, type SurfacePlacement, type TitleFont } from "./scene";
+import { applyHomography, type Quad } from "./motion";
 import {
   clipDurationMs,
   clipStartsMs,
@@ -402,24 +403,49 @@ export function titleGeometry(timeline: Timeline, text: TextOverlay, font: Title
     if (placement.kind === "surface") {
       kind = "surface";
       fontPx = Math.min(fontPx, font.fontSize * placement.fitScale);
+      // The words, not the plane: the text block sits centred in the plane rectangle at its fitted size
+      // (the renderer's flex-centred span scaled by fitScale), so a wide low surface whose words are
+      // height-bound draws far narrower than its corners. Mapped through the plane's homography; the
+      // plane itself when the corners are degenerate, or where a chosen surface clips the words.
+      const quad = surfaceTextQuad(placement);
       for (let i = 0; i < 4; i++) {
-        x0 = Math.min(x0, placement.plane[i * 2]); x1 = Math.max(x1, placement.plane[i * 2]);
-        y0 = Math.min(y0, placement.plane[i * 2 + 1]); y1 = Math.max(y1, placement.plane[i * 2 + 1]);
+        x0 = Math.min(x0, quad[i * 2]); x1 = Math.max(x1, quad[i * 2]);
+        y0 = Math.min(y0, quad[i * 2 + 1]); y1 = Math.max(y1, quad[i * 2 + 1]);
       }
       continue;
     }
     const { center, wrap, scale } = placement;
-    const parts = text.text.split("\n");
-    const widest = Math.max(...parts.map((part) => measure(part || " ", font).width));
-    const lines = parts.length * (wrap.mode === "wrap" ? Math.max(1, Math.ceil(widest / wrap.width)) : 1);
-    const w = (wrap.mode === "wrap" ? Math.min(wrap.width, widest) : Math.min(wrap.maxWidth, widest)) * scale;
-    const h = font.fontSize * TITLE_LEADING * lines * scale;
+    // The drawn extent (the wrapped lines plus the style's padding), not the wrap column the renderer
+    // centres them in: the column is 86% of the frame and overhangs the button column by 44 px, so a
+    // centred sentence measured by it was always "under the buttons" however short its lines.
+    const extent = screenTitleExtent(text, font, measure, wrap);
+    const w = extent.width * scale;
+    const h = extent.height * scale;
     fontPx = Math.min(fontPx, font.fontSize * scale);
     x0 = Math.min(x0, center.x - w / 2); x1 = Math.max(x1, center.x + w / 2);
     y0 = Math.min(y0, center.y - h / 2); y1 = Math.max(y1, center.y + h / 2);
   }
   if (!Number.isFinite(x0)) return null;
   return { kind, box: { x: x0 / W, y: y0 / H, w: (x1 - x0) / W, h: (y1 - y0) / H }, fontPx };
+}
+
+/**
+ * Where a surface title's words are drawn, composition px (tl, tr, br, bl): the text block at its fitted
+ * size, centred in the plane rectangle, through the plane's homography. A chosen surface clips the words to
+ * its rectangle, so there each corner is kept inside the plane's own box; without a homography (degenerate
+ * corners) the plane stands in.
+ */
+export function surfaceTextQuad(placement: SurfacePlacement): Quad {
+  const { rect, homography, fitScale, lineBox, plane, clipToPlane } = placement;
+  if (!homography) return plane;
+  const halfW = (lineBox.width * fitScale) / 2, halfH = (lineBox.height * fitScale) / 2;
+  const cx = rect.width / 2, cy = rect.height / 2;
+  const local: Quad = [cx - halfW, cy - halfH, cx + halfW, cy - halfH, cx + halfW, cy + halfH, cx - halfW, cy + halfH];
+  const mapped = [0, 1, 2, 3].flatMap((i) => applyHomography(homography, local[i * 2], local[i * 2 + 1])) as Quad;
+  if (!clipToPlane) return mapped;
+  const xs = [0, 1, 2, 3].map((i) => plane[i * 2]), ys = [0, 1, 2, 3].map((i) => plane[i * 2 + 1]);
+  const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
+  return mapped.map((v, i) => (i % 2 === 0 ? Math.min(maxX, Math.max(minX, v)) : Math.min(maxY, Math.max(minY, v)))) as Quad;
 }
 
 /** Texts the editor redraws itself (room labels): a fix to them would be undone by the next cut change. */

@@ -1,6 +1,7 @@
 import { locate, clipDurationMs, clipSourceMsAt, type Clip, type TextOverlay, type Timeline, framePlan, REEL_FORMAT } from "./timeline";
 import { applyHomography, homography, type Quad } from "./motion";
 import { cameraKeysAt, cameraStillAtStart, openingProgress, type CameraMove } from "./camera";
+import { FONT_METRICS } from "./font-metrics";
 
 export function cameraMoveAt(motion: Clip["motion"], progress: number, elapsedSeconds: number) {
   const p = Math.max(0, Math.min(1, progress));
@@ -136,9 +137,40 @@ export function luxuryFinish(timeline: Timeline, variant: "refined" | "modern" =
 
 export type OneLineFont = { fontFamily?: string; fontWeight?: string | number; fontSize: number; letterSpacing?: number; fontStretch?: string };
 
-/** A line's width without a DOM, px: an average advance per character, honouring stretch and letter spacing. */
+/**
+ * The measured face for a font, or null: the renderer's title families (font-metrics.ts, measured in
+ * Chromium from the same font files) at the nearest weight and stretch the table has.
+ */
+export function fontMetricsFor(font: OneLineFont): { avg: number; widths: Record<string, number> } | null {
+  const family = (font.fontFamily ?? "").split(",")[0].trim().replace(/^["']|["']$/g, "");
+  if (!family) return null;
+  const weight = Number(font.fontWeight ?? 600) || 600;
+  const stretch = font.fontStretch ? parseFloat(font.fontStretch) || 100 : 100;
+  let best: { key: string; distance: number } | null = null;
+  for (const key of Object.keys(FONT_METRICS)) {
+    const [name, w, s] = key.split("|");
+    if (name !== family) continue;
+    // Stretch first (a 125% face is a different width), then weight.
+    const distance = Math.abs(Number(s) - stretch) * 10 + Math.abs(Number(w) - weight);
+    if (!best || distance < best.distance) best = { key, distance };
+  }
+  return best ? FONT_METRICS[best.key] : null;
+}
+
+/**
+ * A line's width without a DOM, px: the measured advances of the renderer's own faces summed (unknown
+ * characters at the face's lowercase average), or for a family not measured an average 0.62 em a
+ * character honouring stretch; plus letter spacing either way. Kerning is not applied, so a line can
+ * run a few px wide of the drawn one, never narrow.
+ */
 export function estimateLineWidth(text: string, font: OneLineFont): number {
   const spacing = (font.letterSpacing ?? 0) * font.fontSize * Math.max(0, text.length - 1);
+  const metrics = fontMetricsFor(font);
+  if (metrics) {
+    let em = 0;
+    for (const ch of text) em += metrics.widths[ch] ?? metrics.avg;
+    return em * font.fontSize + spacing;
+  }
   const stretch = font.fontStretch ? parseFloat(font.fontStretch) / 100 || 1 : 1;
   return text.length * font.fontSize * 0.62 * stretch + spacing;
 }

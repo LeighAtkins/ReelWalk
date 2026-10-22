@@ -234,11 +234,21 @@ right edge is at 992 px, the column starts at 960 px." `facts.zoneReach`
 carries the box's four edges in px.
 
 Verified: `packages/core/tests/scene.test.ts` (wrapping, the padding, the
-clamp of a one-line title), `render-checks.test.ts` (D4's real label
-records pass; the same label at x 0.9 still blocks, with the edges in the
-reason; a header warning names its edge), the whole core suite; the five
-series timelines as saved by the owner's scripts through the web verify
-path: D4 clean, D1/D2/D3/D5 lose their 44 px blocks, and what remains is
-within a few per cent of the zone edge, where the live timelines (edited
-after the scripts were saved) and the renderer's own placement decide.
-Not verified: the live routes against the deployed renders.
+column for a wrapped label, the clamp of a one-line title),
+`render-checks.test.ts` (D4's real label records pass; the same label at
+x 0.9 still blocks, with the edges in the reason; a wrapped label blocks
+by 44 px with its edges, the same words drawn plain pass; a header warning
+names its edge), `pnpm check`. The five series timelines as saved by the
+owner's scripts, through the web verify path's font mapping: before,
+every reel blocked and 41 titles "reached 44 px"; after, D4 is clean, D1
+keeps one block ("the fire's already lit", right edge 985 px, 25 px in)
+and two header warnings, D3 keeps one ("05 · all-white bedding, layered",
+992 px, 32 px in), D2 two (a wrapped label at 1004 px and one at
+1000 px), D5 five (three wrapped labels at 1004 px, two at 999 px). The
+boxes against the deployed renders, read from their frames: D3's label
+runs 91 px to 988 px on the render and in Chromium with the same CSS;
+D4's hook label 144 px to 934 px on the render, 144 to 935 in Chromium.
+D1's title is drawn at 0.82 of the script's size on the render (its live
+timeline was edited after the script), ink 177 px to 897 px, so there the
+live timeline should pass. Not verified: the live routes against the
+deployed renders, and D2's and D5's live timelines.

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { HOOK_DESCRIPTIONS, HOOK_FONTS, HOOK_LABELS, type Hook, type HookKind,
   acceptFor,
   canExport,
@@ -878,8 +878,10 @@ export function TextSheet({
 }
 
 /** Visual hooks (ADR 0041): the opener that stops the scroll. */
-export function HookSheet({ hook, hasPerson, onChange, onWords, onClose }: {
+export function HookSheet({ hook, hasPerson, studio, onChange, onWords, onClose }: {
   hook: Hook | null; hasPerson: boolean;
+  /** The Hook studio (ADR 0068): the five opening patterns as live cards. It leads; the drawn openers below fold away. */
+  studio?: ReactNode;
   onChange(hook: Hook | null): void; onWords(words: string[], color: string): void; onClose(): void;
 }) {
   const [kind, setKind] = useState<HookKind | "words-behind">(hook?.kind ?? "words-behind");
@@ -888,7 +890,10 @@ export function HookSheet({ hook, hasPerson, onChange, onWords, onClose }: {
   const update = (patch: Partial<Hook>) => setDraft((d) => ({ ...d, ...patch }));
   return (
     <Sheet title="Hook" onClose={onClose}>
-      <p className="muted small">The first two seconds decide whether anyone watches. Pick an opener built from your first shot.</p>
+      {studio}
+      <details className="hook-drawn" open={!studio || hook !== null} data-testid="hook-drawn">
+      <summary className="small">{studio ? "A drawn opener instead" : "Pick an opener built from your first shot."}</summary>
+      <p className="muted small">{studio ? "An alert, a spotlight or a device over the first shot." : "The first two seconds decide whether anyone watches."}</p>
       <div className="field" role="radiogroup" aria-label="Hook">
         {(["words-behind", "alert", "spotlight", "device"] as const).map((k) => (
           <label key={k} className="small" style={{ display: "block", marginBottom: 6 }}>
@@ -920,6 +925,7 @@ export function HookSheet({ hook, hasPerson, onChange, onWords, onClose }: {
           {hook ? <button type="button" className="btn btn-quiet btn-block" onClick={() => { onChange(null); onClose(); }}>Remove the hook</button> : null}
         </>
       )}
+      </details>
     </Sheet>
   );
 }

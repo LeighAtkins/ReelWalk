@@ -22,8 +22,9 @@ import { workspacePlan } from "@/lib/plans";
 import { appUrl } from "@/lib/app-url";
 import { exportDurationMs, fullReelStoryIssue, storyCutOf } from "@/lib/posting";
 import { outputUrls } from "@/lib/render-jobs";
-import { ensureChecks, gateFor, type ChecksResult } from "@/lib/render-verify";
+import { audioProblemsFrom, ensureChecks, gateFor, withAudio, type ChecksResult } from "@/lib/render-verify";
 import { coverUrls, readTimeline } from "@/lib/reels";
+import { reelAudioTrace } from "@/lib/sound";
 import { getCurrentUser, mediaScope } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
@@ -73,8 +74,11 @@ export default async function ExportPage({
         select: { instagramAudioId: true, instagramTitle: true, instagramArtist: true, fileName: true },
       })
     : null;
+  // The audio trace (ADR 0066), read once here: the recommended post volumes go into the sound choice Post and
+  // Schedule store, its problems into the checks, and the strip draws it without a second request.
+  const trace = urls ? await reelAudioTrace(user.workspaceId, reel.id).catch(() => null) : null;
   const reelSound = soundAsset?.instagramAudioId
-    ? instagramChoiceForSound({ audioId: soundAsset.instagramAudioId, title: soundAsset.instagramTitle ?? soundAsset.fileName, artist: soundAsset.instagramArtist })
+    ? instagramChoiceForSound({ audioId: soundAsset.instagramAudioId, title: soundAsset.instagramTitle ?? soundAsset.fileName, artist: soundAsset.instagramArtist }, trace?.recommended)
     : null;
   const scheduled = await prisma.scheduledPost.findFirst({
     where: { renderJobId: job.id, workspaceId: user.workspaceId, kind: "REEL", status: { in: ["SCHEDULED", "PUBLISHING"] } },
@@ -93,9 +97,11 @@ export default async function ExportPage({
   const story = { hookMs: storyHookMs(payload.timeline), cut: storyCut ? { status: storyCut.status } : null, fullIssue: fullReelStoryIssue(job), durationMs: exportDurationMs(job) };
   // The render checks (ADR 0071) the worker stored beside the export. Only what is stored: an older
   // export's checks are computed on Run checks (or by an agent on the route), never on a page load.
-  const verification: ChecksResult | null = urls
+  const stored: ChecksResult | null = urls
     ? await ensureChecks(job, { compute: false }).catch((): ChecksResult => ({ checks: null, source: "none", reason: "The checks could not be read." }))
     : null;
+  // The sound's problems from the trace, folded into the picture's checks as the checks route does.
+  const verification: ChecksResult | null = stored?.checks ? { ...stored, checks: withAudio(stored.checks, audioProblemsFrom(trace)) } : stored;
   const gate = gateFor(verification?.checks ?? null);
 
   return (
@@ -170,7 +176,7 @@ export default async function ExportPage({
               </div>
               {verification ? <RenderChecksPanel jobId={job.id} reelId={reel.id} result={verification} /> : null}
               {/* The mix, seen and heard (ADR 0066): loudness, beats, cuts, speech, the recommended sound volume, and a preview at that level. */}
-              <MixPreview reelId={reel.id} sound={reelSound} />
+              <MixPreview reelId={reel.id} sound={reelSound} initial={trace} />
             </>
           ) : job.status === "FAILED" ? (
             <form action={retryRenderJob} className="export-actions">

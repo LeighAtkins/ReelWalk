@@ -201,9 +201,15 @@ export function instagramPreviewKeyFor(workspaceId: string, audioId: string, ext
   return `uploads/${workspaceId}/instagram-audio/${safe}.${extension}`;
 }
 
-/** The export screen's choice for a reel edited to an Instagram sound: replace the reel's soundtrack, as by default. */
-export function instagramChoiceForSound(sound: { audioId: string; title: string; artist: string | null }): InstagramAudioChoice {
-  return { audioId: sound.audioId, title: sound.title, artist: sound.artist, ...instagramAudioMix(false) };
+/**
+ * The export screen's choice for a reel edited to an Instagram sound: the
+ * recommended mix when the audio trace has one (`recommendSoundVolume`, ADR
+ * 0066: a reel with its own sound design keeps it at 60 % under the sound),
+ * else replace the reel's soundtrack, as by default.
+ */
+export function instagramChoiceForSound(sound: { audioId: string; title: string; artist: string | null }, mix?: { audioVolume: number; videoVolume: number } | null): InstagramAudioChoice {
+  const volumes = mix ? { audioVolume: clampVolume(mix.audioVolume), videoVolume: clampVolume(mix.videoVolume) } : instagramAudioMix(false);
+  return { audioId: sound.audioId, title: sound.title, artist: sound.artist, ...volumes };
 }
 
 /**

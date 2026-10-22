@@ -9,6 +9,7 @@ import {
   fakeInstagramSoundWav,
   instagramChoiceForSound,
   instagramPreviewFormat,
+  parseInstagramAudioChoice,
   instagramPreviewKeyFor,
   instagramSoundAssetId,
   isInstagramMusic,
@@ -153,6 +154,14 @@ describe("the render plan", () => {
 describe("the export screen's choice for the reel's sound", () => {
   it("replaces the reel's soundtrack, as by default", () => {
     expect(instagramChoiceForSound({ audioId: "1", title: "Song", artist: "Band" })).toEqual({ audioId: "1", title: "Song", artist: "Band", audioVolume: 100, videoVolume: 0 });
+    expect(instagramChoiceForSound({ audioId: "1", title: "Song", artist: "Band" }, null)).toEqual({ audioId: "1", title: "Song", artist: "Band", audioVolume: 100, videoVolume: 0 });
+  });
+
+  it("takes the recommended mix when the trace has one, and it survives the post's parsing", () => {
+    const choice = instagramChoiceForSound({ audioId: "1018160750329642", title: "Fresh Dance Club (Instrumental)", artist: "Last Jerónimo" }, { audioVolume: 100, videoVolume: 60 });
+    expect(choice).toMatchObject({ audioVolume: 100, videoVolume: 60 });
+    expect(parseInstagramAudioChoice(choice)).toEqual(choice);
+    expect(instagramChoiceForSound({ audioId: "1", title: "Song", artist: null }, { audioVolume: 40.4, videoVolume: 130 })).toMatchObject({ audioVolume: 40, videoVolume: 100 });
   });
 });
 

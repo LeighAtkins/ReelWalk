@@ -5,6 +5,8 @@
  * licence travel with the imported MediaAsset.
  */
 
+import type { StockClip } from "@reelwalk/core";
+
 export const STOCK_LICENSE = "Pixabay Content License";
 
 export type StockVideo = {
@@ -27,6 +29,9 @@ type PixabayHit = {
   pageURL: string;
   duration: number;
   user: string;
+  user_id: number;
+  /** Comma-separated. */
+  tags?: string;
   videos: { large?: PixabayRendition; medium?: PixabayRendition; small?: PixabayRendition; tiny?: PixabayRendition };
 };
 
@@ -54,6 +59,42 @@ function toStock(hit: PixabayHit): StockVideo {
     creator: hit.user,
     file,
   };
+}
+
+/** A search hit as the stock module sees it (ADR 0070), plus the smallest rendition for frame checks. */
+export type StockHit = StockClip & { sample: string | null };
+
+function toStockClip(hit: PixabayHit): StockHit {
+  const video = toStock(hit);
+  const renditions = Object.values(hit.videos).filter((r): r is PixabayRendition => !!r && !!r.url && r.width > 0);
+  const smallest = [...renditions].sort((a, b) => a.width * a.height - b.width * b.height)[0];
+  return {
+    source: "pixabay",
+    id: String(hit.id),
+    creator: hit.user,
+    creatorId: String(hit.user_id ?? hit.user),
+    url: hit.pageURL,
+    poster: video.image,
+    file: video.file,
+    durationMs: video.durationMs,
+    width: video.width,
+    height: video.height,
+    tags: (hit.tags ?? "").split(",").map((tag) => tag.trim().toLowerCase()).filter(Boolean),
+    sample: smallest?.url ?? null,
+  };
+}
+
+/** Search hits for the Stock tab and `/api/stock/search`. Pixabay has no orientation filter for video; portrait is filtered after. */
+export async function searchStockClips(query: string, perPage = 50): Promise<StockHit[]> {
+  const result = await pixabay({ q: query.trim(), per_page: String(Math.min(200, Math.max(3, perPage))), safesearch: "true", video_type: "film" });
+  return result.hits.map(toStockClip).filter((clip) => clip.file !== null);
+}
+
+export async function getStockClip(id: number): Promise<StockHit> {
+  const result = await pixabay({ id: String(id) });
+  const hit = result.hits[0];
+  if (!hit) throw new Error("That clip is no longer available.");
+  return toStockClip(hit);
 }
 
 // Pixabay asks for results to be cached for 24 hours and allows about 100

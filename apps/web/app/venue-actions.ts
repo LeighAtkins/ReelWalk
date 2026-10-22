@@ -1,13 +1,12 @@
 "use server";
 
-import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { buildVenueReel, captionForVenue, thumbKeyFor, uploadKeyFor, venueDetailsSchema, venueVibeById, songMapFields } from "@reelwalk/core";
+import { buildVenueReel, captionForVenue, venueDetailsSchema, venueVibeById, songMapFields } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
-import { toLibraryAsset, type LibraryAsset } from "@/lib/library";
-import { getStock, isStockConfigured, searchStock, STOCK_LICENSE, stockCredit, type StockVideo } from "@/lib/stock";
-import { putObject } from "@/lib/storage";
+import type { LibraryAsset } from "@/lib/library";
+import { isStockConfigured, searchStock, type StockVideo } from "@/lib/stock";
+import { importStockClip } from "@/lib/stock-import";
 import { getCurrentUser, mediaScope } from "@/lib/workspace";
 
 // ── Venue reels ─────────────────────────────────────────────────
@@ -91,53 +90,5 @@ export async function searchStockVideos(query: string): Promise<StockSearchResul
  */
 export async function importStockVideo(input: { id: number }): Promise<{ ok: true; asset: LibraryAsset } | { ok: false; error: string }> {
   const user = await getCurrentUser();
-  if (!isStockConfigured()) return { ok: false, error: "Stock search is not set up." };
-  const id = Number(input.id);
-  if (!Number.isInteger(id) || id <= 0) return { ok: false, error: "Unknown clip." };
-
-  const sourceUrl = `https://pixabay.com/videos/${id}/`;
-  const existing = await prisma.mediaAsset.findFirst({ where: { workspaceId: user.workspaceId, sourceUrl } });
-  if (existing) return { ok: true, asset: await toLibraryAsset(existing) };
-
-  try {
-    const video = await getStock(id);
-    if (!video.file) return { ok: false, error: "That clip has no usable MP4." };
-    const [media, poster] = await Promise.all([download(video.file.url, 400 * 1024 * 1024), download(video.image, 8 * 1024 * 1024).catch(() => null)]);
-
-    const objectKey = uploadKeyFor(user.workspaceId, randomUUID(), "mp4");
-    const thumbKey = poster ? thumbKeyFor(objectKey) : null;
-    await putObject(objectKey, media, "video/mp4");
-    if (poster && thumbKey) await putObject(thumbKey, poster, "image/jpeg");
-
-    const asset = await prisma.mediaAsset.create({
-      data: {
-        workspaceId: user.workspaceId,
-        kind: "VIDEO",
-        objectKey,
-        thumbKey,
-        contentType: "video/mp4",
-        fileName: `pixabay-${video.id}.mp4`,
-        sizeBytes: media.byteLength,
-        durationMs: video.durationMs,
-        width: video.file.width,
-        height: video.file.height,
-        sourceUrl,
-        license: STOCK_LICENSE,
-        attribution: stockCredit(video),
-      },
-    });
-    return { ok: true, asset: await toLibraryAsset(asset) };
-  } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : "Could not import the clip." };
-  }
-}
-
-async function download(url: string, maxBytes: number): Promise<Buffer> {
-  const response = await fetch(url, { signal: AbortSignal.timeout(120_000) });
-  if (!response.ok) throw new Error(`Download failed (${response.status}).`);
-  const length = Number(response.headers.get("content-length") ?? 0);
-  if (length > maxBytes) throw new Error("That clip is too large to import.");
-  const bytes = Buffer.from(await response.arrayBuffer());
-  if (bytes.byteLength > maxBytes) throw new Error("That clip is too large to import.");
-  return bytes;
+  return importStockClip(user.workspaceId, Number(input.id));
 }

@@ -40,6 +40,12 @@ locals {
     AI_PROVIDER     = var.ai_provider
     ANTHROPIC_MODEL = var.anthropic_model
     OPENAI_MODEL    = var.openai_model
+    # Claude through Google Cloud (ADR 0072): the web app exchanges its instance-role
+    # credentials for a Google token, as the worker does for Veo. Only used with ai_provider = "vertex";
+    # the Google pool must admit the web instance role (see the ADR) or the exchange is refused.
+    GOOGLE_WORKLOAD_IDENTITY_AUDIENCE = var.google_workload_identity_audience
+    GOOGLE_SERVICE_ACCOUNT_EMAIL      = var.google_service_account_email
+    VERTEX_CLAUDE_REGION              = var.vertex_claude_region
   }
 
   # Parameter Store holds the credentials; both runtimes read them at start.

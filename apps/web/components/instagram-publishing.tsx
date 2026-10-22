@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { instagramAudioLabel, type InstagramAudioChoice } from "@reelwalk/core";
+import { instagramAudioLabel, STORY_LIMITS, type InstagramAudioChoice } from "@reelwalk/core";
 import { PlayWithSound } from "./export-sound";
 import { InstagramSoundPicker } from "./instagram-sound-picker";
+import { PostStoryNow, type StoryOptions } from "./post-story-now";
 import { PostToInstagram } from "./post-to-instagram";
 import { SchedulePost } from "./schedule-post";
 
@@ -19,6 +20,10 @@ import { SchedulePost } from "./schedule-post";
  *
  * `aiContent`: the reel uses AI-generated clips, so the "AI info" label starts
  * ticked. Instagram asks for that disclosure; the studio can still untick it.
+ *
+ * "Also post a Story" (ADR 0065, on by default): a story cut of the reel's
+ * opening goes out as a Story right after the Reel, now or at the scheduled
+ * time. "Post a Story now" posts the cut, or the whole reel when it fits.
  */
 export function InstagramPublishing({
   jobId,
@@ -27,6 +32,7 @@ export function InstagramPublishing({
   reelSound = null,
   scheduledSound,
   aiContent = false,
+  story,
 }: {
   jobId: string;
   username: string;
@@ -34,9 +40,11 @@ export function InstagramPublishing({
   reelSound?: InstagramAudioChoice | null;
   scheduledSound?: InstagramAudioChoice | null;
   aiContent?: boolean;
+  story: StoryOptions;
 }) {
   const [audio, setAudio] = useState<InstagramAudioChoice | null>(scheduledSound === undefined ? reelSound : scheduledSound);
   const [aiGenerated, setAiGenerated] = useState(aiContent);
+  const [withStory, setWithStory] = useState(true);
   return (
     <>
       {live ? (
@@ -45,6 +53,17 @@ export function InstagramPublishing({
             <input type="checkbox" checked={aiGenerated} onChange={(event) => setAiGenerated(event.target.checked)} /> Label this post as AI-generated on Instagram
           </span>
           <span className="muted small">{aiContent ? "This reel uses AI-generated clips, so Instagram's AI info label is on. " : ""}Instagram shows a small “AI info” note on the post; your caption is unchanged.</span>
+        </label>
+      ) : null}
+      {live ? (
+        <label className="field" style={{ gridColumn: "1 / -1" }} data-testid="story-option">
+          <span>
+            <input type="checkbox" checked={withStory} onChange={(event) => setWithStory(event.target.checked)} /> Also post a Story
+          </span>
+          <span className="muted small">
+            A cut of the opening (about {Math.round(story.hookMs / 1000)} s) with a “new reel · @{username}” plate, posted right after the reel. Stories through the API run up to{" "}
+            {STORY_LIMITS.maxDurationMs / 1000} s and carry no sticker, link, caption or sound.
+          </span>
         </label>
       ) : null}
       {live ? (
@@ -67,8 +86,9 @@ export function InstagramPublishing({
           {audio ? <PlayWithSound sound={audio} /> : null}
         </div>
       ) : null}
-      <PostToInstagram jobId={jobId} username={username} audio={audio} aiGenerated={aiGenerated} />
-      {live ? <SchedulePost jobId={jobId} username={username} audio={audio} aiGenerated={aiGenerated} /> : null}
+      <PostToInstagram jobId={jobId} username={username} audio={audio} aiGenerated={aiGenerated} story={live && withStory} />
+      {live ? <SchedulePost jobId={jobId} username={username} audio={audio} aiGenerated={aiGenerated} story={withStory} /> : null}
+      {live ? <PostStoryNow jobId={jobId} username={username} aiGenerated={aiGenerated} options={story} /> : null}
     </>
   );
 }

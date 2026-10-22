@@ -10,7 +10,7 @@ import { FeatureConsent } from "@/components/feature-consent";
 import { BackIcon, DownloadIcon } from "@/components/icons";
 import { ShareButton } from "@/components/share-button";
 import { ShareLink } from "@/components/share-link";
-import { instagramChoiceForSound, instagramSoundAssetId, outputSize, parseReelExportPayload } from "@reelwalk/core";
+import { instagramChoiceForSound, instagramSoundAssetId, outputSize, parseReelExportPayload, storyHookMs } from "@reelwalk/core";
 import { ExportStage, ExportVideo } from "@/components/export-sound";
 import { InstagramPublishing } from "@/components/instagram-publishing";
 import { aiEditUsage } from "@/lib/ai-edit";
@@ -18,6 +18,7 @@ import { isFakeInstagram, isInstagramConfigured } from "@/lib/instagram";
 import { isAiAvailable } from "@/lib/openai";
 import { workspacePlan } from "@/lib/plans";
 import { appUrl } from "@/lib/app-url";
+import { exportDurationMs, fullReelStoryIssue, storyCutOf } from "@/lib/posting";
 import { outputUrls } from "@/lib/render-jobs";
 import { coverUrls, readTimeline } from "@/lib/reels";
 import { getCurrentUser } from "@/lib/workspace";
@@ -67,7 +68,7 @@ export default async function ExportPage({
     ? instagramChoiceForSound({ audioId: soundAsset.instagramAudioId, title: soundAsset.instagramTitle ?? soundAsset.fileName, artist: soundAsset.instagramArtist })
     : null;
   const scheduled = await prisma.scheduledPost.findFirst({
-    where: { renderJobId: job.id, workspaceId: user.workspaceId, status: { in: ["SCHEDULED", "PUBLISHING"] } },
+    where: { renderJobId: job.id, workspaceId: user.workspaceId, kind: "REEL", status: { in: ["SCHEDULED", "PUBLISHING"] } },
     orderBy: { createdAt: "desc" },
     select: { audioId: true, audioTitle: true, audioArtist: true, audioVolume: true, videoVolume: true },
   });
@@ -78,6 +79,9 @@ export default async function ExportPage({
     : undefined;
   const active = isActive(job.status);
   const progress = exportProgressText(job, new Date());
+  // Stories (ADR 0065): the cut already made for this export, and whether the whole reel fits a story.
+  const storyCut = urls ? await storyCutOf(user.workspaceId, job.id) : null;
+  const story = { hookMs: storyHookMs(payload.timeline), cut: storyCut ? { status: storyCut.status } : null, fullIssue: fullReelStoryIssue(job), durationMs: exportDurationMs(job) };
 
   return (
     <main className="shell">
@@ -128,7 +132,7 @@ export default async function ExportPage({
               </div>
               <div className="export-actions">
                 {instagram && plan.instagram ? (
-                  <InstagramPublishing jobId={job.id} username={instagram.username} live={isInstagramConfigured() || isFakeInstagram()} reelSound={reelSound} scheduledSound={scheduledSound} aiContent={aiContent} />
+                  <InstagramPublishing jobId={job.id} username={instagram.username} live={isInstagramConfigured() || isFakeInstagram()} reelSound={reelSound} scheduledSound={scheduledSound} aiContent={aiContent} story={story} />
                 ) : null}
                 {planId === "FREE" && isInstagramConfigured() ? (
                   <Link className="btn btn-quiet" href="/account#plan" prefetch={false}>

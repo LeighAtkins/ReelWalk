@@ -1,6 +1,6 @@
 import { prisma, runScheduledPosts, type ScheduledPost, type ScheduledPostDeps, type TickResult } from "@reelwalk/db";
 import { emailHtml, sendEmail } from "./email";
-import { containerStatus, createReelContainer, isFakeInstagram, isInstagramConfigured, isTransientInstagramError, publishContainer } from "./instagram";
+import { containerStatus, createReelContainer, createStoryContainer, isFakeInstagram, isInstagramConfigured, isTransientInstagramError, publishContainer } from "./instagram";
 import { workspacePlan } from "./plans";
 import { outputUrls } from "./render-jobs";
 
@@ -50,14 +50,15 @@ async function notifyFailed(post: ScheduledPost): Promise<void> {
   const when = `${post.publishAt.toISOString().slice(0, 16).replace("T", " ")} UTC`;
   const base = process.env.APP_URL?.replace(/\/$/, "") ?? "";
   const reason = post.error ?? "Instagram did not accept it.";
+  const what = post.kind === "STORY" ? "Story" : "Reel";
   const paragraphs = [
-    `Hi ${owner.name}, the Reel you scheduled for ${when} was not posted to Instagram.`,
+    `Hi ${owner.name}, the ${what} you scheduled for ${when} was not posted to Instagram.`,
     `What went wrong: ${reason}`,
-    "Nothing was published. You can schedule it again from the export screen.",
+    post.kind === "STORY" ? "Nothing was published. You can post the story again from the export screen." : "Nothing was published. You can schedule it again from the export screen.",
   ];
   await sendEmail({
     to: owner.email,
-    subject: "A scheduled Instagram post did not go out",
+    subject: `A scheduled Instagram ${post.kind === "STORY" ? "story" : "post"} did not go out`,
     text: `${paragraphs.join("\n\n")}\n\n${base}/scheduled`,
     html: emailHtml({ heading: "A scheduled post did not go out", paragraphs, button: base ? { label: "See scheduled posts", url: `${base}/scheduled` } : undefined }),
   });
@@ -65,7 +66,8 @@ async function notifyFailed(post: ScheduledPost): Promise<void> {
 
 export const scheduledPostDeps: ScheduledPostDeps = {
   prepare,
-  createContainer: (input) => createReelContainer(input),
+  // A Story takes only the video and the AI disclosure (ADR 0065); a Reel the caption, cover and sound too.
+  createContainer: (input) => (input.kind === "STORY" ? createStoryContainer(input) : createReelContainer(input)),
   containerStatus: (containerId, token) => containerStatus(containerId, token),
   publish: (igUserId, containerId, token) => publishContainer(igUserId, containerId, token),
   classify: (error) => ({

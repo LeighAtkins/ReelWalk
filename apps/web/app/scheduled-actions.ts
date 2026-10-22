@@ -2,23 +2,55 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { INSTAGRAM, parseInstagramAudioChoice, publishAtProblem, zonedLocalToUtc } from "@reelwalk/core";
+import { INSTAGRAM, parseInstagramAudioChoice, POST_SPACING_MS, publishAtProblem, spacingWarning, zonedLocalToUtc } from "@reelwalk/core";
 import { cancelScheduledPost as cancelPost, prisma, setScheduledPostAudio } from "@reelwalk/db";
-import { COVER_FRAME_MS, reelCoverMs } from "@/lib/instagram";
 import { mediaUrl } from "@/lib/storage";
+import { ensureStoryCut, postableJob, reelPostData, storyPostData } from "@/lib/posting";
 import { postingProblem } from "@/lib/scheduled-posts";
 import { getCurrentUser } from "@/lib/workspace";
 
 /** Queued posts a studio may have waiting at once: a few months of daily posts. */
 const MAX_WAITING = 120;
 
-export type ScheduleResult = { ok: true; id: string; publishAt: string } | { ok: false; error: string };
+export type ScheduleResult =
+  | { ok: true; id: string; publishAt: string; storyId: string | null; storyError: string | null }
+  /** `spacing`: the refusal is the spacing guard (ADR 0065); sending `confirmSpacing` schedules anyway. */
+  | { ok: false; error: string; spacing?: true };
+
+/**
+ * Other posts and stories of the account near a time, for the spacing guard
+ * (ADR 0065). Posts that went out, are going out or are waiting all count; a
+ * story following a reel is at that reel's time and is counted once, as the reel.
+ */
+async function neighbours(workspaceId: string, publishAt: Date, except: string[] = []) {
+  const rows = await prisma.scheduledPost.findMany({
+    where: {
+      workspaceId,
+      id: { notIn: except },
+      status: { in: ["SCHEDULED", "PUBLISHING", "PUBLISHED"] },
+      publishAt: { gte: new Date(publishAt.getTime() - POST_SPACING_MS), lte: new Date(publishAt.getTime() + POST_SPACING_MS) },
+    },
+    select: { kind: true, afterPostId: true, publishAt: true, renderJob: { select: { reel: { select: { title: true } }, sourceJob: { select: { reel: { select: { title: true } } } } } } },
+  });
+  return rows
+    .filter((row) => !(row.kind === "STORY" && row.afterPostId))
+    .map((row) => ({ publishAt: row.publishAt, kind: row.kind, title: row.renderJob.reel?.title ?? row.renderJob.sourceJob?.reel?.title ?? null }));
+}
 
 /**
  * Queues a finished export to be posted as a Reel at a wall-clock time in
- * the viewer's time zone. The caption is the reel's, as saved right now.
+ * the viewer's time zone, and with `story` (the default) a story cut of its
+ * opening right after it. The caption is the reel's, as saved right now.
  */
-export async function schedulePost(input: { jobId: string; local: string; timeZone: string; audio?: unknown; aiGenerated?: boolean }): Promise<ScheduleResult> {
+export async function schedulePost(input: {
+  jobId: string;
+  local: string;
+  timeZone: string;
+  audio?: unknown;
+  aiGenerated?: boolean;
+  story?: boolean;
+  confirmSpacing?: boolean;
+}): Promise<ScheduleResult> {
   const user = await getCurrentUser();
   const problem = await postingProblem(user.workspaceId);
   if (problem) return { ok: false, error: problem };
@@ -36,10 +68,7 @@ export async function schedulePost(input: { jobId: string; local: string; timeZo
     return { ok: false, error: "Your Instagram connection runs out before then. Reconnect it on the Account tab, then schedule." };
   }
 
-  const job = await prisma.renderJob.findFirst({
-    where: { id: String(input.jobId), workspaceId: user.workspaceId, status: "SUCCEEDED", output: { isNot: null } },
-    include: { reel: { select: { id: true, caption: true, timeline: true } } },
-  });
+  const job = await postableJob(user.workspaceId, String(input.jobId));
   if (!job) return { ok: false, error: "This export has not finished." };
   const caption = job.reel?.caption ?? job.caption ?? "";
   if (caption.length > INSTAGRAM.captionMaxChars) return { ok: false, error: `Captions can be ${INSTAGRAM.captionMaxChars} characters.` };
@@ -47,30 +76,75 @@ export async function schedulePost(input: { jobId: string; local: string; timeZo
   const waiting = await prisma.scheduledPost.count({ where: { workspaceId: user.workspaceId, status: { in: ["SCHEDULED", "PUBLISHING"] } } });
   if (waiting >= MAX_WAITING) return { ok: false, error: `You have ${waiting} posts waiting. Cancel one, or wait for some to go out.` };
 
-  const post = await prisma.scheduledPost.create({
-    data: {
-      workspaceId: user.workspaceId,
-      renderJobId: job.id,
-      createdById: user.id,
-      caption,
-      coverMs: reelCoverMs(job.reel?.timeline) ?? COVER_FRAME_MS,
-      publishAt,
-      aiGenerated: input.aiGenerated === true,
-      ...(audio
-        ? { audioId: audio.audioId, audioTitle: audio.title, audioArtist: audio.artist, audioVolume: audio.audioVolume, videoVolume: audio.videoVolume }
-        : {}),
-    },
+  if (!input.confirmSpacing) {
+    const warning = spacingWarning(publishAt, await neighbours(user.workspaceId, publishAt));
+    if (warning) return { ok: false, error: `${warning[0].toUpperCase()}${warning.slice(1)}`, spacing: true };
+  }
+
+  const story = input.story !== false;
+  let cut: { id: string } | null = null;
+  let storyError: string | null = null;
+  if (story) {
+    try {
+      cut = await ensureStoryCut(user, job, account.username);
+    } catch (error) {
+      storyError = `The story could not be made: ${error instanceof Error ? error.message : "unknown error"}. The reel is scheduled without one.`;
+    }
+  }
+  const aiGenerated = input.aiGenerated === true;
+  const { post, storyPost } = await prisma.$transaction(async (tx) => {
+    const post = await tx.scheduledPost.create({ data: reelPostData(user, job, { publishAt, audio, aiGenerated }) });
+    const storyPost = cut ? await tx.scheduledPost.create({ data: storyPostData(user, { renderJobId: cut.id, publishAt, afterPostId: post.id, aiGenerated }) }) : null;
+    return { post, storyPost };
   });
   revalidatePath("/scheduled");
-  return { ok: true, id: post.id, publishAt: publishAt.toISOString() };
+  return { ok: true, id: post.id, publishAt: publishAt.toISOString(), storyId: storyPost?.id ?? null, storyError };
 }
 
-/** Cancels a post that is still waiting. One already publishing cannot be stopped. */
+/** Cancels a post that is still waiting (and the story waiting to follow it). One already publishing cannot be stopped. */
 export async function cancelScheduled(formData: FormData): Promise<void> {
   const user = await getCurrentUser();
   const cancelled = await cancelPost(prisma, { id: String(formData.get("id") ?? ""), workspaceId: user.workspaceId });
   revalidatePath("/scheduled");
   redirect(cancelled ? "/scheduled?cancelled=1" : "/scheduled?cancelled=late");
+}
+
+export type StoryToggleResult = { ok: true; storyId: string | null } | { ok: false; error: string };
+
+/**
+ * Adds a story to a waiting reel post (its cut is rendered now, and goes out
+ * right after the reel), or drops the one waiting. A reel already going out
+ * keeps what it had.
+ */
+export async function setScheduledStory(input: { id: string; story: boolean }): Promise<StoryToggleResult> {
+  const user = await getCurrentUser();
+  const post = await prisma.scheduledPost.findFirst({
+    where: { id: String(input.id ?? ""), workspaceId: user.workspaceId, kind: "REEL" },
+    include: { stories: { where: { status: { in: ["SCHEDULED", "PUBLISHING"] } }, select: { id: true, status: true } } },
+  });
+  if (!post) return { ok: false, error: "That post is gone." };
+  if (post.status !== "SCHEDULED") return { ok: false, error: "That post has already started going out, so its story can no longer change." };
+  const current = post.stories[0] ?? null;
+  if (!input.story) {
+    if (current) await cancelPost(prisma, { id: current.id, workspaceId: user.workspaceId });
+    revalidatePath("/scheduled");
+    return { ok: true, storyId: null };
+  }
+  if (current) return { ok: true, storyId: current.id };
+  const account = await prisma.socialAccount.findUnique({ where: { workspaceId_provider: { workspaceId: user.workspaceId, provider: "instagram" } }, select: { username: true } });
+  const job = await postableJob(user.workspaceId, post.renderJobId);
+  if (!account || !job) return { ok: false, error: "The export this post was made from is gone." };
+  try {
+    const cut = await ensureStoryCut(user, job, account.username);
+    const story = await prisma.scheduledPost.create({
+      data: storyPostData(user, { renderJobId: cut.id, publishAt: post.publishAt, afterPostId: post.id, aiGenerated: post.aiGenerated }),
+      select: { id: true },
+    });
+    revalidatePath("/scheduled");
+    return { ok: true, storyId: story.id };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : "The story could not be made." };
+  }
 }
 
 export type SoundResult = { ok: true } | { ok: false; error: string };

@@ -33,7 +33,8 @@ export async function workspacePlan(workspaceId: string, now: Date = new Date())
 /** Exports started this calendar month that did not fail (failed ones are not charged against the allowance). */
 export function exportsThisMonth(workspaceId: string, now: Date = new Date()): Promise<number> {
   return prisma.renderJob.count({
-    where: { workspaceId, kind: { not: "PREVIEW" }, status: { not: "FAILED" }, createdAt: { gte: monthStart(now) } },
+    // Story cuts (ADR 0065) are made from an export already counted.
+    where: { workspaceId, kind: { notIn: ["PREVIEW", "STORY"] }, status: { not: "FAILED" }, createdAt: { gte: monthStart(now) } },
   });
 }
 

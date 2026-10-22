@@ -55,3 +55,12 @@ export function previewKeyFor(ownerId: string, assetId: string): string {
 export function renderSourceKeyFor(assetId: string): string {
   return `render-sources/${assetId}.mp4`;
 }
+
+/**
+ * The render checks (ADR 0071) the worker writes beside an export:
+ * `renders/<job>.mp4` → `renders/<job>.checks.json`. One per output key, so a
+ * retry's new file gets its own facts and a stale worker's never replace them.
+ */
+export function checksKeyFor(outputKey: string): string {
+  return outputKey.replace(/\.mp4$/i, "") + ".checks.json";
+}

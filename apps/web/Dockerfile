@@ -39,7 +39,10 @@ ENV HOSTNAME=0.0.0.0
 
 # Nothing installs packages at runtime, so the package managers (and their
 # own vulnerable dependencies) are removed.
+# ffmpeg: the verification routes (ADR 0071) cut frames from an export and
+# decode it for the checks when the worker has not stored them.
 RUN apk upgrade --no-cache \
+  && apk add --no-cache ffmpeg \
   && rm -rf /usr/local/lib/node_modules /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /opt/yarn-*
 
 # The standalone output contains the server and only the node_modules it traces.

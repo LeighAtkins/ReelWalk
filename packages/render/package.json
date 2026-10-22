@@ -39,6 +39,7 @@
     "./constants": "./src/constants.ts",
     "./ensure-browser": "./src/ensure-browser.ts",
     "./reel": "./src/reel/index.ts",
+    "./reel/look": "./src/reel/look.ts",
     "./render-reel": "./src/render-reel.ts",
     "./reel-types": "./src/reel/types.ts"
   }

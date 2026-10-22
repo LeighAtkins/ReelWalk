@@ -4056,6 +4056,133 @@ input.inspect-scrub {
   min-height: 44px;
   display: flex;
   align-items: center;
+
+/* ── Render checks and the Judge view (ADR 0071) ───────────────── */
+
+.verify {
+  display: grid;
+  gap: 10px;
+}
+
+.verify-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.verify-title h2,
+.judge-head h2 {
+  margin: 0;
+  font-size: 17px;
+}
+
+.verify-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+}
+
+.verify-item {
+  display: grid;
+  grid-template-columns: 10px 1fr;
+  gap: 10px;
+  align-items: start;
+  padding: 10px 12px;
+  border-radius: var(--radius-m);
+  background: var(--panel);
+  border-left: 3px solid var(--rule);
+}
+
+.verify-item[data-level="block"] {
+  border-left-color: var(--signal);
+}
+
+.verify-mark {
+  width: 10px;
+  height: 10px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: var(--warn);
+}
+
+.verify-item[data-level="block"] .verify-mark {
+  background: var(--signal);
+}
+
+.verify-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.verify-impact {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.verify-clear,
+.verify-foot {
+  margin: 0;
+}
+
+.judge {
+  display: grid;
+  gap: 22px;
+  padding: 12px 0 48px;
+}
+
+.judge-reel {
+  display: grid;
+  gap: 10px;
+}
+
+.judge-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.judge-strip {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+  scroll-snap-type: x proximity;
+  -webkit-overflow-scrolling: touch;
+}
+
+.judge-frame {
+  display: grid;
+  flex: 0 0 auto;
+  gap: 4px;
+  margin: 0;
+  scroll-snap-align: start;
+}
+
+.judge-frame img {
+  display: block;
+  width: 144px;
+  height: 256px;
+  border-radius: 8px;
+  background: var(--ink-deep);
+  object-fit: cover;
+}
+
+.judge-frame figcaption {
+  font-size: 12px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.judge-gap {
+  flex: 0 0 8px;
+  margin: 10px 4px;
+  border-left: 1px dashed var(--line-strong);
 }
 
 /* Speed ramp (ADR 0067): the clip's speed across its time, thumb-sized, under the ramp choices. The dashed line is the clip's set speed. */

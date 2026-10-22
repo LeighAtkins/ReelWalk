@@ -135,7 +135,8 @@ export function storyPostData(
 export type PostStep =
   | { state: "processing"; postId: string; storyPostId?: string; storyError?: string }
   | { state: "published"; permalink: string | null; storyPostId?: string; storyError?: string }
-  | { state: "failed"; error: string };
+  /** `blocked`: the export failed a hard render check (ADR 0071); sending `postAnyway` posts it regardless, logged. */
+  | { state: "failed"; error: string; blocked?: string[] };
 
 export function postStep(post: Pick<ScheduledPost, "id" | "status" | "permalink" | "error">): PostStep {
   if (post.status === "PUBLISHED") return { state: "published", permalink: post.permalink };

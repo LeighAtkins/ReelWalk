@@ -4,12 +4,13 @@ import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import { GetObjectCommand, HeadObjectCommand, PutObjectCommand, type S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { frameThumbKeyFor, inputFilenameFor, outputKeyFor, parseReelExportPayload, reelRenderPlan, renderSourceKeyFor } from "@reelwalk/core";
+import { checksKeyFor, frameThumbKeyFor, inputFilenameFor, outputKeyFor, parseReelExportPayload, reelRenderPlan, renderSourceKeyFor, type RenderChecks } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
 import { probe, run } from "./library/tools";
 import { createAttemptScope, killDescendants, REMOTION_PROCESSES, type AttemptScope } from "./lifecycle";
 import { normaliseLoudness } from "./loudness";
 import { transcribeVideo, transcriptionAvailable } from "./transcribe";
+import { verifyRender } from "./verify";
 
 /** Longest side of a clip the renderer is handed. Output is 1080x1920, so nothing is lost. */
 const MAX_RENDER_SIDE = 1920;
@@ -112,6 +113,8 @@ export async function renderJob(
   const workdir = await attempt.tempDir(`reelwalk-${job.id}-`);
   const outputPath = path.join(workdir, "output.mp4");
   const report = (fraction: number) => onProgress(Math.min(100, Math.round(fraction * 100)));
+  // The render checks (ADR 0071), stored beside a reel export; null when they could not be made.
+  let checks: RenderChecks | null = null;
 
   try {
     if (job.kind === "PREVIEW") {
@@ -212,6 +215,14 @@ export async function renderJob(
       }
       await renderReel({ timeline: plan.timeline, assets, output: outputPath, concurrency, width: payload.output.width, watermark: payload.output.watermark, signal }, report);
       await normaliseLoudness(outputPath, (line) => console.log(`[${job.id}] ${line}`), attempt);
+      if (process.env.RENDER_CHECKS !== "0") {
+        try {
+          checks = await verifyRender(outputPath, plan.timeline, (line) => console.log(`[${job.id}] ${line}`), attempt);
+        } catch (error) {
+          attempt.throwIfStopped();
+          console.warn(`[${job.id}] checks not made: ${error instanceof Error ? error.message : error}`);
+        }
+      }
     } else if (job.kind === "EDITOR") {
       // Editor projects carried media URLs chosen by the client, so rendering
       // one made the worker fetch any host it named (SSRF). The route that
@@ -244,6 +255,16 @@ export async function renderJob(
       }),
       { abortSignal: signal },
     );
+    if (checks) {
+      // Beside the file, under the file's own key: a retry's new file gets new checks, and a stale worker's cannot replace them.
+      const checksKey = checksKeyFor(objectKey);
+      try {
+        await s3.send(new PutObjectCommand({ Bucket: bucket, Key: checksKey, Body: Buffer.from(JSON.stringify(checks)), ContentType: "application/json" }), { abortSignal: signal });
+      } catch (error) {
+        attempt.throwIfStopped();
+        console.warn(`[${job.id}] checks not stored at ${checksKey}: ${error instanceof Error ? error.message : error}`);
+      }
+    }
     return { objectKey, contentType: "video/mp4", sizeBytes: size };
   } finally {
     await privateScope?.close();

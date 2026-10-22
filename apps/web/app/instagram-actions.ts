@@ -9,6 +9,7 @@ import { workspacePlan } from "@/lib/plans";
 import { isLocalMediaUrl, publishDueScheduledPosts } from "@/lib/scheduled-posts";
 import { advancePost, connectedInstagram, ensureStoryCut, fullReelStoryIssue, postableJob, postStep, reelPostData, storyPostData, type PostStep } from "@/lib/posting";
 import { getCurrentUser } from "@/lib/workspace";
+import { postAnywayLine, postGate } from "@/lib/render-verify";
 
 export type { PostStep } from "@/lib/posting";
 
@@ -39,10 +40,14 @@ async function readyToPost(jobId: string) {
  * and posted as a Story right after the Reel is published. The first step
  * (asking Instagram to fetch the video) is taken before answering.
  */
-export async function startInstagramPost(input: { jobId: string; audio?: unknown; aiGenerated?: boolean; story?: boolean }): Promise<PostStep> {
+export async function startInstagramPost(input: { jobId: string; audio?: unknown; aiGenerated?: boolean; story?: boolean; postAnyway?: boolean }): Promise<PostStep> {
   const ready = await readyToPost(String(input.jobId));
   if (typeof ready === "string") return { state: "failed", error: ready };
   const { user, account, job } = ready;
+  // The render checks (ADR 0071): a black frame, an empty frame 0 or a title under the buttons stops the post unless the studio says anyway.
+  const gate = await postGate(job);
+  if (gate.blocked && !input.postAnyway) return { state: "failed", error: gate.reason ?? "This export failed its checks.", blocked: gate.reasons };
+  if (gate.blocked) console.warn(postAnywayLine({ jobId: job.id, userId: user.id, action: "post", reasons: gate.reasons }));
   const audio = input.audio == null ? null : parseInstagramAudioChoice(input.audio);
   if (input.audio != null && !audio) return { state: "failed", error: "That Instagram sound could not be read. Pick it again." };
   const aiGenerated = input.aiGenerated === true;

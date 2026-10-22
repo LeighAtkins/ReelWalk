@@ -8,6 +8,7 @@ import { mediaUrl } from "@/lib/storage";
 import { ensureStoryCut, postableJob, reelPostData, storyPostData } from "@/lib/posting";
 import { postingProblem } from "@/lib/scheduled-posts";
 import { getCurrentUser } from "@/lib/workspace";
+import { postAnywayLine, postGate } from "@/lib/render-verify";
 
 /** Queued posts a studio may have waiting at once: a few months of daily posts. */
 const MAX_WAITING = 120;
@@ -15,7 +16,7 @@ const MAX_WAITING = 120;
 export type ScheduleResult =
   | { ok: true; id: string; publishAt: string; storyId: string | null; storyError: string | null }
   /** `spacing`: the refusal is the spacing guard (ADR 0065); sending `confirmSpacing` schedules anyway. */
-  | { ok: false; error: string; spacing?: true };
+  | { ok: false; error: string; spacing?: true; blocked?: string[] };
 
 /**
  * Other posts and stories of the account near a time, for the spacing guard
@@ -50,6 +51,7 @@ export async function schedulePost(input: {
   aiGenerated?: boolean;
   story?: boolean;
   confirmSpacing?: boolean;
+  postAnyway?: boolean;
 }): Promise<ScheduleResult> {
   const user = await getCurrentUser();
   const problem = await postingProblem(user.workspaceId);
@@ -70,6 +72,10 @@ export async function schedulePost(input: {
 
   const job = await postableJob(user.workspaceId, String(input.jobId));
   if (!job) return { ok: false, error: "This export has not finished." };
+  // The render checks (ADR 0071) stop a scheduled post the same way as an immediate one.
+  const gate = await postGate(job);
+  if (gate.blocked && !input.postAnyway) return { ok: false, error: gate.reason ?? "This export failed its checks.", blocked: gate.reasons };
+  if (gate.blocked) console.warn(postAnywayLine({ jobId: job.id, userId: user.id, action: "schedule", reasons: gate.reasons }));
   const caption = job.reel?.caption ?? job.caption ?? "";
   if (caption.length > INSTAGRAM.captionMaxChars) return { ok: false, error: `Captions can be ${INSTAGRAM.captionMaxChars} characters.` };
 

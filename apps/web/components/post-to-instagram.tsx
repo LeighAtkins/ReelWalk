@@ -7,6 +7,9 @@ import { InstagramIcon } from "./icons";
 
 type Step = PostStep | { state: "idle" } | { state: "starting" };
 
+/** The reasons the render checks (ADR 0071) give for stopping a post: known from the page, or learnt from the server's refusal. */
+type Blocked = string[] | null;
+
 /**
  * One tap from a finished export to a published Reel, for workspaces with a
  * connected Instagram professional account. The post is a row the server
@@ -20,15 +23,20 @@ export function PostToInstagram({
   audio = null,
   aiGenerated = false,
   story = false,
+  blocked = null,
 }: {
   jobId: string;
   username: string;
   audio?: InstagramAudioChoice | null;
   aiGenerated?: boolean;
   story?: boolean;
+  /** The render checks' block reasons when the export failed a hard check; the button then posts anyway, logged. */
+  blocked?: string[] | null;
 }) {
   const [step, setStep] = useState<Step>({ state: "idle" });
   const [storyStep, setStoryStep] = useState<PostStep | null>(null);
+  const [refused, setRefused] = useState<Blocked>(null);
+  const stop: Blocked = refused ?? (blocked && blocked.length ? blocked : null);
   const storyPostId = step.state === "processing" || step.state === "published" ? step.storyPostId : undefined;
 
   useEffect(() => {
@@ -53,7 +61,14 @@ export function PostToInstagram({
   async function post() {
     setStep({ state: "starting" });
     setStoryStep(null);
-    setStep(await startInstagramPost({ jobId, audio, aiGenerated, story }).catch((): PostStep => ({ state: "failed", error: "Could not reach ReelWalk. Try again." })));
+    const next = await startInstagramPost({ jobId, audio, aiGenerated, story, postAnyway: stop !== null }).catch((): PostStep => ({ state: "failed", error: "Could not reach ReelWalk. Try again." }));
+    // Refused by checks the page did not know about yet: show why, and offer to post anyway.
+    if (next.state === "failed" && next.blocked?.length) {
+      setRefused(next.blocked);
+      setStep({ state: "idle" });
+      return;
+    }
+    setStep(next);
   }
 
   if (step.state === "published") {
@@ -93,15 +108,22 @@ export function PostToInstagram({
 
   return (
     <>
+      {stop ? (
+        <p className="error small" role="alert" style={{ gridColumn: "1 / -1", margin: 0 }} data-testid="post-blocked">
+          Posting is blocked: {stop[0]}
+          {stop.length > 1 ? ` (+${stop.length - 1} more)` : ""}
+        </p>
+      ) : null}
       <button
-        className="btn btn-signal"
+        className={stop ? "btn btn-quiet" : "btn btn-signal"}
         type="button"
         onClick={post}
         disabled={step.state === "starting" || step.state === "processing"}
         data-testid="post-to-instagram"
+        data-anyway={stop ? "true" : undefined}
       >
         <InstagramIcon size={18} />
-        {step.state === "starting" ? "Sending…" : step.state === "processing" ? "Instagram is processing…" : `Post to @${username}`}
+        {step.state === "starting" ? "Sending…" : step.state === "processing" ? "Instagram is processing…" : stop ? "Post anyway" : `Post to @${username}`}
       </button>
       {step.state === "processing" ? (
         <p className="muted small" style={{ gridColumn: "1 / -1", margin: 0 }} data-testid="instagram-processing">

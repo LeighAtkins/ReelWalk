@@ -37,6 +37,7 @@ import {
   addText,
   updateText,
   timelineSchema,
+  type ClipSettings,
   type HookPattern,
   type Music,
   type TextOverlay,
@@ -106,6 +107,8 @@ export type Command =
   | { type: "setTransition"; clipId: string; transition: Timeline["clips"][number]["transitionIn"]; whipDirection?: WhipDirection }
   /** One title's look or place (the critic's fixes, ADR 0062). Does not change the cut, so nothing is retimed. */
   | { type: "updateText"; textId: string; patch: Partial<Omit<TextOverlay, "id">> }
+  /** One clip's look (a camera move, zoom, grade, fit, transition; the retention critic's fixes, ADR 0071). Not its timing: `setSpeed` and `trimClip` change the cut. */
+  | { type: "updateClip"; clipId: string; patch: Omit<ClipSettings, "speed"> }
   /** A new title. */
   | { type: "addText"; text: Omit<TextOverlay, "endMs" | "animation"> & { endMs?: number; animation?: TextOverlay["animation"] } }
   /** Several commands as one step and one undo ("Fix all", ADR 0062): all of them land, or none. */
@@ -288,6 +291,13 @@ function run(timeline: Timeline, command: Command, context: CommandContext): Tim
     case "updateText":
       if (!timeline.texts.some((text) => text.id === command.textId)) throw new Error(`There is no text called ${command.textId} in the reel.`);
       return updateText(timeline, command.textId, command.patch);
+    case "updateClip": {
+      if (!timeline.clips.some((clip) => clip.id === command.clipId)) throw new Error(`There is no clip called ${command.clipId} in the reel.`);
+      // Speed is a cut change (it retimes everything after the clip), so it is not a setting this command may touch.
+      const patch: ClipSettings = { ...(command.patch as ClipSettings) };
+      delete patch.speed;
+      return updateClip(timeline, command.clipId, patch);
+    }
     case "addText": {
       if (timeline.texts.some((text) => text.id === command.text.id)) throw new Error(`A text called ${command.text.id} is already in the reel.`);
       const added = addText(timeline, command.text);

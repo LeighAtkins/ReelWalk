@@ -30,10 +30,12 @@ echo "[$(date +%T)] deploy ${SHA:0:7} (was ${OLD:0:7})"
 pushed() { "$AWS" ecr describe-images --repository-name "$1" --image-ids imageTag="$SHA" --query 'imageDetails[0].imagePushedAt' --output text 2>/dev/null; }
 for i in $(seq 1 90); do
   if [ -n "$(pushed reelwalk-web)" ] && [ -n "$(pushed reelwalk-worker)" ]; then break; fi
-  run=$(gh run list --repo "$REPO" --branch main --limit 5 --json headSha,status,conclusion,databaseId --jq ".[] | select(.headSha==\"$SHA\") | \"\(.status) \(.conclusion) \(.databaseId)\"" | head -1)
+  # Only the CI workflow builds images (Dependabot runs share the sha), and GitHub can take
+  # several minutes to register the run after a merge, so wait up to 15 minutes for it.
+  run=$(gh run list --repo "$REPO" --branch main --limit 20 --json headSha,status,conclusion,databaseId,workflowName --jq ".[] | select(.headSha==\"$SHA\" and .workflowName==\"CI\") | \"\(.status) \(.conclusion) \(.databaseId)\"" | head -1)
   case "$run" in
     "completed failure"*) echo "[$(date +%T)] main CI failed, re-running failed jobs"; gh run rerun "${run##* }" --repo "$REPO" --failed; sleep 60;;
-    "") [ "$i" -gt 6 ] && { echo "no CI run for $SHA on main"; exit 1; };;
+    "") [ "$i" -gt 30 ] && { echo "no CI run for $SHA on main"; exit 1; };;
   esac
   [ "$i" = 90 ] && { echo "gave up waiting for images"; exit 1; }
   sleep 30

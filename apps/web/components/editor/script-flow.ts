@@ -6,7 +6,7 @@
  * so a lost response or a reload carries on with the same id and the server's
  * request ids never charge a take twice.
  */
-import { lineSeconds, type PresenterTakeInsert, type ScriptRequest } from "@reelwalk/core";
+import { AI_QUEUE_LIMIT, lineSeconds, type PresenterTakeInsert, type ScriptRequest } from "@reelwalk/core";
 import type { LibraryAsset } from "@/lib/library";
 
 /** A take's generation as `GET /api/reels/:id/script?scriptId=` returns it. */
@@ -25,8 +25,8 @@ export type ApprovedScript = { script: ScriptRequest; quotedCredits: number; app
 
 /** After this long a waiting take is not started on the old approval: the studio is asked again first. */
 export const APPROVAL_TTL_MS = 60 * 60_000;
-/** Takes a workspace may have generating at once (the server's reservation enforces it). */
-export const SCRIPT_IN_FLIGHT_LIMIT = 2;
+/** Takes a workspace may have waiting or generating at once (ADR 0069: a queue, enforced by the server's reservation). */
+export const SCRIPT_IN_FLIGHT_LIMIT = AI_QUEUE_LIMIT;
 const IN_FLIGHT = new Set(["QUEUED", "SUBMITTING", "RUNNING"]);
 
 /** Every take of the script, with what its generation is doing (or `waiting` before it is started). */
@@ -114,6 +114,8 @@ export function takesToPlace(script: ScriptRequest, progress: TakeState[]): Pres
     afterClipId: script.takes[take.index].afterClipId,
     fraction: script.takes[take.index].fraction,
     index: take.index,
+    // The auto-trim (ADR 0069): the window that holds the line, from the worker's word timings.
+    trim: take.asset.transcript?.take ? { startMs: take.asset.transcript.take.startMs, endMs: take.asset.transcript.take.endMs } : null,
   }] : []);
 }
 

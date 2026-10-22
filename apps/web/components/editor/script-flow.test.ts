@@ -3,7 +3,7 @@ import { parseTimeline, scriptRequestSchema, type ScriptRequest, type Timeline }
 import type { LibraryAsset } from "@/lib/library";
 import { createDocumentStore } from "./document-store";
 import {
-  APPROVAL_TTL_MS, approvalExpired, classifyAnswer, loadApproved, progressSummary, saveApproved, scriptProgress, scriptSettled, sendApproval, shouldStartMore, startScript, takesToPlace,
+  APPROVAL_TTL_MS, approvalExpired, classifyAnswer, loadApproved, progressSummary, saveApproved, scriptProgress, scriptSettled, SCRIPT_IN_FLIGHT_LIMIT, sendApproval, shouldStartMore, startScript, takesToPlace,
   type ApprovalDeps, type ApprovedScript, type ScriptJob,
 } from "./script-flow";
 
@@ -40,10 +40,11 @@ describe("following a script's takes", () => {
     expect(progressSummary(progress)).toBe("1 ready · 1 being made · 1 waiting its turn");
   });
 
-  it("asks for the next take only when the workspace has room for it", () => {
+  it("asks for the next take only when the workspace has room for it (the take queue, ADR 0069)", () => {
     const waiting = scriptProgress(approved, [job("g0", 0, "SUCCEEDED", asset("ai-g0", 4000)), job("g1", 1, "RUNNING")]);
-    expect(shouldStartMore(waiting, 2)).toBe(false);
-    expect(shouldStartMore(waiting, 1)).toBe(true);
+    expect(shouldStartMore(waiting, SCRIPT_IN_FLIGHT_LIMIT)).toBe(false);
+    expect(shouldStartMore(waiting, SCRIPT_IN_FLIGHT_LIMIT - 1)).toBe(true);
+    expect(shouldStartMore(waiting, 2)).toBe(true);
     const all = scriptProgress(approved, [job("g0", 0, "RUNNING"), job("g1", 1, "RUNNING"), job("g2", 2, "QUEUED")]);
     expect(shouldStartMore(all, 0)).toBe(false);
   });
@@ -70,12 +71,15 @@ describe("following a script's takes", () => {
 
   it("places only what is ready when the studio stops early, and leaves failed takes out", () => {
     const early = scriptProgress(approved, [job("g0", 0, "SUCCEEDED", asset("ai-g0", 4100)), job("g1", 1, "RUNNING")]);
-    expect(takesToPlace(script, early)).toEqual([{ assetId: "ai-g0", durationMs: 4100, afterClipId: null, fraction: 0, index: 0 }]);
+    expect(takesToPlace(script, early)).toEqual([{ assetId: "ai-g0", durationMs: 4100, afterClipId: null, fraction: 0, index: 0, trim: null }]);
+    // A take the worker trimmed to its line (ADR 0069) is placed on that window.
+    const trimmed = { ...asset("ai-g0", 4100), transcript: { text: "Welcome home.", words: [{ w: "Welcome", s: 300, e: 700 }, { w: "home.", s: 800, e: 1200 }], take: { line: "Welcome home.", startMs: 150, endMs: 1450, heard: "Welcome home.", distance: 0, wrongWords: false } } };
+    expect(takesToPlace(script, scriptProgress(approved, [job("g0", 0, "SUCCEEDED", trimmed)]))[0].trim).toEqual({ startMs: 150, endMs: 1450 });
     const settled = scriptProgress(approved, [job("g0", 0, "SUCCEEDED", asset("ai-g0", 4100)), job("g1", 1, "FAILED"), job("g2", 2, "SUCCEEDED", asset("ai-g2", null))]);
     expect(takesToPlace(script, settled)).toEqual([
-      { assetId: "ai-g0", durationMs: 4100, afterClipId: null, fraction: 0, index: 0 },
+      { assetId: "ai-g0", durationMs: 4100, afterClipId: null, fraction: 0, index: 0, trim: null },
       // Without a measured length the line's own (4 s) is used.
-      { assetId: "ai-g2", durationMs: 4000, afterClipId: "b", fraction: 1, index: 2 },
+      { assetId: "ai-g2", durationMs: 4000, afterClipId: "b", fraction: 1, index: 2, trim: null },
     ]);
   });
 });

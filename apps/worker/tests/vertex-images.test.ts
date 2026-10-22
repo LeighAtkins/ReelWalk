@@ -46,16 +46,21 @@ describe("presenter kit compose (ADR 0056)", () => {
     expect(composePrompt("first", "In the doorway.", { face: true, stronger: true })).toContain("Identity is the priority");
     expect(composePrompt("first", "In the doorway.", { face: true })).not.toContain("Identity is the priority");
     expect(composePrompt("first", "A small figure at the gate.", { framing: "wide" })).toContain("Wide framing");
-    // A speaking end: its own wording, no blame, and no conflicting 180 px medium text.
-    const speaking = composePrompt("first", "At the gate.", { framing: "medium", closer: 1 });
-    expect(speaking).toContain("Frame her closer, for a speaking shot");
-    expect(speaking).toContain("at least 220 px tall");
+    // A speaking end is composed close (ADR 0069): the framing text carries the number, no blame, no conflicting 180 px medium text.
+    const speaking = composePrompt("first", "At the gate.", { framing: "close" });
+    expect(speaking).toContain("Close shot");
+    expect(speaking).toContain("at least 320 px tall");
     expect(speaking).not.toContain("last attempt");
     expect(speaking).not.toContain("180 px");
-    // After a face too small to judge: escalate.
-    const escalated = composePrompt("first", "At the gate.", { framing: "medium", closer: 2, stronger: true });
-    expect(escalated).toContain("waist-up, her head in the top fifth of the frame, her face at least 260 px tall");
-    expect(escalated).toContain("The last attempt made her face too small");
+    // Waist-up: the feet are out of frame, so the floor rule gives way to a distance rule.
+    expect(speaking).not.toContain("Her feet stand on visible, clear floor");
+    expect(speaking).toContain("nearer the camera than everything in the scene");
+    expect(composePrompt("first", "At the gate.", { framing: "medium" })).toContain("Her feet stand on visible, clear floor");
+    // After a face too small to judge: a framing closer, and told why.
+    const escalated = composePrompt("first", "At the gate.", { framing: "tight", closer: true, stronger: true });
+    expect(escalated).toContain("Tight shot");
+    expect(escalated).toContain("at least 440 px tall");
+    expect(escalated).toContain("the last attempt made her face too small");
     expect(escalated).not.toContain("180 px");
     expect(composePrompt("first", "At the gate.", { framing: "medium" })).toContain("180 px");
   });

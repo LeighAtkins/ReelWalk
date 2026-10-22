@@ -11,7 +11,8 @@
 import { z } from "zod";
 import { aiClipCredits, type AiClipSeconds } from "./ai";
 import { aiBoundary, aiShotSchema, type AiScriptMeta, type AiShot } from "./ai-shots";
-import { isGeneratedAssetId } from "./presenter";
+import { isGeneratedAssetId, type PresenterFraming } from "./presenter";
+import { aiDirectionSchema, directionPrompt, directionStill, hasDirection, type AiDirection } from "./direction";
 import { clipStartsMs, timelineDurationMs, type Clip, type Filter, type Timeline } from "./timeline";
 
 export const SCRIPT_MAX_LINES = 4;
@@ -142,6 +143,10 @@ export const scriptRequestSchema = z.object({
   /** One voice for every take: Veo's own audio by default, the workspace's lip-synced voice when it is set up. */
   voice: z.enum(SCRIPT_VOICES).default("veo"),
   outfit: z.string().trim().max(SCRIPT_OUTFIT_MAX).optional(),
+  /** How close every take is composed (ADR 0069): close by default for a spoken line. */
+  framing: z.enum(["tight", "close", "medium"]).default("close"),
+  /** How she plays every line (ADR 0069): tone, energy, eye line, blocking. Per script, like the outfit. */
+  direction: aiDirectionSchema.optional(),
   takes: z.array(scriptTakeSchema).min(1).max(SCRIPT_MAX_LINES),
 }).superRefine((script, ctx) => {
   script.takes.forEach((take, i) => {
@@ -176,24 +181,34 @@ export function scriptContinuity(takes: Pick<ScriptTake, "boundary">[]): Continu
   }));
 }
 
-/** The composed still's description (ADR 0036): where she is, what she wears, how she is lit. Under 600 characters. */
-export function composeInstruction(take: Pick<ScriptTake, "room" | "light">, outfit: string | null | undefined, continuity: Continuity): string {
+/** The shot size the still and the prompt name, by framing (the worker's framing instruction gives the numbers). */
+const SHOT_SIZE: Record<PresenterFraming, string> = { tight: "Tight shot, chest-up, near the camera", close: "Close shot, waist-up, near the camera", medium: "Medium shot, knees at the bottom edge, true scale", wide: "Wide shot" };
+
+/**
+ * The composed still's description (ADR 0036): where she is, what she wears, how she is lit, and (ADR 0069) how she
+ * holds her face and where she stands for the direction. Under 600 characters.
+ */
+export function composeInstruction(take: Pick<ScriptTake, "room" | "light">, outfit: string | null | undefined, continuity: Continuity, framing: PresenterFraming = "close", direction?: AiDirection | null): string {
   const where = take.room ? `in the ${take.room}` : "in this room";
+  const blocked = hasDirection(direction) && direction.blocking && direction.blocking !== "stand";
   const position = continuity.walksIn
     ? `She steps in from the left edge of the frame ${where}, mid-stride, turning toward camera.`
-    : `She stands ${where} in the middle third of the frame, facing camera, about to speak.`;
-  // Every part is bounded (room 40, outfit 120 characters), so the whole stays under the 600 the schema allows without cutting a sentence.
-  return [position, "Medium shot, knees at the bottom edge, true scale. Speaking: her face large, sharp and front-lit, both eyes and her mouth clearly visible.", outfitSentence(outfit), lightInstruction(take.light)].join(" ");
+    : blocked ? `She is ${where}.` : `She stands ${where} in the middle third of the frame, facing camera, about to speak.`;
+  // Every part is bounded (room 40, outfit 120, direction under 200 characters), so the whole stays under the 600 the schema allows without cutting a sentence.
+  const acting = hasDirection(direction) ? directionStill(direction, "first") : "";
+  return [position, `${SHOT_SIZE[framing]}. Speaking: her face large, sharp and front-lit, both eyes and her mouth clearly visible.`, acting, outfitSentence(outfit), lightInstruction(take.light)].filter(Boolean).join(" ");
 }
 
 /** What Veo is asked for. The worker adds the spoken line (and, for Veo's audio, the accent) as for any voiced take. */
-export function presenterPrompt(take: Pick<ScriptTake, "room" | "light">, outfit: string | null | undefined, voice: ScriptVoice, continuity: Continuity): string {
+export function presenterPrompt(take: Pick<ScriptTake, "room" | "light">, outfit: string | null | undefined, voice: ScriptVoice, continuity: Continuity, framing: PresenterFraming = "close", direction?: AiDirection | null): string {
+  const directed = hasDirection(direction);
   return [
-    "Start exactly from the supplied first frame. Medium shot: the camera holds still, at most a slow gentle push in.",
+    `Start exactly from the supplied first frame. ${SHOT_SIZE[framing]}: the camera holds still, at most a slow gentle push in.`,
     continuity.walksIn
       ? "She walks in from the left edge of the frame, continuing from the previous shot where she walked out to the right, stops in the middle third and turns to camera."
-      : "She is already in place.",
-    "She looks into the lens and speaks to camera with small, natural gestures.",
+      : directed && direction.blocking && direction.blocking !== "stand" ? "" : "She is already in place.",
+    directed && direction.eyeLine && direction.eyeLine !== "lens" ? "She speaks to camera." : "She looks into the lens and speaks to camera" + (directed && direction.energy ? "." : " with small, natural gestures."),
+    directed ? directionPrompt(direction) : "",
     continuity.walksOut ? "As she finishes speaking she turns and walks out of the frame to the right." : "",
     outfitSentence(outfit), lightInstruction(take.light),
     voice === "veo" ? "One presenter and one voice across the reel: her same warm Australian voice in every take." : "One presenter across the reel.",
@@ -220,15 +235,17 @@ export function buildScriptShots(script: ScriptRequest, reelId: string): ScriptS
       id: script.scriptId, reelId, index, count: script.takes.length, afterClipId: take.afterClipId, fraction: take.fraction,
       ...(script.outfit?.trim() ? { outfit: script.outfit.trim() } : {}),
     };
+    const direction = hasDirection(script.direction) ? script.direction : undefined;
     const shot: ScriptShot["shot"] = {
       mode: "custom", first: take.plate, line: cleanLine(take.line), voice: script.voice, script: meta,
-      compose: { presenterId: script.presenterId, framing: "medium", first: composeInstruction(take, script.outfit, continuity[index]) },
+      ...(direction ? { direction } : {}),
+      compose: { presenterId: script.presenterId, framing: script.framing, first: composeInstruction(take, script.outfit, continuity[index], script.framing, direction) },
     };
     const checked = aiShotSchema.safeParse(shot);
     if (!checked.success || !checked.data.voice || !checked.data.line || !checked.data.compose) {
       throw new ScriptShotError(`Line ${index + 1} could not be made into a take${checked.success ? "" : `: ${checked.error.issues[0]?.message ?? "invalid"}`}.`);
     }
-    return { prompt: presenterPrompt(take, script.outfit, script.voice, continuity[index]), durationSeconds: quote.seconds[index], credits: quote.credits[index], shot };
+    return { prompt: presenterPrompt(take, script.outfit, script.voice, continuity[index], script.framing, direction), durationSeconds: quote.seconds[index], credits: quote.credits[index], shot };
   });
 }
 
@@ -258,8 +275,8 @@ export function lightFromLuma(gray: { data: ArrayLike<number>; width: number; he
   return "even";
 }
 
-/** A finished take to place: its asset, its length, and where its script put it. */
-export type PresenterTakeInsert = { assetId: string; durationMs: number; afterClipId: string | null; fraction: number; index: number };
+/** A finished take to place: its asset, its length, where its script put it, and (ADR 0069) the window that holds its line. */
+export type PresenterTakeInsert = { assetId: string; durationMs: number; afterClipId: string | null; fraction: number; index: number; trim?: { startMs: number; endMs: number } | null };
 
 /** The clip id a take gets, so placing the same take twice is a no-op. */
 export const presenterTakeClipId = (assetId: string) => `script-${assetId}`;
@@ -297,9 +314,12 @@ export function insertPresenterTakes(timeline: Timeline, takes: PresenterTakeIns
   for (let b = 0; b <= clips.length; b++) {
     for (const { take } of placed.filter(p => p.boundary === b)) {
       const plate = clips[b - 1] ?? clips[b];
+      // The auto-trim (ADR 0069): the line with a short lead and tail, never the garbled words Veo adds after it.
+      const trim = take.trim && take.trim.endMs > take.trim.startMs ? { sourceStartMs: Math.max(0, Math.round(take.trim.startMs)), sourceEndMs: Math.min(Math.round(take.durationMs), Math.round(take.trim.endMs)) } : null;
+      const window = trim && trim.sourceEndMs - trim.sourceStartMs >= 500 ? trim : { sourceStartMs: 0, sourceEndMs: Math.round(take.durationMs) };
       next.push({
         id: presenterTakeClipId(take.assetId), assetId: take.assetId, kind: "VIDEO",
-        sourceStartMs: 0, sourceEndMs: Math.round(take.durationMs), speed: 1, volume: 1, fit: "cover",
+        ...window, speed: 1, volume: 1, fit: "cover",
         filter: plate?.filter ?? "none", motion: "none", pano: null, spot: null, room: plate?.room ?? null,
         transitionIn: "cut", zoom: 1,
       });

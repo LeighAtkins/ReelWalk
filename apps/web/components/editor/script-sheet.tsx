@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  clipDurationMs, lightFromLuma, planScript, scriptQuote, scriptSlots, SCRIPT_LINE_MAX, SCRIPT_LINE_MIN, SCRIPT_MAX_LINES, SCRIPT_OUTFIT_MAX,
-  type LightSide, type PresenterTakeInsert, type ScriptRequest, type ScriptSlot, type ScriptVoice, type Timeline,
+  BLOCKINGS, clipDurationMs, CUTAWAY_EVERY_CHOICES_MS, cutawaySpacing, DIRECTION_ENERGIES, DIRECTION_LABELS, DIRECTION_TONES, EYE_LINES, hasDirection, isPresenterTake, lightFromLuma, planScript, scriptQuote, scriptSlots, SCRIPT_LINE_MAX, SCRIPT_LINE_MIN, SCRIPT_MAX_LINES, SCRIPT_OUTFIT_MAX,
+  type AiDirection, type LightSide, type PresenterTakeInsert, type ScriptRequest, type ScriptSlot, type ScriptVoice, type Timeline,
 } from "@reelwalk/core";
 import type { LibraryAsset } from "@/lib/library";
 import { PresenterPicker } from "./presenter-kit";
@@ -125,15 +125,21 @@ const OUTFIT_KEY = (kitId: string) => `reelwalk:outfit:${kitId}`;
  * Generate. While takes are being made it shows them; when they are done it
  * places them in one undoable step.
  */
-export function ScriptSheet({ reelId, timeline, library, run, onPlace, onAssets }: {
+export function ScriptSheet({ reelId, timeline, library, run, onPlace, onAssets, onCutaways }: {
   reelId: string; timeline: Timeline; library: Record<string, LibraryAsset>; run: ScriptRun;
   onPlace(takes: PresenterTakeInsert[], assets: LibraryAsset[]): boolean; onAssets(assets: LibraryAsset[]): void;
+  /** Cutaways over her lines every so many milliseconds (ADR 0069), or none. */
+  onCutaways?(everyMs: number | null): void;
 }) {
   const [info, setInfo] = useState<Availability | null>(null);
   const [lines, setLines] = useState<string[]>(["", ""]);
   const [placements, setPlacements] = useState<(number | null)[]>([null, null]);
   const [outfit, setOutfit] = useState("");
   const [voice, setVoice] = useState<ScriptVoice>("veo");
+  const [framing, setFraming] = useState<"tight" | "close" | "medium">("close");
+  const [direction, setDirection] = useState<AiDirection>({});
+  const hasTakes = useMemo(() => timeline.clips.some(isPresenterTake) || cutawaySpacing(timeline) !== null, [timeline]);
+  const spacing = cutawaySpacing(timeline);
   const [presenterId, setPresenterId] = useState<string | null>(null);
   const [busy, setBusy] = useState<"write" | "generate" | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -181,7 +187,7 @@ export function ScriptSheet({ reelId, timeline, library, run, onPlace, onAssets 
     try {
       const lights = await Promise.all(chosen.map(slot => slot ? measureLight(timeline, library, slot) : Promise.resolve(null)));
       const script: ScriptRequest = {
-        scriptId: crypto.randomUUID(), presenterId, voice, ...(outfit.trim() ? { outfit: outfit.trim() } : {}),
+        scriptId: crypto.randomUUID(), presenterId, voice, framing, ...(hasDirection(direction) ? { direction } : {}), ...(outfit.trim() ? { outfit: outfit.trim() } : {}),
         takes: chosen.map((slot, i) => ({ line: filled[i], boundary: slot!.boundary, afterClipId: slot!.afterClipId, fraction: slot!.fraction, plate: slot!.plate, room: slot!.room, light: lights[i] })),
       };
       try { if (outfit.trim()) localStorage.setItem(OUTFIT_KEY(presenterId), outfit.trim()); } catch { /* none */ }
@@ -189,6 +195,15 @@ export function ScriptSheet({ reelId, timeline, library, run, onPlace, onAssets 
       setLines(["", ""]); setPlacements([null, null]);
     } finally { setBusy(null); }
   }
+
+  const cutawayControl = hasTakes && onCutaways ? <label className="field small">
+    <span className="small">Cutaways over her lines (her voice carries on under the reel&apos;s own footage)</span>
+    <select className="text-input" value={spacing ?? ""} onChange={e => onCutaways(e.target.value ? Number(e.target.value) : null)}>
+      <option value="">None</option>
+      {CUTAWAY_EVERY_CHOICES_MS.map(ms => <option key={ms} value={ms}>Every {ms / 1000} s</option>)}
+      {spacing !== null && !(CUTAWAY_EVERY_CHOICES_MS as readonly number[]).includes(spacing) ? <option value={spacing}>Every {(spacing / 1000).toFixed(1)} s</option> : null}
+    </select>
+  </label> : null;
 
   if (run.approved) {
     const placeable = run.settled ? run.toPlace : run.ready;
@@ -207,7 +222,7 @@ export function ScriptSheet({ reelId, timeline, library, run, onPlace, onAssets 
           </li>;
         })}
       </ol>
-      {!run.settled ? <p className="small muted">Takes are made two at a time and take a few minutes each. You can keep editing; this carries on while the editor is open.</p> : null}
+      {!run.settled ? <p className="small muted">Takes wait in a queue and are composed one at a time, a few minutes each. You can keep editing; this carries on while the editor is open.</p> : null}
       {run.note ? <p role="status" className="small">{run.note}</p> : null}
       {run.expired ? <>
         <p role="status" className="small">This approval is over an hour old, so the rest were not started. Carry on with {plural(run.owedCredits, "credit")} for the takes still to make?</p>
@@ -223,6 +238,7 @@ export function ScriptSheet({ reelId, timeline, library, run, onPlace, onAssets 
   }
 
   return <div className="script-sheet">
+    {cutawayControl}
     {info && !info.enabled ? <p className="small"><span className="badge badge-queued">Not yet</span> Voiced presenter takes are being connected. Please check back soon.</p> : null}
     {slots.length === 0 ? <p className="small">Add some of your own footage first: each line is filmed into the reel's own picture.</p> : null}
     <PresenterPicker library={libraryList} value={presenterId} onChange={setPresenterId} onAssets={onAssets} disabled={busy !== null} />
@@ -257,6 +273,24 @@ export function ScriptSheet({ reelId, timeline, library, run, onPlace, onAssets 
       <span className="small">What she wears (the same in every take)</span>
       <input className="text-input" maxLength={SCRIPT_OUTFIT_MAX} placeholder="e.g. a cream linen blazer, white tee, light jeans" value={outfit} onChange={e => setOutfit(e.target.value)} />
     </label>
+
+    <fieldset className="field" aria-label="Direction">
+      <legend className="small">How she plays it (every take)</legend>
+      <div className="script-direction">
+        <label className="small">Shot <select className="text-input" value={framing} onChange={e => setFraming(e.target.value as typeof framing)}>
+          <option value="close">Close · waist-up</option><option value="tight">Tight · chest-up</option><option value="medium">Medium · knees-up</option></select></label>
+        <label className="small">Tone <select className="text-input" value={direction.tone ?? ""} onChange={e => setDirection(d => ({ ...d, tone: (e.target.value || undefined) as AiDirection["tone"] }))}>
+          <option value="">As it comes</option>{DIRECTION_TONES.map(t => <option key={t} value={t}>{DIRECTION_LABELS.tone[t]}</option>)}</select></label>
+        <label className="small">Energy <select className="text-input" value={direction.energy ?? ""} onChange={e => setDirection(d => ({ ...d, energy: (e.target.value || undefined) as AiDirection["energy"] }))}>
+          <option value="">As it comes</option>{DIRECTION_ENERGIES.map(t => <option key={t} value={t}>{DIRECTION_LABELS.energy[t]}</option>)}</select></label>
+        <label className="small">Eyes <select className="text-input" value={direction.eyeLine ?? ""} onChange={e => setDirection(d => ({ ...d, eyeLine: (e.target.value || undefined) as AiDirection["eyeLine"] }))}>
+          <option value="">As it comes</option>{EYE_LINES.map(t => <option key={t} value={t}>{DIRECTION_LABELS.eyeLine[t]}</option>)}</select></label>
+        <label className="small">Blocking <select className="text-input" value={direction.blocking ?? ""} onChange={e => setDirection(d => ({ ...d, blocking: (e.target.value || undefined) as AiDirection["blocking"] }))}>
+          <option value="">As it comes</option>{BLOCKINGS.map(t => <option key={t} value={t}>{DIRECTION_LABELS.blocking[t]}</option>)}</select></label>
+        {direction.blocking === "turn-to-object" || direction.blocking === "step-back-reveal"
+          ? <label className="small">What she turns to <input className="text-input" maxLength={60} placeholder="the pool" value={direction.object ?? ""} onChange={e => setDirection(d => ({ ...d, object: e.target.value || undefined }))} /></label> : null}
+      </div>
+    </fieldset>
 
     <fieldset className="field" aria-label="Voice">
       <legend className="small">Her voice (one voice for every take)</legend>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { IDENTITY_MIN_CONFIDENCE, MIN_GATE_FACE_PX, MIN_SPEAKING_FACE_PX, closerLevel, faceCropArguments, faceCropRect, faceHeightFromBox, identityDecision, identityRejectionMessage, minFacePx, plausibleFace, readLocate, speakingEnd, unjudgeable } from "../src/identity";
+import { IDENTITY_MIN_CONFIDENCE, MIN_GATE_FACE_PX, MIN_SPEAKING_FACE_PX, faceCropArguments, faceCropRect, faceHeightFromBox, identityDecision, identityRejectionMessage, minFacePx, plausibleFace, readLocate, speakingEnd, unjudgeable } from "../src/identity";
 
 describe("identity gate decision table (ADR 0056)", () => {
   const verdict = (samePerson: boolean, confidence: number) => ({ samePerson, confidence, faceHeightPx: 200, eyesAndMouthRendered: true });
@@ -40,14 +40,6 @@ describe("identity gate decision table (ADR 0056)", () => {
     expect(speakingEnd("veo", "Wide: a small figure at the gate.")).toBe(false);
     expect(speakingEnd("veo", "Mid-action, leaping off the deck.")).toBe(false);
     expect(speakingEnd("veo", "Actionable widescreen")).toBe(true); // whole words only
-  });
-  it("composes closer for a speaking end, and closer still after a face too small to judge", () => {
-    const small = { samePerson: false, confidence: 0, faceHeightPx: 90, reason: "face-too-small" as const };
-    expect(closerLevel(1, false, null)).toBe(0);
-    expect(closerLevel(1, true, null)).toBe(1);
-    expect(closerLevel(2, true, { samePerson: false, confidence: 0.3, faceHeightPx: 200 })).toBe(1);
-    expect(closerLevel(2, false, small)).toBe(2);
-    expect(closerLevel(2, true, small)).toBe(2);
   });
   it("says honestly why a take was refused", () => {
     const tail = "so the shot was not made. Your credit was returned.";

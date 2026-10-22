@@ -29,16 +29,6 @@ export function speakingEnd(voice: "lipsync" | "veo" | null | undefined, instruc
   return !(voice === "veo" && /\b(wide|action)\b/i.test(instruction));
 }
 
-/**
- * How much closer to compose: 0 as asked; 1 for a speaking end (its own
- * wording, no blame); 2 after a face too small to judge (waist-up, head in
- * the top fifth, face at least 260 px).
- */
-export function closerLevel(attempt: 1 | 2, speaking: boolean, previous: IdentityVerdict | null): 0 | 1 | 2 {
-  if (attempt === 2 && previous?.reason === "face-too-small") return 2;
-  return speaking ? 1 : 0;
-}
-
 /** The refund message for a take the gate refused, by the last reason: honest about what went wrong. */
 export function identityRejectionMessage(end: "first" | "last", verdict: IdentityVerdict | null, minimum: number, speaking: boolean): string {
   const frame = end === "first" ? "start" : "end";

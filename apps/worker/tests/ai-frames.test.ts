@@ -3,7 +3,7 @@ const { execute, sign } = vi.hoisted(() => ({ execute: vi.fn(), sign: vi.fn().mo
 vi.mock("node:child_process", () => ({ execFile: execute }));
 vi.mock("node:util", () => ({ promisify: () => execute }));
 vi.mock("@aws-sdk/s3-request-presigner", () => ({ getSignedUrl: sign }));
-import { aiFrames } from "../src/ai-frames";
+import { aiFrames, frameArguments, plateCropFilter } from "../src/ai-frames";
 import type { S3Client } from "@aws-sdk/client-s3";
 
 describe("AI reference frames", () => {
@@ -38,6 +38,22 @@ describe("AI reference frames", () => {
     expect(scene).toContain("crop=1080:1920"); expect(scene).toContain("-vcodec png -pix_fmt rgb24");
     expect(presenter).not.toContain("crop="); expect(presenter).toContain("min(1080,iw)");
     expect(execute.mock.calls.every(call => !call[1].includes("yuvj420p"))).toBe(true);
+  });
+  it("crops the plate before compose for close and tight framings, never for medium, and never a reference (ADR 0069)", async () => {
+    execute.mockReset().mockResolvedValue({ stdout: png });
+    const frames = await aiFrames({} as S3Client, "media", [
+      { key: "owned/kitchen.mp4", kind: "VIDEO", atMs: 1000, role: "first", compose: "By the bench.", framing: "close" },
+      { key: "owned/hall.mp4", kind: "VIDEO", atMs: 0, role: "last", compose: "By the door.", framing: "tight" },
+      { key: "uploads/w/full.png", kind: "IMAGE", atMs: 0, role: "presenter" },
+    ]);
+    const [close, tight, presenter] = execute.mock.calls.map(call => call[1].join(" "));
+    expect(close).toContain("crop=1080:1920,crop=674:1200:203:475,scale=1080:1920:flags=lanczos");
+    expect(tight).toContain("crop=1080:1920,crop=480:852:300:688,scale=1080:1920:flags=lanczos");
+    expect(presenter).not.toContain("flags=lanczos");
+    expect(frames[0]).toMatchObject({ framing: "close", source: { key: "owned/kitchen.mp4", kind: "VIDEO", atMs: 1000 } });
+    expect(plateCropFilter("medium")).toBe(""); expect(plateCropFilter(undefined)).toBe("");
+    // A frame Veo sees as-is is never cropped, whatever framing is on the row.
+    expect(frameArguments("https://x", 0, "veo-jpeg", "close").join(" ")).not.toContain("lanczos");
   });
   it("refuses a JPEG where a PNG reference was asked for", async () => {
     execute.mockReset().mockResolvedValue({ stdout: Buffer.concat([Buffer.from([0xff, 0xd8]), Buffer.alloc(200)]) });

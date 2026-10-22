@@ -142,6 +142,12 @@ export const clipSchema = z
     whipDirection: z.enum(["left", "right", "up", "down"]).optional(),
     /** A closer crop of the picture about its centre: 1 shows it all, 2 the middle half. Added to any motion. */
     zoom: z.number().min(1).max(ZOOM_MAX).default(1),
+    /**
+     * A J-cut (ADR 0069): the sound under this clip comes from another asset, from `sourceStartMs` of that asset at
+     * 1×, and this clip's own sound is not played. A cutaway over a presenter line keeps her voice going.
+     * Absent on every reel saved before it, so nothing already saved changes.
+     */
+    audio: z.object({ assetId: z.string().min(1), sourceStartMs: ms, volume: unit.default(1) }).optional(),
   })
   .refine((clip) => clip.sourceEndMs > clip.sourceStartMs, { message: "Clip must have a positive length" });
 

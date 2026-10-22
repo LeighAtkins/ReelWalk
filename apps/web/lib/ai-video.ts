@@ -1,4 +1,4 @@
-import { AI_VIDEO_MODEL, CHAINED_REFERENCE_MESSAGE, aiClipCostCents, aiDefaultClipSeconds, aiShotSchema, aiShotPrompt, isEquirect, isGeneratedAssetId, referenceDepthOf } from "@reelwalk/core";
+import { AI_VIDEO_MODEL, CHAINED_REFERENCE_MESSAGE, aiClipCostCents, aiDefaultClipSeconds, aiShotSchema, aiShotPrompt, composeFraming, directionStill, hasDirection, isEquirect, isGeneratedAssetId, referenceDepthOf } from "@reelwalk/core";
 import { aiCreditSummary, prisma, reserveAiGeneration } from "@reelwalk/db";
 import { z } from "zod";
 import { mediaScope } from "./workspace";
@@ -74,8 +74,11 @@ export async function createAiGeneration(user: { id: string; workspaceId: string
     if (role !== "presenter" && (input.shot?.mode === "gimbal" || input.shot?.mode === "drone") && asset.kind !== "IMAGE") {
       throw new Error("Choose a photo for this camera move.");
     }
-    const described = role === "first" ? compose?.first : role === "last" ? compose?.last : undefined;
-    frames.push({ key: asset.objectKey, kind: asset.kind, atMs: asset.kind === "IMAGE" ? 0 : frame.atMs, role, ...(described ? { compose: described, framing: compose?.framing ?? "medium" } : {}) });
+    const written = role === "first" ? compose?.first : role === "last" ? compose?.last : undefined;
+    // The direction's expression and pose go into the still (ADR 0069): the first frame is what Veo continues from.
+    const acting = written && role !== "presenter" && hasDirection(input.shot?.direction) ? directionStill(input.shot!.direction, role) : "";
+    const described = written ? [written, acting].filter(Boolean).join(" ").slice(0, 1000) : undefined;
+    frames.push({ key: asset.objectKey, kind: asset.kind, atMs: asset.kind === "IMAGE" ? 0 : frame.atMs, role, ...(described ? { compose: described, framing: input.shot ? composeFraming(input.shot) : "medium" } : {}) });
   }
   const voiced = Boolean(input.shot?.voice);
   if (voiced && !aiVoiceConfigured()) throw new Error("Voiced shots are being connected. Please check back soon.");

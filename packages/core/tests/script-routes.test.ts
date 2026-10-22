@@ -74,10 +74,10 @@ describe("making a script's takes", () => {
     expect(info).toEqual({ enabled: false, voices: { veo: false, lipsync: false }, remaining: 0 });
   });
 
-  it("sends the generation path the server's own prompts, exact, with stable request ids, two at a time", async () => {
+  it("sends the generation path the server's own prompts, exact, with stable request ids, every take into the queue at once (ADR 0069)", async () => {
     const response = await make(request({ ...body, script: { ...script, takes: script.takes.map(t => ({ ...t })) } }), params);
     expect(response.status).toBe(202);
-    expect(await response.json()).toEqual({ started: [{ index: 0, id: "gen-0" }, { index: 1, id: "gen-1" }], waiting: [2], credits: quote, paused: "busy" });
+    expect(await response.json()).toEqual({ started: [{ index: 0, id: "gen-0" }, { index: 1, id: "gen-1" }, { index: 2, id: "gen-2" }], waiting: [], credits: quote });
     const expected = buildScriptShots(script, "reel");
     mocks.generate.mock.calls.forEach(([user, input, options], index) => {
       expect(user.workspaceId).toBe("w");
@@ -99,8 +99,8 @@ describe("making a script's takes", () => {
     expect(mocks.generate.mock.calls[0][1].requestId).toBe(ids[2]);
   });
 
-  it("waits rather than fails when another take took the last slot", async () => {
-    mocks.generate.mockResolvedValueOnce({ id: "gen-x" }).mockRejectedValueOnce(new Error("Two clips are already generating. Wait for one to finish."));
+  it("waits rather than fails when the take queue is full", async () => {
+    mocks.generate.mockResolvedValueOnce({ id: "gen-x" }).mockRejectedValueOnce(new Error("The take queue is full (12 waiting or generating). Wait for one to finish."));
     const response = await make(request(body), params);
     expect(response.status).toBe(202);
     expect(await response.json()).toEqual({ started: [{ index: 0, id: "gen-x" }], waiting: [1, 2], credits: quote, paused: "busy" });

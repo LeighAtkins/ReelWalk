@@ -14,11 +14,21 @@ export const transcriptWordSchema = z.object({
   s: z.number().int().nonnegative(),
   e: z.number().int().nonnegative(),
 });
+/** For a voiced AI take (ADR 0069): the line it was asked to say, where that line sits in the file, and whether it said it. */
+export const takeTrimSchema = z.object({
+  line: z.string().max(200),
+  startMs: z.number().int().nonnegative(),
+  endMs: z.number().int().nonnegative(),
+  heard: z.string().max(400),
+  distance: z.number().min(0).max(1),
+  wrongWords: z.boolean(),
+});
 export const transcriptSchema = z.object({
   text: z.string().max(4000),
   words: z.array(transcriptWordSchema).max(2000),
   language: z.string().max(12).optional(),
   model: z.string().max(80).optional(),
+  take: takeTrimSchema.optional(),
 });
 export type TranscriptWord = z.infer<typeof transcriptWordSchema>;
 export type Transcript = z.infer<typeof transcriptSchema>;

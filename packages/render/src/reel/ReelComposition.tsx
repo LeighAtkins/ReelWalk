@@ -142,7 +142,7 @@ const ClipView: React.FC<{
         </AbsoluteFill>
       ) : null}
       <AbsoluteFill>
-        <Media clip={clip} asset={asset} fit={clip.fit} transform={transform} />
+        <Media clip={clip} asset={asset} fit={clip.fit} transform={transform} muted={Boolean(clip.audio)} />
       </AbsoluteFill>
       {clip.lensSoftness ? <AbsoluteFill style={{ pointerEvents: "none", backdropFilter: `blur(${clip.lensSoftness * 7}px)`,
         maskImage: "radial-gradient(ellipse 47% 40% at 50% 48%, transparent 52%, black 100%)",
@@ -589,6 +589,10 @@ export const ReelComposition: React.FC<ReelProps> = ({ timeline, assets, waterma
             previous={index > 0 ? { clip: timeline.clips[index - 1], asset: assets[timeline.clips[index - 1].assetId] } : undefined}
             plan={timeline.plan?.geometry ?? null}
           />
+          {/* A J-cut (ADR 0069): the sound under a cutaway is the presenter take it covers, from the same source time. */}
+          {clip.audio && assets[clip.audio.assetId]?.kind === "VIDEO" ? (
+            <Audio src={resolveSrc(assets[clip.audio.assetId].src)} trimBefore={Math.round((clip.audio.sourceStartMs * fps) / 1000)} volume={clip.audio.volume} />
+          ) : null}
         </Sequence>
       ))}
       <PlanOverlayView timeline={timeline} />

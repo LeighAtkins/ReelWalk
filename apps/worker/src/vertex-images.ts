@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import { framingInstruction, type PresenterFraming } from "@reelwalk/core";
+import { feetInFrame, framingInstruction, type PresenterFraming } from "@reelwalk/core";
 import { VertexError, vertexAuth, type AwsCredentials } from "./vertex-video";
 import { FIND_FACE_PROMPT, IDENTITY_PROMPT, IDENTITY_RESPONSE_SCHEMA, MIN_GATE_FACE_PX, compareVerdictSchema, cropFacePng, faceCropRect, findFacePixelsPrompt, plausibleFace, readLocate, type IdentityVerdict, type LocateAttempt, type Located } from "./identity";
 
@@ -33,8 +33,8 @@ export type ComposeOptions = {
   framing?: PresenterFraming;
   /** The second attempt after the identity gate missed. */
   stronger?: boolean;
-  /** Compose closer: 1 for a speaking end, 2 after a face too small to judge (see closerLevel). */
-  closer?: 0 | 1 | 2;
+  /** The last attempt made her face too small to judge: this one is composed a framing closer (ADR 0069). */
+  closer?: boolean;
 };
 
 /** The instruction to the image model for one end of the shot. */
@@ -45,13 +45,16 @@ export function composePrompt(end: "first" | "last", instruction: string, option
       ? "The second image is the presenter's full-length reference: copy her outfit, build, skin tone and proportions. The third image is a close-up of her face: match the face in the third image exactly (eyes, nose, mouth, hairline, hair length and colour). Place her into the scene as described:"
       : "Place the person from the second image into that scene as described, keeping her face, hair, outfit, build and skin tone identical:",
     instruction.trim(),
-    // The closer wording replaces the framing text rather than contradicting it (medium asks only 180 px).
-    options.closer === 2 ? "Come in closer than before: waist-up, her head in the top fifth of the frame, her face at least 260 px tall from hairline to chin. The last attempt made her face too small to recognise."
-      : options.closer === 1 ? "Frame her closer, for a speaking shot: knees-up or tighter, the top of her head about a quarter of the way down, her face at least 220 px tall from hairline to chin, both eyes and her mouth sharp and clearly drawn."
-      : options.framing ? framingInstruction(options.framing) : "",
-    "She must be at true human scale against the objects named and the architecture (a door is about 2.1 m, a chair seat 0.45 m, a kitchen bench 0.9 m); never larger than a doorway.",
+    // The framing text carries the numbers (ADR 0069); after a face too small to judge the framing itself is a step closer.
+    options.framing ? framingInstruction(options.framing) : "",
+    options.closer ? "Come in closer than before: the last attempt made her face too small to recognise." : "",
+    feetInFrame(options.framing ?? "medium")
+      ? "She must be at true human scale against the objects named and the architecture (a door is about 2.1 m, a chair seat 0.45 m, a kitchen bench 0.9 m); never larger than a doorway."
+      : "She is nearer the camera than everything in the scene, so she is larger in the frame than the furniture behind her; her proportions are a real person's.",
     // The first reel's presenter stood on a coffee table: the model placed her by scale alone, not by the floor.
-    "Her feet stand on visible, clear floor (never on or inside furniture, rugs' edges aside), below the horizon line; anything nearer the camera than that floor spot (a sofa back, a table, a counter) passes in front of her and hides the part of her it covers. She casts a soft contact shadow on the floor that matches the scene's light direction, and the scene's light falls on her the same way.",
+    feetInFrame(options.framing ?? "medium")
+      ? "Her feet stand on visible, clear floor (never on or inside furniture, rugs' edges aside), below the horizon line; anything nearer the camera than that floor spot (a sofa back, a table, a counter) passes in front of her and hides the part of her it covers. She casts a soft contact shadow on the floor that matches the scene's light direction, and the scene's light falls on her the same way."
+      : "She stands on the floor at that distance, cut off by the bottom edge of the frame; anything nearer the camera than her passes in front of her. The scene's light falls on her the same way it falls on the room.",
     options.stronger
       ? "Identity is the priority: the last attempt changed her face. Reproduce the reference face feature for feature (eye shape and spacing, nose, lips, jaw, hairline, hair length, parting and colour); do not beautify, age, restyle or reinterpret her. Keep her face turned toward the camera and evenly lit."
       : "",

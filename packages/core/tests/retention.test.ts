@@ -194,6 +194,19 @@ describe("the opening", () => {
     expect(ofCheck(run(popped.timeline, { frames: framesFor(popped.timeline, (s) => moving(s.sourceMs)) }), "hook")).toEqual([]);
   });
 
+  it("a pop that starts too late is started earlier, so it is in by 300 ms; one in time is left alone", () => {
+    const late = reel([video("a", "v1", 3000)], { texts: [{ id: "t", text: "Welcome home", startMs: 250, endMs: 2500, y: 0.4 }] });
+    const findings = ofCheck(run(late), "hook");
+    expect(findings.map((f) => f.id)).toEqual(["opening:title:t"]);
+    expect(findings[0].reason).toBe("“Welcome home” is only fully on screen at 0.40 s; the opening should read by 0.3 s.");
+    expect(findings[0].fixes[0]).toMatchObject({ label: "Start it at 0.15 s", safe: false });
+    expect(commandOf(findings[0])).toEqual({ type: "updateText", textId: "t", patch: { startMs: 150 } });
+    const earlier = applyCommand(late, commandOf(findings[0]), ctx);
+    expect(ofCheck(run(earlier.timeline), "hook")).toEqual([]);
+    const inTime = reel([video("a", "v1", 3000)], { texts: [{ id: "t", text: "Welcome home", startMs: 100, endMs: 2500, y: 0.4 }] });
+    expect(ofCheck(run(inTime), "hook")).toEqual([]);
+  });
+
   it("the hook planner's facts win when given", () => {
     const timeline = reel([video("a", "v1", 3000)], { texts: [{ id: "t", text: "Welcome home", startMs: 100, endMs: 2500, style: "elegant", y: 0.4 }] });
     expect(ofCheck(run(timeline, { hook: { openingEmpty: false, titleLegibleByMs: 200 } }), "hook")).toEqual([]);

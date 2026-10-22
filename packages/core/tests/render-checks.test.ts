@@ -133,13 +133,13 @@ describe("timeline facts", () => {
   const text = (over: Record<string, unknown>) => reel({ texts: [{ id: "t", text: "Just listed today", startMs: 0, endMs: 3000, ...over }] }).texts[0];
 
   it("knows how long each entrance takes", () => {
-    expect(titleEntranceMs(text({}))).toBe(100); // pop
+    expect(titleEntranceMs(text({}))).toBe(150); // pop, settled (the hook planner's reading)
     expect(titleEntranceMs(text({ style: "elegant" }))).toBe(600); // the elegant fade
     expect(titleEntranceMs(text({ animation: "rise" }))).toBe(500);
     expect(titleEntranceMs(text({ animation: "none" }))).toBe(0);
     expect(titleEntranceMs(text({ animation: "type" }))).toBe(Math.round((17 / 14) * 1000));
     expect(titleEntranceMs(text({ kinetic: { preset: "words" } }))).toBe(900);
-    expect(titleEntranceMs(text({ kinetic: { preset: "count", startMs: 100, durationMs: 400 } }))).toBe(500);
+    expect(titleEntranceMs(text({ kinetic: { preset: "count", startMs: 100, durationMs: 400 } }))).toBe(150); // a count is read as it starts
   });
 
   it("measures the ending against the song's bars", () => {
@@ -178,7 +178,7 @@ describe("the checks", () => {
     expect(checks.blocked).toBe(false);
     expect(checks.checks).toEqual([]);
     expect(checks.facts.frames).toEqual({ count: 120, stepMs: 33 });
-    expect(checks.facts.titleLegibleByMs).toBe(100);
+    expect(checks.facts.titleLegibleByMs).toBe(150);
     expect(checks.facts.offBarMs).toBe(0);
     expect(postBlockReason(checks)).toBeNull();
   });

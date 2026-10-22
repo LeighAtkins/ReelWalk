@@ -246,7 +246,9 @@ function run(timeline: Timeline, command: Command, context: CommandContext): Tim
       return updateText(timeline, command.textId, command.patch);
     case "updateClip": {
       if (!timeline.clips.some((clip) => clip.id === command.clipId)) throw new Error(`There is no clip called ${command.clipId} in the reel.`);
-      const { speed: _speed, ...patch } = command.patch as ClipSettings;
+      // Speed is a cut change (it retimes everything after the clip), so it is not a setting this command may touch.
+      const patch: ClipSettings = { ...(command.patch as ClipSettings) };
+      delete patch.speed;
       return updateClip(timeline, command.clipId, patch);
     }
     case "addText": {

@@ -397,7 +397,16 @@ function openingFindings(input: RetentionInput): CriticFinding[] {
   const legibleBy = input.hook?.titleLegibleByMs !== undefined ? input.hook.titleLegibleByMs : opener ? opener.startMs + titleEntranceMs(opener) : null;
   if (opener && legibleBy !== null && legibleBy > RENDER_CHECKS.legibleByMs) {
     const moment = momentAt(timeline, RENDER_CHECKS.legibleByMs);
-    const fixes: CriticFix[] = opener.kinetic ? [] : [{ kind: "command", label: "Bring it in at once", command: { type: "updateText", textId: opener.id, patch: { animation: "pop" } }, safe: false }];
+    // A slow entrance is made a pop; a pop that starts too late is started earlier, so it is in by 300 ms.
+    const animation = opener.animation === "auto" ? (opener.style === "elegant" ? "fade" : "pop") : opener.animation;
+    const earlier = Math.max(0, RENDER_CHECKS.legibleByMs - titleEntranceMs(opener));
+    const fixes: CriticFix[] = opener.kinetic
+      ? []
+      : animation !== "pop" && animation !== "none"
+        ? [{ kind: "command", label: "Bring it in at once", command: { type: "updateText", textId: opener.id, patch: { animation: "pop" } }, safe: false }]
+        : opener.startMs > earlier
+          ? [{ kind: "command", label: `Start it at ${(earlier / 1000).toFixed(2)} s`, command: { type: "updateText", textId: opener.id, patch: { startMs: earlier } }, safe: false }]
+          : [];
     out.push({ id: `opening:title:${opener.id}`, check: "hook", severity: "medium", impact: "hook", textId: opener.id,
       reason: `${quote(opener)} is only fully on screen at ${(legibleBy / 1000).toFixed(2)} s; the opening should read by ${RENDER_CHECKS.legibleByMs / 1000} s.`,
       atMs: moment?.reelMs ?? 0, clipId: moment?.clipId ?? null, sourceMs: moment?.sourceMs ?? null, fixes });

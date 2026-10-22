@@ -430,7 +430,7 @@ describe("fix all", () => {
         { id: "b", assetId: "v2", kind: "VIDEO", sourceStartMs: 0, sourceEndMs: 4000 },
       ],
       texts: [
-        { id: "high", text: "Open Saturday", startMs: 200, endMs: 3000, y: 0.05 },
+        { id: "high", text: "Open Saturday", startMs: 100, endMs: 3000, y: 0.05 },
         { id: "ok", text: "Kitchen", startMs: 3500, endMs: 6000, y: 0.4 },
       ],
       music: { assetId: "song", bpm: 120, beatOffsetMs: 0 },

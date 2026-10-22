@@ -19,8 +19,8 @@
  */
 import { beatPeriodMs } from "./beats";
 import { CRITIC, frameDifference, titleGeometry, type CriticBox, type CriticFrame } from "./critic";
+import { HOOK_FRAME_MS, titleLegibleAtMs } from "./hook";
 import { INSTAGRAM } from "./instagram";
-import { KINETIC_PRESET } from "./kinetic";
 import type { Measure, TitleFont } from "./scene";
 import { clipStartsMs, locate, REEL_FORMAT, timelineDurationMs, type TextOverlay, type Timeline } from "./timeline";
 
@@ -39,13 +39,6 @@ export const RENDER_CHECKS = {
   frozenMinMs: 1000,
   /** A title's entrance should be done by this reel time for the opening to read. */
   legibleByMs: 300,
-  /** Pop: opacity is full by its third frame. */
-  popMs: 100,
-  /** The elegant fade (render's ELEGANT_FADE_S). */
-  fadeMs: 600,
-  riseMs: 500,
-  /** The typewriter writes this many characters a second (render's TYPE_CHARS_PER_S). */
-  typeCharsPerS: 14,
   /** Frames this far apart are compared for motion energy. */
   motionSpanMs: 500,
   /** A frame is matched to a wanted time within this. */
@@ -178,13 +171,13 @@ export function seriesFromGreyFrames(bytes: Uint8Array, width: number = CHECK_SE
 
 /**
  * The moments the Judge view (ADR 0071) shows side by side: the opening at
- * 0, 0.5, 1 and 1.5 s, then the last 1.5 s in four steps ending on the final
- * frame. A reel shorter than 3 s shows what it has, each moment once.
+ * the hook planner's moments (0, 0.5, 1 and 1.5 s, ADR 0068), then the last
+ * 1.5 s in four steps ending on the final frame. A reel shorter than 3 s shows what it has, each moment once.
  */
 export function judgeTimesMs(durationMs: number): { opening: number[]; ending: number[] } {
   const frameMs = 1000 / REEL_FORMAT.fps;
   const last = Math.max(0, Math.floor((durationMs - 1) / frameMs) * frameMs);
-  const opening = [0, 500, 1000, 1500].filter((ms) => ms <= last);
+  const opening = HOOK_FRAME_MS.filter((ms) => ms <= last);
   const ending = [1500, 1000, 500, 0].map((back) => Math.round(last - back)).filter((ms) => ms > (opening[opening.length - 1] ?? -1));
   return { opening, ending };
 }
@@ -351,23 +344,13 @@ export function analyseSeries(series: FrameSeries, timeline?: Timeline | null): 
 
 // ── Timeline facts ──────────────────────────────────────────────
 
-/** Ms after a title appears until its entrance is done and the words read whole. */
+/**
+ * Ms after a title appears until its entrance is done and the words read whole: the hook planner's
+ * reading of the composition's entrances (ADR 0068, `titleLegibleAtMs`), so the check and the planner
+ * agree on when an opening title is in.
+ */
 export function titleEntranceMs(text: TextOverlay): number {
-  const durationMs = text.endMs - text.startMs;
-  const animation = text.animation === "auto" ? (text.style === "elegant" ? "fade" : "pop") : text.animation;
-  let entrance = 0;
-  switch (animation) {
-    case "fade": entrance = Math.min(RENDER_CHECKS.fadeMs, durationMs / 2); break;
-    case "rise": entrance = Math.min(RENDER_CHECKS.riseMs, durationMs / 2); break;
-    case "type": entrance = Math.min((text.text.length / RENDER_CHECKS.typeCharsPerS) * 1000, durationMs / 2); break;
-    case "none": entrance = 0; break;
-    default: entrance = RENDER_CHECKS.popMs;
-  }
-  if (text.kinetic) {
-    const preset = KINETIC_PRESET[text.kinetic.preset];
-    entrance = Math.max(entrance, (text.kinetic.startMs ?? preset.startMs) + (text.kinetic.durationMs ?? preset.durationMs));
-  }
-  return Math.round(entrance);
+  return Math.round(titleLegibleAtMs(text));
 }
 
 /** How far the reel's end is from a bar line of its song, or null without a tempo. */

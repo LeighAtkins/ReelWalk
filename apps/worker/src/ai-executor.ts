@@ -8,7 +8,7 @@ import { runMusicAnalysisStep } from "./music-analysis";
 
 export const aiStepExecutor: AiStepExecutor = {
   // A track's analysis (ADR 0066) needs ffmpeg, so it runs here and never touches a paid provider.
-  run: (step, gate) => ((step.kind as string) === "music-analysis" ? runMusicAnalysisStep(step) : runAiStep({ kind: step.kind, user: step.user, reelId: step.reelId, payload: step.payload }, gate)),
+  run: (step, gate) => (step.kind === "music-analysis" ? runMusicAnalysisStep(step) : runAiStep({ kind: step.kind, user: step.user, reelId: step.reelId, payload: step.payload }, gate)),
   describeError: (step, error) =>
     step.kind === "director-review" ? directorFailureMessage(error) : (error instanceof Error ? error.message : String(error)).slice(0, 300),
 };

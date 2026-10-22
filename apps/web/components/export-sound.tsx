@@ -37,7 +37,7 @@ type PlayState = "idle" | "loading" | "playing" | "paused";
  * With "keep my reel's own music" the video's sound plays underneath, as
  * Instagram will mix it.
  */
-export function PlayWithSound({ sound }: { sound: InstagramAudioChoice }) {
+export function PlayWithSound({ sound, label = "Play with sound", hint }: { sound: InstagramAudioChoice; /** The idle button's words ("Mix preview" on the export page's mix strip, ADR 0066). */ label?: string; hint?: string }) {
   const stage = useContext(StageContext);
   const video = stage?.video ?? null;
   const audio = useRef<HTMLAudioElement>(null);
@@ -159,7 +159,7 @@ export function PlayWithSound({ sound }: { sound: InstagramAudioChoice }) {
     <div className="play-with-sound" data-testid="play-with-sound" data-state={state}>
       <button type="button" className="btn btn-quiet btn-block" onClick={toggle} disabled={!video || state === "loading"} data-testid="play-with-sound-button">
         {state === "playing" ? <PauseIcon size={18} /> : <PlayIcon size={18} />}
-        {state === "loading" ? "Getting the sound…" : state === "playing" ? "Pause" : state === "paused" ? "Resume with sound" : "Play with sound"}
+        {state === "loading" ? "Getting the sound…" : state === "playing" ? "Pause" : state === "paused" ? "Resume with sound" : label}
       </button>
       {active ? (
         <button type="button" className="btn btn-quiet" onClick={stop} data-testid="play-with-sound-stop">
@@ -173,7 +173,7 @@ export function PlayWithSound({ sound }: { sound: InstagramAudioChoice }) {
         </p>
       ) : (
         <p className="muted small" style={{ gridColumn: "1 / -1" }}>
-          How the reel will play on Instagram with this sound. Instagram mixes it in when it posts.
+          {hint ?? "How the reel will play on Instagram with this sound. Instagram mixes it in when it posts."}
         </p>
       )}
     </div>

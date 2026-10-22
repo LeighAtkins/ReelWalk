@@ -221,7 +221,8 @@ function longestHoldMs(timeline: Timeline, starts: number[]): number | null {
 export function withSfx(timeline: Timeline, sfx: SfxClip[]): Timeline {
   if (sfx.length === 0) {
     if (!timeline.sfx) return timeline;
-    const { sfx: _dropped, ...rest } = timeline;
+    const rest = { ...timeline };
+    delete rest.sfx;
     return rest;
   }
   return { ...timeline, sfx };

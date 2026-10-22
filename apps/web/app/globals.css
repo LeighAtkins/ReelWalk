@@ -4237,6 +4237,72 @@ input.inspect-scrub {
   border-left: 1px dashed var(--line-strong);
 }
 
+/* Sound design in the Music sheet and the mix strip on the export page (ADR 0066). */
+.sound-control {
+  display: grid;
+  gap: 8px;
+}
+
+.mix-preview {
+  display: grid;
+  gap: 8px;
+}
+
+.mix-strip {
+  display: block;
+  width: 100%;
+  height: 72px;
+  border-radius: var(--radius-m);
+  overflow: hidden;
+}
+
+.mix-strip-bed {
+  fill: var(--panel);
+}
+
+.mix-strip-speech {
+  fill: var(--signal);
+  opacity: 0.14;
+}
+
+.mix-strip-level {
+  fill: currentColor;
+  opacity: 0.55;
+}
+
+.mix-strip-beat {
+  stroke: currentColor;
+  stroke-width: 1;
+  opacity: 0.35;
+}
+
+.mix-strip-downbeat {
+  stroke: currentColor;
+  stroke-width: 2;
+  opacity: 0.7;
+}
+
+.mix-strip-cut {
+  stroke: var(--paper);
+  stroke-width: 2;
+}
+
+.mix-strip-cut-off {
+  stroke: var(--signal);
+  stroke-dasharray: 4 3;
+}
+
+.mix-strip-drop {
+  fill: var(--signal);
+}
+
+.mix-problems {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+}
+
 /* Speed ramp (ADR 0067): the clip's speed across its time, thumb-sized, under the ramp choices. The dashed line is the clip's set speed. */
 .ramp-graph {
   display: block;

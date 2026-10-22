@@ -257,3 +257,42 @@ export async function endRun(input: { workspaceId: string; reelId: string; runId
   const current = await findDirectorRun(input.workspaceId, input.reelId, input.runId);
   return current ? { run: publicRun(current), applied: written.count === 1 } : null;
 }
+
+/**
+ * A track's analysis (ADR 0066): one durable step per sound and analysis
+ * version, run by the worker (the web container has no decoder). Asking
+ * again for the same sound resumes the run already queued or done; the
+ * worker writes the result beside the audio object, so nothing here reads
+ * the step's result. Returns the step id the browser can poll.
+ */
+export async function startMusicAnalysisRun(user: { id: string; workspaceId: string }, assetId: string, version: number): Promise<StartResult> {
+  const payload = { assetId };
+  const hash = requestHash(payload);
+  const requestId = `music-analysis:${assetId}:v${version}`;
+  const kind = "music-analysis";
+  const find = () => prisma.workflowRun.findUnique({
+    where: { workspaceId_kind_requestId: { workspaceId: user.workspaceId, kind, requestId } },
+    select: { id: true, steps: { where: { index: 0 }, select: { id: true } } },
+  });
+  const existing = await find();
+  if (existing?.steps[0]) return { ok: true, jobId: existing.steps[0].id, runId: existing.id, resumed: true };
+  try {
+    const created = await prisma.$transaction(async (tx) => {
+      const run = await tx.workflowRun.create({ data: { workspaceId: user.workspaceId, userId: user.id, reelId: null, kind, requestId, requestHash: hash }, select: { id: true } });
+      const step = await tx.workflowStep.create({
+        data: { runId: run.id, index: 0, kind: "music-analysis", requestId, requestHash: hash, payload },
+        select: { id: true, generation: true },
+      });
+      await queueStep(tx, step);
+      return { runId: run.id, stepId: step.id };
+    });
+    await kick();
+    return { ok: true, jobId: created.stepId, runId: created.runId, resumed: false };
+  } catch (error) {
+    if (isUniqueViolation(error)) {
+      const winner = await find();
+      if (winner?.steps[0]) return { ok: true, jobId: winner.steps[0].id, runId: winner.id, resumed: true };
+    }
+    throw error;
+  }
+}

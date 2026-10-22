@@ -26,7 +26,8 @@ import { abortAfter, AttemptStopped, createAttemptScope, DEFAULT_GRACE_MS, linkA
  * again. Losing it (crash, timeout, lost connection) makes it UNRESOLVED.
  */
 
-export type AiStepKind = "ask" | "autopilot" | "director-review";
+/** "music-analysis" (ADR 0066) decodes a track with ffmpeg: it runs only in the worker and never calls a paid provider. */
+export type AiStepKind = "ask" | "autopilot" | "director-review" | "music-analysis";
 
 export type ClaimedStep = {
   id: string;

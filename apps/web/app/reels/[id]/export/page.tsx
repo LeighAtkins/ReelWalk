@@ -14,6 +14,7 @@ import { instagramChoiceForSound, instagramSoundAssetId, outputSize, parseReelEx
 import { ExportStage, ExportVideo } from "@/components/export-sound";
 import { InstagramPublishing } from "@/components/instagram-publishing";
 import { RenderChecksPanel } from "@/components/render-checks";
+import { MixPreview } from "@/components/mix-preview";
 import { aiEditUsage } from "@/lib/ai-edit";
 import { isFakeInstagram, isInstagramConfigured } from "@/lib/instagram";
 import { isAiAvailable } from "@/lib/openai";
@@ -168,6 +169,8 @@ export default async function ExportPage({
                 </Link>
               </div>
               {verification ? <RenderChecksPanel jobId={job.id} reelId={reel.id} result={verification} /> : null}
+              {/* The mix, seen and heard (ADR 0066): loudness, beats, cuts, speech, the recommended sound volume, and a preview at that level. */}
+              <MixPreview reelId={reel.id} sound={reelSound} />
             </>
           ) : job.status === "FAILED" ? (
             <form action={retryRenderJob} className="export-actions">

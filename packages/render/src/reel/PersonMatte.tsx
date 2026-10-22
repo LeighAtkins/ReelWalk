@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { AbsoluteFill, cancelRender, continueRender, delayRender, useCurrentFrame, useRemotionEnvironment, useVideoConfig } from "remotion";
 import { clipSourceSeconds, type Clip } from "@reelwalk/core";
-import { FILTER_CSS } from "./look";
+import { clipFilterCss } from "./look";
 import type { ReelAsset } from "./types";
 import type { Mask } from "./matte-refine";
 import { openVisionTask } from "./matte-assets";
@@ -213,7 +213,7 @@ export const PersonMatteView: React.FC<{
   return (
     <AbsoluteFill style={{ pointerEvents: "none", opacity: shown.opacity, overflow: "hidden" }}>
       <AbsoluteFill style={shown.whip}>
-        <canvas ref={canvas} width={width} height={height} data-matte-version={MATTE_VERSION} style={{ width: "100%", height: "100%", transform: shown.transform, filter: FILTER_CSS[clip.filter] }} />
+        <canvas ref={canvas} width={width} height={height} data-matte-version={MATTE_VERSION} style={{ width: "100%", height: "100%", transform: shown.transform, filter: clipFilterCss(clip) }} />
       </AbsoluteFill>
     </AbsoluteFill>
   );

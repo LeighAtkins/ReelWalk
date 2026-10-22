@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import type { Filter, TextAnimation, TextStyle, TextOverlay } from "@reelwalk/core";
+import { colorMatchCss, type ColorMatch, type Filter, type TextAnimation, type TextStyle, type TextOverlay } from "@reelwalk/core";
 
 /**
  * Colour filters are CSS filters, so the Player preview in the browser and the
@@ -19,6 +19,16 @@ export const FILTER_CSS: Record<Filter, string | undefined> = {
   // The bright, clean look of listing photography: lifted, a little more contrast and colour.
   crisp: "brightness(1.08) contrast(1.1) saturate(1.12)",
 };
+
+/**
+ * A clip's whole colour treatment: the match onto the reel's reference look
+ * (ADR 0070) first, so the footage agrees, then the preset grade on top of
+ * footage that already does. Undefined when the clip has neither.
+ */
+export function clipFilterCss(clip: { id: string; filter: Filter; colorMatch?: ColorMatch | null }): string | undefined {
+  const parts = [colorMatchCss(clip), FILTER_CSS[clip.filter]].filter((part): part is string => Boolean(part));
+  return parts.length > 0 ? parts.join(" ") : undefined;
+}
 
 export const FILTER_LABELS: Record<Filter, string> = {
   none: "Original",

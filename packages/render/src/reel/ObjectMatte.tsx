@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { AbsoluteFill, cancelRender, continueRender, delayRender, useCurrentFrame, useRemotionEnvironment, useVideoConfig } from "remotion";
 import { applyHomography, clipSourceSeconds, homography, pinnedProgress, tapReference, textQuadAt, type Clip, type TextOverlay, type Timeline } from "@reelwalk/core";
-import { FILTER_CSS } from "./look";
+import { clipFilterCss } from "./look";
 import type { ReelAsset } from "./types";
 import { luminance, Workspace } from "./matte-refine";
 import { openVisionTask } from "./matte-assets";
@@ -171,7 +171,7 @@ export const ObjectMatteView: React.FC<{ clip: Clip; asset: ReelAsset; text: Tex
   return (
     <AbsoluteFill style={{ pointerEvents: "none", opacity: shown.opacity, overflow: "hidden" }}>
       <AbsoluteFill style={shown.whip}>
-        <canvas ref={canvas} width={width} height={height} data-matte-version={MATTE_VERSION} style={{ width: "100%", height: "100%", transform: shown.transform, filter: FILTER_CSS[clip.filter] }} />
+        <canvas ref={canvas} width={width} height={height} data-matte-version={MATTE_VERSION} style={{ width: "100%", height: "100%", transform: shown.transform, filter: clipFilterCss(clip) }} />
       </AbsoluteFill>
     </AbsoluteFill>
   );

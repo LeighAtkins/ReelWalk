@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { defaultScheduleLocal, isValidTimeZone, publishAtProblem, toZonedLocal, zonedLocalToUtc, zoneOffsetMinutes } from "../src";
+import { POST_SPACING_MS, defaultScheduleLocal, isValidTimeZone, publishAtProblem, spacingWarning, toZonedLocal, zonedLocalToUtc, zoneOffsetMinutes } from "../src";
 
 const iso = (date: Date | null) => date?.toISOString() ?? null;
 
@@ -80,5 +80,29 @@ describe("defaultScheduleLocal", () => {
     expect(defaultScheduleLocal(now, "UTC")).toBe("2026-10-13T09:00");
     expect(defaultScheduleLocal(now, "Asia/Tokyo")).toBe("2026-10-14T09:00");
     expect(defaultScheduleLocal(new Date("2026-12-31T12:00:00Z"), "UTC")).toBe("2027-01-01T09:00");
+  });
+});
+
+describe("spacingWarning", () => {
+  const at = (minutes: number) => new Date(Date.UTC(2026, 9, 22, 9, minutes));
+  const reelAt = (minutes: number, title = "Villa") => ({ publishAt: at(minutes), kind: "REEL" as const, title });
+
+  it("is quiet when the nearest post is an hour or more away", () => {
+    expect(spacingWarning(at(0), [])).toBeNull();
+    expect(spacingWarning(at(0), [reelAt(60), reelAt(-60)])).toBeNull();
+  });
+
+  it("names the nearest post inside the hour, before or after, and counts the rest", () => {
+    expect(spacingWarning(at(0), [reelAt(24, "Lodge")])).toBe(
+      "the reel “Lodge” is set to go out 24 minutes after. Posts closer than an hour share Instagram's first batch of viewers; an hour apart each gets its own.",
+    );
+    expect(spacingWarning(at(30), [reelAt(29), reelAt(59), reelAt(100)])).toMatch(/^the reel “Villa” is set to go out 1 minute before \(1 more within the hour\)\./);
+    expect(spacingWarning(at(0), [{ publishAt: at(0), kind: "STORY", title: null }])).toMatch(/^a story is set to go out at the same time\./);
+    expect(spacingWarning(at(0), [{ publishAt: at(10), kind: "REEL", title: null }])).toMatch(/^another reel is set to go out 10 minutes after\./);
+  });
+
+  it("takes a different window", () => {
+    expect(spacingWarning(at(0), [reelAt(40)], 30 * 60_000)).toBeNull();
+    expect(POST_SPACING_MS).toBe(60 * 60_000);
   });
 });

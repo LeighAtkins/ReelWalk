@@ -51,6 +51,9 @@ test("a studio can schedule an export for Instagram, see it listed, and cancel i
   await when.fill(tomorrow);
   await page.getByTestId("schedule-submit").click();
   const confirmed = page.getByTestId("schedule-confirmed");
+  // A post left at this time by an earlier run trips the spacing guard (ADR 0065); it only warns.
+  await expect(confirmed.or(page.getByTestId("schedule-anyway"))).toBeVisible();
+  if (await page.getByTestId("schedule-anyway").isVisible()) await page.getByTestId("schedule-anyway").click();
   await expect(confirmed).toContainText(`on @${username}`);
   await expect(confirmed).toContainText("10:30");
   const postId = (await confirmed.getAttribute("data-post-id"))!;
@@ -133,6 +136,8 @@ test("a studio can pick an Instagram sound, schedule with it, then change and re
   await expect(page.getByTestId("schedule-form")).toContainText("Sunlit Kitchen");
   await page.getByTestId("schedule-submit").click();
   const confirmed = page.getByTestId("schedule-confirmed");
+  await expect(confirmed.or(page.getByTestId("schedule-anyway"))).toBeVisible();
+  if (await page.getByTestId("schedule-anyway").isVisible()) await page.getByTestId("schedule-anyway").click();
   await expect(confirmed).toContainText("Sunlit Kitchen · The Floor Plans");
   const postId = (await confirmed.getAttribute("data-post-id"))!;
 

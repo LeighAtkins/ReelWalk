@@ -7,6 +7,7 @@ import { AutoRefresh } from "@/components/auto-refresh";
 import { BackIcon, MusicIcon } from "@/components/icons";
 import { LocalTime } from "@/components/local-time";
 import { ScheduledSound } from "@/components/scheduled-sound";
+import { ScheduledStory } from "@/components/scheduled-story";
 import { SubmitButton } from "@/components/submit-button";
 import { TabBar } from "@/components/tab-bar";
 import { postInsights, type PostInsights } from "@/lib/instagram-messaging";
@@ -30,7 +31,11 @@ function loadPosts(workspaceId: string, upcoming: boolean) {
     where: { workspaceId, status: upcoming ? { in: ["SCHEDULED", "PUBLISHING"] } : { in: ["PUBLISHED", "FAILED", "CANCELLED"] } },
     orderBy: { publishAt: upcoming ? "asc" : "desc" },
     take: upcoming ? 120 : 30,
-    include: { renderJob: { select: { reel: { select: { id: true, title: true } } } } },
+    include: {
+      // A story cut has no reel of its own; its export (sourceJob) does (ADR 0065).
+      renderJob: { select: { caption: true, reel: { select: { id: true, title: true } }, sourceJob: { select: { reel: { select: { id: true, title: true } } } } } },
+      stories: { where: { status: { in: ["SCHEDULED", "PUBLISHING"] } }, select: { id: true } },
+    },
   });
 }
 
@@ -52,7 +57,7 @@ export default async function ScheduledPage({ searchParams }: { searchParams: Pr
     token
       ? await Promise.all(
           past
-            .filter((post) => post.status === "PUBLISHED" && post.mediaId)
+            .filter((post) => post.kind === "REEL" && post.status === "PUBLISHED" && post.mediaId)
             .map(async (post) => [post.id, await postInsights(token, post.mediaId!)] as const),
         )
       : [],
@@ -71,8 +76,8 @@ export default async function ScheduledPage({ searchParams }: { searchParams: Pr
         </header>
         <h1 style={{ marginBottom: 4 }}>Scheduled posts</h1>
         <p className="muted small" style={{ marginBottom: 16 }}>
-          {account ? `Reels queued to post to @${account.username}. ` : "Connect Instagram on the Account tab to schedule posts. "}
-          Schedule one from an export&apos;s screen; times are shown in your time zone.
+          {account ? `Reels and stories queued to post to @${account.username}. ` : "Connect Instagram on the Account tab to schedule posts. "}
+          Schedule one from an export&apos;s screen; times are shown in your time zone. A story goes out right after its reel, never before.
         </p>
         {cancelled === "1" ? (
           <p className="toast" role="status">
@@ -123,17 +128,24 @@ export default async function ScheduledPage({ searchParams }: { searchParams: Pr
 }
 
 function PostRow({ post, insights }: { post: Row; insights?: PostInsights | "permission" | null }) {
-  const reel = post.renderJob.reel;
+  const reel = post.renderJob.reel ?? post.renderJob.sourceJob?.reel ?? null;
+  const story = post.kind === "STORY";
   return (
-    <li className="export-row scheduled-row" data-testid="scheduled-row" data-status={post.status} data-id={post.id}>
+    <li className="export-row scheduled-row" data-testid="scheduled-row" data-status={post.status} data-id={post.id} data-kind={post.kind}>
       <span className="export-row-body">
         {reel ? (
           <Link href={`/reels/${reel.id}/export`} prefetch={false}>
-            {reel.title}
+            {story ? `Story · ${reel.title}` : reel.title}
           </Link>
         ) : (
-          <span>Earlier export</span>
+          <span>{story ? "Story · earlier export" : "Earlier export"}</span>
         )}
+        {story ? (
+          <span className="muted small" data-testid="scheduled-kind">
+            {post.afterPostId ? "Goes out right after the reel" : "A story on its own"}
+            {post.status === "PUBLISHING" && !post.containerId ? ", waiting for it" : ""}
+          </span>
+        ) : null}
         <span className="muted small">
           <LocalTime date={post.publishedAt ?? post.publishAt} />
           {post.status === "PUBLISHING" && post.attempts > 0 ? `, retry ${post.attempts}` : ""}
@@ -146,7 +158,8 @@ function PostRow({ post, insights }: { post: Row; insights?: PostInsights | "per
             {post.caption}
           </span>
         ) : null}
-        {post.status === "SCHEDULED" ? (
+        {post.status === "SCHEDULED" && !story ? <ScheduledStory postId={post.id} initial={post.stories.length > 0} /> : null}
+        {post.status === "SCHEDULED" && !story ? (
           <ScheduledSound
             postId={post.id}
             initial={
@@ -155,7 +168,7 @@ function PostRow({ post, insights }: { post: Row; insights?: PostInsights | "per
                 : null
             }
           />
-        ) : post.audioId ? (
+        ) : post.audioId && !story ? (
           <span className="small muted sound-label" data-testid="scheduled-sound-label">
             <MusicIcon size={14} />
             {instagramAudioLabel({ title: post.audioTitle ?? post.audioId, artist: post.audioArtist })}

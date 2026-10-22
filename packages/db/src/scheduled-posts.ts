@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { Prisma, PrismaClient, ScheduledPost, ScheduledPostStatus } from "./generated/prisma/client";
+import type { Prisma, PrismaClient, RenderJobStatus, ScheduledPost, ScheduledPostStatus } from "./generated/prisma/client";
 
 /**
  * The scheduled Instagram post publisher (ADR 0017).
@@ -25,6 +25,39 @@ export const SCHEDULED_POST_STUCK_MS = 15 * 60_000;
 export const SCHEDULED_POST_CONTAINER_TIMEOUT_MS = 30 * 60_000;
 /** A post first picked up later than this after its time is failed rather than posted out of the blue. */
 export const SCHEDULED_POST_MAX_LATENESS_MS = 24 * 60 * 60_000;
+/** A story waiting for its reel, or for its own cut to render, is looked at again after this (ADR 0065). */
+export const STORY_WAIT_MS = 30_000;
+/** A story whose cut is still not rendered this long after its time is failed: something is wrong with the render. */
+export const STORY_RENDER_TIMEOUT_MS = 60 * 60_000;
+
+export type StoryGate = { go: true } | { go: false; wait: true } | { go: false; wait: false; error: string };
+
+/**
+ * Whether a story may start, from the state of the reel post it follows
+ * (ADR 0065): only once that is PUBLISHED; never if it failed or was
+ * cancelled; otherwise wait.
+ */
+export function storyGate(parent: ScheduledPostStatus | null): StoryGate {
+  if (parent === null) return { go: false, wait: false, error: "The reel this story was to follow is gone, so the story was not posted." };
+  if (parent === "PUBLISHED") return { go: true };
+  if (parent === "FAILED" || parent === "CANCELLED") {
+    return { go: false, wait: false, error: parent === "FAILED" ? "The reel this story follows was not posted, so the story was not posted either." : "The reel this story follows was cancelled, so the story was too." };
+  }
+  return { go: false, wait: true };
+}
+
+/**
+ * Whether the post's video exists yet: a story cut renders after the post is
+ * made, so a story may be due before its file is. Waits while the render is
+ * going, within `STORY_RENDER_TIMEOUT_MS` of the post's time.
+ */
+export function renderGate(job: { status: RenderJobStatus; error: string | null } | null, lateMs: number): StoryGate {
+  if (job === null) return { go: false, wait: false, error: "The export this post was made from is gone." };
+  if (job.status === "SUCCEEDED") return { go: true };
+  if (job.status === "FAILED") return { go: false, wait: false, error: `The story cut did not render${job.error ? `: ${job.error}` : "."}` };
+  if (lateMs > STORY_RENDER_TIMEOUT_MS) return { go: false, wait: false, error: "The story cut was still rendering an hour after the post's time, so it was not posted." };
+  return { go: false, wait: true };
+}
 
 /**
  * Every legal status change.
@@ -107,6 +140,8 @@ export type ScheduledPostDeps = {
    */
   prepare(post: ScheduledPost): Promise<{ igUserId: string; token: string; videoUrl: string } | string>;
   createContainer(input: {
+    /** A Reel to the feed, or a Story (ADR 0065): the Story takes only the video and the AI disclosure. */
+    kind: "REEL" | "STORY";
     igUserId: string;
     token: string;
     videoUrl: string;
@@ -208,6 +243,25 @@ export async function advanceScheduledPost(
   }
 
   try {
+    // A story follows its reel (ADR 0065): not before that post is published, and never if it was not.
+    if (post.afterPostId) {
+      const parent = await prisma.scheduledPost.findUnique({ where: { id: post.afterPostId }, select: { status: true } });
+      const gate = storyGate(parent?.status ?? null);
+      if (!gate.go) {
+        if (!gate.wait) return fail({ message: gate.error, transient: false }, false);
+        return (await write({ nextCheckAt: new Date(now.getTime() + STORY_WAIT_MS) })) ? "waiting" : "lost";
+      }
+    }
+    // The video may still be rendering (a story cut made when the post was): wait for it.
+    if (!post.containerId) {
+      const job = await prisma.renderJob.findUnique({ where: { id: post.renderJobId }, select: { status: true, error: true } });
+      const gate = renderGate(job, now.getTime() - post.publishAt.getTime());
+      if (!gate.go) {
+        if (!gate.wait) return fail({ message: gate.error, transient: false }, false);
+        return (await write({ nextCheckAt: new Date(now.getTime() + STORY_WAIT_MS) })) ? "waiting" : "lost";
+      }
+    }
+
     const ready = await deps.prepare(post);
     if (typeof ready === "string") return fail({ message: ready, transient: false }, true);
 
@@ -216,6 +270,7 @@ export async function advanceScheduledPost(
       let containerId: string;
       try {
         containerId = await deps.createContainer({
+          kind: post.kind,
           igUserId: ready.igUserId,
           token: ready.token,
           videoUrl: ready.videoUrl,
@@ -291,13 +346,23 @@ export async function runScheduledPosts(
   return result;
 }
 
-/** Cancels a post that has not started publishing. False if it has (or is not the workspace's). */
+/**
+ * Cancels a post that has not started publishing, and with a reel the story
+ * still waiting to follow it (one already claimed sees the cancelled reel on
+ * its next check and ends the same way). False if it has started (or is not
+ * the workspace's).
+ */
 export async function cancelScheduledPost(prisma: PrismaClient, input: { id: string; workspaceId: string }): Promise<boolean> {
   const { count } = await prisma.scheduledPost.updateMany({
     where: { id: input.id, workspaceId: input.workspaceId, status: "SCHEDULED" },
     data: { status: "CANCELLED", nextCheckAt: null },
   });
-  return count === 1;
+  if (count !== 1) return false;
+  await prisma.scheduledPost.updateMany({
+    where: { afterPostId: input.id, workspaceId: input.workspaceId, status: "SCHEDULED" },
+    data: { status: "CANCELLED", nextCheckAt: null },
+  });
+  return true;
 }
 
 /**

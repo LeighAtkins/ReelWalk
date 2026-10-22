@@ -377,6 +377,17 @@ export const hookSchema = z.object({
 });
 export type Hook = z.infer<typeof hookSchema>;
 
+/**
+ * A closing plate (ADR 0065): a near-black card with one line of the thin
+ * serif over the last `durationMs` of the reel. Story cuts carry one ("new
+ * reel · @handle"); the editor never writes it, so saved reels have none.
+ */
+export const endCardSchema = z.object({
+  text: z.string().trim().min(1).max(80),
+  durationMs: z.number().int().min(MIN_CLIP_MS).max(5000),
+});
+export type EndCard = z.infer<typeof endCardSchema>;
+
 /** Most text overlays a reel may carry. */
 export const MAX_TEXTS = 50;
 
@@ -395,6 +406,8 @@ export const timelineSchema = z.object({
   cover: coverSchema.nullable().default(null),
   /** A visual hook over the opening (ADR 0041). Null for none. */
   hook: hookSchema.nullable().default(null),
+  /** A closing plate over the ending (ADR 0065). Absent on every saved reel; story cuts set it. */
+  endCard: endCardSchema.optional(),
 });
 
 export type Clip = z.infer<typeof clipSchema>;

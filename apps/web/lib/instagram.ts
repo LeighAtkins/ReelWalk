@@ -10,10 +10,14 @@
  */
 
 import {
+  CONTAINER_STATUS_FIELDS,
   coverMs,
-  instagramAudioConfiguration,
+  DEFAULT_COVER_FRAME_MS,
   parseInstagramAudioSearch,
   parseTimeline,
+  publishParams,
+  reelContainerParams,
+  storyContainerParams,
   type InstagramAudioTrack,
   type InstagramAudioType,
 } from "@reelwalk/core";
@@ -152,7 +156,7 @@ export type ContainerStatus = "IN_PROGRESS" | "FINISHED" | "ERROR" | "EXPIRED" |
  * finished its pop-in and the first clip's motion has barely started, so the
  * Explore, grid and feed tiles show the price line, not a blank room.
  */
-export const COVER_FRAME_MS = 700;
+export const COVER_FRAME_MS: number = DEFAULT_COVER_FRAME_MS;
 
 /** The cover frame the reel chose (ADR 0023), or undefined for the usual one; a reel whose edit cannot be read gets the usual frame. */
 export function reelCoverMs(timeline: unknown): number | undefined {
@@ -177,28 +181,31 @@ export async function createReelContainer(input: {
   /** Instagram's self-disclosure of AI usage; the post gets an "AI info" label. */
   aiGenerated?: boolean;
 }): Promise<string> {
-  const body = new URLSearchParams({
-    media_type: "REELS",
-    video_url: input.videoUrl,
-    caption: input.caption.slice(0, 2200),
-    share_to_feed: "true",
-    thumb_offset: String(Math.max(0, Math.round(input.coverMs ?? COVER_FRAME_MS))),
-  });
-  if (input.audio) body.set("audio_configuration", instagramAudioConfiguration(input.audio));
-  if (input.aiGenerated) body.set("is_ai_generated", "true");
+  const body = new URLSearchParams(reelContainerParams(input));
+  const result = await graph<{ id: string }>(`/${input.igUserId}/media`, { method: "POST", body, token: input.token });
+  return result.id;
+}
+
+/**
+ * Step 1 for a Story (ADR 0065): a STORIES container from a public video
+ * URL. Stories take no caption, sound, cover or sticker through the API; a
+ * video story runs 3–60 s. The same AI disclosure applies.
+ */
+export async function createStoryContainer(input: { igUserId: string; token: string; videoUrl: string; aiGenerated?: boolean }): Promise<string> {
+  const body = new URLSearchParams(storyContainerParams({ videoUrl: input.videoUrl, aiGenerated: input.aiGenerated }));
   const result = await graph<{ id: string }>(`/${input.igUserId}/media`, { method: "POST", body, token: input.token });
   return result.id;
 }
 
 /** Step 2: processing takes from a few seconds to a few minutes. */
 export async function containerStatus(containerId: string, token: string): Promise<{ status: ContainerStatus; detail: string | null }> {
-  const result = await graph<{ status_code: ContainerStatus; status?: string }>(`/${containerId}`, { token, query: { fields: "status_code,status" } });
+  const result = await graph<{ status_code: ContainerStatus; status?: string }>(`/${containerId}`, { token, query: { fields: CONTAINER_STATUS_FIELDS } });
   return { status: result.status_code, detail: result.status ?? null };
 }
 
 /** Step 3: publishes a FINISHED container and returns the post's permalink. */
 export async function publishContainer(igUserId: string, containerId: string, token: string): Promise<{ mediaId: string; permalink: string | null }> {
-  const body = new URLSearchParams({ creation_id: containerId });
+  const body = new URLSearchParams(publishParams(containerId));
   const published = await graph<{ id: string }>(`/${igUserId}/media_publish`, { method: "POST", body, token });
   const media = await graph<{ permalink?: string }>(`/${published.id}`, { token, query: { fields: "permalink" } }).catch(() => ({ permalink: undefined }));
   return { mediaId: published.id, permalink: media.permalink ?? null };

@@ -180,12 +180,13 @@ export async function renderJob(
       }
       return { objectKey: job.previewKey, contentType: "video/mp4", sizeBytes: previewSize };
     }
-    if (job.kind === "REEL" || job.kind === "TEMPLATE") {
+    if (job.kind === "REEL" || job.kind === "STORY" || job.kind === "TEMPLATE") {
       // Remotion closes the Chrome it opened without waiting for it, also when cancelled: whatever is left
       // of it when the attempt ends is stopped then (SIGTERM, the grace, SIGKILL).
       attempt.own("remotion processes", (remainingMs) => killDescendants({ match: REMOTION_PROCESSES, graceMs: remainingMs }));
     }
-    if (job.kind === "REEL") {
+    // A story cut (ADR 0065) is a reel export of a derived timeline: the same path.
+    if (job.kind === "REEL" || job.kind === "STORY") {
       const payload = parseReelExportPayload(job.payload);
       // An Instagram sound is never baked into the MP4 (ADR 0019): the plan
       // drops it, and Instagram attaches the sound itself when the reel is posted.

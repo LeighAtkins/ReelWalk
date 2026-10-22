@@ -378,6 +378,26 @@ export const hookSchema = z.object({
 export type Hook = z.infer<typeof hookSchema>;
 
 /**
+ * The designed opening (ADR 0068): which hook pattern the first 1.5–3 s were
+ * cut to, from which clip and in-point, with the hook line(s) and the promise
+ * (what the viewer gets by staying). `hook` above is ADR 0041's drawn opener,
+ * so this lives under its own name. Absent on every saved reel.
+ */
+export const HOOK_PATTERNS = ["voice-in", "motion-in", "text-punch", "pattern-interrupt", "question"] as const;
+export type HookPattern = (typeof HOOK_PATTERNS)[number];
+export const openingSchema = z.object({
+  pattern: z.enum(HOOK_PATTERNS),
+  /** The clip the reel opens on, and its in-point (source ms) after the plan. */
+  clipId: z.string().min(1),
+  inMs: ms,
+  /** The hook line(s) written over the opening. */
+  titles: z.array(z.string().trim().min(1).max(80)).max(3).default([]),
+  /** What the viewer gets by staying. */
+  promise: z.string().trim().max(120).default(""),
+});
+export type Opening = z.infer<typeof openingSchema>;
+
+/**
  * A closing plate (ADR 0065): a near-black card with one line of the thin
  * serif over the last `durationMs` of the reel. Story cuts carry one ("new
  * reel · @handle"); the editor never writes it, so saved reels have none.
@@ -408,6 +428,8 @@ export const timelineSchema = z.object({
   hook: hookSchema.nullable().default(null),
   /** A closing plate over the ending (ADR 0065). Absent on every saved reel; story cuts set it. */
   endCard: endCardSchema.optional(),
+  /** The designed opening (ADR 0068). Absent on every saved reel; the hook command sets it, null clears it. */
+  opening: openingSchema.nullable().optional(),
 });
 
 export type Clip = z.infer<typeof clipSchema>;

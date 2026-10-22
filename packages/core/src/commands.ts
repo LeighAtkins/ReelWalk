@@ -15,6 +15,7 @@ import { snapCutsToBeats } from "./beats";
 import { paceTimeline, putOnTheBeat } from "./pacing";
 import type { SongMap } from "./song";
 import { applyFinish, type FinishId } from "./finishes";
+import { planHook, stripHook, type HookInputs } from "./hook";
 import { retime, retimeToLength } from "./review";
 import { insertPresenterTakes, type PresenterTakeInsert } from "./script";
 import { attachedAnchors, retimeTexts } from "./text-timing";
@@ -32,6 +33,7 @@ import {
   addText,
   updateText,
   timelineSchema,
+  type HookPattern,
   type Music,
   type TextOverlay,
   type Timeline,
@@ -70,6 +72,14 @@ export type Command =
   | { type: "insertPresenterTakes"; takes: PresenterTakeInsert[] }
   /** "Make it pop" / "Make it premium" (ADR 0064): music mood, type, pace and look in one step; `music` is the song it picked, if any. */
   | { type: "applyFinish"; finish: FinishId; music?: MusicChoice | null; /** Assets whose clips carry speech: those clips are held (`heldByFinish`). */ speechAssetIds?: string[]; clipEnergy?: Record<string, number>; songMap?: SongMap }
+  /**
+   * The opening cut to a hook pattern (ADR 0068): the first 1.5–3 s rewritten
+   * (a clip moved to the front and started mid-move or on the first word, a
+   * 0.6 s interrupt, the hook title and promise), titles retimed by the
+   * attachment rule. `pattern: null` takes an earlier plan's texts and
+   * interrupt out. One undo step either way.
+   */
+  | ({ type: "hook"; pattern: HookPattern | null } & HookInputs)
   /**
    * A whole timeline computed elsewhere (an AI edit, the autopilot, the
    * director) against `baseGeneration`. Applied only when that is still the
@@ -204,6 +214,14 @@ function run(timeline: Timeline, command: Command, context: CommandContext): Tim
       return cut(insertPresenterTakes(timeline, command.takes));
     case "applyFinish":
       return applyFinish(timeline, command.finish, { music: command.music, sourceDurationsMs: durations, speechAssetIds: command.speechAssetIds, clipEnergy: command.clipEnergy, songMap: command.songMap });
+    case "hook": {
+      if (command.pattern === null) return stripHook(timeline);
+      const { type: _type, pattern, ...inputs } = command;
+      void _type;
+      const plan = planHook(timeline, pattern, { ...inputs, sourceDurationsMs: inputs.sourceDurationsMs ?? durations });
+      if (!plan) throw new Error(`The ${pattern} opening cannot be made from this reel.`);
+      return plan.timeline;
+    }
     case "applyProposal": {
       // The proposal already placed its texts (through retimeTexts, in applyAiEditPlan); it is taken as it is.
       const proposal = parseTimeline(command.proposal);
@@ -256,7 +274,7 @@ export function diffTimelines(before: Timeline, after: Timeline): Change[] {
     if (!a || !b || !same(a, b)) changes.push({ kind: "text", id });
   }
   if (!same(before.music, after.music)) changes.push({ kind: "music" });
-  for (const key of ["plan", "details", "logo", "cover", "hook"] as const) {
+  for (const key of ["plan", "details", "logo", "cover", "hook", "opening"] as const) {
     if (!same(before[key], after[key])) changes.push({ kind: "other", key });
   }
   return changes;

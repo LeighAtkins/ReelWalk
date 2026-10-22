@@ -1,4 +1,4 @@
-import { draftScriptLines, hasDetails, parseTimeline, SCRIPT_LINE_MAX, SCRIPT_MAX_LINES } from "@reelwalk/core";
+import { draftHookLines, draftScriptLines, hasDetails, parseTimeline, SCRIPT_LINE_MAX, SCRIPT_MAX_LINES } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
 import { getSessionUser } from "@/lib/auth";
 import { instagramSongs } from "@/lib/instagram-songs";
@@ -66,6 +66,48 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       return lines.length ? Response.json({ ok: true, lines }) : Response.json({ ok: false, message: "No lines came back. Try again." });
     } catch {
       return Response.json({ ok: false, message: "No lines came back. Try again." });
+    }
+  }
+
+  if (body.kind === "hooks") {
+    // Hook lines for the opening (ADR 0068), on the same text path as the presenter's script: the reel's subject
+    // from its title, rooms, titles and facts. With no model configured, plain drafts.
+    const strings = (value: unknown) => (Array.isArray(value) ? value : []).filter((item): item is string => typeof item === "string" && item.trim().length > 0).map((item) => item.trim().slice(0, 60)).slice(0, 12);
+    const count = typeof body.count === "number" ? Math.max(1, Math.min(8, Math.round(body.count))) : 5;
+    let rooms = strings(body.rooms), titles = strings(body.titles);
+    let facts = "";
+    let price: string | null = null, address: string | null = null;
+    try {
+      const timeline = parseTimeline(reel.timeline);
+      if (!rooms.length) rooms = [...new Set(timeline.clips.map((clip) => clip.room).filter((room): room is string => Boolean(room)))];
+      if (!titles.length) titles = timeline.texts.filter((text) => !text.id.startsWith("room-") && !text.id.startsWith("hook-")).map((text) => text.text).slice(0, 12);
+      if (hasDetails(timeline.details)) {
+        const details = timeline.details;
+        price = details.price || null;
+        address = details.address || null;
+        facts = (["price", "beds", "baths", "area", "address"] as const).filter((key) => details[key]).map((key) => `${key}: ${details[key]}`).join("; ");
+      }
+    } catch {
+      // A reel whose edit cannot be read still gets lines from its title.
+    }
+    const subject = { title: reel.title, rooms, titles, price, address };
+    if (!isAiConfigured()) return Response.json({ ok: true, lines: draftHookLines(subject, count) });
+    try {
+      const answer = await structuredAnswer({
+        instructions:
+          `You write the opening line of vertical real-estate reels: the words on screen in the first second that stop a thumb. Write exactly ${count} different hook lines for this reel. Each is 3 to 8 words, plain and specific, one of: a question the viewer answers for themselves, a promise of what they will see if they stay, a surprising fact from the facts given, or a pattern interrupt ("Nobody shows you this room"). No hashtags, no emoji, no exclamation marks, no clickbait that the reel cannot pay off, no prices, addresses or sizes unless they appear in the facts. Use only rooms and facts given.`,
+        input: `Reel "${reel.title}". Rooms shown: ${rooms.join(", ") || "unknown"}. Text on the reel: ${titles.length ? titles.map((title) => `"${title}"`).join(", ") : "none"}. Facts: ${facts || "none given"}.`,
+        schemaName: "hook_lines",
+        schema: SCRIPT_SCHEMA as unknown as Record<string, unknown>,
+        maxOutputTokens: 400,
+      });
+      const lines = (((answer.json as { lines?: unknown }).lines ?? []) as unknown[])
+        .filter((line): line is string => typeof line === "string" && line.trim().length >= 3)
+        .map((line) => line.trim().replace(/\s+/g, " ").slice(0, 80))
+        .slice(0, count);
+      return lines.length ? Response.json({ ok: true, lines }) : Response.json({ ok: false, message: "No hooks came back. Try again." });
+    } catch {
+      return Response.json({ ok: false, message: "No hooks came back. Try again." });
     }
   }
 

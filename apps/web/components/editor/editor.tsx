@@ -50,6 +50,7 @@ import { canExport, fixAllCommand, safeFixes, type CriticFinding, type CriticFix
   currentFinish,
   FINISHES,
   type FinishId,
+  hookTextRequest,
 } from "@reelwalk/core";
 import { ELEGANT_FADE_S, type ReelAsset } from "@reelwalk/render/reel";
 import { deleteReel, exportReel, readyPreviews, saveCaption } from "@/app/actions";
@@ -114,6 +115,7 @@ import { useCritic } from "./use-critic";
 import { CriticPanel } from "./critic-panel";
 import { polishDraft, runAutopilot, type AutopilotDraft } from "./autopilot-flow";
 import { landProposal, reviewGeneration } from "./proposals";
+import { HookStudio } from "./hook-studio";
 import { HookSheet, PinSheet,
   AskSheet,
   AutopilotSheet,
@@ -319,6 +321,8 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
   const [finishing, setFinishing] = useState<FinishId | null>(null);
   // Words sent from the Ask box, which the Ask sheet runs as it opens.
   const [askSeed, setAskSeed] = useState<{ request: string; auto: boolean } | null>(null);
+  // "Write me 5 hooks" in the Ask box opens the Hook studio asking for that many lines (ADR 0068).
+  const [hookLines, setHookLines] = useState<number | null>(null);
   const router = useRouter();
   const [library, setLibrary] = useState<Record<string, LibraryAsset>>(() => Object.fromEntries(initialLibrary.map((asset) => [asset.id, asset])));
   const libraryRef = useRef(library);
@@ -424,6 +428,9 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
   // Words from the Ask box are for the Ask sheet they opened, never a later one.
   useEffect(() => {
     if (sheet !== "ask") setAskSeed(null);
+  }, [sheet]);
+  useEffect(() => {
+    if (sheet !== "hook") setHookLines(null);
   }, [sheet]);
 
   // A tip is about the editor behind it; opening a sheet puts it away.
@@ -1503,6 +1510,13 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
             placeholder={askScope.placeholder}
             onSend={(request) => {
               playerRef.current?.pause();
+              // Hook lines are the Hook studio's to offer, where one tap puts the line into the opening (ADR 0068).
+              const hooks = hookTextRequest(request);
+              if (hooks) {
+                setHookLines(hooks.count);
+                setSheet("hook");
+                return;
+              }
               setAskSeed({ request: askScope.prefix + request, auto: true });
               setSheet("ask");
             }}
@@ -1802,6 +1816,18 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         <HookSheet
           hook={timeline.hook}
           hasPerson={Boolean(timeline.clips[0] && library[timeline.clips[0].assetId]?.isAiGenerated)}
+          studio={
+            <HookStudio
+              timeline={timeline}
+              assets={assets}
+              library={library}
+              reelId={reel.id}
+              headline={headline}
+              wantLines={hookLines}
+              onApply={(command) => !runCommand(command, "hook-studio").rejected}
+              onClose={closeSheet}
+            />
+          }
           onChange={(hook) => apply((current) => setHook(current, hook), "hook")}
           onWords={(words, color) => apply((current) => wordsBehindHook(current, words, { color }), "hook-words")}
           onClose={closeSheet}

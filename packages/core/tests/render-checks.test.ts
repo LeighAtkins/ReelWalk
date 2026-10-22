@@ -2,16 +2,20 @@ import { describe, expect, it } from "vitest";
 import type { CriticFrame } from "../src/critic";
 import {
   analyseSeries,
+  CHECK_SERIES,
   frameNear,
   frameStats,
+  judgeTimesMs,
   motionEnergyProfile,
   offBarMs,
   postBlockReason,
   renderChecks,
   RENDER_CHECKS,
+  seriesFromGreyFrames,
   titleEntranceMs,
   type FrameSeries,
 } from "../src/render-checks";
+import { checksKeyFor } from "../src/keys";
 import { parseTimeline, type Timeline } from "../src/timeline";
 
 // Verification of a render (ADR 0071): the per-frame facts on synthetic frame sequences, and the hard
@@ -207,5 +211,34 @@ describe("the checks", () => {
     const checks = renderChecks({ timeline, series: dense(1000, (ms) => (ms === 0 ? flat(0.5) : moving(ms))), hook: { openingEmpty: false, titleLegibleByMs: 250 } });
     expect(checks.checks).toEqual([]);
     expect(checks.facts.titleLegibleByMs).toBe(250);
+  });
+});
+
+describe("the render's decode and the Judge moments", () => {
+  it("reads ffmpeg's raw grey stream as frames on the frame grid, dropping a partial tail", () => {
+    const w = 4, h = 3, size = w * h;
+    const bytes = new Uint8Array(size * 2 + 5);
+    bytes.fill(0, 0, size);
+    bytes.fill(255, size, size * 2);
+    const series = seriesFromGreyFrames(bytes, w, h, 30);
+    expect(series.map((f) => f.ms)).toEqual([0, 33]);
+    expect(series[0].frame).toMatchObject({ width: w, height: h });
+    expect(Array.from(series[0].frame.luma)).toEqual(new Array(size).fill(0));
+    expect(Array.from(series[1].frame.luma)).toEqual(new Array(size).fill(1));
+    expect(seriesFromGreyFrames(new Uint8Array(0)).length).toBe(0);
+    expect(CHECK_SERIES).toEqual({ width: 72, height: 128, fps: 30 });
+  });
+
+  it("names the opening and the last 1.5 s, on frames, without repeating a moment on a short reel", () => {
+    expect(judgeTimesMs(30_000)).toEqual({ opening: [0, 500, 1000, 1500], ending: [28467, 28967, 29467, 29967] });
+    const short = judgeTimesMs(2_000);
+    expect(short.opening).toEqual([0, 500, 1000, 1500]);
+    expect(short.ending).toEqual([1967]);
+    expect(judgeTimesMs(0)).toEqual({ opening: [0], ending: [] });
+  });
+
+  it("keeps the checks beside the export, one per output key", () => {
+    expect(checksKeyFor("renders/job1.mp4")).toBe("renders/job1.checks.json");
+    expect(checksKeyFor("renders/job1-2.mp4")).toBe("renders/job1-2.checks.json");
   });
 });

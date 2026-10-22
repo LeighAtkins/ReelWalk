@@ -9,11 +9,11 @@ import { ExportSheet } from "./sheets";
 // title, a thumbnail, reason and one-tap fix per finding, Fix all for the safe ones, and Export anyway.
 
 const findings: CriticFinding[] = [
-  { id: "hook:opening", check: "hook", severity: "high", reason: "Nothing changes in the first 1.5 s, so people scroll past before it gets going.", atMs: 0, clipId: "a", sourceMs: 0,
+  { id: "hook:opening", check: "hook", severity: "high", impact: "hook", reason: "Nothing changes in the first 1.5 s, so people scroll past before it gets going.", atMs: 0, clipId: "a", sourceMs: 0,
     fixes: [{ kind: "command", label: "Start on shot 3", command: { type: "moveClip", clipId: "c", toIndex: 0 }, safe: false }] },
-  { id: "safe-zone:t", check: "safe-zone", severity: "high", reason: "“Open Saturday” runs under the header.", atMs: 900, clipId: "a", sourceMs: 900, textId: "t", box: { x: 0.2, y: 0.02, w: 0.6, h: 0.05 },
+  { id: "safe-zone:t", check: "safe-zone", severity: "high", impact: "hold", reason: "“Open Saturday” runs under the header.", atMs: 900, clipId: "a", sourceMs: 900, textId: "t", box: { x: 0.2, y: 0.02, w: 0.6, h: 0.05 },
     fixes: [{ kind: "command", label: "Move it in", command: { type: "updateText", textId: "t", patch: { y: 0.2 } }, safe: true }] },
-  { id: "beat:cuts", check: "beat", severity: "low", reason: "2 of 4 cuts land between beats of the song.", atMs: 3250, clipId: "b", sourceMs: 250,
+  { id: "beat:cuts", check: "beat", severity: "low", impact: "hold", reason: "2 of 4 cuts land between beats of the song.", atMs: 3250, clipId: "b", sourceMs: 250,
     fixes: [{ kind: "command", label: "Snap to the beat", command: { type: "snapToBeat" }, safe: true }] },
 ];
 const noop = () => undefined;

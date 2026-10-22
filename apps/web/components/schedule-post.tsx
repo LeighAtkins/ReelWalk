@@ -22,14 +22,19 @@ export function SchedulePost({
   audio = null,
   aiGenerated = false,
   story = false,
+  blocked = null,
 }: {
   jobId: string;
   username: string;
   audio?: InstagramAudioChoice | null;
   aiGenerated?: boolean;
   story?: boolean;
+  /** The render checks' block reasons (ADR 0071); the form then schedules anyway, logged. */
+  blocked?: string[] | null;
 }) {
   const [open, setOpen] = useState(false);
+  const [refused, setRefused] = useState<string[] | null>(null);
+  const stop = refused ?? (blocked && blocked.length ? blocked : null);
   const [zone, setZone] = useState("UTC");
   const [local, setLocal] = useState("");
   const [bounds, setBounds] = useState<{ min: string; max: string } | null>(null);
@@ -55,8 +60,11 @@ export function SchedulePost({
 
   async function submit(confirmSpacing: boolean) {
     setState({ step: "saving" });
-    const result = await schedulePost({ jobId, local, timeZone: zone, audio, aiGenerated, story, confirmSpacing }).catch(() => ({ ok: false as const, error: "Could not reach ReelWalk. Try again." }));
-    if (result.ok) {
+    const result = await schedulePost({ jobId, local, timeZone: zone, audio, aiGenerated, story, confirmSpacing, postAnyway: stop !== null }).catch(() => ({ ok: false as const, error: "Could not reach ReelWalk. Try again." }));
+    if (!result.ok && "blocked" in result && result.blocked?.length) {
+      setRefused(result.blocked);
+      setState({ step: "idle" });
+    } else if (result.ok) {
       setState({ step: "done", id: result.id, publishAt: new Date(result.publishAt), sound: audio ? instagramAudioLabel(audio) : null, storyId: result.storyId, storyError: result.storyError });
     } else if ("spacing" in result && result.spacing) {
       setState({ step: "spacing", warning: result.error });
@@ -131,6 +139,12 @@ export function SchedulePost({
           {state.warning}
         </p>
       ) : null}
+      {stop ? (
+        <p className="error small" role="alert" style={{ margin: 0 }} data-testid="schedule-blocked">
+          Posting is blocked: {stop[0]}
+          {stop.length > 1 ? ` (+${stop.length - 1} more)` : ""}. Scheduling anyway is logged.
+        </p>
+      ) : null}
       <div className="field-row">
         <button className="btn btn-quiet" type="button" onClick={() => setOpen(false)}>
           Not now
@@ -140,8 +154,8 @@ export function SchedulePost({
             Schedule anyway
           </button>
         ) : (
-          <button className="btn btn-signal" type="submit" disabled={!local || state.step === "saving"} data-testid="schedule-submit">
-            {state.step === "saving" ? "Scheduling…" : "Schedule post"}
+          <button className={stop ? "btn btn-quiet" : "btn btn-signal"} type="submit" disabled={!local || state.step === "saving"} data-testid="schedule-submit" data-anyway={stop ? "true" : undefined}>
+            {state.step === "saving" ? "Scheduling…" : stop ? "Schedule anyway" : "Schedule post"}
           </button>
         )}
       </div>

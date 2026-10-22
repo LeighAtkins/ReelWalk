@@ -33,6 +33,7 @@ export function InstagramPublishing({
   scheduledSound,
   aiContent = false,
   story,
+  blocked = null,
 }: {
   jobId: string;
   username: string;
@@ -41,6 +42,8 @@ export function InstagramPublishing({
   scheduledSound?: InstagramAudioChoice | null;
   aiContent?: boolean;
   story: StoryOptions;
+  /** The render checks' block reasons (ADR 0071): Post now and Schedule become "anyway" buttons. */
+  blocked?: string[] | null;
 }) {
   const [audio, setAudio] = useState<InstagramAudioChoice | null>(scheduledSound === undefined ? reelSound : scheduledSound);
   const [aiGenerated, setAiGenerated] = useState(aiContent);
@@ -86,8 +89,8 @@ export function InstagramPublishing({
           {audio ? <PlayWithSound sound={audio} /> : null}
         </div>
       ) : null}
-      <PostToInstagram jobId={jobId} username={username} audio={audio} aiGenerated={aiGenerated} story={live && withStory} />
-      {live ? <SchedulePost jobId={jobId} username={username} audio={audio} aiGenerated={aiGenerated} story={withStory} /> : null}
+      <PostToInstagram jobId={jobId} username={username} audio={audio} aiGenerated={aiGenerated} story={live && withStory} blocked={blocked} />
+      {live ? <SchedulePost jobId={jobId} username={username} audio={audio} aiGenerated={aiGenerated} story={withStory} blocked={blocked} /> : null}
       {live ? <PostStoryNow jobId={jobId} username={username} aiGenerated={aiGenerated} options={story} /> : null}
     </>
   );

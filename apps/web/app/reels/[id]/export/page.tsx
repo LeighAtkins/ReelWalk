@@ -13,6 +13,7 @@ import { ShareLink } from "@/components/share-link";
 import { instagramChoiceForSound, instagramSoundAssetId, outputSize, parseReelExportPayload, storyHookMs } from "@reelwalk/core";
 import { ExportStage, ExportVideo } from "@/components/export-sound";
 import { InstagramPublishing } from "@/components/instagram-publishing";
+import { RenderChecksPanel } from "@/components/render-checks";
 import { aiEditUsage } from "@/lib/ai-edit";
 import { isFakeInstagram, isInstagramConfigured } from "@/lib/instagram";
 import { isAiAvailable } from "@/lib/openai";
@@ -20,6 +21,7 @@ import { workspacePlan } from "@/lib/plans";
 import { appUrl } from "@/lib/app-url";
 import { exportDurationMs, fullReelStoryIssue, storyCutOf } from "@/lib/posting";
 import { outputUrls } from "@/lib/render-jobs";
+import { ensureChecks, gateFor, type ChecksResult } from "@/lib/render-verify";
 import { coverUrls, readTimeline } from "@/lib/reels";
 import { getCurrentUser } from "@/lib/workspace";
 
@@ -82,6 +84,12 @@ export default async function ExportPage({
   // Stories (ADR 0065): the cut already made for this export, and whether the whole reel fits a story.
   const storyCut = urls ? await storyCutOf(user.workspaceId, job.id) : null;
   const story = { hookMs: storyHookMs(payload.timeline), cut: storyCut ? { status: storyCut.status } : null, fullIssue: fullReelStoryIssue(job), durationMs: exportDurationMs(job) };
+  // The render checks (ADR 0071) the worker stored beside the export. Only what is stored: an older
+  // export's checks are computed on Run checks (or by an agent on the route), never on a page load.
+  const verification: ChecksResult | null = urls
+    ? await ensureChecks(job, { compute: false }).catch((): ChecksResult => ({ checks: null, source: "none", reason: "The checks could not be read." }))
+    : null;
+  const gate = gateFor(verification?.checks ?? null);
 
   return (
     <main className="shell">
@@ -132,7 +140,7 @@ export default async function ExportPage({
               </div>
               <div className="export-actions">
                 {instagram && plan.instagram ? (
-                  <InstagramPublishing jobId={job.id} username={instagram.username} live={isInstagramConfigured() || isFakeInstagram()} reelSound={reelSound} scheduledSound={scheduledSound} aiContent={aiContent} story={story} />
+                  <InstagramPublishing jobId={job.id} username={instagram.username} live={isInstagramConfigured() || isFakeInstagram()} reelSound={reelSound} scheduledSound={scheduledSound} aiContent={aiContent} story={story} blocked={gate.blocked ? gate.reasons : null} />
                 ) : null}
                 {planId === "FREE" && isInstagramConfigured() ? (
                   <Link className="btn btn-quiet" href="/account#plan" prefetch={false}>
@@ -153,6 +161,7 @@ export default async function ExportPage({
                   Variants
                 </Link>
               </div>
+              {verification ? <RenderChecksPanel jobId={job.id} reelId={reel.id} result={verification} /> : null}
             </>
           ) : job.status === "FAILED" ? (
             <form action={retryRenderJob} className="export-actions">

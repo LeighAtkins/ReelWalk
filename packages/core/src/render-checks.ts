@@ -140,6 +140,55 @@ export type RenderChecks = {
   audio: { available: boolean; problems: AudioProblem[] };
 };
 
+/**
+ * How a render is decoded for the checks: ffmpeg scales every frame to this
+ * grey picture (the editor's sample size, ADR 0062) and the bytes come back
+ * as one raw stream, 30 of them a second.
+ */
+export const CHECK_SERIES = { width: 72, height: 128, fps: 30 } as const;
+
+/**
+ * ffmpeg's arguments for that decode, from `input` to raw grey frames on stdout, back to back with no
+ * headers (the worker and the web routes share them). The image2pipe muxer with the rawvideo encoder,
+ * `-r` for the rate and only the scale and format filters: the parts every ffmpeg build has, including
+ * the trimmed one Remotion ships, which has neither the rawvideo muxer nor the fps filter.
+ */
+export function checkDecodeArgs(input: string): string[] {
+  return ["-v", "error", "-nostdin", "-i", input, "-an", "-vf", `scale=${CHECK_SERIES.width}:${CHECK_SERIES.height},format=gray`, "-r", String(CHECK_SERIES.fps), "-f", "image2pipe", "-vcodec", "rawvideo", "-"];
+}
+
+/**
+ * A series from ffmpeg's raw grey output (`-vf fps=F,scale=W:H,format=gray -f rawvideo`):
+ * one byte per pixel, frames back to back, in time order. A trailing partial
+ * frame is dropped. Luma is the byte over 255, the same scale `lumaFromRgba`
+ * gives the editor's frames.
+ */
+export function seriesFromGreyFrames(bytes: Uint8Array, width: number = CHECK_SERIES.width, height: number = CHECK_SERIES.height, fps: number = CHECK_SERIES.fps): FrameSeries {
+  const size = width * height;
+  const count = Math.floor(bytes.length / size);
+  const series: FrameSeries = [];
+  for (let n = 0; n < count; n++) {
+    const luma = new Float32Array(size);
+    const base = n * size;
+    for (let i = 0; i < size; i++) luma[i] = bytes[base + i] / 255;
+    series.push({ ms: Math.round((n * 1000) / fps), frame: { width, height, luma } });
+  }
+  return series;
+}
+
+/**
+ * The moments the Judge view (ADR 0071) shows side by side: the opening at
+ * 0, 0.5, 1 and 1.5 s, then the last 1.5 s in four steps ending on the final
+ * frame. A reel shorter than 3 s shows what it has, each moment once.
+ */
+export function judgeTimesMs(durationMs: number): { opening: number[]; ending: number[] } {
+  const frameMs = 1000 / REEL_FORMAT.fps;
+  const last = Math.max(0, Math.floor((durationMs - 1) / frameMs) * frameMs);
+  const opening = [0, 500, 1000, 1500].filter((ms) => ms <= last);
+  const ending = [1500, 1000, 500, 0].map((back) => Math.round(last - back)).filter((ms) => ms > (opening[opening.length - 1] ?? -1));
+  return { opening, ending };
+}
+
 // ── Frame facts ─────────────────────────────────────────────────
 
 /** Mean, standard deviation and the 95th percentile of a frame's luma. */
@@ -422,22 +471,29 @@ export function renderChecks(input: RenderChecksInput): RenderChecks {
     checks.push({ id: "off-bar", level: "warn", impact: "finish", atMs: Math.max(0, durationMs - FRAME_MS), title: "Ends mid-bar", detail: `The reel ends ${offBar} ms off a bar line of the song.` });
   }
 
-  const problems = input.audio ?? [];
-  for (const problem of problems) {
-    checks.push({ id: `audio:${problem.id}`, level: problem.level, impact: problem.atMs !== undefined ? impactAt(problem.atMs) : "hold", atMs: problem.atMs, title: problem.title, detail: problem.detail });
-  }
+  const result = sealChecks({ version: 1, durationMs, facts: { ...facts, offBarMs: offBar, titleLegibleByMs, zoneReach: reach }, checks, blocked: false, blockReasons: [], audio: { available: false, problems: [] } });
+  return input.audio === undefined || input.audio === null ? result : withAudioProblems(result, input.audio);
+}
 
-  checks.sort((a, b) => (a.level === b.level ? (a.atMs ?? 0) - (b.atMs ?? 0) : a.level === "block" ? -1 : 1));
+/** Checks in order (blocks first, then by time) and the verdict that follows from them. */
+function sealChecks(result: RenderChecks): RenderChecks {
+  const checks = [...result.checks].sort((a, b) => (a.level === b.level ? (a.atMs ?? 0) - (b.atMs ?? 0) : a.level === "block" ? -1 : 1));
   const blockReasons = checks.filter((check) => check.level === "block").map((check) => check.detail);
-  return {
-    version: 1,
-    durationMs,
-    facts: { ...facts, offBarMs: offBar, titleLegibleByMs, zoneReach: reach },
-    checks,
-    blocked: blockReasons.length > 0,
-    blockReasons,
-    audio: { available: input.audio !== undefined && input.audio !== null, problems },
-  };
+  return { ...result, checks, blocked: blockReasons.length > 0, blockReasons };
+}
+
+/**
+ * The sound's problems (W3-A's audio trace) folded into a result: its own
+ * checks replace any audio checks already there, so stored checks can gain
+ * the audio facts when the trace route exists and lose none of the picture's.
+ */
+export function withAudioProblems(result: RenderChecks, problems: readonly AudioProblem[]): RenderChecks {
+  const impactAt = (ms: number): RenderCheckImpact => (ms < 3000 ? "hook" : ms > result.durationMs - 3000 ? "finish" : "hold");
+  const picture = result.checks.filter((check) => !check.id.startsWith("audio:"));
+  const sound: RenderCheck[] = problems.map((problem) => ({
+    id: `audio:${problem.id}`, level: problem.level, impact: problem.atMs !== undefined ? impactAt(problem.atMs) : "hold", atMs: problem.atMs, title: problem.title, detail: problem.detail,
+  }));
+  return sealChecks({ ...result, checks: [...picture, ...sound], audio: { available: true, problems: [...problems] } });
 }
 
 /** The line the Post and Schedule buttons show when a hard check failed, or null. */

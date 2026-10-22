@@ -153,3 +153,16 @@ export async function mediaUrl(objectKey: string, options: { downloadAs?: string
   signedUrls.set(cacheKey, { url, reuseUntil: Date.now() + (SIGNED_URL_TTL_SECONDS * 1000) / 2 });
   return url;
 }
+
+/**
+ * An object streamed to a local file (a render for the verification routes,
+ * ADR 0071): never held in memory, so a long export costs disk, not heap.
+ */
+export async function downloadObject(objectKey: string, destination: string): Promise<void> {
+  const object = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: objectKey }));
+  if (!object.Body) throw new Error(`Storage returned no body for ${objectKey}`);
+  const { createWriteStream } = await import("node:fs");
+  const { pipeline } = await import("node:stream/promises");
+  const { Readable } = await import("node:stream");
+  await pipeline(Readable.fromWeb(object.Body.transformToWebStream() as import("node:stream/web").ReadableStream), createWriteStream(destination));
+}

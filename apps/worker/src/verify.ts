@@ -1,5 +1,6 @@
 import { checkDecodeArgs, renderChecks, seriesFromGreyFrames, type RenderChecks, type TextOverlay, type Timeline, type TitleFont } from "@reelwalk/core";
-import { textTreatmentCss } from "@reelwalk/render/reel";
+// The barrel pulls in the font CSS files, which Node cannot load; the look subpath is pure.
+import { textTreatmentCss } from "@reelwalk/render/reel/look";
 import type { AttemptScope } from "./lifecycle";
 import { run } from "./library/tools";
 

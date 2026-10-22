@@ -1,6 +1,11 @@
-/** Server-only structured editing answers. Claude is selected when configured;
- * the existing OpenAI transport remains available for explicit rollback. */
+/** Server-only structured editing answers. Claude is selected when configured,
+ * directly or through Google Cloud (Vertex AI, ADR 0072); the existing OpenAI
+ * transport remains available for explicit rollback. */
 
+import Anthropic from "@anthropic-ai/sdk";
+import { AnthropicVertex } from "@anthropic-ai/vertex-sdk";
+import type { AuthClient } from "google-auth-library";
+import { defaultGoogleAuth, federatedGoogleAuth } from "./google-federation";
 import { beforeProviderRequest, providerAnswered, providerSignal } from "./provider-gate";
 
 export const DEFAULT_AI_MODEL = "gpt-6-luna";
@@ -12,16 +17,45 @@ function configuredKey(name: string): string | undefined {
   return key && key !== "unset" ? key : undefined;
 }
 
-export function aiProvider(): "anthropic" | "openai" {
+export type AiProvider = "anthropic" | "openai" | "vertex";
+
+/** Where the Claude on Vertex requests go: the global endpoint unless a region is set (ADR 0072). */
+export const DEFAULT_VERTEX_CLAUDE_REGION = "global";
+
+/**
+ * The provider for "ask for a change": set explicitly with AI_PROVIDER, or
+ * Claude direct when its key is there, else OpenAI. Vertex is never chosen
+ * implicitly: billing through Google is a deliberate switch and its rollback
+ * is `AI_PROVIDER=anthropic`.
+ */
+export function aiProvider(): AiProvider {
   const provider = process.env.AI_PROVIDER?.trim();
-  if (provider && provider !== "anthropic" && provider !== "openai") throw new AiError("Unknown AI provider configuration.", false);
-  return provider === "anthropic" || provider === "openai" ? provider : (configuredKey("ANTHROPIC_API_KEY") ? "anthropic" : "openai");
+  if (provider === "anthropic" || provider === "openai" || provider === "vertex") return provider;
+  if (provider) throw new AiError("Unknown AI provider configuration.", false);
+  return configuredKey("ANTHROPIC_API_KEY") ? "anthropic" : "openai";
 }
 
 export function aiModel(): string {
-  return aiProvider() === "anthropic"
-    ? process.env.ANTHROPIC_MODEL || DEFAULT_CLAUDE_MODEL
-    : process.env.OPENAI_MODEL || DEFAULT_AI_MODEL;
+  return aiProvider() === "openai"
+    ? process.env.OPENAI_MODEL || DEFAULT_AI_MODEL
+    : process.env.ANTHROPIC_MODEL || DEFAULT_CLAUDE_MODEL;
+}
+
+/**
+ * Claude on Google Cloud needs the project and a way to get a Google token:
+ * the workload identity federation the worker already uses for Veo (both
+ * variables), or application default credentials for local development.
+ * Returns null when any of that is missing, so the feature fails closed.
+ */
+export function vertexConfig(): { projectId: string; region: string; federation: { audience: string; email: string } | null } | null {
+  const projectId = configuredKey("GOOGLE_CLOUD_PROJECT");
+  if (!projectId) return null;
+  const region = configuredKey("VERTEX_CLAUDE_REGION") ?? DEFAULT_VERTEX_CLAUDE_REGION;
+  const audience = configuredKey("GOOGLE_WORKLOAD_IDENTITY_AUDIENCE");
+  const email = configuredKey("GOOGLE_SERVICE_ACCOUNT_EMAIL");
+  if (audience && email) return { projectId, region, federation: { audience, email } };
+  if (!audience && !email && configuredKey("GOOGLE_APPLICATION_CREDENTIALS")) return { projectId, region, federation: null };
+  return null;
 }
 
 function viaOpenRouter(): boolean {
@@ -39,7 +73,9 @@ function providerModel(model: string): string {
 }
 
 export function isAiConfigured(): boolean {
-  return Boolean(configuredKey(aiProvider() === "anthropic" ? "ANTHROPIC_API_KEY" : "OPENAI_API_KEY"));
+  const provider = aiProvider();
+  if (provider === "vertex") return vertexConfig() !== null;
+  return Boolean(configuredKey(provider === "anthropic" ? "ANTHROPIC_API_KEY" : "OPENAI_API_KEY"));
 }
 
 export function isFakeAi(): boolean {
@@ -90,7 +126,9 @@ export async function structuredAnswer(options: {
   maxOutputTokens?: number;
   signal?: AbortSignal;
 }): Promise<{ json: unknown; usage: AiUsage; model: string }> {
-  if (aiProvider() === "anthropic") return claudeAnswer(options);
+  const provider = aiProvider();
+  if (provider === "anthropic") return claudeAnswer(options);
+  if (provider === "vertex") return vertexAnswer(options);
   const key = configuredKey("OPENAI_API_KEY");
   if (!key) throw new AiError("Asking for changes is not set up on this deployment.", false);
   const model = aiModel();
@@ -206,45 +244,36 @@ function claudeEditWire(options: AnswerOptions) {
   return null;
 }
 
-async function claudeAnswer(options: AnswerOptions): Promise<{ json: unknown; usage: AiUsage; model: string }> {
-  const key = configuredKey("ANTHROPIC_API_KEY");
-  if (!key) throw new AiError("Claude editing is not configured on this deployment.", false);
-  const model = aiModel();
+type ClaudeImage = { type: "image"; source: { type: "base64"; media_type: "image/jpeg" | "image/png" | "image/gif" | "image/webp"; data: string } };
+type ClaudeMessage = {
+  stop_reason?: string | null; model?: string; content?: Array<{ type?: string; text?: string }>;
+  usage?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number | null; cache_creation_input_tokens?: number | null };
+};
+
+/** The one request both Claude routes send: system, a user turn with optional pictures, strict JSON output, medium effort. */
+function claudeRequest(options: AnswerOptions, model: string) {
   const wire = claudeEditWire(options);
   // Only owned, preprocessed image data is accepted. Never make the provider fetch arbitrary URLs.
-  const images = (options.images ?? []).map((url) => {
+  const images: ClaudeImage[] = (options.images ?? []).map((url) => {
     const match = /^data:(image\/(?:jpeg|png|gif|webp));base64,([A-Za-z0-9+/=]+)$/.exec(url);
     if (!match) throw new AiError("The editing image is not a supported image data URL.", false);
-    return { type: "image", source: { type: "base64", media_type: match[1], data: match[2] } };
+    return { type: "image", source: { type: "base64", media_type: match[1] as ClaudeImage["source"]["media_type"], data: match[2] } };
   });
-  await beforeProviderRequest();
-  let response: Response;
-  try {
-    response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-      body: JSON.stringify({
-        model,
-        // Opus 5.5 always thinks; leave room for reasoning as well as the edit JSON.
-        max_tokens: Math.min(32000, Math.max(4096, (options.maxOutputTokens ?? 1200) + 2048)),
-        system: wire?.instructions ?? options.instructions,
-        messages: [{ role: "user", content: [{ type: "text", text: options.input }, ...images] }],
-        output_config: { effort: "medium", format: { type: "json_schema", schema: wire?.schema ?? options.schema } },
-      }),
-      signal: providerSignal(options.signal ?? AbortSignal.timeout(60_000)),
-    });
-  } catch {
-    throw new AiError("Could not reach Claude.", true);
-  }
-  providerAnswered();
-  const data = await response.json().catch(() => ({})) as {
-    stop_reason?: string; model?: string; content?: Array<{ type?: string; text?: string }>;
-    usage?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number };
+  return {
+    wire,
+    body: {
+      model,
+      // Opus 5.5 always thinks; leave room for reasoning as well as the edit JSON.
+      max_tokens: Math.min(32000, Math.max(4096, (options.maxOutputTokens ?? 1200) + 2048)),
+      system: wire?.instructions ?? options.instructions,
+      messages: [{ role: "user" as const, content: [{ type: "text" as const, text: options.input }, ...images] }],
+      output_config: { effort: "medium" as const, format: { type: "json_schema" as const, schema: wire?.schema ?? options.schema } },
+    },
   };
-  if (!response.ok) {
-    // Do not echo provider error bodies: they can contain request content or credentials.
-    throw new AiError(`Claude could not answer (HTTP ${response.status}).`, response.status === 429 || response.status >= 500);
-  }
+}
+
+/** Reads the JSON answer and the token counts out of a Claude message, from either route. */
+function decodeClaudeMessage(data: ClaudeMessage, wire: ReturnType<typeof claudeEditWire>, model: string): { json: unknown; usage: AiUsage; model: string } {
   if (data.stop_reason === "refusal") throw new AiError("Claude declined this edit request.", false);
   if (data.stop_reason === "max_tokens") throw new AiError("Claude ran out of room before finishing the plan.", false);
   if (data.stop_reason !== "end_turn") throw new AiError("Claude stopped before completing the edit plan.", false);
@@ -260,8 +289,102 @@ async function claudeAnswer(options: AnswerOptions): Promise<{ json: unknown; us
   } };
 }
 
+async function claudeAnswer(options: AnswerOptions): Promise<{ json: unknown; usage: AiUsage; model: string }> {
+  const key = configuredKey("ANTHROPIC_API_KEY");
+  if (!key) throw new AiError("Claude editing is not configured on this deployment.", false);
+  const model = aiModel();
+  const { wire, body } = claudeRequest(options, model);
+  await beforeProviderRequest();
+  let response: Response;
+  try {
+    response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+      body: JSON.stringify(body),
+      signal: providerSignal(options.signal ?? AbortSignal.timeout(60_000)),
+    });
+  } catch {
+    throw new AiError("Could not reach Claude.", true);
+  }
+  providerAnswered();
+  const data = await response.json().catch(() => ({})) as ClaudeMessage;
+  if (!response.ok) {
+    // Do not echo provider error bodies: they can contain request content or credentials.
+    throw new AiError(`Claude could not answer (HTTP ${response.status}).`, response.status === 429 || response.status >= 500);
+  }
+  return decodeClaudeMessage(data, wire, model);
+}
+
+// One client per configuration: the Google auth client inside it caches and refreshes the federated token.
+const vertexClients = new Map<string, Promise<AnthropicVertex>>();
+
+async function vertexClient(config: NonNullable<ReturnType<typeof vertexConfig>>): Promise<AnthropicVertex> {
+  const key = JSON.stringify(config);
+  let client = vertexClients.get(key);
+  if (!client) {
+    client = (async () => {
+      let authClient: AuthClient;
+      if (config.federation) {
+        const { awsCredentials } = await import("./storage");
+        authClient = federatedGoogleAuth(awsCredentials(), config.federation.audience, config.federation.email);
+      } else {
+        authClient = await defaultGoogleAuth();
+      }
+      // No SDK retries: inside a durable AI step an unanswered request must never be sent twice (ADR 0049);
+      // the callers that may retry do so themselves after checking the gate.
+      // The SDK types its authClient against google-auth-library 10; the app shares the worker's 11. Same AuthClient
+      // surface (getRequestHeaders), so the cast is safe; a mismatch would fail the first call, not silently.
+      type VertexAuthClient = NonNullable<NonNullable<ConstructorParameters<typeof AnthropicVertex>[0]>["authClient"]>;
+      return new AnthropicVertex({ projectId: config.projectId, region: config.region, authClient: authClient as unknown as VertexAuthClient, maxRetries: 0, timeout: 60_000 });
+    })();
+    vertexClients.set(key, client);
+    client.catch(() => vertexClients.delete(key));
+  }
+  return client;
+}
+
+/** Why a Vertex call failed, as the app's error: retry later for rate limits, outages and dropped connections; not for a bad request. */
+export function vertexError(error: unknown): AiError {
+  if (error instanceof AiError) return error;
+  // Status codes only: SDK messages carry the provider body, which can echo request content.
+  if (error instanceof Anthropic.RateLimitError || error instanceof Anthropic.InternalServerError) return new AiError(`Claude on Google Cloud could not answer (HTTP ${error.status}).`, true);
+  if (error instanceof Anthropic.APIConnectionError) return new AiError("Could not reach Claude on Google Cloud.", true);
+  if (error instanceof Anthropic.APIError) return new AiError(`Claude on Google Cloud could not answer (HTTP ${error.status ?? "error"}).`, (error.status ?? 500) >= 500);
+  if (error instanceof Error && error.name === "AbortError") return new AiError("Could not reach Claude on Google Cloud.", true);
+  return new AiError("Claude on Google Cloud could not be reached with these Google credentials.", true);
+}
+
+/** Claude through Vertex AI (ADR 0072): the same request as `claudeAnswer`, sent by the official client with a Google token. */
+async function vertexAnswer(options: AnswerOptions): Promise<{ json: unknown; usage: AiUsage; model: string }> {
+  const config = vertexConfig();
+  if (!config) throw new AiError("Claude on Google Cloud is not configured on this deployment.", false);
+  const model = aiModel();
+  const { wire, body } = claudeRequest(options, model);
+  await beforeProviderRequest();
+  let data: ClaudeMessage;
+  try {
+    const client = await vertexClient(config);
+    data = await client.messages.create(body, { signal: providerSignal(options.signal ?? AbortSignal.timeout(60_000)) });
+  } catch (error) {
+    // The SDK answered (with an error) or gave up: either way the request is no longer in doubt.
+    providerAnswered();
+    throw vertexError(error);
+  }
+  providerAnswered();
+  return decodeClaudeMessage(data, wire, model);
+}
+
+/**
+ * Google's list prices for Claude at the global endpoint equal Anthropic's;
+ * its regional endpoints (us-east5, europe-west1, ...) are listed 10% higher
+ * (cloud.google.com/vertex-ai/generative-ai/pricing, read 2026-10-23).
+ */
+export function vertexPriceFactor(region: string): number {
+  return region === "global" ? 1 : 1.1;
+}
+
 /** What a call cost in dollars, from the model's list price, for logs and the admin page. */
-export function usageCostUsd(model: string, usage: AiUsage): number {
+export function usageCostUsd(model: string, usage: AiUsage, options: { provider?: AiProvider; vertexRegion?: string } = {}): number {
   const prices: Record<string, { input: number; cached: number; output: number; cacheWrite?: number }> = {
     "claude-opus-5-5": { input: 4, cached: 0.2, cacheWrite: 5, output: 20 },
     "gpt-6.1-sol": { input: 2, cached: 0.1, output: 10 },
@@ -270,5 +393,6 @@ export function usageCostUsd(model: string, usage: AiUsage): number {
   };
   const price = prices[model.replace(/^openai\//, "")] ?? prices[DEFAULT_AI_MODEL];
   const fresh = Math.max(0, usage.inputTokens - usage.cachedTokens - (usage.cacheWriteTokens ?? 0));
-  return (fresh * price.input + usage.cachedTokens * price.cached + usage.outputTokens * price.output + (usage.cacheWriteTokens ?? 0) * (price.cacheWrite ?? price.input)) / 1_000_000;
+  const factor = options.provider === "vertex" ? vertexPriceFactor(options.vertexRegion ?? vertexConfig()?.region ?? DEFAULT_VERTEX_CLAUDE_REGION) : 1;
+  return factor * (fresh * price.input + usage.cachedTokens * price.cached + usage.outputTokens * price.output + (usage.cacheWriteTokens ?? 0) * (price.cacheWrite ?? price.input)) / 1_000_000;
 }

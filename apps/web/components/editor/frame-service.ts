@@ -26,7 +26,7 @@ type Drawable = HTMLVideoElement | HTMLImageElement;
 const sizeOf = (media: Drawable) => ("videoWidth" in media ? { width: media.videoWidth, height: media.videoHeight } : { width: media.naturalWidth, height: media.naturalHeight });
 
 /** Draws `media` at its current frame as the composition shows `clip` at `moment`, for viewing or for analysis. */
-export function drawPresented(ctx: CanvasRenderingContext2D, media: Drawable, clip: Pick<Clip, "fit" | "zoom" | "motion" | "filter">, moment: ClipMoment, width: number, height: number, purpose: FramePurpose): void {
+export function drawPresented(ctx: CanvasRenderingContext2D, media: Drawable, clip: Pick<Clip, "fit" | "zoom" | "motion" | "camera" | "filter">, moment: ClipMoment, width: number, height: number, purpose: FramePurpose): void {
   drawClipFrame(ctx, media, sizeOf(media), clip, moment, width, height,
     purpose === "analysis" ? { kind: "analysis" } : { kind: "view", grade: FILTER_CSS[clip.filter] ?? "", canFilter: typeof ctx.filter === "string" });
 }

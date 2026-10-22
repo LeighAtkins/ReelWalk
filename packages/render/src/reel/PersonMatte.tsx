@@ -130,7 +130,9 @@ export const PersonMatteView: React.FC<{
   clip: Clip; asset: ReelAsset; durationInFrames: number; fadeOut?: boolean; whipOut?: Clip["whipDirection"] | null;
   /** False on frames where the layer is drawn at opacity 0 (a passing title before its crossing, ADR 0055): no seek, no segmentation. */
   active?: boolean;
-}> = ({ clip, asset, durationInFrames, fadeOut = false, whipOut = null, active = true }) => {
+  /** The reel's opening shot (ADR 0067): the same camera phase as the footage. */
+  opening?: boolean;
+}> = ({ clip, asset, durationInFrames, fadeOut = false, whipOut = null, active = true, opening = false }) => {
   const frame = useCurrentFrame();
   const { fps, width, height } = useVideoConfig();
   const { isRendering } = useRemotionEnvironment();
@@ -167,7 +169,7 @@ export const PersonMatteView: React.FC<{
     // An idle frame is not matted at all; the first active frame reads its previous picture itself (matte-core's rule).
     if (!active || !segmenter || !current || !canvas.current || warning) return;
     const { element, queue } = current;
-    const seconds = (n: number) => clipSourceSeconds(clip, n, fps);
+    const seconds = (n: number) => clipSourceSeconds(clip, n, fps, durationInFrames);
     const controller = new AbortController();
     let cancelled = false;
     const handle = delayRender(`Person matte frame ${frame}`, { timeoutInMilliseconds: 30_000 });
@@ -207,7 +209,7 @@ export const PersonMatteView: React.FC<{
   if (asset.kind !== "VIDEO") return null;
   if (warning) return isRendering ? null : <AbsoluteFill style={{ pointerEvents: "none" }}><MatteWarning text={warning} /></AbsoluteFill>;
   // The same fade, whip and motion as the footage underneath, so the person stays on their own body.
-  const shown = clipPresentation(clip, frame, fps, durationInFrames, fadeOut, whipOut);
+  const shown = clipPresentation(clip, frame, fps, durationInFrames, fadeOut, whipOut, opening);
   return (
     <AbsoluteFill style={{ pointerEvents: "none", opacity: shown.opacity, overflow: "hidden" }}>
       <AbsoluteFill style={shown.whip}>

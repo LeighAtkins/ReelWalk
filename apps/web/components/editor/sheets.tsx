@@ -34,6 +34,13 @@ import { HOOK_DESCRIPTIONS, HOOK_FONTS, HOOK_LABELS, type Hook, type HookKind,
   TEXT_SIZE_MAX,
   TEXT_STYLES,
   ZOOM_MAX,
+  CAMERA_LABELS,
+  CAMERA_PRESETS,
+  RAMP_LABELS,
+  RAMP_PRESETS,
+  rampProfile,
+  type CameraPreset,
+  type RampPreset,
   type Clip,
   type Corner,
   type Filter,
@@ -147,6 +154,7 @@ export function MediaSheet({
   onPick,
   onClose,
   replace = false,
+  suggest,
 }: {
   library: LibraryAsset[];
   onUpload(files: File[]): void;
@@ -154,6 +162,8 @@ export function MediaSheet({
   onClose(): void;
   /** Replacing the selected clip (ADR 0064): one tap on a photo or video picks it. */
   replace?: boolean;
+  /** Match cuts (ADR 0067): "after 3" on a video whose opening carries on the motion of shot 3; null when nothing is known. */
+  suggest?: (asset: LibraryAsset) => string | null;
 }) {
   const [picked, setPicked] = useState<string[]>([]);
   const [filter, setFilter] = useState<LibraryFilter>("all");
@@ -193,7 +203,7 @@ export function MediaSheet({
       )}
       {everything.length > 0 ? (
         <>
-          {replace ? null : <p className="muted small">Or pick from your library. Tap in the order you want them.</p>}
+          {replace ? null : <p className="muted small">Or pick from your library. Tap in the order you want them.{suggest && visual.some((asset) => suggest(asset)) ? " “After 3” marks a video that carries on the motion of shot 3: a match cut." : ""}</p>}
           {filters.length > 2 ? (
             <Segmented<LibraryFilter>
               label="Show"
@@ -219,6 +229,7 @@ export function MediaSheet({
                 >
                   {asset.thumbUrl ? <img src={asset.thumbUrl} alt="" /> : null}
                   {asset.isAiGenerated ? <span className="library-ai-badge ai-source-badge">AI</span> : null}
+                  {suggest?.(asset) ? <span className="chip timecode library-suggest" data-testid="library-suggest">{suggest(asset)}</span> : null}
                   <span className="chip timecode">{order >= 0 ? order + 1 : asset.isPano ? "360" : asset.durationMs ? formatDuration(asset.durationMs) : "Photo"}</span>
                 </button>
               );
@@ -331,13 +342,49 @@ export function TrimSheet({
   );
 }
 
-export function SpeedSheet({ clip, onChange, onClose }: { clip: Clip; onChange(speed: number): void; onClose(): void }) {
+type RampChoice = "steady" | RampPreset;
+const RAMP_NOTES: Record<RampChoice, string> = {
+  steady: "One speed from start to finish.",
+  "slow-in": "Settles in slowly, then plays at speed.",
+  "slow-out": "Slows into the last third: a reveal.",
+  "into-cut": "Holds, then races into the cut, so the cut lands on the fast part.",
+  "hold-snap": "Holds, then snaps to full speed in a few frames and stays there to the cut.",
+  hit: "Fast from the very first frame, settling by a third of the way in.",
+};
+
+/** The clip's speed across its time, thumb-sized (ADR 0067): a flat line is steady; a rise is the ramp. */
+function RampGraph({ ramp }: { ramp: Clip["ramp"] }) {
+  const profile = rampProfile(ramp ?? null, 32);
+  const peak = Math.max(1.5, ...profile);
+  const width = 240, height = 48, pad = 4;
+  const y = (v: number) => height - pad - ((height - 2 * pad) * v) / peak;
+  const d = profile.map((v, i) => `${i === 0 ? "M" : "L"}${((width * i) / (profile.length - 1)).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+  return (
+    <svg className="ramp-graph" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" role="img" aria-label={ramp ? `Speed ramp: ${RAMP_LABELS[ramp.preset as RampPreset] ?? "custom"}` : "Steady speed"}>
+      <line x1={0} x2={width} y1={y(1)} y2={y(1)} />
+      <path d={d} />
+    </svg>
+  );
+}
+
+export function SpeedSheet({ clip, onChange, onRamp, onClose }: { clip: Clip; onChange(speed: number): void; /** A speed ramp (ADR 0067), or null for steady. */ onRamp(ramp: RampPreset | null): void; onClose(): void }) {
+  const choice: RampChoice = clip.ramp && (RAMP_PRESETS as readonly string[]).includes(clip.ramp.preset) ? (clip.ramp.preset as RampPreset) : clip.ramp ? "into-cut" : "steady";
   return (
     <Sheet title="Speed" onClose={onClose}>
       <Segmented label="Playback speed" options={SPEEDS} value={clip.speed as (typeof SPEEDS)[number]} onChange={onChange} format={(speed) => `${speed}×`} />
       <p className="muted small">
         The clip now plays for {formatDuration(clipDurationMs(clip), true)}. Faster clips suit walk-throughs; 0.5× suits a reveal.
       </p>
+      {clip.kind === "VIDEO" ? (
+        <>
+          <Segmented<RampChoice> label="Speed ramp" options={["steady", ...RAMP_PRESETS]} value={choice} onChange={(value) => onRamp(value === "steady" ? null : value)} format={(value) => (value === "steady" ? "Steady" : RAMP_LABELS[value])} />
+          <RampGraph ramp={clip.ramp} />
+          <p className="muted small" data-testid="ramp-note">
+            {clip.ramp?.preset === "custom" ? "A custom ramp." : RAMP_NOTES[choice]} The clip keeps its length and its place on the beat
+            {clip.volume > 0 && clip.ramp ? "; its own sound fades where the picture runs far from this speed" : ""}.
+          </p>
+        </>
+      ) : null}
     </Sheet>
   );
 }
@@ -482,11 +529,24 @@ export function LogoSheet({
   );
 }
 
-export function MotionSheet({ clip, onChange, onClose }: { clip: Clip; onChange(motion: Motion): void; onClose(): void }) {
+type CameraChoice = "off" | CameraPreset;
+const CAMERA_NOTES: Record<CameraPreset, string> = {
+  push: "A slow, even push in, moving from the first frame to the last.",
+  "push-settle": "Pushes in quickly, overshoots a touch, settles.",
+  drift: "A lateral drift across a slightly closer picture.",
+  snap: "Snaps closer over the first few frames, on the beat the cut is on, then holds.",
+};
+
+export function MotionSheet({ clip, onChange, onCamera, onClose }: { clip: Clip; onChange(motion: Motion): void; /** An eased move (ADR 0067), or null to go back to the simple move. */ onCamera(camera: CameraPreset | null): void; onClose(): void }) {
+  const camera: CameraChoice = clip.camera && (CAMERA_PRESETS as readonly string[]).includes(clip.camera.preset) ? (clip.camera.preset as CameraPreset) : clip.camera ? "push" : "off";
   return (
     <Sheet title="Camera motion" onClose={onClose}>
-      <Segmented label="Motion" options={MOTIONS} value={clip.motion} onChange={onChange} format={(motion) => MOTION_LABELS[motion]} />
-      <p className="muted small">Use a gentle push or pan, or a short snap zoom to accent a cut. Works on photos and video.</p>
+      <Segmented<CameraChoice> label="Eased move" options={["off", ...CAMERA_PRESETS]} value={camera} onChange={(value) => onCamera(value === "off" ? null : value)} format={(value) => (value === "off" ? "Off" : CAMERA_LABELS[value])} />
+      <p className="muted small" data-testid="camera-note">
+        {clip.camera ? (clip.camera.preset === "custom" ? "A custom eased move." : CAMERA_NOTES[camera as CameraPreset]) : "Eased moves start and settle like a real camera, and the opening shot is already moving on its first frame."}
+      </p>
+      <Segmented label="Simple move" options={MOTIONS} value={clip.camera ? ("" as Motion) : clip.motion} onChange={onChange} format={(motion) => MOTION_LABELS[motion]} />
+      <p className="muted small">{clip.camera ? "Choosing a simple move switches the eased move off." : "A steady push or pan, or a short snap zoom to accent a cut. Works on photos and video."}</p>
     </Sheet>
   );
 }
@@ -588,6 +648,8 @@ export function TransitionSheet({
   canWalkHere,
   onChange,
   onDirection,
+  onMatchFootage,
+  matchNote = null,
   onClose,
 }: {
   clip: Clip;
@@ -595,6 +657,10 @@ export function TransitionSheet({
   canWalkHere: boolean;
   onChange(transition: Clip["transitionIn"]): void;
   onDirection(value: NonNullable<Clip["whipDirection"]>): void;
+  /** Whip the way the shot before moves (ADR 0067): measured from its footage. */
+  onMatchFootage?: () => void;
+  /** What matching found, while it runs and after. */
+  matchNote?: string | null;
   onClose(): void;
 }) {
   return (
@@ -607,6 +673,10 @@ export function TransitionSheet({
         format={(transition) => (transition === "cut" ? "Cut" : transition === "fade" ? "Fade through black" : transition === "whip" ? "Whip pan" : "Walk there")}
       />
       {clip.transitionIn === "whip" ? <Segmented label="Camera pan direction" options={["left", "right", "up", "down"] as const} value={clip.whipDirection ?? "right"} onChange={onDirection} format={direction => direction[0].toUpperCase() + direction.slice(1)} /> : null}
+      {clip.transitionIn === "whip" && onMatchFootage ? (
+        <button type="button" className="btn btn-quiet btn-block" onClick={onMatchFootage} data-testid="whip-match-footage">Match the footage</button>
+      ) : null}
+      {matchNote ? <p className="muted small" data-testid="whip-match-note">{matchNote}</p> : null}
       <p className="muted small">Whip is silent. Choose the camera pan direction to match the footage; use a clean cut when the shots do not share a move.</p>
       {canWalkHere ? <p className="muted small">Walk there moves the camera across the floor plan from the last 360 photo to this one.</p> : null}
     </Sheet>

@@ -12,7 +12,10 @@
  * what they did in the meantime.
  */
 import { snapCutsToBeats } from "./beats";
+import { cameraPreset, CAMERA_PRESETS, type Camera, type CameraPreset } from "./camera";
+import { suggestMatchCuts, type ClipMotion, type WhipDirection } from "./match-cut";
 import { paceTimeline, putOnTheBeat } from "./pacing";
+import { rampPreset, RAMP_PRESETS, type Ramp, type RampPreset } from "./ramp";
 import type { SongMap } from "./song";
 import { applyFinish, type FinishId } from "./finishes";
 import { planHook, stripHook, type HookInputs } from "./hook";
@@ -63,7 +66,7 @@ export type Command =
    * back the same cut. `clipEnergy` is measured motion by clip id; `songMap`
    * is the song's bars and sections when the song did not have them yet.
    */
-  | { type: "pace"; energy: number; clipEnergy?: Record<string, number>; songMap?: SongMap; /** Assets whose clips carry speech: their clips are held (see `heldByPace`). */ speechAssetIds?: string[] }
+  | { type: "pace"; energy: number; clipEnergy?: Record<string, number>; songMap?: SongMap; /** Assets whose clips carry speech: their clips are held (see `heldByPace`). */ speechAssetIds?: string[]; /** Ramp the shots in the build and the drop into their cuts (ADR 0067), so beat-cuts land on the fast part. */ ramps?: boolean }
   /** "On the beat" (ADR 0059) switched; switching it on puts entrances, bursts, whips and the pass on the bar. */
   | { type: "setOnBeat"; on: boolean; speechAssetIds?: string[] }
   /** The draft review's pace and length (ADR 0022). */
@@ -90,6 +93,17 @@ export type Command =
    * the same step, so the edit and its music are one undo.
    */
   | { type: "applyProposal"; baseGeneration: number; proposal: unknown; music?: MusicChoice & { snap?: boolean } }
+  /** A clip's speed ramp (ADR 0067): a preset's name, a curve, or null for constant speed. The clip's length does not change, so nothing is retimed. */
+  | { type: "setRamp"; clipId: string; ramp: Ramp | RampPreset | null }
+  /** A clip's eased camera move (ADR 0067): a preset's name, keys, or null to go back to its `motion`. */
+  | { type: "setCamera"; clipId: string; camera: Camera | CameraPreset | null }
+  /**
+   * Match cuts (ADR 0067) from measured motion by clip id: `reorder` puts the clips in the suggested chain (held
+   * clips keep their slots), `whips` turns every whip to follow the outgoing shot's motion. Both by default.
+   */
+  | { type: "matchCuts"; motion: Record<string, ClipMotion>; reorder?: boolean; whips?: boolean; heldClipIds?: string[] }
+  /** One clip's transition in, with the whip's direction when it is a whip. */
+  | { type: "setTransition"; clipId: string; transition: Timeline["clips"][number]["transitionIn"]; whipDirection?: WhipDirection }
   /** One title's look or place (the critic's fixes, ADR 0062). Does not change the cut, so nothing is retimed. */
   | { type: "updateText"; textId: string; patch: Partial<Omit<TextOverlay, "id">> }
   /** A new title. */
@@ -201,8 +215,11 @@ function run(timeline: Timeline, command: Command, context: CommandContext): Tim
       if (!base.music?.bpm) return timeline;
       const map = command.songMap && !base.music.downbeats?.length ? { downbeats: command.songMap.downbeats, sections: command.songMap.sections } : {};
       const energy = Math.round(Math.min(1, Math.max(0, command.energy)) * 100) / 100;
-      const withSong: Timeline = { ...base, music: { ...base.music, ...map, energy } };
-      return paceTimeline(withSong, { energy, clipEnergy: command.clipEnergy, speechAssetIds: command.speechAssetIds, sourceDurationsMs: durations });
+      // "Ramp into cuts" is remembered on the music; switching it off takes back the ramps pacing gave (the preset it uses).
+      const ramps = command.ramps ?? base.music.ramps ?? false;
+      const clips = command.ramps === false ? base.clips.map((clip) => (clip.ramp?.preset === "into-cut" ? { ...clip, ramp: null } : clip)) : base.clips;
+      const withSong: Timeline = { ...base, clips, music: { ...base.music, ...map, energy, ...(command.ramps !== undefined ? { ramps: command.ramps } : {}) } };
+      return paceTimeline(withSong, { energy, clipEnergy: command.clipEnergy, speechAssetIds: command.speechAssetIds, sourceDurationsMs: durations, ramps });
     }
     case "setOnBeat": {
       if (!timeline.music) return timeline;
@@ -237,6 +254,36 @@ function run(timeline: Timeline, command: Command, context: CommandContext): Tim
       // The proposal placed its own titles: its song's cuts are snapped, but nothing is moved onto the bar.
       return withMusic(proposal, music, Boolean(snap), durations, false);
     }
+    // The three throw for a clip that is not there, so a batch holding them is all or nothing (as updateText does).
+    case "setRamp": {
+      requireClip(timeline, command.clipId);
+      const ramp = typeof command.ramp === "string" ? (RAMP_PRESETS.includes(command.ramp) ? rampPreset(command.ramp) : null) : command.ramp;
+      if (typeof command.ramp === "string" && !ramp) throw new Error(`There is no ramp called ${command.ramp}.`);
+      return updateClip(timeline, command.clipId, { ramp });
+    }
+    case "setCamera": {
+      requireClip(timeline, command.clipId);
+      const camera = typeof command.camera === "string" ? (CAMERA_PRESETS.includes(command.camera) ? cameraPreset(command.camera) : null) : command.camera;
+      if (typeof command.camera === "string" && !camera) throw new Error(`There is no camera move called ${command.camera}.`);
+      return updateClip(timeline, command.clipId, { camera });
+    }
+    case "setTransition":
+      requireClip(timeline, command.clipId);
+      return updateClip(timeline, command.clipId, { transitionIn: command.transition, ...(command.transition === "whip" && command.whipDirection ? { whipDirection: command.whipDirection } : {}) });
+    case "matchCuts": {
+      const suggestions = suggestMatchCuts(timeline, command.motion, { heldClipIds: command.heldClipIds });
+      let next = timeline;
+      if (command.reorder !== false && suggestions.order.length === timeline.clips.length) {
+        const byId = new Map(timeline.clips.map((clip) => [clip.id, clip]));
+        const clips = suggestions.order.map((id) => byId.get(id)!);
+        if (clips.some((clip, index) => clip !== timeline.clips[index])) next = cut({ ...timeline, clips });
+      }
+      if (command.whips !== false) {
+        const after = suggestMatchCuts(next, command.motion, { heldClipIds: command.heldClipIds });
+        for (const whip of after.whips) next = updateClip(next, whip.clipId, { whipDirection: whip.direction });
+      }
+      return next;
+    }
     // Both throw rather than quietly changing nothing, so a batch holding them is all or nothing.
     case "updateText":
       if (!timeline.texts.some((text) => text.id === command.textId)) throw new Error(`There is no text called ${command.textId} in the reel.`);
@@ -250,7 +297,14 @@ function run(timeline: Timeline, command: Command, context: CommandContext): Tim
     case "batch":
       // Each step runs against the result of the one before; a failing step throws, so the whole batch is rejected.
       return command.commands.reduce((current, step) => run(current, step, { ...context, gestureBase: undefined }), timeline);
+    default:
+      // A command this build does not know (an agent's typo over HTTP, ADR 0067) is refused, never let through as "nothing changed".
+      throw new Error(`There is no command called ${String((command as { type?: unknown }).type)}.`);
   }
+}
+
+function requireClip(timeline: Timeline, clipId: string): void {
+  if (!timeline.clips.some((clip) => clip.id === clipId)) throw new Error(`There is no clip called ${clipId} in the reel.`);
 }
 
 function withMusic(timeline: Timeline, choice: MusicChoice | null, snap: boolean, durations: Record<string, number | null | undefined>, onBeat: boolean): Timeline {

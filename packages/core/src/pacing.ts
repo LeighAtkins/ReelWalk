@@ -11,6 +11,7 @@ import { beatPeriodMs } from "./beats";
 import type { MotionSample } from "./motion";
 import { setTypeMotionCue, typeMotionCues } from "./kinetic";
 import { isGeneratedAssetId } from "./presenter";
+import { rampPreset } from "./ramp";
 import { BEATS_PER_BAR, sectionAt } from "./song";
 import { clipRunEndMs, retimeTexts, textAttachment } from "./text-timing";
 import { MIN_CLIP_MS, clipDurationMs, clipStartsMs, timelineDurationMs, type Clip, type Music, type SectionKind, type SongSection, type TextOverlay, type Timeline } from "./timeline";
@@ -144,6 +145,12 @@ export type PaceOptions = {
   /** The hero an earlier Energy change chose; kept while it can still be the hero, so later changes do not churn the order. */
   heroClipId?: string | null;
   sourceDurationsMs?: Record<string, number | null | undefined>;
+  /**
+   * Ramp into the cut (ADR 0067): a video shot in the build or the drop (or anywhere, with no sections, from Steady
+   * up) that has no ramp of its own accelerates into its cut, so the beat-cut lands on the fast part. Held clips and
+   * the hero (held longer, on the drop) are left alone.
+   */
+  ramps?: boolean;
 };
 
 /**
@@ -274,13 +281,20 @@ function cutPlan(timeline: Timeline, options: PaceOptions, sections: SongSection
       end = fit - t >= minimum ? fit : t + most;
     }
     const length = Math.max(1, Math.round(end) - t);
-    const next = withLength(clip, length, durations);
+    const ramped = options.ramps && !isHero && rampsHere(clip, kind, energy) ? { ...clip, ramp: rampPreset("into-cut") } : clip;
+    const next = withLength(ramped, length, durations);
     const actual = clipDurationMs(next);
     clips.push(next);
     shots.push({ clipId: clip.id, startMs: t, endMs: t + actual, beats, section: kind, hero: isHero, held: false });
     t += actual;
   }
   return { clips, shots, heroClipId: heroClip?.id ?? null };
+}
+
+/** Whether pacing gives this shot a ramp into its cut: a video without one, in a part of the song that drives. */
+function rampsHere(clip: Clip, kind: SectionKind | "none", energy: number): boolean {
+  if (clip.kind !== "VIDEO" || clip.ramp) return false;
+  return kind === "build" || kind === "drop" || (kind === "none" && energy >= 0.5);
 }
 
 /** The clip playing `lengthMs` of reel time: a photo simply that long, a video keeping the middle of what it showed, inside its source. */

@@ -7,6 +7,10 @@ import type { PlayerRef } from "@remotion/player";
 import { canExport, fixAllCommand, safeFixes, type CriticFinding, type CriticFix,
   setHook, wordsBehindHook, locate, orientQuad, reshapePin, placementVersion, storedFraction,
   addClips,
+  cutsWellAfter,
+  DEFAULT_ENERGY,
+  whipDirectionFor,
+  type ClipMotion,
   insertAiShot,
   luxuryFinish,
   addRoomLabels,
@@ -145,7 +149,7 @@ import { HookSheet, PinSheet,
 } from "./sheets";
 import { analyseStoredAudio, uploadFile } from "./upload";
 import { BeatControl } from "./beat-control";
-import { measureClipEnergies } from "./clip-energy";
+import { energiesOf, measureAssetMotion, measureClipMotion } from "./clip-energy";
 import { useAutosave } from "./use-autosave";
 import { AiVideoPanel } from "../ai-video-panel";
 import { Sheet } from "./sheets";
@@ -339,6 +343,12 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
   const [musicUploading, setMusicUploading] = useState(false);
   // Editing to the beat (ADR 0059): measured clip motion and song bars, gathered when the Music sheet opens.
   const clipEnergies = useRef<Record<string, number>>({});
+  /** How each clip moves (ADR 0067), measured once per clip: energies for pacing, directions for match cuts and whips. */
+  const clipMotion = useRef<Record<string, ClipMotion>>({});
+  /** The opening motion of library videos not in the reel, for the Add media chips; null when one could not be read. */
+  const [candidateMotion, setCandidateMotion] = useState<Record<string, ClipMotion | null>>({});
+  /** What "Match the footage" or "Cut on the motion" is doing or found. */
+  const [motionNote, setMotionNote] = useState<string | null>(null);
   const songMaps = useRef<Record<string, SongMap>>({});
   const beatWork = useRef(false);
   const [beatMeasuring, setBeatMeasuring] = useState(false);
@@ -656,16 +666,52 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
    */
   const measureForPace = useCallback(() => {
     const current = snapshot().timeline;
-    if (beatWork.current || current.clips.every((clip) => clip.kind !== "VIDEO" || clipEnergies.current[clip.id] !== undefined)) return;
+    if (beatWork.current || current.clips.every((clip) => clip.kind !== "VIDEO" || clipMotion.current[clip.id] !== undefined)) return;
     beatWork.current = true;
     setBeatMeasuring(true);
-    void measureClipEnergies(current, libraryRef.current, clipEnergies.current)
-      .then((measured) => Object.assign(clipEnergies.current, measured))
+    void measureClipMotion(current, libraryRef.current, clipMotion.current)
+      .then((measured) => {
+        Object.assign(clipMotion.current, measured);
+        Object.assign(clipEnergies.current, energiesOf(measured));
+      })
       .finally(() => {
         beatWork.current = false;
         setBeatMeasuring(false);
       });
   }, [snapshot]);
+
+  /** The clips' measured motion (ADR 0067), measuring what is not known yet; the same measurement Energy uses. */
+  const measureMotion = useCallback(async (): Promise<Record<string, ClipMotion>> => {
+    const measured = await measureClipMotion(snapshot().timeline, libraryRef.current, clipMotion.current);
+    Object.assign(clipMotion.current, measured);
+    Object.assign(clipEnergies.current, energiesOf(measured));
+    return { ...clipMotion.current };
+  }, [snapshot]);
+
+  // Add media (ADR 0067): once the reel's shots are measured, read the opening of library videos not yet measured, so a
+  // video that carries on a shot's motion can say so. In the background; the chips appear when they are known.
+  useEffect(() => {
+    if (sheet !== "media") return;
+    const current = snapshot().timeline;
+    if (!current.clips.some((clip) => clip.kind === "VIDEO")) return;
+    const inReel = new Set(current.clips.map((clip) => clip.assetId));
+    const videos = Object.values(libraryRef.current).filter((asset) => asset.kind === "VIDEO" && !asset.isPano && !inReel.has(asset.id) && candidateMotion[asset.id] === undefined);
+    if (videos.length === 0) return;
+    let cancelled = false;
+    void measureMotion()
+      .then(() => measureAssetMotion(videos))
+      .then((measured) => { if (!cancelled) setCandidateMotion((known) => ({ ...known, ...measured })); });
+    return () => { cancelled = true; };
+  }, [sheet, candidateMotion, measureMotion, snapshot]);
+  useEffect(() => setMotionNote(null), [sheet]);
+
+  /** Add media's chip for a library video: "after 3" when its opening carries on the motion of shot 3 (ADR 0067). */
+  const suggestAfter = useCallback((asset: LibraryAsset): string | null => {
+    const motion = candidateMotion[asset.id];
+    if (!motion) return null;
+    const [best] = cutsWellAfter(timeline, clipMotion.current, motion);
+    return best ? `after ${best.index + 1}` : null;
+  }, [candidateMotion, timeline]);
   const pastSongWarned = useRef(false);
 
   const pickInstagramSound = useCallback(
@@ -1586,6 +1632,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
       {sheet === "media" ? (
         <MediaSheet
           library={libraryList}
+          suggest={suggestAfter}
           onUpload={addFiles}
           onPick={(picked) => {
             apply((current) => {
@@ -1613,7 +1660,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         />
       ) : null}
       {sheet === "speed" && selectedClip ? (
-        <SpeedSheet clip={selectedClip} onChange={(speed) => runCommand({ type: "setSpeed", clipId: selectedClip.id, speed })} onClose={closeSheet} />
+        <SpeedSheet clip={selectedClip} onChange={(speed) => runCommand({ type: "setSpeed", clipId: selectedClip.id, speed })} onRamp={(ramp) => runCommand({ type: "setRamp", clipId: selectedClip.id, ramp })} onClose={closeSheet} />
       ) : null}
       {sheet === "volume" && selectedClip ? (
         <VolumeSheet
@@ -1655,7 +1702,13 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         />
       ) : null}
       {sheet === "motion" && selectedClip ? (
-        <MotionSheet clip={selectedClip} onChange={(motion) => apply((current) => updateClip(current, selectedClip.id, { motion }))} onClose={closeSheet} />
+        <MotionSheet
+          clip={selectedClip}
+          // A simple move switches the eased move off: the composition reads the eased one first (ADR 0067).
+          onChange={(motion) => apply((current) => updateClip(current, selectedClip.id, { motion, camera: null }))}
+          onCamera={(camera) => runCommand({ type: "setCamera", clipId: selectedClip.id, camera })}
+          onClose={closeSheet}
+        />
       ) : null}
       {sheet === "transition" && selectedClip ? (
         <TransitionSheet
@@ -1663,6 +1716,21 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
           canWalkHere={canWalk(timeline.clips[timeline.clips.indexOf(selectedClip) - 1], selectedClip)}
           onChange={(transitionIn) => apply((current) => updateClip(current, selectedClip.id, { transitionIn }))}
           onDirection={whipDirection => apply(current => updateClip(current, selectedClip.id, { whipDirection }))}
+          matchNote={motionNote}
+          onMatchFootage={async () => {
+            // The whip pans the way the outgoing shot's camera does (ADR 0067), read from its footage.
+            const previous = timeline.clips[selectedClipIndex - 1];
+            if (!previous) return;
+            setMotionNote("Reading the shot before…");
+            const motion = await measureMotion();
+            const direction = motion[previous.id] ? whipDirectionFor(motion[previous.id]) : null;
+            if (!direction) {
+              setMotionNote(motion[previous.id] ? "That shot barely moves, so a plain cut will read better than a whip." : "Could not read the shot before.");
+              return;
+            }
+            apply((current) => updateClip(current, selectedClip.id, { whipDirection: direction }));
+            setMotionNote(`Whip ${direction}: the camera keeps panning the way the footage does.`);
+          }}
           onClose={closeSheet}
         />
       ) : null}
@@ -1761,6 +1829,13 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
               onOnBeat={(on) => {
                 runCommand({ type: "setOnBeat", on, speechAssetIds: speechAssetIds(libraryRef.current) });
                 showToast(on ? "Titles, bursts and whips on the beat." : "On the beat is off.");
+              }}
+              onRamps={(on) => {
+                // Recut at the current energy with ramps on or off (ADR 0067): one undo step, like a drag of Energy.
+                measureForPace();
+                const music = snapshot().timeline.music;
+                runCommand({ type: "pace", energy: music?.energy ?? DEFAULT_ENERGY, ramps: on, clipEnergy: { ...clipEnergies.current }, songMap: music ? songMaps.current[music.assetId] : undefined, speechAssetIds: speechAssetIds(libraryRef.current) });
+                showToast(on ? "Shots in the build and the drop now speed up into their cuts." : "Speed ramps off.");
               }}
             />
           ) : null}
@@ -1929,6 +2004,17 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
           timeline={timeline}
           onPace={(shotMs) => runCommand({ type: "retime", shotMs })}
           onLength={(totalMs) => runCommand({ type: "retimeToLength", totalMs })}
+          matching={motionNote}
+          onMatchCuts={async () => {
+            // Match cuts (ADR 0067): shots with speech or the presenter keep their place.
+            setMotionNote("Reading how each shot moves…");
+            const motion = await measureMotion();
+            const speech = new Set(speechAssetIds(libraryRef.current));
+            const held = snapshot().timeline.clips.filter((clip) => speech.has(clip.assetId) || libraryRef.current[clip.assetId]?.isPresenterTake).map((clip) => clip.id);
+            const result = runCommand({ type: "matchCuts", motion, heldClipIds: held });
+            const moved = result.changes.filter((change) => change.kind === "clip").length;
+            setMotionNote(result.rejected ? "That could not be done." : moved > 0 ? `${moved} shots changed so the motion carries across the cut. Undo brings the old order back.` : "The cuts already follow the motion, or too little of it could be read.");
+          }}
           onClose={closeSheet}
         />
       ) : null}

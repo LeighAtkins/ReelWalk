@@ -1,6 +1,7 @@
-import { cameraMoveAt, locateFrame } from "./cinematic";
+import { clipCameraAt, locateFrame } from "./cinematic";
+import { clipSourceFrame } from "./frames";
 import { applyHomography, homography, type Quad } from "./motion";
-import { clipDurationMs, framePlan, REEL_FORMAT, type Clip, type Timeline } from "./timeline";
+import { clipDurationMs, clipOffsetMsAtSource, clipSourceMsAt, framePlan, REEL_FORMAT, type Clip, type Timeline } from "./timeline";
 
 /**
  * One frame-and-coordinate contract for everything that places things on the
@@ -65,12 +66,14 @@ export type ClipPicture = {
   scale: number;
   /** The camera move's sideways shift, as a fraction of the frame width (before scaling). */
   shiftX: number;
+  /** The camera move's vertical shift, as a fraction of the frame height (before scaling); 0 for the Ken Burns presets. */
+  shiftY: number;
   /** The frame the picture is fitted into, in composition px. */
   frame: PixelSize;
 };
 
 /** Where a clip is in its own playback: `progress` 0..1 as the composition computes it, and seconds since it started. */
-export type ClipMoment = { progress: number; seconds: number };
+export type ClipMoment = { progress: number; seconds: number; /** The reel's opening shot: its eased move is read already in progress (ADR 0067). */ opening?: boolean };
 
 /**
  * The moment of a clip at `sourceMs` of its source, as the composition sees
@@ -81,9 +84,9 @@ export type ClipMoment = { progress: number; seconds: number };
  * Takes source ms; returns a clip moment.
  */
 export function clipMomentAtSource(clip: Pick<Clip, "kind" | "speed" | "sourceStartMs" | "sourceEndMs">, sourceMs: number, fps: number = REEL_FORMAT.fps, durationInFrames?: number): ClipMoment {
-  const speed = clip.kind === "IMAGE" ? 1 : clip.speed || 1;
   const frames = durationInFrames ?? Math.max(1, Math.round((clipDurationMs(clip as Clip) * fps) / 1000));
-  const frame = (Math.max(0, sourceMs - clip.sourceStartMs) / speed) * (fps / 1000);
+  // Along the ramp when the clip has one (ADR 0067); linear otherwise.
+  const frame = clipOffsetMsAtSource(clip as Clip, Math.max(clip.sourceStartMs, sourceMs)) * (fps / 1000);
   return { progress: frames > 1 ? Math.min(1, Math.max(0, frame / (frames - 1))) : 0, seconds: Math.max(0, frame / fps) };
 }
 
@@ -101,17 +104,17 @@ export function onScreenAt(timeline: Timeline, reelMs: number, fps: number = REE
   const at = locateFrame(timeline, reelMs, fps);
   if (!at) return null;
   const clip = timeline.clips[at.index];
-  const speed = clip.kind === "IMAGE" ? 1 : clip.speed || 1;
-  const sourceMs = clip.sourceStartMs + at.offsetMs * speed;
+  const sourceMs = clipSourceMsAt(clip, at.offsetMs);
   const frames = framePlan(timeline, fps).clips[at.index].durationInFrames;
-  const mediaMs = ((Math.round((clip.sourceStartMs * fps) / 1000) + ((at.offsetMs * fps) / 1000) * speed) * 1000) / fps;
-  return { index: at.index, clip, sourceMs, mediaMs, moment: clipMomentAtSource(clip, sourceMs, fps, frames) };
+  // The same maths the composition's media uses (frames.ts), so the loupe reads the frame the stage shows.
+  const mediaMs = (clipSourceFrame(clip, (at.offsetMs * fps) / 1000, frames, fps) * 1000) / fps;
+  return { index: at.index, clip, sourceMs, mediaMs, moment: { ...clipMomentAtSource(clip, sourceMs, fps, frames), opening: at.index === 0 } };
 }
 
 /** Takes a clip, its source size in px and a moment; returns how its picture sits in the composition then. */
-export function clipPicture(clip: Pick<Clip, "fit" | "zoom" | "motion">, source: PixelSize, moment: ClipMoment, frame: PixelSize = REEL_FORMAT): ClipPicture {
-  const move = cameraMoveAt(clip.motion, moment.progress, moment.seconds);
-  return { sourceWidth: source.width, sourceHeight: source.height, fit: clip.fit, scale: (clip.zoom || 1) * move.scale, shiftX: move.x / 100, frame: { width: frame.width, height: frame.height } };
+export function clipPicture(clip: Pick<Clip, "fit" | "zoom" | "motion" | "camera">, source: PixelSize, moment: ClipMoment, frame: PixelSize = REEL_FORMAT): ClipPicture {
+  const move = clipCameraAt(clip, moment.progress, moment.seconds, moment.opening);
+  return { sourceWidth: source.width, sourceHeight: source.height, fit: clip.fit, scale: (clip.zoom || 1) * move.scale, shiftX: move.x / 100, shiftY: move.y / 100, frame: { width: frame.width, height: frame.height } };
 }
 
 /** The picture's fit rectangles in composition px (before zoom and motion). */
@@ -124,14 +127,14 @@ export function sourceToComposition(picture: ClipPicture, px: number, py: number
   const r = pictureRects(picture);
   const u0 = (r.dx + ((px - r.sx) * r.dw) / r.sw) / picture.frame.width;
   const v0 = (r.dy + ((py - r.sy) * r.dh) / r.sh) / picture.frame.height;
-  return [0.5 + picture.scale * (u0 - 0.5 + picture.shiftX), 0.5 + picture.scale * (v0 - 0.5)];
+  return [0.5 + picture.scale * (u0 - 0.5 + picture.shiftX), 0.5 + picture.scale * (v0 - 0.5 + picture.shiftY)];
 }
 
 /** Takes composition fraction; returns source px (may fall outside the source where the frame shows no picture). */
 export function compositionToSource(picture: ClipPicture, u: number, v: number): XY {
   const r = pictureRects(picture);
   const u0 = (u - 0.5) / picture.scale + 0.5 - picture.shiftX;
-  const v0 = (v - 0.5) / picture.scale + 0.5;
+  const v0 = (v - 0.5) / picture.scale + 0.5 - picture.shiftY;
   return [r.sx + ((u0 * picture.frame.width - r.dx) * r.sw) / r.dw, r.sy + ((v0 * picture.frame.height - r.dy) * r.sh) / r.dh];
 }
 
@@ -144,9 +147,9 @@ export function compositionToSource(picture: ClipPicture, u: number, v: number):
  * Takes canvas px; returns a canvas transform (canvas px → canvas px).
  */
 export function pictureCanvasTransform(picture: ClipPicture, width: number, height: number): [number, number, number, number, number, number] {
-  const s = picture.scale, tx = picture.shiftX * width;
+  const s = picture.scale, tx = picture.shiftX * width, ty = picture.shiftY * height;
   // p' = c + s·(p − c + t)
-  return [s, 0, 0, s, width / 2 + s * (tx - width / 2), height / 2 - (s * height) / 2];
+  return [s, 0, 0, s, width / 2 + s * (tx - width / 2), height / 2 + s * (ty - height / 2)];
 }
 
 // ── The composition on screen ───────────────────────────────────
@@ -252,7 +255,7 @@ export function placementVersion(timeline: Timeline, textId: string): string {
   return JSON.stringify([
     text.x, text.y, text.surface ?? null, text.startMs, text.endMs, text.pin?.quad ?? null, text.pin?.lean ?? null,
     text.text, text.size, text.style, text.font ?? null, text.tracking ?? null,
-    clip ? [clip.id, clip.assetId, clip.kind, clip.sourceStartMs, clip.sourceEndMs, clip.speed, clip.fit, clip.zoom, clip.motion, start] : null,
+    clip ? [clip.id, clip.assetId, clip.kind, clip.sourceStartMs, clip.sourceEndMs, clip.speed, clip.fit, clip.zoom, clip.motion, start, clip.ramp ?? null, clip.camera ?? null] : null,
   ]);
 }
 

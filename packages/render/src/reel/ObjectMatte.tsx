@@ -63,7 +63,7 @@ function newBuffers(): Buffers {
   return { ws: new Workspace(), raw: new Float32Array(n), alpha: new Uint8ClampedArray(n), cur: { data: new Float32Array(n), width: WORK_WIDTH, height: WORK_HEIGHT }, refs: new Map() };
 }
 
-export const ObjectMatteView: React.FC<{ clip: Clip; asset: ReelAsset; text: TextOverlay; timeline: Timeline; from: number; durationInFrames: number; fadeOut?: boolean; whipOut?: Clip["whipDirection"] | null }> = ({ clip, asset, text, timeline, from, durationInFrames, fadeOut = false, whipOut = null }) => {
+export const ObjectMatteView: React.FC<{ clip: Clip; asset: ReelAsset; text: TextOverlay; timeline: Timeline; from: number; durationInFrames: number; fadeOut?: boolean; whipOut?: Clip["whipDirection"] | null; /** The reel's opening shot (ADR 0067). */ opening?: boolean }> = ({ clip, asset, text, timeline, from, durationInFrames, fadeOut = false, whipOut = null, opening = false }) => {
   const frame = useCurrentFrame();
   const { fps, width, height } = useVideoConfig();
   const { isRendering } = useRemotionEnvironment();
@@ -108,7 +108,7 @@ export const ObjectMatteView: React.FC<{ clip: Clip; asset: ReelAsset; text: Tex
     // Off screen the title needs no matte, and an object the segmenter cannot find there is no error.
     if (!active) { canvas.current.getContext("2d")?.clearRect(0, 0, width, height); canvas.current.dataset.matteStatus = "inactive"; return; }
     const { element, queue } = current;
-    const seconds = clipSourceSeconds(clip, frame, fps);
+    const seconds = clipSourceSeconds(clip, frame, fps, durationInFrames);
     const controller = new AbortController();
     let cancelled = false;
     const handle = delayRender(`Object matte frame ${frame}`, { timeoutInMilliseconds: 30_000 });
@@ -167,7 +167,7 @@ export const ObjectMatteView: React.FC<{ clip: Clip; asset: ReelAsset; text: Tex
 
   if (asset.kind !== "VIDEO" || !refTaps.length) return null;
   if (warning) return isRendering ? null : <AbsoluteFill style={{ pointerEvents: "none" }}><MatteWarning text={warning} /></AbsoluteFill>;
-  const shown = clipPresentation(clip, frame, fps, durationInFrames, fadeOut, whipOut);
+  const shown = clipPresentation(clip, frame, fps, durationInFrames, fadeOut, whipOut, opening);
   return (
     <AbsoluteFill style={{ pointerEvents: "none", opacity: shown.opacity, overflow: "hidden" }}>
       <AbsoluteFill style={shown.whip}>

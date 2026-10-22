@@ -23,7 +23,16 @@ import { Sheet } from "../sheet";
  * (ADR 0064): a made reel opens in the editor, and these sheets are reached
  * from the Reel sheet (Pace, Look, Words) and the music (Suggestions).
  */
-export function TimingChoices({ timeline, onPace, onLength, onClose }: { timeline: Timeline; onPace(shotMs: number): void; onLength(totalMs: number): void; onClose(): void }) {
+export function TimingChoices({ timeline, onPace, onLength, onMatchCuts, matching = null, onClose }: {
+  timeline: Timeline;
+  onPace(shotMs: number): void;
+  onLength(totalMs: number): void;
+  /** Match cuts (ADR 0067): reorder the shots so the camera's motion carries across each cut, and turn the whips its way. */
+  onMatchCuts?: () => void;
+  /** What matching is doing or found. */
+  matching?: string | null;
+  onClose(): void;
+}) {
   const pace = currentPace(timeline);
   const total = Math.round(timelineDurationMs(timeline) / 1000);
   return (
@@ -45,6 +54,12 @@ export function TimingChoices({ timeline, onPace, onLength, onClose }: { timelin
           </button>
         ))}
       </div>
+      {onMatchCuts && timeline.clips.filter((clip) => clip.kind === "VIDEO").length >= 2 ? (
+        <>
+          <button type="button" className="btn btn-quiet btn-block" onClick={onMatchCuts} disabled={matching?.endsWith("…") ?? false} data-testid="match-cuts">Cut on the motion</button>
+          <p className="muted small" data-testid="match-cuts-note">{matching ?? "Puts the shots in an order where the camera's move carries across each cut, and turns every whip the way the footage goes. Shots with speech keep their place."}</p>
+        </>
+      ) : null}
     </Sheet>
   );
 }

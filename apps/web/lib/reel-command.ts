@@ -47,14 +47,17 @@ export type ApplyOutcome =
   | { ok: true; revision: number; result: CommandResult }
   | { ok: false; status: 400 | 409 | 404; message: string; result?: CommandResult };
 
-/** Applies one command to the saved reel and saves it, if the reel is still at `revision` (the reel's current one when omitted). */
-export async function applyReelCommand(user: { workspaceId: string }, loaded: LoadedReel, command: Command, revision = loaded.revision): Promise<ApplyOutcome> {
+/**
+ * Applies one command to the saved reel and saves it, if the reel is still at `revision` (the reel's current one when omitted).
+ * `dryRun` (ADR 0067) answers with the result and saves nothing, so an agent can ask `matchCuts` for its suggestion first.
+ */
+export async function applyReelCommand(user: { workspaceId: string }, loaded: LoadedReel, command: Command, revision = loaded.revision, options: { dryRun?: boolean } = {}): Promise<ApplyOutcome> {
   if (revision !== loaded.revision) return { ok: false, status: 409, message: "The reel changed since you read it. Read it again and send the command against its current revision." };
   const full = withLibraryInputs(command, loaded.library);
   const result = applyCommand(loaded.timeline, full, { generation: loaded.revision, sourceDurationsMs: hookInputsFromLibrary(loaded.library).sourceDurationsMs });
   if (result.rejected) return { ok: false, status: 400, message: result.rejected, result };
   if (result.stale) return { ok: false, status: 409, message: "The proposal was made against an older revision of the reel.", result };
-  if (result.changes.length === 0) return { ok: true, revision: loaded.revision, result };
+  if (options.dryRun || result.changes.length === 0) return { ok: true, revision: loaded.revision, result };
   const saved = await saveReelFor(user, { id: loaded.id, revision: loaded.revision, timeline: result.timeline });
   if (!saved.ok) return { ok: false, status: saved.reason === "conflict" ? 409 : saved.reason === "missing" ? 404 : 400, message: saved.message, result };
   return { ok: true, revision: saved.revision, result };

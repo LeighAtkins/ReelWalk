@@ -10,13 +10,15 @@ import { DEFAULT_ENERGY, ENERGY_STOPS, type Music } from "@reelwalk/core";
  * presenter's pass on the bar. Nothing else: the plan's details (shot
  * lengths per section, the hero on the drop) are the engine's job.
  */
-export function BeatControl({ music, measuring, onEnergy, onOnBeat }: {
+export function BeatControl({ music, measuring, onEnergy, onOnBeat, onRamps }: {
   music: Music;
   /** Set while the clips' motion or the song's bars are still being measured. */
   measuring: boolean;
   /** The reel recut at this energy, 0 to 1 (one undo step per drag). */
   onEnergy(energy: number): void;
   onOnBeat(on: boolean): void;
+  /** "Ramp into cuts" (ADR 0067): shots in the build and the drop speed up into their cuts. */
+  onRamps?: (on: boolean) => void;
 }) {
   const id = useId();
   const energy = music.energy ?? DEFAULT_ENERGY;
@@ -50,6 +52,12 @@ export function BeatControl({ music, measuring, onEnergy, onOnBeat }: {
         <span>On the beat</span>
         <span className="beat-switch-track" aria-hidden="true" />
       </button>
+      {onRamps ? (
+        <button type="button" role="switch" aria-checked={music.ramps === true} className="beat-switch" onClick={() => onRamps(music.ramps !== true)} data-testid="beat-ramps">
+          <span>Ramp into cuts</span>
+          <span className="beat-switch-track" aria-hidden="true" />
+        </button>
+      ) : null}
     </div>
   );
 }

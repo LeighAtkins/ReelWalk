@@ -1,5 +1,6 @@
-import { locate, clipDurationMs, type Clip, type TextOverlay, type Timeline, framePlan, REEL_FORMAT } from "./timeline";
+import { locate, clipDurationMs, clipSourceMsAt, type Clip, type TextOverlay, type Timeline, framePlan, REEL_FORMAT } from "./timeline";
 import { applyHomography, homography, type Quad } from "./motion";
+import { cameraKeysAt, cameraStillAtStart, openingProgress, type CameraMove } from "./camera";
 
 export function cameraMoveAt(motion: Clip["motion"], progress: number, elapsedSeconds: number) {
   const p = Math.max(0, Math.min(1, progress));
@@ -12,6 +13,20 @@ export function cameraMoveAt(motion: Clip["motion"], progress: number, elapsedSe
     case "snap-out": return { scale: 1.12 - 0.12 * snap, x: 0 };
     default: return { scale: 1, x: 0 };
   }
+}
+
+/**
+ * The clip's camera at `progress` (ADR 0067): its eased move when it has one
+ * (`camera`); on the opening shot a move that would ease out of a standstill
+ * is read from a tenth of the way in, so frame 0 already moves (the presets
+ * move from frame 0 by themselves). Otherwise the Ken Burns preset `motion`
+ * as before, with no vertical shift. Scale about the centre; x and y in
+ * percent of the frame.
+ */
+export function clipCameraAt(clip: Pick<Clip, "motion" | "camera">, progress: number, elapsedSeconds: number, opening = false): CameraMove {
+  if (clip.camera) return cameraKeysAt(clip.camera, opening && cameraStillAtStart(clip.camera) ? openingProgress(progress) : progress);
+  const move = cameraMoveAt(clip.motion, progress, elapsedSeconds);
+  return { scale: move.scale, x: move.x, y: 0 };
 }
 
 /** `progress` for a pinned text while a clip other than its own is on screen: it sits still at its base position. */
@@ -40,7 +55,7 @@ export function pinnedProgress(timeline: Timeline, text: TextOverlay, reelMs: nu
   const at = locateFrame(timeline, reelMs, fps);
   const clip = at ? timeline.clips[at.index] : null;
   if (!clip || !at || clip.assetId !== text.pin.assetId) return PINNED_ELSEWHERE;
-  const sourceMs = clip.sourceStartMs + at.offsetMs * (clip.kind === "IMAGE" ? 1 : clip.speed || 1);
+  const sourceMs = clipSourceMsAt(clip, at.offsetMs);
   const span = text.pin.toMs - text.pin.fromMs;
   return span > 0 ? (sourceMs - text.pin.fromMs) / span : 0;
 }

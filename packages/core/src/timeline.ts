@@ -1,5 +1,7 @@
 import { walkInto } from "./walk";
 import { z } from "zod";
+import { cameraSchema } from "./camera";
+import { rampSchema, rampUnwarp, rampWarp, sliceRamp } from "./ramp";
 import { planOverlaySchema, roomTitle, spotSchema, type PlanOverlay } from "./plan";
 
 /**
@@ -148,6 +150,10 @@ export const clipSchema = z
      * Absent on every reel saved before it, so nothing already saved changes.
      */
     audio: z.object({ assetId: z.string().min(1), sourceStartMs: ms, volume: unit.default(1) }).optional(),
+    /** A speed ramp (ADR 0067): playback shaped inside the window, slow to fast or back; the mean stays `speed`. Absent or null: constant speed. */
+    ramp: rampSchema.nullable().optional(),
+    /** An eased camera move (ADR 0067): keyframed scale and position. When set, `motion` is not read. Absent or null: `motion` as before. */
+    camera: cameraSchema.nullable().optional(),
   })
   .refine((clip) => clip.sourceEndMs > clip.sourceStartMs, { message: "Clip must have a positive length" });
 
@@ -286,6 +292,8 @@ export const musicSchema = z
     }).optional(),
     /** "On the beat" (ADR 0059): title entrances, particle bursts and whips go onto the bar when the cut changes. Absent (older reels) is off. */
     onBeat: z.boolean().optional(),
+    /** "Ramp into cuts" (ADR 0067): when the cut changes with Energy, shots in the build and the drop speed up into their cuts. Absent is off. */
+    ramps: z.boolean().optional(),
     /** Chosen by ReelWalk (Make it for me, a finish), not by the studio: a finish may replace it (ADR 0064). Absent: the studio's choice. */
     autoPicked: z.boolean().optional(),
   })
@@ -459,6 +467,22 @@ export function clipDurationMs(clip: Clip): number {
   return Math.round((clip.sourceEndMs - clip.sourceStartMs) / speed);
 }
 
+/** The source time (ms) the clip shows `offsetMs` into its on-screen time: linear, or along its ramp (ADR 0067). */
+export function clipSourceMsAt(clip: Clip, offsetMs: number): number {
+  const duration = clipDurationMs(clip);
+  const p = duration > 0 ? Math.max(0, Math.min(1, offsetMs / duration)) : 0;
+  const ramp = clip.kind === "IMAGE" ? null : clip.ramp;
+  return clip.sourceStartMs + rampWarp(ramp, p) * (clip.sourceEndMs - clip.sourceStartMs);
+}
+
+/** The on-screen offset (ms) at which the clip shows source time `sourceMs`: the inverse of `clipSourceMsAt`. */
+export function clipOffsetMsAtSource(clip: Clip, sourceMs: number): number {
+  const span = clip.sourceEndMs - clip.sourceStartMs;
+  const u = span > 0 ? Math.max(0, Math.min(1, (sourceMs - clip.sourceStartMs) / span)) : 0;
+  const ramp = clip.kind === "IMAGE" ? null : clip.ramp;
+  return rampUnwarp(ramp, u) * clipDurationMs(clip);
+}
+
 /** Available source footage, expressed in reel time at the clip's current speed. */
 export function clipSourceAvailability(clip: Clip, durationMs: number | null | undefined) {
   const speed = clip.kind === "IMAGE" ? 1 : clip.speed;
@@ -577,10 +601,12 @@ export function splitAt(timeline: Timeline, atMs: number, newId: string): Timeli
   const duration = clipDurationMs(clip);
   if (found.offsetMs < MIN_CLIP_MS || duration - found.offsetMs < MIN_CLIP_MS) return timeline;
 
-  const speed = clip.kind === "IMAGE" ? 1 : clip.speed;
-  const cut = clip.sourceStartMs + Math.round(found.offsetMs * speed);
-  const first: Clip = { ...clip, sourceEndMs: cut };
-  const second: Clip = { ...clip, id: newId, sourceStartMs: cut, transitionIn: "cut" };
+  const cut = Math.round(clipSourceMsAt(clip, found.offsetMs));
+  // Each piece of a ramped clip keeps the part of the curve it played (ADR 0067).
+  const p = found.offsetMs / duration;
+  const pieces = clip.ramp ? { first: sliceRamp(clip.ramp, 0, p), second: sliceRamp(clip.ramp, p, 1) } : null;
+  const first: Clip = { ...clip, sourceEndMs: cut, ...(pieces ? { ramp: pieces.first } : {}) };
+  const second: Clip = { ...clip, id: newId, sourceStartMs: cut, transitionIn: "cut", ...(pieces ? { ramp: pieces.second } : {}) };
   // Motion restarts on each piece, which reads as a deliberate second shot.
   const clips = [...timeline.clips];
   clips.splice(found.index, 1, first, second);
@@ -642,7 +668,7 @@ export function trimClip(
   return fitTexts(updated);
 }
 
-export type ClipSettings = Partial<Pick<Clip, "speed" | "volume" | "fit" | "filter" | "motion" | "transitionIn" | "pano" | "zoom" | "lensSoftness" | "whipDirection">>;
+export type ClipSettings = Partial<Pick<Clip, "speed" | "volume" | "fit" | "filter" | "motion" | "transitionIn" | "pano" | "zoom" | "lensSoftness" | "whipDirection" | "ramp" | "camera">>;
 
 export function updateClip(timeline: Timeline, id: string, settings: ClipSettings): Timeline {
   return fitTexts(replaceClip(timeline, id, (clip) => clipSchema.parse({ ...clip, ...settings })));

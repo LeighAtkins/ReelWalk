@@ -1,6 +1,6 @@
 import type React from "react";
 import { interpolate } from "remotion";
-import { cameraMoveAt, type Clip } from "@reelwalk/core";
+import { clipCameraAt, type Clip } from "@reelwalk/core";
 import { whipGeometry } from "./whip";
 
 /** Frames of the dip-to-black on each side of a "fade" transition. */
@@ -14,10 +14,12 @@ export function whipStyle(amount: number, filterId: string, direction: Clip["whi
   return { transform: `translate(${g.x}%, ${g.y}%) scale(${g.scaleX}, ${g.scaleY})`, filter: `url(#${filterId})` };
 }
 
-/** The Ken Burns move and the clip's own zoom, as one CSS transform about the centre. */
-export function motionTransform(motion: Clip["motion"], progress: number, zoom: number, seconds: number): string | undefined {
-  const move = cameraMoveAt(motion, progress, seconds);
-  return zoom === 1 && move.scale === 1 && move.x === 0 ? undefined : `scale(${zoom * move.scale}) translateX(${move.x}%)`;
+/** The camera move (eased keys, or the Ken Burns preset) and the clip's own zoom, as one CSS transform about the centre. */
+export function motionTransform(clip: Pick<Clip, "motion" | "camera" | "zoom">, progress: number, seconds: number, opening = false): string | undefined {
+  const move = clipCameraAt(clip, progress, seconds, opening);
+  const zoom = clip.zoom || 1;
+  if (zoom === 1 && move.scale === 1 && move.x === 0 && move.y === 0) return undefined;
+  return move.y === 0 ? `scale(${zoom * move.scale}) translateX(${move.x}%)` : `scale(${zoom * move.scale}) translate(${move.x}%, ${move.y}%)`;
 }
 
 export type ClipPresentation = {
@@ -38,10 +40,10 @@ export type ClipPresentation = {
  * the matte always sits exactly on the body it was cut from (review of
  * 2026-10-20: the matte used to ignore zoom, fit and transitions).
  */
-export function clipPresentation(clip: Clip, frame: number, fps: number, durationInFrames: number, fadeOut: boolean, whipOut: Clip["whipDirection"] | null): ClipPresentation {
+export function clipPresentation(clip: Clip, frame: number, fps: number, durationInFrames: number, fadeOut: boolean, whipOut: Clip["whipDirection"] | null, opening = false): ClipPresentation {
   // Clamped: a clip is mounted a second early (premount) with negative frames.
   const progress = durationInFrames > 1 ? Math.min(1, Math.max(0, frame / (durationInFrames - 1))) : 0;
-  const transform = motionTransform(clip.motion, progress, clip.zoom, Math.max(0, frame / fps));
+  const transform = motionTransform(clip, progress, Math.max(0, frame / fps), opening);
   const fadeIn = clip.transitionIn === "fade" ? interpolate(frame, [0, FADE_FRAMES], [0, 1], { extrapolateRight: "clamp" }) : 1;
   const fadeOutValue = fadeOut
     ? interpolate(frame, [durationInFrames - FADE_FRAMES, durationInFrames - 1], [1, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" })

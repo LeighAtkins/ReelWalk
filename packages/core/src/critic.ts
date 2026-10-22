@@ -4,22 +4,25 @@
  * it finds. Every fix is an existing document command (ADR 0048), so it
  * lands as one undo step and moves titles the way any other edit does.
  *
- * Seven checks, deterministic wherever the timeline or a few small frames
- * can decide:
+ * Deterministic wherever the timeline or a few small frames can decide:
  *
  *   hook        something changes in the first 1.5 s (a cut, a title, a
- *               hook, a camera move, or motion in the picture)
+ *               hook, a camera move, or motion in the picture); frame 0 is
+ *               not empty; the opening title reads by 300 ms (retention.ts)
  *   safe-zone   no title in Instagram's UI dead zones (INSTAGRAM.safeZonePx)
- *   dead-air    no stretch over 2 s without a cut, motion or title change
  *   face        an AI presenter's face is over the floor the identity gate
  *               recorded for the take (ADR 0056), 220 px when she speaks
  *               (advice), and the gate passed it
  *               comfortably
  *   legibility  a title's contrast with the frame behind it, and its size
- *               on a phone
+ *               on a phone; never a box or tag, which bring their own
  *   loop        the last frame looks like the first, and the music ends on
  *               a bar, so the replay does not jump
- *   beat        cuts on the beat when the song has a tempo
+ *
+ * and the retention proxies of ADR 0071 (retention.ts): dead air, reading
+ * time, cut rate against the song, cuts off the beat (snapped to frame-exact
+ * times), a presenter held too long, untouched stock. Every finding carries
+ * an impact tag (hook | hold | finish).
  *
  * API
  *
@@ -46,9 +49,11 @@
  * boxes are composition fractions; times are reel ms unless named
  * `sourceMs`.
  */
-import { beatPeriodMs, nearestBeatMs } from "./beats";
+import { beatPeriodMs } from "./beats";
 import { estimateLineWidth } from "./cinematic";
 import { applyCommand, type BatchableCommand, type Command } from "./commands";
+import { retentionFindings, seriesFromSamples, type RetentionInput } from "./retention";
+import type { FrameSeries } from "./render-checks";
 import { INSTAGRAM } from "./instagram";
 import { MIN_SPEAKING_FACE_PX, minFacePx } from "./presenter";
 import { evaluateTitle, TITLE_LEADING, type Measure, type TitleFont } from "./scene";
@@ -59,7 +64,6 @@ import {
   locate,
   MIN_CLIP_MS,
   REEL_FORMAT,
-  SPEEDS,
   TEXT_SIZE_MAX,
   timelineDurationMs,
   type Clip,
@@ -71,10 +75,8 @@ import {
 export const CRITIC = {
   /** The opening that has to move. */
   hookMs: 1500,
-  /** Longer than this with nothing changing is dead air. */
-  deadAirMs: 2000,
-  /** A dead-air fix leaves at most this much stillness. */
-  stillTargetMs: 1500,
+  /** A dead-air fix leaves at most this much stillness (the dead-air rule itself is RETENTION.deadAirMs, 1.2 s). */
+  stillTargetMs: 1000,
   /** Spacing of the frames read for motion. */
   stepMs: 500,
   /** Mean luma difference between frames `stepMs` apart above which the picture moved (compression noise on a still shot is under 0.01). */
@@ -167,14 +169,16 @@ export function criticFaceFromGeneration(row: { assetId: string; shot: unknown; 
   };
 }
 
-export type CriticCheck = "hook" | "safe-zone" | "dead-air" | "face" | "legibility" | "loop" | "beat";
+export type CriticCheck = "hook" | "safe-zone" | "dead-air" | "face" | "legibility" | "loop" | "beat" | "reading" | "cut-rate" | "presenter" | "stock";
 export type CriticSeverity = "high" | "medium" | "low";
+/** What a finding costs the reel: the first three seconds (hook), the middle (hold), or the ending and loop (finish). */
+export type CriticImpact = "hook" | "hold" | "finish";
 
 export type CriticFix =
-  /** A document command: one tap, one undo. `safe` ones are applied by "Fix all". */
-  | { kind: "command"; label: string; command: BatchableCommand; safe: boolean }
-  /** Not a timeline change: opens the place where it is done (a new AI take costs a credit, so it is never automatic). */
-  | { kind: "open"; label: string; sheet: "ai-video"; clipId: string };
+  /** A document command: one tap, one undo. `safe` ones are applied by "Fix all". A batch (several trims for the beat snap) counts as one. */
+  | { kind: "command"; label: string; command: Command; safe: boolean }
+  /** Not a timeline change: opens the place where it is done (a new AI take costs a credit, so it is never automatic; a cutaway needs a shot picked). */
+  | { kind: "open"; label: string; sheet: "ai-video" | "media"; clipId: string };
 
 export type CriticBox = { x: number; y: number; w: number; h: number };
 
@@ -183,6 +187,8 @@ export type CriticFinding = {
   id: string;
   check: CriticCheck;
   severity: CriticSeverity;
+  /** Where it hurts: the hook, the hold through the middle, or the finish. */
+  impact: CriticImpact;
   /** One plain-English line. */
   reason: string;
   /** The moment to show, reel ms, and the clip and source time it falls on (for the thumbnail). */
@@ -211,12 +217,24 @@ export type CriticInput = {
   headline?: string | null;
   /** Source lengths by asset id, so a fix never trims or snaps past a video's end. */
   sourceDurationsMs?: Record<string, number | null | undefined>;
+  /** Frames of the whole reel in time order (the render's decode), when the caller has them; otherwise built from `frames`. */
+  series?: FrameSeries | null;
+  /** What each video says, by asset id, for the dead-air and cut-rate checks. */
+  transcripts?: RetentionInput["transcripts"];
+  /** Presenter takes by asset id (AI assets count without being listed). */
+  presenterAssetIds?: readonly string[];
+  /** W3-E's transform scores by asset id, when measured. */
+  transformScores?: Record<string, number>;
+  /** W3-C's opening facts, when it has them. */
+  hook?: RetentionInput["hook"];
 };
 
 /** Decides a legibility call the pixels could not: is this title readable over this frame? */
 export type CriticJudge = (question: { textId: string; text: string; color: string; frame: CriticFrame | null; box: CriticBox | null }) => Promise<{ readable: boolean }>;
 
 const SEVERITY_ORDER: Record<CriticSeverity, number> = { high: 0, medium: 1, low: 2 };
+/** Where a moment hurts: the first three seconds, the ending, or the middle. */
+export const impactOf = (atMs: number, totalMs: number): CriticImpact => (atMs < 3000 ? "hook" : atMs > totalMs - 3000 ? "finish" : "hold");
 
 // ── Moments ─────────────────────────────────────────────────────
 
@@ -238,9 +256,9 @@ export function momentAt(timeline: Timeline, reelMs: number): CriticSample | nul
 const cameraMoves = (clip: Clip) => clip.motion !== "none" || Boolean(clip.pano);
 
 /** Offsets (reel ms into the clip) a still-or-moving clip is read at: every step, and its last frame. */
-function gridOffsets(durationMs: number): number[] {
+function gridOffsets(durationMs: number, stepMs: number = CRITIC.stepMs): number[] {
   const offsets: number[] = [];
-  for (let t = 0; t < durationMs - FRAME_MS; t += CRITIC.stepMs) offsets.push(t);
+  for (let t = 0; t < durationMs - FRAME_MS; t += stepMs) offsets.push(t);
   offsets.push(Math.max(0, durationMs - FRAME_MS));
   return offsets;
 }
@@ -293,13 +311,19 @@ export function criticSamples(timeline: Timeline): CriticSample[] {
     add(momentAt(timeline, starts[i + 1]));
     add(momentAt(timeline, starts[i + 1] + Math.min(CRITIC.stepMs, d - FRAME_MS)));
   });
-  timeline.clips.forEach((clip, index) => {
-    const d = clipDurationMs(clip);
-    if (clip.kind !== "VIDEO" || cameraMoves(clip) || d <= CRITIC.deadAirMs) return;
-    const grid = gridOffsets(d).map((offset) => momentAt(timeline, starts[index] + offset)).filter((s): s is CriticSample => s !== null);
-    const fresh = grid.filter((sample) => !out.has(sample.key));
-    if (out.size + fresh.length <= CRITIC.maxSamples) fresh.forEach(add);
-  });
+  // Motion through the whole reel (ADR 0071): every step of each video clip, so dead air and the motion
+  // profile cover the reel, not only the long still shots. A clip's grid is taken whole or not at all,
+  // so a check never runs on half a clip; when the half-second grid does not fit the cap, a one-second
+  // grid is tried, and the clips that fit are judged.
+  for (const step of [CRITIC.stepMs, CRITIC.stepMs * 2]) {
+    timeline.clips.forEach((clip, index) => {
+      const d = clipDurationMs(clip);
+      if (clip.kind !== "VIDEO" || cameraMoves(clip) || d <= CRITIC.stepMs) return;
+      const grid = gridOffsets(d, step).map((offset) => momentAt(timeline, starts[index] + offset)).filter((s): s is CriticSample => s !== null);
+      const fresh = grid.filter((sample) => !out.has(sample.key));
+      if (out.size + fresh.length <= CRITIC.maxSamples) fresh.forEach(add);
+    });
+  }
   return [...out.values()];
 }
 
@@ -456,7 +480,7 @@ function hookCheck(ctx: Context): CriticFinding | null {
   }
   const moment = momentAt(timeline, 0);
   return {
-    id: "hook:opening", check: "hook", severity: "high",
+    id: "hook:opening", check: "hook", severity: "high", impact: "hook",
     reason: "Nothing changes in the first 1.5 s, so people scroll past before it gets going.",
     atMs: 0, clipId: moment?.clipId ?? null, sourceMs: moment?.sourceMs ?? null, fixes,
   };
@@ -517,7 +541,7 @@ function titleChecks(ctx: Context): CriticFinding[] {
           fixes.push({ kind: "command", label: "Move it in", command: { type: "updateText", textId: text.id, patch: { x: centre.x, y: centre.y } }, safe: true });
         }
       }
-      findings.push({ ...base, id: `safe-zone:${text.id}`, check: "safe-zone", severity: "high",
+      findings.push({ ...base, id: `safe-zone:${text.id}`, check: "safe-zone", severity: "high", impact: impactOf(base.atMs, ctx.total),
         reason: `${quote(text)} runs under ${where}${geometry.kind === "surface" ? "; it is on a surface, so move its corners" : text.pin ? "; it is tracked, so place it again" : ""}.`, fixes });
     }
 
@@ -531,13 +555,15 @@ function titleChecks(ctx: Context): CriticFinding[] {
       const grown = movable ? titleGeometry(ctx.timeline, bigger, ctx.titleFont(bigger), ctx.measure) : null;
       const reach = grown ? intrusion(grown.box) : null;
       const centre = grown && reach && Math.max(reach.left, reach.right, reach.top, reach.bottom) > 0 ? safeCentre(text, grown.box) : null;
-      findings.push({ ...base, id: `legibility-size:${text.id}`, check: "legibility", severity: "medium",
+      findings.push({ ...base, id: `legibility-size:${text.id}`, check: "legibility", severity: "medium", impact: impactOf(base.atMs, ctx.total),
         reason: `${quote(text)} is about ${Math.round(phonePx)} px on a phone; small type is skipped.`,
         fixes: [{ kind: "command", label: "Make it bigger", command: { type: "updateText", textId: text.id, patch: centre ? { size, x: centre.x, y: centre.y } : { size } }, safe: true }] });
     }
 
-    // Contrast with the frame behind it. A label, sticker or outline brings its own; a strong shadow or extrusion is already the fix.
-    const ownContrast = (text.shadow ?? "auto") === "auto" && ["box", "tag", "outline"].includes(text.style);
+    // Contrast with the frame behind it. A box or tag paints its own background, whatever its shadow, so it is never judged
+    // (ADR 0071: "add a shadow" on boxed titles was the critic's commonest false positive); an outline with its own edge is
+    // not either; a strong shadow or extrusion is already the fix.
+    const ownContrast = ["box", "tag"].includes(text.style) || ((text.shadow ?? "auto") === "auto" && text.style === "outline");
     if (ownContrast || (text.shadow === "strong" && text.blend !== "surface") || (text.depth === "extruded" && text.blend !== "surface")) continue;
     const frame = moment ? ctx.frames.get(moment.key) : undefined;
     const behind = frame ? regionLuminance(frame, geometry.box) : null;
@@ -553,79 +579,11 @@ function titleChecks(ctx: Context): CriticFinding[] {
       ? { kind: "command", label: "Plain, not painted", command: { type: "updateText", textId: text.id, patch: { blend: "plain" } }, safe: true }
       : { kind: "command", label: "Add a shadow", command: { type: "updateText", textId: text.id, patch: { shadow: "strong" } }, safe: true };
     const decided = meanContrast < bad;
-    findings.push({ ...base, id: `legibility:${text.id}`, check: "legibility", severity: decided ? "high" : "low",
+    findings.push({ ...base, id: `legibility:${text.id}`, check: "legibility", severity: decided ? "high" : "low", impact: impactOf(base.atMs, ctx.total),
       reason: decided ? `${quote(text)} is hard to read against the picture behind it.` : `${quote(text)} may be hard to read where the picture behind it is ${textL > 0.4 ? "bright" : "dark"}.`,
       fixes: [fix], ...(decided ? {} : { undecided: { kind: "legibility" as const, textId: text.id, meanContrast, worstContrast } }) });
   }
   return findings;
-}
-
-/** Stretches of stillness: reel [from, to) windows inside one clip with no motion and no title starting or ending. */
-function stillStretches(ctx: Context): { clipIndex: number; from: number; to: number }[] {
-  const { timeline, starts } = ctx;
-  const events = new Set<number>();
-  for (const text of timeline.texts) { events.add(text.startMs); events.add(text.endMs); }
-  const out: { clipIndex: number; from: number; to: number }[] = [];
-  timeline.clips.forEach((clip, index) => {
-    const d = clipDurationMs(clip), s = starts[index];
-    if (d <= CRITIC.deadAirMs || cameraMoves(clip)) return;
-    // Still windows: a photo all through; a video between frames that barely differ (all of its frames read, or it is skipped).
-    let windows: [number, number][];
-    if (clip.kind === "IMAGE") windows = [[s, s + d]];
-    else {
-      const offsets = gridOffsets(d);
-      const frames = offsets.map((offset) => frameAt(ctx, s + offset)?.frame ?? null);
-      if (frames.some((frame) => frame === null)) return;
-      windows = [];
-      for (let i = 1; i < offsets.length; i++) {
-        if (frameDifference(frames[i - 1]!, frames[i]!) <= CRITIC.motion) windows.push([s + offsets[i - 1], s + (i === offsets.length - 1 ? d : offsets[i])]);
-      }
-    }
-    // Merge touching windows, splitting at title changes.
-    let run: [number, number] | null = null;
-    const flush = () => { if (run && run[1] - run[0] > CRITIC.deadAirMs) out.push({ clipIndex: index, from: run[0], to: run[1] }); run = null; };
-    for (const [a, b] of windows) {
-      const cuts = [...events].filter((e) => e > a && e < b).sort((p, q) => p - q);
-      const pieces: [number, number][] = [];
-      let from = a;
-      for (const e of cuts) { pieces.push([from, e]); from = e; }
-      pieces.push([from, b]);
-      pieces.forEach(([pa, pb], k) => {
-        if (k > 0) flush();
-        if (run && Math.abs(run[1] - pa) < 1) run[1] = pb; else { flush(); run = [pa, pb]; }
-      });
-    }
-    flush();
-  });
-  return out;
-}
-
-function deadAirChecks(ctx: Context): CriticFinding[] {
-  const { timeline, starts } = ctx;
-  return stillStretches(ctx).map(({ clipIndex, from, to }) => {
-    const clip = timeline.clips[clipIndex];
-    const s = starts[clipIndex], d = clipDurationMs(clip);
-    const still = to - from, excess = still - CRITIC.stillTargetMs;
-    const speed = clip.kind === "IMAGE" ? 1 : clip.speed;
-    const fixes: CriticFix[] = [];
-    const atEnd = to >= s + d - FRAME_MS, atStart = from <= s + 1;
-    const cut = Math.round(Math.min(excess, d - MIN_CLIP_MS) * speed);
-    if ((atEnd || atStart) && cut > 0) {
-      const window = atEnd || clip.kind === "IMAGE"
-        ? { sourceStartMs: clip.sourceStartMs, sourceEndMs: clip.sourceEndMs - cut }
-        : { sourceStartMs: clip.sourceStartMs + cut, sourceEndMs: clip.sourceEndMs };
-      fixes.push({ kind: "command", label: `Trim ${(cut / speed / 1000).toFixed(1)} s`, command: { type: "trimClip", clipId: clip.id, window }, safe: false });
-    } else if (clip.kind === "VIDEO") {
-      const faster = SPEEDS.find((candidate) => candidate > clip.speed && (still * clip.speed) / candidate <= CRITIC.deadAirMs);
-      if (faster) fixes.push({ kind: "command", label: `Play it at ${faster}×`, command: { type: "setSpeed", clipId: clip.id, speed: faster }, safe: false });
-    }
-    const moment = momentAt(timeline, from + Math.min(still / 2, 1000));
-    return {
-      id: `dead-air:${clip.id}:${Math.round(from - s)}`, check: "dead-air" as const, severity: "medium" as const,
-      reason: `Shot ${clipIndex + 1} holds still for ${(still / 1000).toFixed(1)} s with nothing new on screen.`,
-      atMs: moment?.reelMs ?? from, clipId: clip.id, sourceMs: moment?.sourceMs ?? null, fixes,
-    };
-  });
 }
 
 function faceChecks(ctx: Context): CriticFinding[] {
@@ -635,7 +593,7 @@ function faceChecks(ctx: Context): CriticFinding[] {
     const face = faces.get(clip.assetId);
     if (!face) return;
     const moment = momentAt(ctx.timeline, ctx.starts[index] + Math.min(1000, clipDurationMs(clip) / 2));
-    const base = { atMs: moment?.reelMs ?? ctx.starts[index], clipId: clip.id, sourceMs: moment?.sourceMs ?? null,
+    const base = { atMs: moment?.reelMs ?? ctx.starts[index], clipId: clip.id, sourceMs: moment?.sourceMs ?? null, impact: impactOf(ctx.starts[index], ctx.total),
       fixes: [{ kind: "open", label: "Make a closer take", sheet: "ai-video", clipId: clip.id }] as CriticFix[] };
     // The composed keyframe is 1080×1920 like the reel; Fill and the clip's zoom scale her face with the picture.
     const shownPx = face.faceHeightPx !== null ? Math.round(face.faceHeightPx * clip.zoom) : null;
@@ -702,26 +660,9 @@ function loopCheck(ctx: Context): CriticFinding | null {
   const reasons = [jumps ? "the last frame looks nothing like the first, so the replay jumps" : null, offBarMs !== null ? "the music stops mid-bar" : null].filter(Boolean);
   const said = reasons.join(" and ");
   return {
-    id: "loop:end", check: "loop", severity: "low",
+    id: "loop:end", check: "loop", severity: "low", impact: "finish",
     reason: `${said.charAt(0).toUpperCase()}${said.slice(1)}.`,
     atMs: end?.moment.reelMs ?? total - FRAME_MS, clipId: last.id, sourceMs: end?.moment.sourceMs ?? null, fixes,
-  };
-}
-
-function beatCheck(ctx: Context): CriticFinding | null {
-  const { timeline, starts } = ctx;
-  const music = timeline.music;
-  if (!music?.bpm || timeline.clips.length < 2) return null;
-  const grid = { bpm: music.bpm, offsetMs: music.beatOffsetMs ?? 0 };
-  const cuts = starts.slice(1);
-  const off = cuts.filter((cut) => Math.abs(cut - nearestBeatMs(cut, grid, music.sourceStartMs)) > CRITIC.beatToleranceMs);
-  if (!off.length) return null;
-  const moment = momentAt(timeline, off[0]);
-  return {
-    id: "beat:cuts", check: "beat", severity: off.length * 2 >= cuts.length ? "medium" : "low",
-    reason: `${off.length} of ${cuts.length} cuts land between beats of the song.`,
-    atMs: off[0], clipId: moment?.clipId ?? null, sourceMs: moment?.sourceMs ?? null,
-    fixes: [{ kind: "command", label: "Snap to the beat", command: { type: "snapToBeat" }, safe: true }],
   };
 }
 
@@ -733,7 +674,9 @@ export function critique(input: CriticInput): CriticFinding[] {
   const { timeline } = input;
   if (!timeline.clips.length) return [];
   const ctx: Context = { ...input, frames: input.frames ?? new Map(), total: timelineDurationMs(timeline), starts: clipStartsMs(timeline), measure: input.measure ?? fallbackMeasure };
-  const findings = [hookCheck(ctx), ...titleChecks(ctx), ...deadAirChecks(ctx), ...faceChecks(ctx), loopCheck(ctx), beatCheck(ctx)].filter((f): f is CriticFinding => f !== null);
+  const series = input.series ?? seriesFromSamples(timeline, ctx.frames);
+  const retention = retentionFindings({ timeline, series, transcripts: input.transcripts, presenterAssetIds: input.presenterAssetIds, transformScores: input.transformScores, hook: input.hook, sourceDurationsMs: input.sourceDurationsMs });
+  const findings = [hookCheck(ctx), ...titleChecks(ctx), ...faceChecks(ctx), loopCheck(ctx), ...retention].filter((f): f is CriticFinding => f !== null);
   const context = { generation: 0, sourceDurationsMs: input.sourceDurationsMs };
   for (const finding of findings) {
     finding.fixes = finding.fixes.filter((fix) => {
@@ -773,9 +716,12 @@ export async function settleUndecided(findings: CriticFinding[], judge: CriticJu
  * snap. Running the critic again afterwards finds nothing left to fix safely.
  */
 export function safeFixes(findings: readonly CriticFinding[]): BatchableCommand[] {
-  const commands = findings.flatMap((finding) => {
+  const commands = findings.flatMap((finding): BatchableCommand[] => {
     const fix = finding.fixes.find((f): f is Extract<CriticFix, { kind: "command" }> => f.kind === "command" && f.safe);
-    return fix ? [fix.command] : [];
+    if (!fix) return [];
+    // A fix that is itself a batch (the frame-exact beat snap) contributes its steps; a proposal is never a fix.
+    if (fix.command.type === "batch") return fix.command.commands;
+    return fix.command.type === "applyProposal" ? [] : [fix.command];
   });
   const patches = new Map<string, Extract<BatchableCommand, { type: "updateText" }>["patch"]>();
   const others: BatchableCommand[] = [];

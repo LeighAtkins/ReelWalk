@@ -26,8 +26,12 @@ const STYLE_SCALE: Record<string, number> = { headline: 1.3, elegant: 0.78, tag:
 const titleFont = (text: TextOverlay): TitleFont => ({ fontSize: 76 * text.size * (STYLE_SCALE[text.style] ?? 1) });
 const measure: Measure = (line, font) => ({ width: line.length * font.fontSize * 0.55, height: font.fontSize * 1.12 });
 
-/** A flat frame of one luma. */
-const flat = (luma: number, width = 18, height = 32): CriticFrame => ({ width, height, luma: new Float32Array(width * height).fill(luma) });
+/** A still frame of one luma with a faint fixed grain (a real wall is never one flat colour; a flat frame 0 reads as empty). */
+const flat = (luma: number, width = 18, height = 32): CriticFrame => {
+  const frame = { width, height, luma: new Float32Array(width * height) };
+  frame.luma.forEach((_, i) => { frame.luma[i] = Math.min(1, Math.max(0, luma + 0.03 * Math.sin(i * 0.9))); });
+  return frame;
+};
 /** A frame whose top half is `top` and bottom half `bottom`. */
 const split = (top: number, bottom: number): CriticFrame => {
   const frame = flat(0);
@@ -178,11 +182,14 @@ describe("safe zones", () => {
 });
 
 describe("dead air", () => {
-  it("a still photo held over 2 s is trimmed to 1.5 s; one with a camera move is not dead", () => {
+  it("a still photo held over 1.2 s is trimmed to 1 s or given a push in; one with a camera move is not dead", () => {
     const timeline = reel({ clips: [...reel().clips, { id: "p", assetId: "p1", kind: "IMAGE", sourceStartMs: 0, sourceEndMs: 5000 }] });
     const [finding] = ofCheck(run(timeline), "dead-air");
     expect(finding.severity).toBe("medium");
-    expect(commandOf(finding)).toEqual({ type: "trimClip", clipId: "p", window: { sourceStartMs: 0, sourceEndMs: 1500 } });
+    expect(finding.impact).toBe("hold");
+    expect(commandOf(finding)).toEqual({ type: "trimClip", clipId: "p", window: { sourceStartMs: 0, sourceEndMs: 1000 } });
+    expect(commandOf(finding, 1)).toEqual({ type: "updateClip", clipId: "p", patch: { motion: "zoom-in" } });
+    expect(ofCheck(run(applyCommand(timeline, commandOf(finding, 1), ctx).timeline), "dead-air")).toEqual([]);
     const fixed = applyCommand(timeline, commandOf(finding), ctx);
     expect(fixed.changes).toEqual([{ kind: "clip", id: "p" }]);
     expect(ofCheck(run(fixed.timeline), "dead-air")).toEqual([]);
@@ -196,22 +203,35 @@ describe("dead air", () => {
     // Moving for the first 2 s of the shot (source 1000–3000), then still to its end.
     const tailStill = framesFor(timeline, (s) => (s.clipId === "v" && s.sourceMs >= 3000 ? flat(0.3) : moving(s.sourceMs)));
     const [end] = ofCheck(run(timeline, { frames: tailStill }), "dead-air");
-    expect(commandOf(end)).toEqual({ type: "trimClip", clipId: "v", window: { sourceStartMs: 1000, sourceEndMs: 4500 } });
+    expect(commandOf(end)).toEqual({ type: "trimClip", clipId: "v", window: { sourceStartMs: 1000, sourceEndMs: 4000 } });
     expect(applyCommand(timeline, commandOf(end), ctx).changes.filter((c) => c.kind === "clip")).toEqual([{ kind: "clip", id: "v" }]);
 
-    // Still from 1.5 s to 4.5 s into the shot, moving either side: half speed would not do, 1.5× would.
+    // Still from 1.5 s to 4.5 s into the shot, moving either side: 2× would leave 1.5 s of stillness, 3× brings it under 1.2 s.
     const midStill = framesFor(timeline, (s) => (s.clipId === "v" && s.sourceMs >= 2500 && s.sourceMs <= 5500 ? flat(0.3) : moving(s.sourceMs)));
     const [middle] = ofCheck(run(timeline, { frames: midStill }), "dead-air");
-    expect(commandOf(middle)).toEqual({ type: "setSpeed", clipId: "v", speed: 1.5 });
+    expect(commandOf(middle)).toEqual({ type: "setSpeed", clipId: "v", speed: 3 });
   });
 
   it("a title starting or ending breaks the stillness; unread video is not judged", () => {
-    const clips = [{ id: "v", assetId: "v1", kind: "VIDEO", sourceStartMs: 0, sourceEndMs: 3600 }, ...reel().clips];
-    const timeline = reel({ clips, texts: [{ id: "t", text: "Kitchen", startMs: 1800, endMs: 3000, y: 0.4 }] });
-    const frames = framesFor(timeline, () => flat(0.3));
-    expect(ofCheck(run(timeline, { frames }), "dead-air")).toEqual([]);
+    const clips = [{ id: "v", assetId: "v1", kind: "VIDEO", sourceStartMs: 0, sourceEndMs: 3000 }, ...reel().clips];
+    const timeline = reel({ clips, texts: [{ id: "t", text: "Kitchen", startMs: 1000, endMs: 2000, y: 0.4 }] });
+    const paint = (s: CriticSample) => (s.clipId === "v" ? flat(0.3) : moving(s.sourceMs));
+    // Still all through, but the title arrives at 1 s and leaves at 2 s: no stretch over 1.2 s.
+    expect(ofCheck(run(timeline, { frames: framesFor(timeline, paint) }), "dead-air")).toEqual([]);
     expect(ofCheck(run(reel({ clips })), "dead-air")).toEqual([]);
-    expect(ofCheck(run(reel({ clips }), { frames: framesFor(reel({ clips }), () => flat(0.3)) }), "dead-air")).toHaveLength(1);
+    const [still] = ofCheck(run(reel({ clips }), { frames: framesFor(reel({ clips }), paint) }), "dead-air");
+    expect(still.reason).toBe("Shot 1 holds still for 3.0 s with no cut, motion, speech or title.");
+  });
+
+  it("speech keeps a still shot alive", () => {
+    const clips = [{ id: "v", assetId: "v1", kind: "VIDEO", sourceStartMs: 0, sourceEndMs: 3000, volume: 1 }, ...reel().clips];
+    const timeline = reel({ clips });
+    const frames = framesFor(timeline, (s) => (s.clipId === "v" ? flat(0.3) : moving(s.sourceMs)));
+    const words = [{ w: "welcome", s: 200, e: 900 }, { w: "to", s: 900, e: 1100 }, { w: "the", s: 1100, e: 1300 }, { w: "villa", s: 1300, e: 2200 }];
+    expect(ofCheck(run(timeline, { frames, transcripts: { v1: { text: "welcome to the villa", words } } }), "dead-air")).toEqual([]);
+    // The same words with the sound off are not heard.
+    const muted = reel({ clips: clips.map((clip) => (clip.id === "v" ? { ...clip, volume: 0 } : clip)) });
+    expect(ofCheck(run(muted, { frames: framesFor(muted, (s) => (s.clipId === "v" ? flat(0.3) : moving(s.sourceMs))), transcripts: { v1: { text: "welcome to the villa", words } } }), "dead-air")).toHaveLength(1);
   });
 });
 
@@ -382,12 +402,14 @@ describe("beat", () => {
     music: { assetId: "song", bpm: 120, beatOffsetMs: 0 },
   });
 
-  it("cuts between beats are snapped by the existing command; on-beat cuts say nothing", () => {
+  it("cuts between beats are snapped by frame-exact trims, never by the old snap; on-beat cuts say nothing", () => {
     expect(ofCheck(run(withSong(3000)), "beat")).toEqual([]);
     const timeline = withSong(3250);
     const [finding] = ofCheck(run(timeline), "beat");
     expect(finding.reason).toBe("1 of 1 cuts land between beats of the song.");
-    expect(commandOf(finding)).toEqual({ type: "snapToBeat" });
+    // 3250 is as near 3000 as 3500; the nearest-beat rule rounds up, and 3500 is on the frame grid.
+    expect(commandOf(finding)).toEqual({ type: "trimClip", clipId: "a", window: { sourceStartMs: 0, sourceEndMs: 3500 } });
+    expect(JSON.stringify(finding.fixes)).not.toContain("snapToBeat");
     const fixed = applyCommand(timeline, commandOf(finding), ctx);
     // Only the cut moves: no music, no title (the caption spans the cut and keeps its seconds).
     expect(fixed.changes).toEqual([{ kind: "clip", id: "a" }]);
@@ -419,8 +441,8 @@ describe("fix all", () => {
     const command = fixAllCommand(findings)!;
     expect(command.type).toBe("batch");
     const commands = (command as Extract<Command, { type: "batch" }>).commands;
-    // One updateText per title (the flagged one's move and shadow merged), then the snap.
-    expect(commands.map((c) => c.type)).toEqual(["updateText", "updateText", "snapToBeat"]);
+    // One updateText per title (the flagged one's move and shadow merged), then the snap's frame-exact trim.
+    expect(commands.map((c) => c.type)).toEqual(["updateText", "updateText", "trimClip"]);
     expect(commands[0]).toMatchObject({ type: "updateText", textId: "high", patch: { shadow: "strong" } });
     const fixed = applyCommand(timeline, command, ctx);
     expect(fixed.rejected).toBeUndefined();
@@ -435,13 +457,15 @@ describe("fix all", () => {
     const timeline = reel({ clips: [{ id: "a", assetId: "v1", kind: "VIDEO", sourceStartMs: 0, sourceEndMs: 4000 }],
       texts: [{ id: "low", text: "Four\nlines\nof\ncopy", startMs: 200, endMs: 3500, y: 0.8, style: "elegant", size: 0.3 }] });
     const findings = run(timeline);
-    expect(findings.map((f) => f.id).sort()).toEqual(["legibility-size:low", "safe-zone:low"]);
+    // The elegant fade also means the title is not readable by 300 ms (a retention finding; its fix is not safe).
+    expect(findings.map((f) => f.id).sort()).toEqual(["legibility-size:low", "opening:title:low", "safe-zone:low"]);
     const commands = (fixAllCommand(findings) as Extract<Command, { type: "batch" }>).commands;
     expect(commands).toHaveLength(1);
     expect(commands[0]).toMatchObject({ type: "updateText", textId: "low", patch: { size: expect.any(Number), x: expect.any(Number), y: expect.any(Number) } });
     const fixed = applyCommand(timeline, fixAllCommand(findings)!, ctx);
     expect(fixed.changes).toEqual([{ kind: "text", id: "low" }]);
-    expect(run(fixed.timeline)).toEqual([]);
+    expect(run(fixed.timeline).map((f) => f.id)).toEqual(["opening:title:low"]);
+    expect(fixAllCommand(run(fixed.timeline))).toBeNull();
     // "Make it bigger" alone also keeps it out of the caption.
     const sizeOnly = applyCommand(timeline, commandOf(findings.find((f) => f.id === "legibility-size:low")!), ctx).timeline;
     expect(ofCheck(run(sizeOnly), "safe-zone")).toEqual([]);
@@ -488,8 +512,14 @@ describe("frames and samples", () => {
     const whole = clips.filter((clip) => offsets.every((o) => keys.has(`${clip.id}@${o}`))).map((clip) => clip.id);
     expect(whole.length).toBeGreaterThan(0);
     expect(whole.length).toBeLessThan(clips.length);
+    // Clips that did not fit the half-second grid get a one-second grid when that fits; the rest stay unjudged.
+    const coarse = [0, 1000, 2000, 3000, 4000, 5000, 5967];
+    const wholeCoarse = clips.filter((clip) => !whole.includes(clip.id) && coarse.every((o) => keys.has(`${clip.id}@${o}`))).map((clip) => clip.id);
+    expect(wholeCoarse.length).toBeGreaterThan(0);
     const frames = new Map(samples.map((s) => [s.key, flat(0.3)]));
     const judged = ofCheck(run(timeline, { frames }), "dead-air").map((f) => f.clipId);
-    expect(new Set(judged)).toEqual(new Set(whole));
+    // The last clip's final 3 s are read for the loop ends, so its still tail is judged from those frames.
+    expect(new Set(judged.filter((id) => id !== "c11"))).toEqual(new Set([...whole, ...wholeCoarse]));
+    expect(judged.length).toBeLessThan(clips.length);
   });
 });

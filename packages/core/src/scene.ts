@@ -66,6 +66,17 @@ export type TitleFont = { fontFamily?: string; fontWeight?: string | number; fon
 /** Measures one line of text, unwrapped, in composition px. */
 export type Measure = (line: string, font: TitleFont) => { width: number; height: number };
 
+/**
+ * A style's letter spacing as the em number a TitleFont carries ("0.06em" → 0.06), or undefined for
+ * none or a unit the measure cannot apply: a title's own `tracking` wins when it has one, but a style's
+ * spacing (the elegant face's 0.06 em) is drawn too, so the measure must see it.
+ */
+export function letterSpacingEm(value: unknown): number | undefined {
+  if (typeof value !== "string" || !value.trim().endsWith("em")) return undefined;
+  const em = parseFloat(value);
+  return Number.isFinite(em) ? em : undefined;
+}
+
 export type TitleInput = {
   text: TextOverlay;
   timeline: Timeline;
@@ -240,6 +251,66 @@ export function calloutLabelInSafeArea(text: TextOverlay, label: { x: number; y:
   const safe = INSTAGRAM.safeZonePx, sx = width / REEL_FORMAT.width, sy = height / REEL_FORMAT.height;
   const fit = (v: number, lo: number, hi: number) => (lo > hi ? (lo + hi) / 2 : Math.min(hi, Math.max(lo, v)));
   return { x: fit(label.x * width, safe.left * sx + halfW, width - safe.right * sx - halfW), y: fit(label.y * height, safe.top * sy + halfH, height - safe.bottom * sy - halfH) };
+}
+
+/**
+ * The padding a style draws around its words, in em (the renderer's `textCss`,
+ * packages/render look.ts): a label's and a sticker's background box. Other
+ * styles draw the words alone.
+ */
+export const TITLE_PADDING_EM: Partial<Record<TextOverlay["style"], { x: number; y: number }>> = {
+  box: { x: 0.36, y: 0.18 },
+  tag: { x: 0.34, y: 0.2 },
+};
+
+/** The padding a title's style draws around its words, in composition px. */
+export function titlePaddingPx(text: Pick<TextOverlay, "style">, font: TitleFont): { x: number; y: number } {
+  const em = TITLE_PADDING_EM[text.style];
+  return em ? { x: em.x * font.fontSize, y: em.y * font.fontSize } : { x: 0, y: 0 };
+}
+
+/**
+ * The lines a title breaks into inside `width`, as the renderer's wrapping
+ * does: a typed line break always breaks; words fill each line greedily and go
+ * to the next when the measured line would overrun; one word wider than the
+ * line stands alone (the renderer breaks it mid-word, so it never overruns).
+ */
+export function wrapTitleLines(text: string, font: TitleFont, measure: Measure, width: number): string[] {
+  const lines: string[] = [];
+  for (const part of text.split("\n")) {
+    const words = part.split(/\s+/).filter((word) => word.length > 0);
+    if (words.length === 0) { lines.push(""); continue; }
+    let line = words[0];
+    for (const word of words.slice(1)) {
+      const joined = `${line} ${word}`;
+      if (measure(joined, font).width <= width) line = joined;
+      else { lines.push(line); line = word; }
+    }
+    lines.push(line);
+  }
+  return lines;
+}
+
+/**
+ * The box a screen title draws, in composition px before its scale. The
+ * renderer lays the words out in a column of `wrap.width` as a flex item:
+ * as wide as its words (plus the style's padding) until they wrap, then the
+ * column. So the drawn box is the longest wrapped line plus the padding,
+ * never the column, for a style that draws the words alone; a label or a
+ * sticker paints its background on that item, so once its words wrap its
+ * box is the whole column however short the lines. Lines times the leading
+ * plus the padding for the height.
+ */
+export function screenTitleExtent(text: Pick<TextOverlay, "text" | "style">, font: TitleFont, measure: Measure, wrap: ScreenPlacement["wrap"]): { width: number; height: number; lines: string[]; column: boolean } {
+  const pad = titlePaddingPx(text, font);
+  const typed = text.text.split("\n");
+  const widestTyped = Math.max(...typed.map((line) => measure(line || " ", font).width));
+  const wraps = wrap.mode === "wrap" && widestTyped + 2 * pad.x > wrap.width;
+  const lines = wraps ? wrapTitleLines(text.text, font, measure, Math.max(1, wrap.width - 2 * pad.x)) : typed;
+  const column = wraps && TITLE_PADDING_EM[text.style] !== undefined;
+  const widest = Math.max(...lines.map((line) => measure(line || " ", font).width));
+  const width = column ? wrap.width : Math.min(wrap.mode === "wrap" ? wrap.width : wrap.maxWidth, widest + 2 * pad.x);
+  return { width, height: font.fontSize * TITLE_LEADING * lines.length + 2 * pad.y, lines, column };
 }
 
 /** The single evaluated placement of one title on one frame. See the module comment. */

@@ -10,6 +10,7 @@ import {
   checkDecodeArgs,
   checksKeyFor,
   judgeTimesMs,
+  letterSpacingEm,
   parseReelExportPayload,
   postBlockReason,
   REEL_FORMAT,
@@ -157,7 +158,7 @@ export function audioProblemsFrom(value: unknown): AudioProblem[] | null {
 /** A title's font as the renderer styles it (the editor's critic uses the same mapping). */
 export function titleFontOf(text: TextOverlay): TitleFont {
   const css = textTreatmentCss(text);
-  return { fontFamily: String(css.fontFamily ?? ""), fontWeight: css.fontWeight, fontSize: Number(css.fontSize) || 64, letterSpacing: text.tracking, fontStretch: css.fontStretch ? String(css.fontStretch) : undefined };
+  return { fontFamily: String(css.fontFamily ?? ""), fontWeight: css.fontWeight, fontSize: Number(css.fontSize) || 64, letterSpacing: text.tracking ?? letterSpacingEm(css.letterSpacing), fontStretch: css.fontStretch ? String(css.fontStretch) : undefined };
 }
 
 // ── ffmpeg ─────────────────────────────────────────────────────

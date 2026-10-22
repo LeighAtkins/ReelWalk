@@ -60,12 +60,30 @@ describe("pinned text", () => {
   });
 });
 
+/** The character-count guess for a face with no measured table. */
+const plainGuess = (text: string, fontSize: number) => text.length * fontSize * 0.62;
+
 describe("planar titles fit the frame", () => {
   it("estimates a one-line width without a DOM, honouring stretch and spacing", async () => {
     const { oneLineWidth } = await import("../src");
     const plain = oneLineWidth("LIGHT", { fontSize: 96 });
     expect(oneLineWidth("LIGHT", { fontSize: 96, fontStretch: "125%" })).toBeCloseTo(plain * 1.25, 6);
     expect(oneLineWidth("LIGHT", { fontSize: 96, letterSpacing: 0.1 })).toBeGreaterThan(plain);
+  });
+  it("sums the renderer's own faces' measured advances, at the nearest weight and stretch, and only guesses for a face it has not measured", async () => {
+    const { estimateLineWidth, fontMetricsFor, FONT_METRICS } = await import("../src");
+    const serif = { fontFamily: '"Cormorant Garamond Variable", "Noto Sans JP Variable", serif', fontWeight: 700, fontSize: 76, fontStretch: "100%" };
+    // The D4 hook label: Chromium lays this line out at 737 px; the character-count guess said 1131.
+    expect(estimateLineWidth("every room in 15 seconds", serif)).toBeGreaterThan(725);
+    expect(estimateLineWidth("every room in 15 seconds", serif)).toBeLessThan(750);
+    expect(fontMetricsFor({ ...serif, fontWeight: 850 })).toBe(FONT_METRICS["Cormorant Garamond Variable|700|100"]);
+    expect(fontMetricsFor({ fontFamily: '"Archivo Variable", sans-serif', fontWeight: 800, fontSize: 76, fontStretch: "75%" })).toBe(FONT_METRICS["Archivo Variable|800|75"]);
+    expect(fontMetricsFor({ fontFamily: "Comic Sans MS", fontSize: 76 })).toBeNull();
+    expect(estimateLineWidth("LIGHT", { fontFamily: "Comic Sans MS", fontSize: 96 })).toBe(plainGuess("LIGHT", 96));
+    // An unmeasured character counts as a lowercase letter; letter spacing is added either way.
+    const avg = FONT_METRICS["Cormorant Garamond Variable|700|100"].avg;
+    expect(estimateLineWidth("京", serif)).toBeCloseTo(avg * 76, 6);
+    expect(estimateLineWidth("ab", { ...serif, letterSpacing: 0.1 }) - estimateLineWidth("ab", serif)).toBeCloseTo(7.6, 6);
   });
   it("shrinks a wide title to the frame and shifts a cut-off one inward", async () => {
     const { planarFitAndShift, leanQuad } = await import("../src");

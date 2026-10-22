@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   applyHomography, endsBeforeShot, evaluateTitle, framePlan, homography, invertHomography, orientOrder, orientQuad, parseTimeline,
-  PINNED_ELSEWHERE, pinnedProgress, planarFitAndShift, sceneLayers, stackTitles, textPositionAt, textQuadAt,
+  PINNED_ELSEWHERE, pinnedProgress, planarFitAndShift, sceneLayers, screenTitleExtent, stackTitles, surfaceTextQuad, textPositionAt, textQuadAt, titlePaddingPx, wrapTitleLines,
   type Measure, type Quad, type SurfacePlacement, type TextOverlay, type Timeline, type TitleFont,
 } from "../src";
 
@@ -160,6 +160,19 @@ describe("evaluateTitle: surfaces", () => {
     expect(corner[0]).toBeCloseTo(0.6 * W, 6); expect(corner[1]).toBeCloseTo(0.4 * H, 6);
   });
 
+  it("draws its words centred at their fitted size, narrower than a long low strip's corners", () => {
+    const placement = at(bare([0.05, 0.6, 0.95, 0.6, 0.95, 0.66, 0.05, 0.66], "SNOWED IN"));
+    const quad = surfaceTextQuad(placement);
+    const xs = [0, 1, 2, 3].map((i) => quad[i * 2]), ys = [0, 1, 2, 3].map((i) => quad[i * 2 + 1]);
+    // Height-bound: the words are a fraction of the strip's width and sit on its centre line.
+    expect(Math.max(...xs) - Math.min(...xs)).toBeCloseTo(placement.lineBox.width * placement.fitScale, 3);
+    expect(Math.max(...xs)).toBeLessThan(0.8 * W);
+    expect((Math.min(...xs) + Math.max(...xs)) / 2).toBeCloseTo(0.5 * W, 3);
+    expect((Math.min(...ys) + Math.max(...ys)) / 2).toBeCloseTo(0.63 * H, 3);
+    // Without a homography the plane itself stands in.
+    expect(surfaceTextQuad({ ...placement, homography: null })).toEqual(placement.plane);
+  });
+
   it("is height-bound for a long low strip and wraps nothing", () => {
     const strip = at(bare([0.05, 0.5, 0.95, 0.5, 0.95, 0.51, 0.05, 0.51], "STEP\nOUT"));
     expect(strip.lines).toBe(2);
@@ -272,5 +285,59 @@ describe("sceneLayers", () => {
     ]);
     expect(layers(t).filter((l) => l.startsWith("title"))).toEqual(["title:behind", "title:tapped", "title:cap"]);
     expect(stackTitles(t.texts).map((text) => text.id)).toEqual(["behind", "tapped", "cap"]);
+  });
+});
+
+describe("screenTitleExtent: the box a screen title draws", () => {
+  // The renderer centres the words in a column 86% of the frame wide (928.8 px); the drawn box is the
+  // longest wrapped line plus the style's padding, never the column.
+  const column = { mode: "wrap" as const, width: W * 0.86 };
+
+  it("wraps greedily at spaces, keeps a typed line break, and stands a word too wide alone", () => {
+    expect(wrapTitleLines("every room in 15 seconds", font, measure, 760)).toEqual(["every room in", "15 seconds"]); // 57.6 px a character: 13 fit, 16 do not
+    expect(wrapTitleLines("one\ntwo three", font, measure, 600)).toEqual(["one", "two three"]);
+    expect(wrapTitleLines("a supercalifragilistic word", font, measure, 400)).toEqual(["a", "supercalifragilistic", "word"]);
+    expect(wrapTitleLines("", font, measure, 400)).toEqual([""]);
+  });
+
+  it("is the longest wrapped line, not the column, for a sentence that wraps", () => {
+    const extent = screenTitleExtent({ text: "every room in 15 seconds", style: "plain" }, font, measure, column);
+    expect(extent.lines).toEqual(["every room in 15", "seconds"]);
+    expect(extent.width).toBeCloseTo(16 * 96 * 0.6, 5);
+    expect(extent.width).toBeLessThan(column.width);
+    expect(extent.height).toBeCloseTo(96 * 1.12 * 2, 5);
+  });
+
+  it("adds a label's padding on every side and wraps inside what the padding leaves", () => {
+    const pad = titlePaddingPx({ style: "box" }, font);
+    expect(pad).toEqual({ x: 0.36 * 96, y: 0.18 * 96 });
+    expect(titlePaddingPx({ style: "plain" }, font)).toEqual({ x: 0, y: 0 });
+    const one = screenTitleExtent({ text: "the sea-view bedroom", style: "box" }, font, measure, { mode: "wrap", width: 2000 });
+    expect(one.lines).toEqual(["the sea-view bedroom"]);
+    expect(one.width).toBeCloseTo(20 * 96 * 0.6 + 2 * pad.x, 5);
+    expect(one.height).toBeCloseTo(96 * 1.12 + 2 * pad.y, 5);
+    // 15 characters fit the column; the padding takes two of them.
+    const tight = screenTitleExtent({ text: "the sea-view bedroom", style: "box" }, font, measure, { mode: "wrap", width: 15 * 96 * 0.6 + 1 });
+    expect(tight.lines).toEqual(["the sea-view", "bedroom"]);
+  });
+
+  it("is the whole column for a label whose words wrap, since its background is painted on the column-wide item", () => {
+    const boxed = screenTitleExtent({ text: "every room in 15 seconds", style: "box" }, font, measure, column);
+    expect(boxed.lines).toHaveLength(2);
+    expect(boxed.column).toBe(true);
+    expect(boxed.width).toBe(column.width);
+    const plain = screenTitleExtent({ text: "every room in 15 seconds", style: "plain" }, font, measure, column);
+    expect(plain.column).toBe(false);
+    expect(plain.width).toBeLessThan(column.width);
+    // A label that fits on one line hugs its words.
+    const short = screenTitleExtent({ text: "the bedroom", style: "box" }, font, measure, column);
+    expect(short.column).toBe(false);
+    expect(short.width).toBeCloseTo(11 * 96 * 0.6 + 2 * 0.36 * 96, 5);
+  });
+
+  it("clamps a one-line title to its maximum width, as the renderer's nowrap box is", () => {
+    const extent = screenTitleExtent({ text: "Antidisestablishmentarianism", style: "plain" }, font, measure, { mode: "line", maxWidth: 500 });
+    expect(extent.lines).toHaveLength(1);
+    expect(extent.width).toBe(500);
   });
 });

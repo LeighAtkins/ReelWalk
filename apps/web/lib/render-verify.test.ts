@@ -147,6 +147,27 @@ describe("the audio trace", () => {
     expect(audioProblemsFrom([{ id: "quiet", level: "warn", title: "Quiet", detail: "Under -20 LUFS" }])).toEqual([{ id: "quiet", level: "warn", title: "Quiet", detail: "Under -20 LUFS" }]);
   });
 
+  it("reads the trace's own problems (kind, severity, detail) with a title per kind and an id per moment", () => {
+    const trace = {
+      ok: true,
+      problems: [
+        { kind: "cut-off-beat", severity: "medium", atMs: 2000, clipId: "c2", detail: "The cut into c2 at 2.0 s is 166 ms off the beat." },
+        { kind: "cut-off-beat", severity: "medium", atMs: 3000, clipId: "c3", detail: "The cut into c3 at 3.0 s is 166 ms off the beat." },
+        { kind: "drop-mid-shot", severity: "low", atMs: 7666, detail: "The song's drop at 7.7 s falls mid-shot; put a cut on it (dropOnCut)." },
+        { kind: "silence", severity: "high", atMs: 15000, endMs: 17250, detail: "Silence from 15.0 s to 17.3 s (2.3 s) with nothing under it." },
+      ],
+    };
+    expect(audioProblemsFrom(trace)).toEqual([
+      { id: "cut-off-beat@2000", level: "warn", title: "Cut off the beat", detail: "The cut into c2 at 2.0 s is 166 ms off the beat.", atMs: 2000 },
+      { id: "cut-off-beat@3000", level: "warn", title: "Cut off the beat", detail: "The cut into c3 at 3.0 s is 166 ms off the beat.", atMs: 3000 },
+      { id: "drop-mid-shot@7666", level: "warn", title: "Drop mid-shot", detail: "The song's drop at 7.7 s falls mid-shot; put a cut on it (dropOnCut).", atMs: 7666 },
+      { id: "silence@15000", level: "block", title: "Silence", detail: "Silence from 15.0 s to 17.3 s (2.3 s) with nothing under it.", atMs: 15000 },
+    ]);
+    // Folded into stored checks, each off-beat cut is its own line.
+    expect(withAudio(checks(), audioProblemsFrom(trace)).checks.map((check) => check.id)).toEqual(["audio:silence@15000", "audio:cut-off-beat@2000", "audio:cut-off-beat@3000", "audio:drop-mid-shot@7666"]);
+    expect(audioProblemsFrom({ ok: true, problems: [] })).toEqual([]);
+  });
+
   it("folds the problems into stored checks, blocks first, and marks the sound as checked", () => {
     const merged = withAudio(checks(), [{ id: "silence", level: "block", title: "Silence", detail: "1.4 s of silence at 3 s", atMs: 3000 }, { id: "quiet", level: "warn", title: "Quiet", detail: "Under -20 LUFS" }]);
     expect(merged.audio.available).toBe(true);

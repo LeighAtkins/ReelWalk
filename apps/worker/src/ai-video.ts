@@ -6,12 +6,12 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { claimAiGeneration, failAiGeneration, prisma } from "@reelwalk/db";
 import { VertexError, VertexVideo, definitelyRejected } from "./vertex-video";
 import { aiThumbnail } from "./ai-thumbnail";
-import { aiFrames, keyframes, type DecodedFrame } from "./ai-frames";
+import { aiFrames, decodeFrame, keyframes, type DecodedFrame } from "./ai-frames";
 import { VertexImages, type InlineImage } from "./vertex-images";
 import { fetchVideo, lipsyncConfigured, pollLipsync, startLipsync, synthesiseLine, voicedPrompt } from "./voice";
 import { transcribeVideo, transcriptionAvailable } from "./transcribe";
-import { clipSchema, insertAiShot, parseStoredAiShot, timelineSchema, type AiShot } from "@reelwalk/core";
-import { closerLevel, identityDecision, identityRejectionMessage, minFacePx, speakingEnd, type IdentityVerdict, type LocateAttempt } from "./identity";
+import { clipSchema, escalateFraming, insertAiShot, lineTrim, parseStoredAiShot, speakingFraming, timelineSchema, type AiShot, type PresenterFraming } from "@reelwalk/core";
+import { identityDecision, identityRejectionMessage, minFacePx, speakingEnd, type IdentityVerdict, type LocateAttempt } from "./identity";
 
 let provider: VertexVideo | undefined;
 let images: VertexImages | undefined;
@@ -219,7 +219,8 @@ function refund(job: Job, message: string, details: Omit<NonNullable<Parameters<
 
 /** One gate verdict as stored in identityChecks, with the locate boxes and crops so a false reject can be diagnosed. */
 type IdentityCheck = { end: "first" | "last"; attempt: 1 | 2; samePerson: boolean | null; confidence: number | null; faceHeightPx: number | null;
-  minFacePx: number; eyesAndMouthRendered?: boolean; reason?: IdentityVerdict["reason"]; locate?: LocateAttempt[] };
+  minFacePx: number; /** The framing the still was composed at (ADR 0069), so the measured face can be read against what was asked. */ framing?: PresenterFraming;
+  eyesAndMouthRendered?: boolean; reason?: IdentityVerdict["reason"]; locate?: LocateAttempt[] };
 
 /**
  * Compose each described end and check her face before Veo is paid (ADR 0056).
@@ -243,22 +244,32 @@ async function composeAndGate(s3: S3Client, bucket: string, job: Job, frames: Re
     const minimum = minFacePx(speaking);
     let accepted: InlineImage | null = null;
     let previous: IdentityVerdict | null = null;
+    // The framing (ADR 0069): at least close for a speaking end, a step closer after a face too small to judge. The plate
+    // was cropped for the framing asked at reserve time; when the framing moves, the plate is cropped again to match.
+    const asked: PresenterFraming = frame.framing ?? "medium";
+    let framing: PresenterFraming = speaking ? speakingFraming(asked) : asked;
+    let cropped: PresenterFraming = asked;
+    let scene: InlineImage = inline(frame)!;
     for (const attempt of [1, 2] as const) {
       let composed: InlineImage;
       try {
-        // Closer for a speaking end, closer still after a face too small to judge, whatever framing was asked.
-        const closer = closerLevel(attempt, speaking, previous);
-        composed = await images.compose(end, frame.compose, inline(frame)!, presenter, face, { framing: closer ? "medium" : frame.framing ?? "medium", stronger: attempt === 2, ...(closer ? { closer } : {}) });
+        const closer = attempt === 2 && previous?.reason === "face-too-small";
+        if (closer) framing = escalateFraming(framing);
+        if (framing !== cropped && frame.source) {
+          scene = await recropScene(s3, bucket, frame, framing) ?? scene;
+          cropped = framing;
+        }
+        composed = await images.compose(end, frame.compose, scene, presenter, face, { framing, stronger: attempt === 2, ...(closer ? { closer: true } : {}) });
       } catch {
         await refund(job, "The start and end stills could not be composed. Your credit was returned.", { identityChecks: checks });
         return { ok: false };
       }
       let verdict: IdentityVerdict | null = null;
       try { verdict = await images.checkIdentity(composed, reference, { minFacePx: minimum }); } catch { verdict = null; }
-      checks.push({ end, attempt, samePerson: verdict?.samePerson ?? null, confidence: verdict?.confidence ?? null, faceHeightPx: verdict?.faceHeightPx ?? null, minFacePx: minimum,
+      checks.push({ end, attempt, samePerson: verdict?.samePerson ?? null, confidence: verdict?.confidence ?? null, faceHeightPx: verdict?.faceHeightPx ?? null, minFacePx: minimum, framing,
         ...(verdict?.eyesAndMouthRendered !== undefined ? { eyesAndMouthRendered: verdict.eyesAndMouthRendered } : {}),
         ...(verdict?.reason ? { reason: verdict.reason } : {}), ...(verdict?.locate ? { locate: verdict.locate } : {}) });
-      console.log(`ai-video: ${job.id}: identity ${end} attempt ${attempt}: ${verdict ? `${verdict.samePerson ? "same" : "different"} person, confidence ${verdict.confidence.toFixed(2)}, face ${verdict.faceHeightPx ?? "?"} px (min ${minimum}), eyes/mouth ${verdict.eyesAndMouthRendered ?? "?"}${verdict.reason ? `, ${verdict.reason}` : ""}, locate ${JSON.stringify(verdict.locate ?? [])}` : "check unavailable"}`);
+      console.log(`ai-video: ${job.id}: identity ${end} attempt ${attempt} (${framing}): ${verdict ? `${verdict.samePerson ? "same" : "different"} person, confidence ${verdict.confidence.toFixed(2)}, face ${verdict.faceHeightPx ?? "?"} px (min ${minimum}), eyes/mouth ${verdict.eyesAndMouthRendered ?? "?"}${verdict.reason ? `, ${verdict.reason}` : ""}, locate ${JSON.stringify(verdict.locate ?? [])}` : "check unavailable"}`);
       // Kept beside the take so the studio can see what Veo was (or would have been) given.
       await s3.send(new PutObjectCommand({ Bucket: bucket, Key: `workspaces/${job.workspaceId}/ai/${job.id}-${end}${attempt === 2 ? "-retry" : ""}.jpg`, Body: Buffer.from(composed.bytesBase64Encoded, "base64"), ContentType: "image/jpeg" }));
       // Each attempt is a few slow calls: stop as soon as the claim is gone, before any more spend.
@@ -279,6 +290,17 @@ async function composeAndGate(s3: S3Client, bucket: string, job: Job, frames: Re
   const finals = (["first", "last"] as const).flatMap(end => checks.filter(check => check.end === end).slice(-1).map(check => check.confidence ?? 0));
   const identityScore = Math.min(...finals);
   return { ok: true, ...result, identity: { identityScore, identityChecks: checks } };
+}
+
+/** The scene cropped again for a closer framing (ADR 0069); null when it cannot be decoded, so the last crop is kept. */
+async function recropScene(s3: S3Client, bucket: string, frame: DecodedFrame, framing: PresenterFraming): Promise<InlineImage | null> {
+  if (!frame.source) return null;
+  try {
+    const bytes = await decodeFrame(s3, bucket, frame.source.key, frame.source.atMs, "scene-png", framing);
+    return { bytesBase64Encoded: bytes.toString("base64"), mimeType: "image/png" };
+  } catch {
+    return null;
+  }
 }
 
 /** Speak the line in the fixed voice, hand the silent take and the audio to sync.so, and poll it like Veo. */
@@ -321,6 +343,10 @@ async function finish(s3: S3Client, bucket: string, job: Job, video: Buffer, sho
   const thumbnail = await aiThumbnail(video);
   await s3.send(new PutObjectCommand({ Bucket: bucket, Key: thumbKey, Body: thumbnail, ContentType: "image/jpeg" }));
   const words = voice ? await transcript(video, job.id) : null;
+  // The auto-trim (ADR 0069): where the line sits in the take, and whether the take said it; only when words were heard.
+  const take = voice && words ? lineTrim(words, voice.line, job.durationSeconds * 1000) : null;
+  const transcriptRecord = words ? { ...words, ...(take ? { take } : {}) } : null;
+  if (take) console.log(`ai-video: ${job.id}: line trim ${take.startMs}-${take.endMs} ms, distance ${take.distance}${take.wrongWords ? `, WRONG WORDS: heard "${take.heard}"` : ""}`);
   await prisma.$transaction(async tx => {
     const changed = await tx.aiGeneration.updateMany({ where: { id: job.id, leaseToken: job.leaseToken, status: "RUNNING" }, data: {
       status: "SUCCEEDED", assetId: `ai-${job.id}`, finishedAt: new Date(), leaseToken: null, leaseUntil: null,
@@ -332,7 +358,7 @@ async function finish(s3: S3Client, bucket: string, job: Job, video: Buffer, sho
       contentType: "video/mp4", fileName: `AI shot — ${voice ? `"${voice.line.slice(0, 40)}"` : job.prompt.slice(0, 60)}${note === "silent" ? " (silent)" : ""}.mp4`,
       sizeBytes: BigInt(video.length), durationMs: job.durationSeconds * 1000, width: 1080, height: 1920,
       attribution: "AI-generated with Google Veo",
-      ...(words ? { transcript: words as never } : {}),
+      ...(transcriptRecord ? { transcript: transcriptRecord as never } : {}),
     } });
     if (shot?.draftReelId) {
       const source = await tx.reel.findFirst({ where: { id: shot.draftReelId, workspaceId: job.workspaceId } });

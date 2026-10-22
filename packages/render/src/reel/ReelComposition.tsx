@@ -15,7 +15,7 @@ import {
 // WebCodecs-based video, used when the worker renders: about twice as fast as
 // OffthreadVideo here, and it falls back to it for files it cannot decode.
 import { Video as RenderVideo } from "@remotion/media";
-import { behindInPlane, calloutGeometry, calloutSvg, cameraAt, countUpText, duckGain, evaluateTitle, flareCss, framePlan, glintLetter, glintSvg, INSTAGRAM, isInstagramMusic, kineticProgress, matrix3d, particleField, particleSvg, personLayerOpacity, REEL_FORMAT, sceneLayers, shineAt, shineBandCss, shineSpec, slideFromBehind, speechWindows, TITLE_LEADING, timelineDurationMs, walkInto, wordReveal, type Clip, type Logo, type ParticleField, type PersonPass, type Plan, type ShineFlare, type ShineGlint, type TextOverlay, type Timeline } from "@reelwalk/core";
+import { behindInPlane, calloutGeometry, calloutSvg, cameraAt, countUpText, duckGain, evaluateTitle, flareCss, framePlan, mediaWindow, glintLetter, glintSvg, INSTAGRAM, isInstagramMusic, kineticProgress, matrix3d, particleField, particleSvg, personLayerOpacity, REEL_FORMAT, sceneLayers, shineAt, shineBandCss, shineSpec, slideFromBehind, speechWindows, TITLE_LEADING, timelineDurationMs, walkInto, wordReveal, type Clip, type Logo, type ParticleField, type PersonPass, type Plan, type ShineFlare, type ShineGlint, type TextOverlay, type Timeline } from "@reelwalk/core";
 import { domMeasure } from "./measure";
 import { textExit, titleFont } from "./title-motion";
 import { whipGeometry } from "./whip";
@@ -53,7 +53,10 @@ const Media: React.FC<{
   fit: "cover" | "contain";
   muted?: boolean;
   transform?: string;
-}> = ({ clip, asset, fit, muted, transform }) => {
+  /** The clip's sequence length: the media window is derived from it (frames.ts), so every frame of the sequence has a picture. */
+  durationInFrames: number;
+}> = ({ clip, asset, fit, muted, transform, durationInFrames }) => {
+  const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const { isRendering } = useRemotionEnvironment();
   const style: React.CSSProperties = {
@@ -64,13 +67,15 @@ const Media: React.FC<{
     filter: FILTER_CSS[clip.filter],
   };
   if (asset.kind === "IMAGE") return <Img src={resolveSrc(asset.src)} style={style} />;
-  const toFrame = (ms: number) => Math.round((ms * fps) / 1000);
+  // Frame-exact cuts (ADR 0067): the window covers the whole sequence, never one frame short of the cut; a ramp
+  // moves the rate per frame and fades the clip's own sound where the picture runs far from its mean speed.
+  const window = mediaWindow(clip, frame, durationInFrames, fps);
   const timing = {
     src: resolveSrc(asset.src),
-    trimBefore: toFrame(clip.sourceStartMs),
-    trimAfter: toFrame(clip.sourceEndMs),
-    playbackRate: clip.speed,
-    volume: muted ? 0 : clip.volume,
+    trimBefore: window.trimBefore,
+    trimAfter: window.trimAfter,
+    playbackRate: window.playbackRate,
+    volume: muted ? 0 : clip.volume * window.gain,
     muted: muted || clip.volume === 0,
   };
   if (!isRendering) {
@@ -97,7 +102,9 @@ const ClipView: React.FC<{
   /** The clip before this one and its media, for a walk between two 360 photos. */
   previous?: { clip: Clip; asset: ReelAsset | undefined };
   plan: Plan | null;
-}> = ({ clip, asset, durationInFrames, fadeOut, whipOut = null, previous, plan }) => {
+  /** The reel's opening shot: an eased camera move starts already in progress (ADR 0067). */
+  opening?: boolean;
+}> = ({ clip, asset, durationInFrames, fadeOut, whipOut = null, previous, plan, opening = false }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   if (!asset) {
@@ -107,7 +114,7 @@ const ClipView: React.FC<{
 
   // Clamped: a clip is mounted a second early (premount) with negative frames.
   const progress = durationInFrames > 1 ? Math.min(1, Math.max(0, frame / (durationInFrames - 1))) : 0;
-  const { transform, opacity: shown, whip, whipAmount, whipId, whipDirection } = clipPresentation(clip, frame, fps, durationInFrames, fadeOut, whipOut);
+  const { transform, opacity: shown, whip, whipAmount, whipId, whipDirection } = clipPresentation(clip, frame, fps, durationInFrames, fadeOut, whipOut, opening);
 
   if (clip.pano && asset.kind === "IMAGE") {
     const clipMs = (durationInFrames * 1000) / fps;
@@ -138,11 +145,11 @@ const ClipView: React.FC<{
       {clip.fit === "contain" ? (
         // Letterboxed: the same picture, blurred and enlarged, fills the 9:16 frame behind it.
         <AbsoluteFill style={{ filter: "blur(48px) brightness(0.7)", transform: "scale(1.25)" }}>
-          <Media clip={clip} asset={asset} fit="cover" muted />
+          <Media clip={clip} asset={asset} fit="cover" muted durationInFrames={durationInFrames} />
         </AbsoluteFill>
       ) : null}
       <AbsoluteFill>
-        <Media clip={clip} asset={asset} fit={clip.fit} transform={transform} muted={Boolean(clip.audio)} />
+        <Media clip={clip} asset={asset} fit={clip.fit} transform={transform} durationInFrames={durationInFrames} muted={Boolean(clip.audio)} />
       </AbsoluteFill>
       {clip.lensSoftness ? <AbsoluteFill style={{ pointerEvents: "none", backdropFilter: `blur(${clip.lensSoftness * 7}px)`,
         maskImage: "radial-gradient(ellipse 47% 40% at 50% 48%, transparent 52%, black 100%)",
@@ -588,6 +595,7 @@ export const ReelComposition: React.FC<ReelProps> = ({ timeline, assets, waterma
             whipOut={timeline.clips[index + 1]?.transitionIn === "whip" ? timeline.clips[index + 1].whipDirection ?? "right" : null}
             previous={index > 0 ? { clip: timeline.clips[index - 1], asset: assets[timeline.clips[index - 1].assetId] } : undefined}
             plan={timeline.plan?.geometry ?? null}
+            opening={index === 0}
           />
           {/* A J-cut (ADR 0069): the sound under a cutaway is the presenter take it covers, from the same source time. */}
           {clip.audio && assets[clip.audio.assetId]?.kind === "VIDEO" ? (
@@ -620,20 +628,20 @@ export const ReelComposition: React.FC<ReelProps> = ({ timeline, assets, waterma
             const pass = layer.pass;
             return (
               <Sequence key={`matte-${clip.id}-pass-${pass.passMs}-${pass.passFadeMs}`} from={from} durationInFrames={durationInFrames} name={`passes ${clip.id}`}>
-                <PassFade pass={pass} from={from}>{(active) => <PersonMatteView clip={clip} asset={asset} durationInFrames={durationInFrames} fadeOut={fadeOut} whipOut={whipOut} active={active} />}</PassFade>
+                <PassFade pass={pass} from={from}>{(active) => <PersonMatteView clip={clip} asset={asset} durationInFrames={durationInFrames} fadeOut={fadeOut} whipOut={whipOut} active={active} opening={layer.clipIndex === 0} />}</PassFade>
               </Sequence>
             );
           }
           return (
             <Sequence key={`matte-${clip.id}`} from={from} durationInFrames={durationInFrames} name={`matte ${clip.id}`}>
-              <PersonMatteView clip={clip} asset={asset} durationInFrames={durationInFrames} fadeOut={fadeOut} whipOut={whipOut} />
+              <PersonMatteView clip={clip} asset={asset} durationInFrames={durationInFrames} fadeOut={fadeOut} whipOut={whipOut} opening={layer.clipIndex === 0} />
             </Sequence>
           );
         }
         // Things tapped as being in front of this title (ADR 0044): the object under the tap.
         return (
           <Sequence key={`object-${clip.id}-${layer.text.id}`} from={from} durationInFrames={durationInFrames} name={`in front of ${layer.text.text.slice(0, 12)}`}>
-            <ObjectMatteView clip={clip} asset={asset} text={layer.text} timeline={timeline} from={from} durationInFrames={durationInFrames} fadeOut={fadeOut} whipOut={whipOut} />
+            <ObjectMatteView clip={clip} asset={asset} text={layer.text} timeline={timeline} from={from} durationInFrames={durationInFrames} fadeOut={fadeOut} whipOut={whipOut} opening={layer.clipIndex === 0} />
           </Sequence>
         );
       })}

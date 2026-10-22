@@ -321,6 +321,20 @@ describe("screenTitleExtent: the box a screen title draws", () => {
     expect(tight.lines).toEqual(["the sea-view", "bedroom"]);
   });
 
+  it("is the whole column for a label whose words wrap, since its background is painted on the column-wide item", () => {
+    const boxed = screenTitleExtent({ text: "every room in 15 seconds", style: "box" }, font, measure, column);
+    expect(boxed.lines).toHaveLength(2);
+    expect(boxed.column).toBe(true);
+    expect(boxed.width).toBe(column.width);
+    const plain = screenTitleExtent({ text: "every room in 15 seconds", style: "plain" }, font, measure, column);
+    expect(plain.column).toBe(false);
+    expect(plain.width).toBeLessThan(column.width);
+    // A label that fits on one line hugs its words.
+    const short = screenTitleExtent({ text: "the bedroom", style: "box" }, font, measure, column);
+    expect(short.column).toBe(false);
+    expect(short.width).toBeCloseTo(11 * 96 * 0.6 + 2 * 0.36 * 96, 5);
+  });
+
   it("clamps a one-line title to its maximum width, as the renderer's nowrap box is", () => {
     const extent = screenTitleExtent({ text: "Antidisestablishmentarianism", style: "plain" }, font, measure, { mode: "line", maxWidth: 500 });
     expect(extent.lines).toHaveLength(1);

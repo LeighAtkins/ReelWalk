@@ -292,18 +292,25 @@ export function wrapTitleLines(text: string, font: TitleFont, measure: Measure, 
 }
 
 /**
- * The box a screen title draws, in composition px before its scale: the widest
- * line it wraps to (or its one line, clamped) plus the style's padding, and its
- * lines times the leading. The renderer lays the words out in a column of
- * `wrap.width` and centres them; the column is not the drawn extent, so a
- * centred sentence that wraps is as wide as its longest line, not the column.
+ * The box a screen title draws, in composition px before its scale. The
+ * renderer lays the words out in a column of `wrap.width` as a flex item:
+ * as wide as its words (plus the style's padding) until they wrap, then the
+ * column. So the drawn box is the longest wrapped line plus the padding,
+ * never the column, for a style that draws the words alone; a label or a
+ * sticker paints its background on that item, so once its words wrap its
+ * box is the whole column however short the lines. Lines times the leading
+ * plus the padding for the height.
  */
-export function screenTitleExtent(text: Pick<TextOverlay, "text" | "style">, font: TitleFont, measure: Measure, wrap: ScreenPlacement["wrap"]): { width: number; height: number; lines: string[] } {
+export function screenTitleExtent(text: Pick<TextOverlay, "text" | "style">, font: TitleFont, measure: Measure, wrap: ScreenPlacement["wrap"]): { width: number; height: number; lines: string[]; column: boolean } {
   const pad = titlePaddingPx(text, font);
-  const lines = wrap.mode === "wrap" ? wrapTitleLines(text.text, font, measure, Math.max(1, wrap.width - 2 * pad.x)) : text.text.split("\n");
+  const typed = text.text.split("\n");
+  const widestTyped = Math.max(...typed.map((line) => measure(line || " ", font).width));
+  const wraps = wrap.mode === "wrap" && widestTyped + 2 * pad.x > wrap.width;
+  const lines = wraps ? wrapTitleLines(text.text, font, measure, Math.max(1, wrap.width - 2 * pad.x)) : typed;
+  const column = wraps && TITLE_PADDING_EM[text.style] !== undefined;
   const widest = Math.max(...lines.map((line) => measure(line || " ", font).width));
-  const width = Math.min(wrap.mode === "wrap" ? wrap.width : wrap.maxWidth, widest + 2 * pad.x);
-  return { width, height: font.fontSize * TITLE_LEADING * lines.length + 2 * pad.y, lines };
+  const width = column ? wrap.width : Math.min(wrap.mode === "wrap" ? wrap.width : wrap.maxWidth, widest + 2 * pad.x);
+  return { width, height: font.fontSize * TITLE_LEADING * lines.length + 2 * pad.y, lines, column };
 }
 
 /** The single evaluated placement of one title on one frame. See the module comment. */

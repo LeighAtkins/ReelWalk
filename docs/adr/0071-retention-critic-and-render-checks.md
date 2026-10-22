@@ -197,6 +197,12 @@ frame facts.
   words greedily at spaces with the measure (as the browser does, inside
   the column less the style's padding) and the box is the longest line plus
   the padding a label or sticker draws (`TITLE_PADDING_EM`, from look.ts).
+  One case keeps the column, measured in Chromium with the renderer's own
+  CSS: the words sit in a flex item of the column, as wide as its words
+  until they wrap and then the column; a label or a sticker paints its
+  background on that item, so a boxed sentence that wraps really draws a
+  928.8 px label (76 px to 1004 px) and the gate keeps blocking it, with
+  the edges in the reason.
 - **The server's measure was 0.62 em a character for every face.** The
   serif the owner's reels use (Cormorant Garamond) is 0.45 em a lowercase
   letter, so the server saw one-line labels as two-line ones and sentences

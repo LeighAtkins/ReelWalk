@@ -245,9 +245,10 @@ describe("the render's decode and the Judge moments", () => {
 
 describe("the title zone check on the owner's series titles (the live false positive)", () => {
   // D4's real records (output/series/d4-save.js): serif labels centred at x 0.5, as the server styles them
-  // (76 px × size, no DOM, so the character-count estimate). Before the fix every one of them "reached
-  // 44 px under the like and share column": the wrap column (86% of the frame) was taken for the box.
-  const serverFont = (text: { size: number }) => ({ fontFamily: "Cormorant", fontWeight: 700, fontSize: 76 * text.size });
+  // (the renderer's serif family at 76 px × size, no DOM, so the measured advance widths). Before the fix every
+  // one of them "reached 44 px under the like and share column": the wrap column (86% of the frame) was taken
+  // for the box, and the 0.62 em guess made the one-line label wrap.
+  const serverFont = (text: { size: number }) => ({ fontFamily: '"Cormorant Garamond Variable", "Noto Sans JP Variable", serif', fontWeight: 700, fontSize: 76 * text.size, fontStretch: "100%" });
   const label = { style: "box", font: "serif", animation: "none", shadow: "none", color: "#111111" };
   const d4 = (hookX = 0.5) => reel({
     clips: [{ id: "d4-0", assetId: "v1", kind: "VIDEO", sourceStartMs: 0, sourceEndMs: 14100 }],
@@ -275,6 +276,19 @@ describe("the title zone check on the owner's series titles (the live false posi
     expect(reach.right).toBe(reach.edges.right - 960);
     expect(block.detail).toBe(`“every room in 15 seconds” reaches ${reach.right} px under the like and share column: its right edge is at ${reach.edges.right} px, the column starts at 960 px.`);
     expect(checks.facts.zoneReach.map((r) => r.textId)).toEqual(["d4-hook"]);
+  });
+
+  it("still blocks a label whose words wrap, since the painted box is then the whole column", () => {
+    // Too long for one line in the column: the renderer's flex item becomes the column, and the label's
+    // background is painted on it (measured in Chromium: the span runs 76 px to 1004 px).
+    const timeline = reel({ texts: [{ ...label, id: "long", text: "every single room of the villa in fifteen seconds flat", startMs: 0, endMs: 2000, x: 0.5, y: 0.3, size: 1 }] });
+    const checks = renderChecks({ timeline, series: [], titleFont: serverFont });
+    const [block] = checks.checks.filter((c) => c.level === "block");
+    expect(block.id).toBe("title-under-buttons:long");
+    expect(block.detail).toBe("“every single room of th…” reaches 44 px under the like and share column: its right edge is at 1004 px, the column starts at 960 px.");
+    // The same words drawn alone (no background) are judged by their longest line, which is inside.
+    const plain = renderChecks({ timeline: reel({ texts: [{ ...label, style: "plain", id: "long", text: "every single room of the villa in fifteen seconds flat", startMs: 0, endMs: 2000, x: 0.5, y: 0.3, size: 1 }] }), series: [], titleFont: serverFont });
+    expect(plain.checks.filter((c) => c.id.startsWith("title-"))).toEqual([]);
   });
 
   it("names the measured edge for a dead-zone warning too", () => {

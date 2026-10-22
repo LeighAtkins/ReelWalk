@@ -147,11 +147,13 @@ nothing; a command type this build does not know is refused rather than
 passed as "nothing changed".
 
 `POST /api/reels/:id/commands` runs `{ commands: Command[], revision?,
-dryRun? }` against the saved reel as one batch, with the library's source
-lengths, and saves the result the way autosave does (the reel's current
-revision when none is sent; 409 on a conflict, 422 with the reason when a
-command is refused). `dryRun: true` answers with the result and saves
-nothing, so an agent can ask `matchCuts` for its suggestion first. The
+dryRun? }` against the saved reel as one batch (or `{ command }` for one,
+the ADR 0068 shape; both go through the same route and `applyReelCommand`),
+with the library's source lengths and transcripts, and saves the result the
+way autosave does (the reel's current revision when none is sent; 409 on a
+conflict, 400 with the reason when a command is refused). `dryRun: true`
+answers with the result and saves nothing, so an agent can ask `matchCuts`
+for its suggestion first. The
 clips' motion is measured in the browser (`clip-energy.ts`,
 `measureClipMotion`); an agent that builds reels from a script measures
 with the same `summariseMotion` on frames of its own.

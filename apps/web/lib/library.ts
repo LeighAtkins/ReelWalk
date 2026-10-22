@@ -1,4 +1,4 @@
-import { isEquirect, parseSongMap, spotSchema, transcriptSchema, type MediaKind, type SongMap, type Spot, type Transcript } from "@reelwalk/core";
+import { isEquirect, parseSongMap, spotSchema, stockSource, transcriptSchema, type MediaKind, type SongMap, type SourceRecord, type Spot, type Transcript } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
 import { mediaUrl } from "./storage";
 import { faceHintFromChecks, type FaceHint } from "./face-hint";
@@ -23,6 +23,8 @@ export type LibraryAsset = {
   isPano: boolean;
   /** "Poly Haven, CC0 1.0" for imported library media; null for your own uploads. */
   credit: string | null;
+  /** The licence record of a clip imported from a stock site (ADR 0070): source, id, creator, page, licence, import time. Null for anything else. */
+  source?: SourceRecord | null;
   /** Set when the shot belongs to a home tour with a floor plan. */
   tourId: string | null;
   spot: Spot | null;
@@ -56,6 +58,8 @@ type LibraryAssetInput = {
   height: number | null;
   license?: string | null;
   attribution?: string | null;
+  sourceUrl?: string | null;
+  createdAt?: Date | string | null;
   tourId?: string | null;
   spot?: unknown;
   room?: string | null;
@@ -88,6 +92,7 @@ async function serializeLibraryAsset(asset: LibraryAssetInput, generation: { che
     height: asset.height,
     isPano: asset.kind === "IMAGE" && isEquirect(asset.width, asset.height),
     credit: asset.attribution ? [asset.attribution, asset.license].filter(Boolean).join(", ") : null,
+    source: stockSource({ id: asset.id, sourceUrl: asset.sourceUrl, license: asset.license, attribution: asset.attribution, createdAt: asset.createdAt }),
     tourId: asset.tourId ?? null,
     spot: spot.success ? spot.data : null,
     room: asset.room ?? null,

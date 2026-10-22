@@ -13,6 +13,7 @@ import { canExport, fixAllCommand, safeFixes, type CriticFinding, type CriticFix
   type ClipMotion,
   insertAiShot,
   luxuryFinish,
+  matchableClips,
   addRoomLabels,
   canWalk,
   hasRoomLabels,
@@ -148,6 +149,7 @@ import { HookSheet, PinSheet,
   pinTitle,
 } from "./sheets";
 import { analyseStoredAudio, uploadFile } from "./upload";
+import { measureLook } from "./look-measure";
 import { BeatControl } from "./beat-control";
 import { energiesOf, measureAssetMotion, measureClipMotion } from "./clip-energy";
 import { useAutosave } from "./use-autosave";
@@ -323,6 +325,8 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
   const [namingWaited, setNamingWaited] = useState(false);
   // "Make it pop" / "Make it premium" while its song is being fetched.
   const [finishing, setFinishing] = useState<FinishId | null>(null);
+  // Colour matching (ADR 0070): the clips' frames are being read before the match is applied.
+  const [measuringLook, setMeasuringLook] = useState(false);
   // Words sent from the Ask box, which the Ask sheet runs as it opens.
   const [askSeed, setAskSeed] = useState<{ request: string; auto: boolean } | null>(null);
   // "Write me 5 hooks" in the Ask box opens the Hook studio asking for that many lines (ADR 0068).
@@ -411,6 +415,35 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
   useEffect(() => {
     if (scriptReady > 0) showToast(`${scriptReady === 1 ? "A presenter take is" : `${scriptReady} presenter takes are`} ready. Tap Presenter on the timeline to place ${scriptReady === 1 ? "it" : "them"}.`, 5000);
   }, [scriptReady, showToast]);
+
+  /**
+   * One coherent look (ADR 0070): reads three frames of every flat clip in the
+   * browser, then matches them all to `referenceClipId` as one command. Clips
+   * already carrying statistics are measured again, so a retrimmed clip is
+   * measured on its new window.
+   */
+  const matchLookTo = useCallback(
+    async (referenceClipId: string) => {
+      setMeasuringLook(true);
+      try {
+        const { stats, unmeasured } = await measureLook(timeline, libraryRef.current);
+        const result = runCommand({ type: "matchLook", referenceClipId, stats });
+        if (result.rejected) return;
+        const matched = Math.max(0, Object.keys(stats).length - 1);
+        showToast(
+          unmeasured.length > 0
+            ? `${matched} ${matched === 1 ? "clip" : "clips"} matched; ${unmeasured.length} could not be read.`
+            : `${matched} ${matched === 1 ? "clip" : "clips"} now ${matched === 1 ? "matches" : "match"} this one. Slide the strength, or Undo.`,
+          4500,
+        );
+      } catch {
+        showToast("The clips could not be read, so nothing was matched.", 4000);
+      } finally {
+        setMeasuringLook(false);
+      }
+    },
+    [timeline, runCommand, showToast],
+  );
 
   // A sheet opening or closing ends any slider gesture: the next change is its own step with its own baseline.
   const sheetOpenedAt = useRef(0);
@@ -1634,6 +1667,13 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
           library={libraryList}
           suggest={suggestAfter}
           onUpload={addFiles}
+          onStock={(assets) => {
+            // Imported stock (ADR 0070): into the library and onto the end of the reel, sources kept on the assets.
+            setLibrary((current) => ({ ...current, ...Object.fromEntries(assets.map((asset) => [asset.id, asset])) }));
+            apply((current) => addClips(current, assets.map(clipFromAsset)));
+            setSheet(null);
+            showToast(assets.length === 1 ? "Stock clip added. Where it came from is under Sources on the export page." : `${assets.length} stock clips added. Where they came from is under Sources on the export page.`, 5000);
+          }}
           onPick={(picked) => {
             apply((current) => {
               const next = addClips(current, picked.map(clipFromAsset));
@@ -1675,6 +1715,16 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
           clip={selectedClip}
           asset={library[selectedClip.assetId]}
           onChange={(filter) => apply((current) => updateClip(current, selectedClip.id, { filter }))}
+          match={matchableClips(timeline).length > 1 && !selectedClip.pano ? {
+            look: timeline.look,
+            isReference: timeline.look?.referenceClipId === selectedClip.id,
+            referenceIndex: timeline.look ? timeline.clips.findIndex((clip) => clip.id === timeline.look?.referenceClipId) + 1 || null : null,
+            measuring: measuringLook,
+            onMatch: () => { void matchLookTo(selectedClip.id); },
+            // One gesture for as long as the sheet is open, like the trim handles.
+            onStrength: (strength) => runCommand({ type: "matchLook", strength }, `drag:look-strength:${sheetOpenedAt.current}`),
+            onClear: () => { runCommand({ type: "matchLook", referenceClipId: null }); showToast("Clips show their own colour again."); },
+          } : undefined}
           onLens={lensSoftness => apply(current => updateClip(current, selectedClip.id, { lensSoftness }), `lens-${selectedClip.id}`)}
           onLuxury={variant => { apply(current => luxuryFinish(current, variant)); showToast("Luxury finish applied. Adjust type and camera moves, or Undo."); }}
           onApplyAll={() => {

@@ -15,13 +15,13 @@ import {
 // WebCodecs-based video, used when the worker renders: about twice as fast as
 // OffthreadVideo here, and it falls back to it for files it cannot decode.
 import { Video as RenderVideo } from "@remotion/media";
-import { behindInPlane, calloutGeometry, calloutSvg, cameraAt, countUpText, duckGain, evaluateTitle, flareCss, framePlan, mediaWindow, glintLetter, glintSvg, INSTAGRAM, isInstagramMusic, kineticProgress, matrix3d, particleField, particleSvg, personLayerOpacity, REEL_FORMAT, sceneLayers, shineAt, shineBandCss, shineSpec, slideFromBehind, speechWindows, TITLE_LEADING, timelineDurationMs, walkInto, wordReveal, type Clip, type Logo, type ParticleField, type PersonPass, type Plan, type ShineFlare, type ShineGlint, type TextOverlay, type Timeline } from "@reelwalk/core";
+import { behindInPlane, calloutGeometry, calloutSvg, cameraAt, colorMatchFilterId, colorMatrixValues, countUpText, duckGain, evaluateTitle, flareCss, framePlan, mediaWindow, glintLetter, glintSvg, INSTAGRAM, isInstagramMusic, kineticProgress, matrix3d, particleField, particleSvg, personLayerOpacity, REEL_FORMAT, sceneLayers, shineAt, shineBandCss, shineSpec, slideFromBehind, speechWindows, TITLE_LEADING, timelineDurationMs, walkInto, wordReveal, type Clip, type Logo, type ParticleField, type PersonPass, type Plan, type ShineFlare, type ShineGlint, type TextOverlay, type Timeline } from "@reelwalk/core";
 import { domMeasure } from "./measure";
 import { textExit, titleFont } from "./title-motion";
 import { whipGeometry } from "./whip";
 import { clipPresentation } from "./presentation";
 import { useFontsFor } from "./fonts";
-import { ELEGANT_FADE_S, FILTER_CSS, textTreatmentCss } from "./look";
+import { clipFilterCss, ELEGANT_FADE_S, textTreatmentCss } from "./look";
 import { DetailsCardView } from "./DetailsCardView";
 import { EndCardView } from "./EndCardView";
 import { PanoView } from "./PanoView";
@@ -41,6 +41,19 @@ const WhipBlur: React.FC<{ id: string; amount: number; direction: Clip["whipDire
   </svg>;
 };
 
+/**
+ * The clip's colour match (ADR 0070) as an SVG filter the CSS `filter: url(#…)`
+ * on its media refers to. sRGB interpolation: the matrix was fitted to sRGB
+ * statistics, and the SVG default (linearRGB) would apply it to linear light.
+ */
+const ColorMatchFilter: React.FC<{ clip: Clip }> = ({ clip }) => {
+  if (!clip.colorMatch) return null;
+  return <svg width="0" height="0" style={{ position: "absolute" }} aria-hidden="true">
+    <filter id={colorMatchFilterId(clip.id)} x="0" y="0" width="100%" height="100%" colorInterpolationFilters="sRGB">
+      <feColorMatrix type="matrix" values={colorMatrixValues(clip.colorMatch)} />
+    </filter>
+  </svg>;
+};
 
 function resolveSrc(src: string): string {
   return /^(https?:|blob:|data:)/.test(src) ? src : staticFile(src);
@@ -64,7 +77,7 @@ const Media: React.FC<{
     height: "100%",
     objectFit: fit,
     transform,
-    filter: FILTER_CSS[clip.filter],
+    filter: clipFilterCss(clip),
   };
   if (asset.kind === "IMAGE") return <Img src={resolveSrc(asset.src)} style={style} />;
   // Frame-exact cuts (ADR 0067): the window covers the whole sequence, never one frame short of the cut; a ramp
@@ -126,13 +139,14 @@ const ClipView: React.FC<{
     return (
       <AbsoluteFill style={{ opacity: shown, backgroundColor: "#000", ...whip }}>
         {whip ? <WhipBlur id={whipId} amount={whipAmount} direction={whipDirection} /> : null}
+        <ColorMatchFilter clip={clip} />
         <PanoView
           src={resolveSrc(asset.src)}
           spot={clip.spot}
           from={from?.clip.spot && from.asset ? { src: resolveSrc(from.asset.src), spot: from.clip.spot } : null}
           camera={camera}
           planAspect={plan?.aspect ?? 1}
-          style={{ filter: FILTER_CSS[clip.filter] }}
+          style={{ filter: clipFilterCss(clip) }}
         />
       </AbsoluteFill>
     );
@@ -141,6 +155,7 @@ const ClipView: React.FC<{
   return (
     <AbsoluteFill style={{ opacity: shown, overflow: "hidden" }}>
       {whip ? <WhipBlur id={whipId} amount={whipAmount} direction={whipDirection} /> : null}
+      <ColorMatchFilter clip={clip} />
       <AbsoluteFill style={whip}>
       {clip.fit === "contain" ? (
         // Letterboxed: the same picture, blurred and enlarged, fills the 9:16 frame behind it.

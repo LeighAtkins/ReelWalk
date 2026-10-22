@@ -59,6 +59,7 @@ import { HOOK_DESCRIPTIONS, HOOK_FONTS, HOOK_LABELS, type Hook, type HookKind,
   type TextStyle, orientQuad } from "@reelwalk/core";
 import { ClipSourceInfo } from "./clip-source-info";
 import { ELEGANT_FONT_FAMILY, FILTER_CSS, FILTER_LABELS, TEXT_ANIMATION_LABELS, TEXT_STYLE_LABELS, textTreatmentCss } from "@reelwalk/render/reel";
+import { StockPicker } from "./stock-picker";
 import { formatDuration } from "@/lib/format";
 import type { LibraryAsset } from "@/lib/library";
 import Link from "next/link";
@@ -155,6 +156,7 @@ export function MediaSheet({
   onClose,
   replace = false,
   suggest,
+  onStock,
 }: {
   library: LibraryAsset[];
   onUpload(files: File[]): void;
@@ -164,9 +166,12 @@ export function MediaSheet({
   replace?: boolean;
   /** Match cuts (ADR 0067): "after 3" on a video whose opening carries on the motion of shot 3; null when nothing is known. */
   suggest?: (asset: LibraryAsset) => string | null;
+  /** Stock footage (ADR 0070): imported sets arrive here as library assets, to add to the reel. Absent: no Stock tab. */
+  onStock?(assets: LibraryAsset[]): void;
 }) {
   const [picked, setPicked] = useState<string[]>([]);
   const [filter, setFilter] = useState<LibraryFilter>("all");
+  const [source, setSource] = useState<"library" | "stock">("library");
   const everything = library.filter((asset) => asset.kind !== "AUDIO");
   const typeOf = (asset: LibraryAsset): LibraryFilter => (asset.isPano ? "360" : asset.kind === "VIDEO" ? "video" : "photo");
   const visual = filter === "all" ? everything : everything.filter((asset) => typeOf(asset) === filter);
@@ -182,6 +187,13 @@ export function MediaSheet({
 
   return (
     <Sheet title={replace ? "Replace this clip" : "Add photos and videos"} onClose={onClose}>
+      {onStock && !replace ? (
+        <Segmented<"library" | "stock"> label="Source" options={["library", "stock"]} value={source} onChange={setSource} format={(name) => (name === "library" ? "Your media" : "Stock footage")} />
+      ) : null}
+      {onStock && !replace && source === "stock" ? (
+        <StockPicker onAdd={onStock} />
+      ) : (
+        <>
       {replace ? (
         <p className="muted small">Tap what this clip should show. It keeps its place, length and look. To use something new, add it with Add media first.</p>
       ) : (
@@ -245,6 +257,8 @@ export function MediaSheet({
           </button>}
         </>
       ) : null}
+        </>
+      )}
     </Sheet>
   );
 }
@@ -405,6 +419,7 @@ export function LookSheet({
   onApplyAll,
   onLens,
   onLuxury,
+  match,
   onClose,
 }: {
   clip: Clip;
@@ -413,6 +428,8 @@ export function LookSheet({
   onApplyAll(): void;
   onLens?(value: number): void;
   onLuxury?(variant: "refined" | "modern"): void;
+  /** Colour matching across clips (ADR 0070); absent when the reel has one flat clip or fewer. */
+  match?: LookMatchProps;
   onClose(): void;
 }) {
   return (
@@ -434,8 +451,58 @@ export function LookSheet({
       <button type="button" className="btn btn-quiet btn-block" onClick={onApplyAll}>
         Use {FILTER_LABELS[clip.filter]} on every clip
       </button>
+      {match ? <LookMatch {...match} /> : null}
       {onLens ? <Range label="Soft lens edges" value={clip.lensSoftness ?? 0} min={0} max={1} step={0.05} display={`${Math.round((clip.lensSoftness ?? 0) * 100)}%`} onChange={onLens} /> : null}
     </Sheet>
+  );
+}
+
+export type LookMatchProps = {
+  /** The reel's match, if any. */
+  look: { referenceClipId: string; strength: number } | undefined;
+  /** Whether the clip this sheet is open on is the reference. */
+  isReference: boolean;
+  /** The reference clip's place in the reel, from 1, for the label. */
+  referenceIndex: number | null;
+  /** The clips' frames are being read. */
+  measuring: boolean;
+  /** Match every clip to the clip this sheet is open on. */
+  onMatch(): void;
+  onStrength(value: number): void;
+  onClear(): void;
+};
+
+/**
+ * One coherent look (ADR 0070), where the thumb already is: on a clip's Look
+ * sheet. "Match every clip to this one" makes this clip the reference; the
+ * strength slider and "Stop matching" appear once the reel has a match. The
+ * preset grades above sit on top of the match.
+ */
+function LookMatch({ look, isReference, referenceIndex, measuring, onMatch, onStrength, onClear }: LookMatchProps) {
+  return (
+    <div className="field" data-testid="look-match">
+      <span>Match colour across clips</span>
+      {look && isReference ? (
+        <p className="muted small">Every clip is matched to this one, so the footage agrees before any grade. Slide how far.</p>
+      ) : look ? (
+        <p className="muted small">Matched to clip {referenceIndex ?? "?"}. Make this the clip the others follow instead, or slide how far.</p>
+      ) : (
+        <p className="muted small">Footage from different cameras jumps in colour at every cut. Matching moves every clip&apos;s exposure and cast onto this one&apos;s.</p>
+      )}
+      {!look || !isReference ? (
+        <button type="button" className="btn btn-block" disabled={measuring} onClick={onMatch} data-testid="look-match-button">
+          {measuring ? "Reading the clips…" : look ? "Match every clip to this one instead" : "Match every clip to this one"}
+        </button>
+      ) : null}
+      {look ? (
+        <>
+          <Range label="Strength" value={look.strength} min={0} max={1} step={0.05} display={`${Math.round(look.strength * 100)}%`} onChange={onStrength} />
+          <button type="button" className="btn btn-quiet btn-block" onClick={onClear}>
+            Stop matching
+          </button>
+        </>
+      ) : null}
+    </div>
   );
 }
 

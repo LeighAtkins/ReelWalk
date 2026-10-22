@@ -2035,6 +2035,58 @@ input[type="range"] {
   box-shadow: 0 0 0 3px var(--signal);
 }
 
+/* Stock sets (ADR 0070): one creator, one place; tap a clip or add the set. */
+.stock-search {
+  display: flex;
+  gap: 8px;
+}
+
+.stock-search input {
+  flex: 1;
+  min-width: 0;
+}
+
+.stock-group {
+  display: grid;
+  gap: 6px;
+  padding: 10px 0;
+  border-top: 1px solid color-mix(in srgb, currentColor 12%, transparent);
+}
+
+.stock-group-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.stock-group-head strong {
+  font-size: 14px;
+  text-transform: capitalize;
+}
+
+.stock-strip {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding-bottom: 2px;
+}
+
+.stock-strip .library-item {
+  flex: none;
+  width: 76px;
+}
+
+/* Sources on the export page (ADR 0070). */
+.export-sources-list {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0;
+  display: grid;
+  gap: 6px;
+}
+
 .picker-btn {
   position: relative;
   overflow: hidden;

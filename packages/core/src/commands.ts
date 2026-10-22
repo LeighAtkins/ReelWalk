@@ -22,6 +22,7 @@ import { planHook, stripHook, type HookInputs } from "./hook";
 import { retime, retimeToLength } from "./review";
 import { insertPresenterTakes, type PresenterTakeInsert } from "./script";
 import { planCutaways, type CutawayOptions } from "./cutaways";
+import { matchLook, type ColorStats } from "./look";
 import { attachedAnchors, retimeTexts } from "./text-timing";
 import {
   clipDurationMs,
@@ -109,6 +110,12 @@ export type Command =
   | { type: "updateText"; textId: string; patch: Partial<Omit<TextOverlay, "id">> }
   /** One clip's look (a camera move, zoom, grade, fit, transition; the retention critic's fixes, ADR 0071). Not its timing: `setSpeed` and `trimClip` change the cut. */
   | { type: "updateClip"; clipId: string; patch: Omit<ClipSettings, "speed"> }
+  /**
+   * One coherent look (ADR 0070): every clip's colour matched to the reference clip's. `stats` are measured
+   * statistics by clip id, written onto the clips; clips already carrying statistics keep theirs. `referenceClipId`
+   * null clears the match. Changes no cut, so nothing is retimed.
+   */
+  | { type: "matchLook"; referenceClipId?: string | null; strength?: number; stats?: Record<string, ColorStats> }
   /** A new title. */
   | { type: "addText"; text: Omit<TextOverlay, "endMs" | "animation"> & { endMs?: number; animation?: TextOverlay["animation"] } }
   /** Several commands as one step and one undo ("Fix all", ADR 0062): all of them land, or none. */
@@ -304,6 +311,8 @@ function run(timeline: Timeline, command: Command, context: CommandContext): Tim
       if (added === timeline) throw new Error("There is no room in the reel for that text.");
       return added;
     }
+    case "matchLook":
+      return matchLook(timeline, command);
     case "batch":
       // Each step runs against the result of the one before; a failing step throws, so the whole batch is rejected.
       return command.commands.reduce((current, step) => run(current, step, { ...context, gestureBase: undefined }), timeline);
@@ -345,7 +354,7 @@ export function diffTimelines(before: Timeline, after: Timeline): Change[] {
     if (!a || !b || !same(a, b)) changes.push({ kind: "text", id });
   }
   if (!same(before.music, after.music)) changes.push({ kind: "music" });
-  for (const key of ["plan", "details", "logo", "cover", "hook", "opening"] as const) {
+  for (const key of ["plan", "details", "logo", "cover", "hook", "opening", "look"] as const) {
     if (!same(before[key], after[key])) changes.push({ kind: "other", key });
   }
   return changes;

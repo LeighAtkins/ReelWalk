@@ -1,10 +1,13 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   addClips,
   BEAT_SAMPLE_RATE,
+  beatOnsets,
   clipDurationMs,
   clipStartsMs,
   detectBeats,
+  detectBeatsFromOnsets,
   emptyTimeline,
   nearestBeatMs,
   setMusic,
@@ -22,6 +25,54 @@ function clicks(bpm: number, offsetMs: number, seconds: number): Float32Array {
     for (let i = 0; i < 400 && beat + i < samples.length; i++) samples[Math.floor(beat) + i] = noise() * (1 - i / 400);
   }
   return samples;
+}
+
+/** A burst of noise at `at` samples, `gain` loud, fading over `length` samples. */
+function burst(samples: Float32Array, at: number, gain: number, length: number, noise: () => number): void {
+  for (let i = 0; i < length && Math.floor(at) + i < samples.length; i++) samples[Math.floor(at) + i] += noise() * gain * (1 - i / length);
+}
+
+function seeded(seed: number): () => number {
+  return () => ((seed = (seed * 16807) % 2147483647) / 2147483647) * 2 - 1;
+}
+
+/**
+ * Kicks on every beat with a louder hat every dotted eighth (three
+ * sixteenths): the 4:3 layer of a dance track. Until the harmonic check the
+ * detector read this at 4/3 of the tempo (160 for 120), as it did the real
+ * track in the fixture below.
+ */
+function dottedHats(bpm: number, offsetMs: number, seconds: number, hatGain: number): Float32Array {
+  const rate = BEAT_SAMPLE_RATE;
+  const samples = new Float32Array(rate * seconds);
+  const period = (60 / bpm) * rate;
+  const noise = seeded(5);
+  for (let at = (offsetMs / 1000) * rate; at < samples.length; at += period) burst(samples, at, 0.5, 400, noise);
+  for (let at = (offsetMs / 1000) * rate; at < samples.length; at += period * 0.75) burst(samples, at, hatGain, 300, noise);
+  return samples;
+}
+
+/** Kicks on every beat with a louder 3+3+2 (tresillo) of hats restarting every two beats. Read as 96 bpm before the harmonic check. */
+function tresillo(bpm: number, offsetMs: number, seconds: number, hatGain: number): Float32Array {
+  const rate = BEAT_SAMPLE_RATE;
+  const samples = new Float32Array(rate * seconds);
+  const period = (60 / bpm) * rate;
+  const noise = seeded(3);
+  let beat = 0;
+  for (let at = (offsetMs / 1000) * rate; at < samples.length; at += period, beat++) {
+    burst(samples, at, 0.5, 400, noise);
+    if (beat % 2 === 0) {
+      burst(samples, at + period * 0.75, hatGain, 300, noise);
+      burst(samples, at + period * 1.5, hatGain, 300, noise);
+    }
+  }
+  return samples;
+}
+
+/** Distance from the detected first beat to the nearest beat of the true grid, in ms. */
+function phaseErrorMs(offsetMs: number, trueOffsetMs: number, periodMs: number): number {
+  const phase = ((((offsetMs - trueOffsetMs) % periodMs) + periodMs) % periodMs);
+  return Math.min(phase, periodMs - phase);
 }
 
 function clip(id: string, kind: "IMAGE" | "VIDEO", durationMs: number): Clip {
@@ -61,6 +112,39 @@ describe("detectBeats", () => {
   it("returns null for silence and for audio that is too short", () => {
     expect(detectBeats(new Float32Array(BEAT_SAMPLE_RATE * 20))).toBeNull();
     expect(detectBeats(clicks(120, 0, 2))).toBeNull();
+  });
+
+  it("is not fooled into 4/3 of the tempo by dotted-eighth hats, even louder ones", () => {
+    for (const hatGain of [0.4, 0.7, 1.1]) {
+      const grid = detectBeats(dottedHats(120, 250, 24, hatGain));
+      expect(grid?.bpm, `hats at ${hatGain}`).toBeCloseTo(120, 0);
+      expect(phaseErrorMs(grid!.offsetMs, 250, 500), `phase with hats at ${hatGain}`).toBeLessThan(40);
+    }
+  });
+
+  it("is not fooled by a tresillo (3+3+2) of louder hats", () => {
+    for (const hatGain of [0.5, 0.9]) {
+      const grid = detectBeats(tresillo(120, 250, 24, hatGain));
+      expect(grid?.bpm, `hats at ${hatGain}`).toBeCloseTo(120, 0);
+      expect(phaseErrorMs(grid!.offsetMs, 250, 500), `phase with hats at ${hatGain}`).toBeLessThan(40);
+    }
+  });
+
+  it("reads the Fresh Dance Club preview at 120 bpm with the beats where they are (was 160 bpm, a 4:3 lock)", () => {
+    const fixture = JSON.parse(readFileSync(new URL("./fixtures/fresh-dance-club.onsets.json", import.meta.url), "utf8")) as {
+      framesPerSecond: number;
+      truth: { bpm: number; beatOffsetMs: number };
+      onsets: number[];
+    };
+    const grid = detectBeatsFromOnsets(Float32Array.from(fixture.onsets), fixture.framesPerSecond);
+    expect(grid?.bpm).toBeCloseTo(fixture.truth.bpm, 0);
+    expect(phaseErrorMs(grid!.offsetMs, fixture.truth.beatOffsetMs, 60_000 / fixture.truth.bpm)).toBeLessThan(40);
+  });
+
+  it("makes the same onset curve the fixture holds: one value per 256 samples", () => {
+    const onsets = beatOnsets(clicks(120, 0, 2));
+    expect(onsets.length).toBe(Math.floor((BEAT_SAMPLE_RATE * 2) / 256));
+    expect(Math.max(...onsets)).toBeGreaterThan(0);
   });
 });
 

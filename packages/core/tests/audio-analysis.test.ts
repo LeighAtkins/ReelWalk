@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { analyseAudio, BEAT_SAMPLE_RATE, beatsOf, energyCurve, findDrop, musicFieldsFromAnalysis, parseAudioAnalysis, reelBeats } from "../src";
+import { analyseAudio, AUDIO_ANALYSIS_VERSION, BEAT_SAMPLE_RATE, beatsOf, emptyTimeline, energyCurve, findDrop, musicFieldsFromAnalysis, musicWithGrid, parseAudioAnalysis, reelBeats, setMusic, timelineWithGrid, type Music } from "../src";
 
 /** A click track with a kick on every bar, quiet for `quietSeconds`, then loud: a drop. */
 function song(bpm: number, offsetMs: number, seconds: number, quietSeconds: number): Float32Array {
@@ -59,13 +59,35 @@ describe("analyseAudio", () => {
   it("is the same twice and round-trips through its schema", () => {
     expect(analyseAudio(track)).toEqual(analysis);
     expect(parseAudioAnalysis(JSON.parse(JSON.stringify(analysis)))).toEqual(analysis);
-    expect(parseAudioAnalysis({ ...analysis, version: 2 })).toBeNull();
+    expect(parseAudioAnalysis({ ...analysis, version: AUDIO_ANALYSIS_VERSION + 1 })).toBeNull();
   });
 
   it("gives the music fields a reel stores", () => {
     const fields = musicFieldsFromAnalysis(analysis);
     expect(fields.bpm).toBe(analysis.bpm);
     expect(fields.downbeats).toEqual(analysis.downbeats);
+  });
+
+  it("puts a reel's music on the measured grid, and leaves it alone when it is there already", () => {
+    const music: Music = { assetId: "song", sourceStartMs: 0, volume: 0.8, bpm: 119, beatOffsetMs: 0, instagramAudioId: "1018160750329642", drop: { songMs: 7666, cutIndex: 6 }, onBeat: true };
+    const grid = { bpm: 120, beatOffsetMs: 174, downbeats: [1674, 3674], sections: [{ kind: "build" as const, startMs: 0, endMs: 7674 }] };
+    const synced = musicWithGrid(music, grid);
+    expect(synced).toEqual({ ...music, ...grid });
+    // The rest of the record (the sound, the drop, On the beat) is untouched.
+    expect(synced.drop).toEqual(music.drop);
+    expect(synced.instagramAudioId).toBe("1018160750329642");
+    expect(musicWithGrid(synced, grid)).toBe(synced);
+    // A grid without bars keeps the bars the reel had.
+    const noBars = musicWithGrid(synced, { bpm: 120, beatOffsetMs: 174 });
+    expect(noBars).toBe(synced);
+    expect(musicWithGrid(synced, { bpm: 121, beatOffsetMs: 174 }).downbeats).toEqual(grid.downbeats);
+    // No pulse found: nothing changes.
+    expect(musicWithGrid(music, { bpm: null, beatOffsetMs: null })).toBe(music);
+
+    const timeline = setMusic(emptyTimeline(), music);
+    expect(timelineWithGrid(timeline, grid).music).toEqual({ ...music, ...grid });
+    expect(timelineWithGrid(timeline, { bpm: 119, beatOffsetMs: 0 })).toBe(timeline);
+    expect(timelineWithGrid(emptyTimeline(), grid)).toEqual(emptyTimeline());
   });
 
   it("finds no pulse and no drop in silence", () => {

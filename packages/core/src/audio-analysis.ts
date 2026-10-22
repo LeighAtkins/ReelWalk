@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { BEAT_SAMPLE_RATE, beatPeriodMs, detectBeats, type BeatGrid } from "./beats";
 import { analyseSong, songMapSchema, type SongMap } from "./song";
-import { MAX_DOWNBEATS, MAX_SECTIONS, songSectionSchema, type Music } from "./timeline";
+import { MAX_DOWNBEATS, MAX_SECTIONS, songSectionSchema, type Music, type Timeline } from "./timeline";
 
 /**
  * Everything the editor and an agent want to know about a track's rhythm
@@ -13,7 +13,12 @@ import { MAX_DOWNBEATS, MAX_SECTIONS, songSectionSchema, type Music } from "./ti
  * Times are song time in milliseconds, like `Music.beatOffsetMs`.
  */
 
-export const AUDIO_ANALYSIS_VERSION = 1;
+/**
+ * Bumped when the detector improves, so every cached analysis is made again:
+ * v2 is the tempo estimator that checks the harmonics of the autocorrelation
+ * peak (a 4:3 lock read 120 bpm as 160 before it).
+ */
+export const AUDIO_ANALYSIS_VERSION = 2;
 /** The energy curve's step. */
 export const ENERGY_STEP_MS = 100;
 /** At most this many beats are listed: about six minutes at 180 bpm. */
@@ -146,13 +151,45 @@ export function beatsOf(grid: BeatGrid, durationMs: number): number[] {
   return out;
 }
 
+/** The beat grid a reel's music stores: tempo and first beat, with the bars and sections when they are known. */
+export type MusicGridFields = Pick<Music, "bpm" | "beatOffsetMs"> & Partial<Pick<Music, "downbeats" | "sections">>;
+
 /** The music fields a reel stores from an analysis (`setMusic`), so pacing and "On the beat" use the measured grid. */
-export function musicFieldsFromAnalysis(analysis: AudioAnalysis): Pick<Music, "bpm" | "beatOffsetMs"> & Partial<Pick<Music, "downbeats" | "sections">> {
+export function musicFieldsFromAnalysis(analysis: AudioAnalysis): MusicGridFields {
   return {
     bpm: analysis.bpm,
     beatOffsetMs: analysis.beatOffsetMs,
     ...(analysis.downbeats.length > 0 ? { downbeats: analysis.downbeats, sections: analysis.sections } : {}),
   };
+}
+
+const sameList = (a: readonly unknown[] | undefined, b: readonly unknown[] | undefined) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+
+/**
+ * The reel's music on the grid the analysis measured. The analysis is the
+ * one source of the beat grid: the music record keeps a copy for the pacing
+ * engine, the critic and "Snap to the beat", and that copy must follow a
+ * corrected analysis (an agent's PUT, a better detector). Nothing else about
+ * the music changes, and no cut moves. The same object comes back when the
+ * grid already matches, or the analysis found no pulse (the reel keeps what
+ * it had).
+ */
+export function musicWithGrid(music: Music, grid: MusicGridFields): Music {
+  if (grid.bpm === null) return music;
+  const bars = grid.downbeats !== undefined && grid.downbeats.length > 0;
+  const same =
+    music.bpm === grid.bpm &&
+    (music.beatOffsetMs ?? 0) === (grid.beatOffsetMs ?? 0) &&
+    (!bars || (sameList(music.downbeats, grid.downbeats) && sameList(music.sections, grid.sections)));
+  if (same) return music;
+  return { ...music, bpm: grid.bpm, beatOffsetMs: grid.beatOffsetMs, ...(bars ? { downbeats: grid.downbeats, sections: grid.sections ?? [] } : {}) };
+}
+
+/** `musicWithGrid` on a timeline: the same timeline when its music already sits on the grid or it has none. */
+export function timelineWithGrid(timeline: Timeline, grid: MusicGridFields): Timeline {
+  if (!timeline.music) return timeline;
+  const music = musicWithGrid(timeline.music, grid);
+  return music === timeline.music ? timeline : { ...timeline, music };
 }
 
 /** An analysis's song map as the stored column expects it, or null without bars. */

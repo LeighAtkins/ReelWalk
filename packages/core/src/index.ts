@@ -48,6 +48,8 @@ export * from "./view";
 export * from "./ducking";
 export * from "./director-loop";
 export * from "./hooks";
+export * from "./hook";
+export * from "./hook-rules";
 export * from "./text-timing";
 export * from "./commands";
 export * from "./script";

@@ -1889,6 +1889,12 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
             showToast(result.changes.length ? `Placed ${takes.length === 1 ? "the take" : `${takes.length} takes`}. Undo takes them back out.` : "Those takes are already in the reel.");
             setSheet(null);
             return true;
+          }}
+          onCutaways={(everyMs) => {
+            // Cutaways over her lines (ADR 0069): one command, one undo; running it again with another spacing replaces them.
+            const result = runCommand({ type: "cutaways", everyMs });
+            if (result.rejected) { showToast(result.rejected); return; }
+            showToast(result.changes.length ? (everyMs ? `Cutaways every ${everyMs / 1000} s over her lines. Undo takes them out.` : "Cutaways removed.") : "Nothing to cut away to yet: add footage around her lines.");
           }} />
       </Sheet> : null}
 

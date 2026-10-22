@@ -24,11 +24,16 @@ export function speechWindows(
   const starts = clipStartsMs(timeline);
   const spans: SpeechWindow[] = [];
   timeline.clips.forEach((clip, index) => {
-    const transcript = transcripts[clip.assetId];
-    if (clip.kind !== "VIDEO" || clip.volume <= 0 || !hasSpeech(transcript)) return;
-    for (const word of transcriptWindow(transcript, clip.sourceStartMs, clip.sourceEndMs)) {
-      const startMs = Math.max(starts[index], sourceToReelMs(clip, starts[index], word.s));
-      const endMs = Math.min(sourceToReelMs(clip, starts[index], clip.sourceEndMs), sourceToReelMs(clip, starts[index], word.e));
+    // A cutaway's sound is the take under it (a J-cut, ADR 0069): its words are heard, at 1×, from that source time.
+    const heard = clip.audio
+      ? { ...clip, assetId: clip.audio.assetId, volume: clip.audio.volume, speed: 1, sourceStartMs: clip.audio.sourceStartMs, sourceEndMs: clip.audio.sourceStartMs + (clip.sourceEndMs - clip.sourceStartMs) }
+      : clip;
+    const transcript = transcripts[heard.assetId];
+    if (heard.kind !== "VIDEO" && !clip.audio) return;
+    if (heard.volume <= 0 || !hasSpeech(transcript)) return;
+    for (const word of transcriptWindow(transcript, heard.sourceStartMs, heard.sourceEndMs)) {
+      const startMs = Math.max(starts[index], sourceToReelMs(heard, starts[index], word.s));
+      const endMs = Math.min(sourceToReelMs(heard, starts[index], heard.sourceEndMs), sourceToReelMs(heard, starts[index], word.e));
       if (endMs > startMs) spans.push({ startMs, endMs });
     }
   });

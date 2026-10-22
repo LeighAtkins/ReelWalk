@@ -9,6 +9,7 @@ import {
   IDENTITY_MATCH,
   isIdentityMatch,
   lookDistance,
+  lookSampleMs,
   matchLook,
   matchTransform,
   mergeColorStats,
@@ -177,5 +178,12 @@ describe("matchLook command", () => {
     const { timeline } = applyCommand(reel(), { type: "matchLook", referenceClipId: "a", stats: { a: measured.a, b: measured.b } }, ctx);
     expect(timeline.clips[2].colorMatch).toBeUndefined();
     expect(timeline.clips[2].colorStats).toBeUndefined();
+  });
+});
+
+describe("sample points", () => {
+  it("reads a video at three points inside its window, clear of its first and last frames, and a photo once", () => {
+    expect(lookSampleMs({ kind: "VIDEO", sourceStartMs: 1000, sourceEndMs: 3000 })).toEqual([1300, 2000, 2700]);
+    expect(lookSampleMs({ kind: "IMAGE", sourceStartMs: 0, sourceEndMs: 3000 })).toEqual([0]);
   });
 });

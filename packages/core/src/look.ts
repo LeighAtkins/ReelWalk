@@ -48,6 +48,16 @@ export const GAIN_MAX = 2;
 /** Frames per clip the editor reads when matching. */
 export const LOOK_SAMPLE_FRAMES = 3;
 
+/** Where in a clip's window those frames are, as fractions of it: clear of the first and last frames, where fades and whips sit. */
+export const LOOK_SAMPLE_POINTS = [0.15, 0.5, 0.85] as const;
+
+/** The source times (ms) a clip is measured at: three for a video, one for a photo. */
+export function lookSampleMs(clip: Pick<Clip, "kind" | "sourceStartMs" | "sourceEndMs">): number[] {
+  if (clip.kind !== "VIDEO") return [clip.sourceStartMs];
+  const window = clip.sourceEndMs - clip.sourceStartMs;
+  return LOOK_SAMPLE_POINTS.map((point) => Math.round(clip.sourceStartMs + window * point));
+}
+
 // BT.601 full-range RGB → YUV and back.
 const TO_YUV = [0.299, 0.587, 0.114, -0.14713, -0.28886, 0.436, 0.615, -0.51499, -0.10001];
 const TO_RGB = [1, 0, 1.13983, 1, -0.39465, -0.5806, 1, 2.03211, 0];

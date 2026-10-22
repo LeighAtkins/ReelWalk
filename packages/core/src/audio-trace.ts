@@ -24,7 +24,7 @@ const SILENCE_LUFS = -50;
 
 export type AudioProblemKind = "cut-off-beat" | "speech-under-music" | "silence" | "drop-mid-shot";
 
-export type AudioProblem = {
+export type AudioTraceProblem = {
   kind: AudioProblemKind;
   severity: "high" | "medium" | "low";
   atMs: number;
@@ -56,7 +56,7 @@ export type AudioTrace = {
   sfx: { id: string; sound: string; atMs: number; endMs: number; reason: string | null }[];
   loudness: ExportLoudness | null;
   recommended: SoundVolumeAdvice;
-  problems: AudioProblem[];
+  problems: AudioTraceProblem[];
 };
 
 /** Distance (ms) from `atMs` to the nearest of `beats`, or null without beats. */
@@ -92,7 +92,7 @@ export function audioTrace(input: {
   const hasOwnSound = timeline.clips.some((clip) => clip.kind === "VIDEO" && clip.volume > 0) || Boolean(timeline.sfx?.length) || Boolean(music && !isInstagramMusic(music));
   const recommended = recommendSoundVolume({ integratedLufs: loudness?.integratedLufs ?? null, hasSpeech: speech.length > 0, hasOwnSound });
 
-  const problems: AudioProblem[] = [];
+  const problems: AudioTraceProblem[] = [];
   for (const cut of cuts) {
     if (cut.offBeatMs !== null && cut.offBeatMs > OFF_BEAT_MS) {
       problems.push({ kind: "cut-off-beat", severity: "medium", atMs: cut.atMs, clipId: cut.clipId, detail: `The cut into ${cut.clipId} at ${sec(cut.atMs)} is ${cut.offBeatMs} ms off the beat.` });

@@ -7,14 +7,20 @@
  */
 import { locateFrame, textQuadAt } from "./cinematic";
 import { applyHomography, homography, type Quad } from "./motion";
+import { rampWarp } from "./ramp";
 import { REEL_FORMAT, type Clip, type TextOverlay, type Timeline } from "./timeline";
 
 /**
  * The source time (seconds) a clip shows on its frame `n`: the one formula the
  * composition's mattes seek by, so a picture named by it is the picture drawn.
+ * A ramped clip (ADR 0067) reads along its curve over its `durationInFrames`;
+ * without a ramp the formula is what it always was.
  */
-export function clipSourceSeconds(clip: Pick<Clip, "sourceStartMs" | "speed">, n: number, fps: number = REEL_FORMAT.fps): number {
-  return clip.sourceStartMs / 1000 + (n / fps) * (clip.speed || 1);
+export function clipSourceSeconds(clip: Pick<Clip, "sourceStartMs" | "speed"> & { ramp?: Clip["ramp"] }, n: number, fps: number = REEL_FORMAT.fps, durationInFrames?: number): number {
+  const speed = clip.speed || 1;
+  if (!clip.ramp || !durationInFrames) return clip.sourceStartMs / 1000 + (n / fps) * speed;
+  const length = Math.max(1, durationInFrames);
+  return clip.sourceStartMs / 1000 + (rampWarp(clip.ramp, Math.max(0, n) / length) * length * speed) / fps;
 }
 
 /**

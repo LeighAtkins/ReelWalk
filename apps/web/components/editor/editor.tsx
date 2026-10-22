@@ -58,7 +58,7 @@ import { canExport, fixAllCommand, safeFixes, type CriticFinding, type CriticFix
   hookTextRequest,
 } from "@reelwalk/core";
 import { ELEGANT_FADE_S, sfxAssets, type ReelAsset } from "@reelwalk/render/reel";
-import { parseAudioAnalysis, type AudioAnalysis as TrackAnalysis } from "@reelwalk/core";
+import { musicFieldsFromAnalysis, musicWithGrid, parseAudioAnalysis, type AudioAnalysis as TrackAnalysis } from "@reelwalk/core";
 import { SoundControl } from "./sound-control";
 import { deleteReel, exportReel, readyPreviews, saveCaption } from "@/app/actions";
 import { deleteBrief, saveBrief } from "@/app/ai-actions";
@@ -701,18 +701,29 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
     });
   }, [musicSheetOpen, timeline.music?.assetId, timeline.music?.bpm, snapshot]);
 
-  // The song's full analysis (ADR 0066), for the drop: cached in storage by whoever decoded it first (this browser, another,
-  // or the worker). When nobody has, the private copy is decoded here and the result stored for everyone.
+  // The song's full analysis (ADR 0066), for the drop and for the grid: cached in storage by whoever decoded it first (this
+  // browser, another, or the worker), read whenever the reel has a song. The analysis is the one source of the beat grid:
+  // when the reel's music record holds another tempo (the one stored when the song was chosen, before a corrected analysis
+  // was PUT or a better detector ran), it is put on the analysed grid through a command, so the critic, pacing and "Snap to
+  // the beat" read the same beats the audio trace does. No cut moves. When nobody has analysed the song, the private copy
+  // is decoded here with the Music sheet open (work a phone need not do on every load) and the result stored for everyone.
   const musicAssetId = timeline.music?.assetId ?? null;
   const musicAudioId = timeline.music?.instagramAudioId ?? musicAssetId;
   useEffect(() => {
-    if (!musicSheetOpen || !musicAssetId || !musicAudioId) {
+    if (!musicAssetId || !musicAudioId) {
       setTrackAnalysis(null);
       return;
     }
+    const sync = (analysis: TrackAnalysis) => {
+      const music = snapshot().timeline.music;
+      if (!music || music.assetId !== musicAssetId) return;
+      const synced = musicWithGrid(music, musicFieldsFromAnalysis(analysis));
+      if (synced !== music) runCommand({ type: "setMusic", music: synced });
+    };
     const known = trackAnalyses.current[musicAssetId];
     if (known) {
       setTrackAnalysis(known);
+      sync(known);
       return;
     }
     let cancelled = false;
@@ -720,12 +731,14 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
       if (cancelled || !analysis) return;
       trackAnalyses.current[musicAssetId] = analysis;
       setTrackAnalysis(analysis);
+      sync(analysis);
     };
     void (async () => {
       try {
         const response = await fetch(`/api/music/${encodeURIComponent(musicAudioId)}/analysis`);
         const body = (await response.json()) as { status?: string; analysis?: unknown };
         if (body.status === "ready") return keep(parseAudioAnalysis(body.analysis));
+        if (!musicSheetOpen) return;
         const asset = libraryRef.current[musicAssetId];
         if (!asset || cancelled) return;
         const analysis = await analyseStoredAudio(asset.url);
@@ -738,7 +751,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
     return () => {
       cancelled = true;
     };
-  }, [musicSheetOpen, musicAssetId, musicAudioId]);
+  }, [musicSheetOpen, musicAssetId, musicAudioId, snapshot, runCommand]);
 
   /**
    * How much each clip moves, measured on the first Energy change only (five small frames per video: too much work for

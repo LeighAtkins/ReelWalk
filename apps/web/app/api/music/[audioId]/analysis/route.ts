@@ -1,6 +1,6 @@
 import { AUDIO_ANALYSIS_VERSION, musicFieldsFromAnalysis, parseAudioAnalysis } from "@reelwalk/core";
 import { getSessionUser } from "@/lib/auth";
-import { findSoundAsset, readStoredAnalysis, storeAnalysis } from "@/lib/sound";
+import { findSoundAsset, readStoredAnalysis, storeAnalysis, syncReelsToAnalysis } from "@/lib/sound";
 import { durableAiJobs, startMusicAnalysisRun } from "@/lib/workflows";
 
 export const dynamic = "force-dynamic";
@@ -38,6 +38,10 @@ export async function GET(_request: Request, { params }: { params: Promise<{ aud
  * The browser's analysis of the same sound (the editor decodes the private
  * copy to find its tempo and runs the same pure code), stored so agents and
  * the export page read it without a worker. Same shape as GET's `analysis`.
+ * The sound's asset and every saved reel that uses it take the grid
+ * (`reelsUpdated` says how many), so the critic, pacing and "Snap to the
+ * beat" read the corrected tempo and not the one stored when the song was
+ * chosen.
  */
 export async function PUT(request: Request, { params }: { params: Promise<{ audioId: string }> }) {
   const site = request.headers.get("sec-fetch-site");
@@ -52,5 +56,9 @@ export async function PUT(request: Request, { params }: { params: Promise<{ audi
   const analysis = parseAudioAnalysis(body && typeof body === "object" && "analysis" in body ? body.analysis : body);
   if (!analysis) return Response.json({ ok: false, message: `Could not read the analysis (version ${AUDIO_ANALYSIS_VERSION} expected).` }, { status: 400 });
   await storeAnalysis(asset, analysis);
-  return Response.json({ ok: true, status: "ready", assetId: asset.id, analysis, music: musicFieldsFromAnalysis(analysis) }, { headers: { "Cache-Control": "private, no-store" } });
+  const reelsUpdated = await syncReelsToAnalysis(user.workspaceId, asset.id, analysis).catch((error: unknown) => {
+    console.warn(`[music] reels not put on the grid of ${asset.id}: ${error instanceof Error ? error.message : error}`);
+    return 0;
+  });
+  return Response.json({ ok: true, status: "ready", assetId: asset.id, analysis, music: musicFieldsFromAnalysis(analysis), reelsUpdated }, { headers: { "Cache-Control": "private, no-store" } });
 }

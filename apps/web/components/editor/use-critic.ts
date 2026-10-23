@@ -75,7 +75,7 @@ export function useCritic({ timeline, library, active, headline, sourceDurations
     return () => { live = false; };
   }, [active, aiAssets]);
 
-  const assets = useMemo(() => Object.fromEntries(Object.values(library).map((asset) => [asset.id, { src: asset.url, kind: asset.kind }])), [library]);
+  const assets = useMemo(() => Object.fromEntries(Object.values(library).map((asset) => [asset.id, { src: asset.url, kind: asset.kind, durationMs: asset.durationMs }])), [library]);
 
   useEffect(() => {
     if (!active) return;

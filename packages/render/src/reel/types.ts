@@ -11,6 +11,12 @@ export type ReelAsset = {
   kind: "VIDEO" | "IMAGE" | "AUDIO";
   /** Words with timings, for a video with speech: the music ducks under them. */
   transcript?: Transcript | null;
+  /**
+   * The source video's length, when known (ADR 0073): a speed-ramp cut reads past a clip's out-point only as far as the
+   * file goes. Unknown (older callers) means no source beyond the out-point is assumed, and the preview and the export
+   * must be given the same figure so they ramp the same way.
+   */
+  durationMs?: number | null;
 };
 
 export type ReelProps = {

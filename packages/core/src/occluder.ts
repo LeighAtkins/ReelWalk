@@ -8,6 +8,8 @@
 import { locateFrame, textQuadAt } from "./cinematic";
 import { applyHomography, homography, type Quad } from "./motion";
 import { rampWarp } from "./ramp";
+import { msToFrame } from "./frames";
+import { sourceFrameAt, speedPlanOf } from "./speed-ramp";
 import { REEL_FORMAT, type Clip, type TextOverlay, type Timeline } from "./timeline";
 
 /**
@@ -18,6 +20,12 @@ import { REEL_FORMAT, type Clip, type TextOverlay, type Timeline } from "./timel
  */
 export function clipSourceSeconds(clip: Pick<Clip, "sourceStartMs" | "speed"> & { ramp?: Clip["ramp"] }, n: number, fps: number = REEL_FORMAT.fps, durationInFrames?: number): number {
   const speed = clip.speed || 1;
+  // A clip on a speed-ramp cut (ADR 0073) reads along its plan: the frame the media shows, as an offset from its start frame.
+  const plan = speedPlanOf(clip as Clip);
+  if (plan && (clip as Clip).kind !== "IMAGE") {
+    const u = plan.position[Math.min(plan.frames - 1, Math.max(0, Math.round(n)))];
+    return clip.sourceStartMs / 1000 + (sourceFrameAt(clip as Clip, u, plan.frames, fps) - msToFrame(clip.sourceStartMs, fps)) / fps;
+  }
   if (!clip.ramp || !durationInFrames) return clip.sourceStartMs / 1000 + (n / fps) * speed;
   const length = Math.max(1, durationInFrames);
   return clip.sourceStartMs / 1000 + (rampWarp(clip.ramp, Math.max(0, n) / length) * length * speed) / fps;

@@ -2,6 +2,7 @@ import { walkInto } from "./walk";
 import { z } from "zod";
 import { cameraSchema } from "./camera";
 import { rampSchema, rampUnwarp, rampWarp, sliceRamp } from "./ramp";
+import { speedRampSchema } from "./speed-ramp-params";
 import { planOverlaySchema, roomTitle, spotSchema, type PlanOverlay } from "./plan";
 import { colorMatchSchema, colorStatsSchema, lookSchema } from "./look";
 
@@ -30,7 +31,7 @@ export const SPEEDS = [0.5, 1, 1.5, 2, 3] as const;
 export const FILTERS = ["none", "warm", "cool", "vivid", "mono", "fade", "golden", "dusk", "crisp"] as const;
 export const MOTIONS = ["none", "zoom-in", "zoom-out", "pan", "snap-in", "snap-out"] as const;
 /** "walk" moves the camera between two 360 photos of the same home (see walk.ts). */
-export const TRANSITIONS = ["cut", "fade", "whip", "walk"] as const;
+export const TRANSITIONS = ["cut", "fade", "whip", "walk", "speedRamp"] as const;
 /**
  * "elegant" is a thin white serif that fades in, for luxury reels where the
  * imagery leads. "tag" is a small lacquer sticker for a status (JUST LISTED,
@@ -143,6 +144,8 @@ export const clipSchema = z
     transitionIn: z.enum(TRANSITIONS).default("cut"),
     /** Camera pan direction; outgoing pixels travel in the opposite direction. */
     whipDirection: z.enum(["left", "right", "up", "down"]).optional(),
+    /** The speed-ramp transition's settings (ADR 0073), read when `transitionIn` is "speedRamp"; absent means the defaults. */
+    speedRamp: speedRampSchema.optional(),
     /** A closer crop of the picture about its centre: 1 shows it all, 2 the middle half. Added to any motion. */
     zoom: z.number().min(1).max(ZOOM_MAX).default(1),
     /**
@@ -299,6 +302,8 @@ export const musicSchema = z
     onBeat: z.boolean().optional(),
     /** "Ramp into cuts" (ADR 0067): when the cut changes with Energy, shots in the build and the drop speed up into their cuts. Absent is off. */
     ramps: z.boolean().optional(),
+    /** "Speed-ramp the strong cuts" (ADR 0073): when the cut changes with Energy, cuts on the build's and the drop's downbeats become speed-ramp transitions. Absent is off. */
+    speedRamps: z.boolean().optional(),
     /** Chosen by ReelWalk (Make it for me, a finish), not by the studio: a finish may replace it (ADR 0064). Absent: the studio's choice. */
     autoPicked: z.boolean().optional(),
     /**
@@ -709,7 +714,7 @@ export function trimClip(
   return fitTexts(updated);
 }
 
-export type ClipSettings = Partial<Pick<Clip, "speed" | "volume" | "fit" | "filter" | "motion" | "transitionIn" | "pano" | "zoom" | "lensSoftness" | "whipDirection" | "ramp" | "camera">>;
+export type ClipSettings = Partial<Pick<Clip, "speed" | "volume" | "fit" | "filter" | "motion" | "transitionIn" | "pano" | "zoom" | "lensSoftness" | "whipDirection" | "speedRamp" | "ramp" | "camera">>;
 
 export function updateClip(timeline: Timeline, id: string, settings: ClipSettings): Timeline {
   return fitTexts(replaceClip(timeline, id, (clip) => clipSchema.parse({ ...clip, ...settings })));

@@ -18,6 +18,8 @@ export * from "./cinematic";
 export * from "./camera";
 export * from "./ramp";
 export * from "./frames";
+export * from "./speed-ramp-params";
+export * from "./speed-ramp";
 export * from "./match-cut";
 export * from "./scene";
 export * from "./font-metrics";

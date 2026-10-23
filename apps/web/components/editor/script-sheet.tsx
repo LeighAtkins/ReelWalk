@@ -104,7 +104,7 @@ type Availability = { enabled: boolean; voices: { veo: boolean; lipsync: boolean
 /** The plate's key light, measured on a small analysis frame; null when it cannot be read. */
 async function measureLight(timeline: Timeline, library: Record<string, LibraryAsset>, slot: ScriptSlot): Promise<LightSide | null> {
   try {
-    const assets = Object.fromEntries(Object.values(library).map(asset => [asset.id, { src: asset.url, kind: asset.kind }]));
+    const assets = Object.fromEntries(Object.values(library).map(asset => [asset.id, { src: asset.url, kind: asset.kind, durationMs: asset.durationMs }]));
     const canvas = await timelineFrames(timeline, assets).frameAt(slot.plateClipId, slot.plate.atMs, { width: 48, height: 85, purpose: "analysis" });
     return canvas ? lightFromLuma(luminance(canvas)) : null;
   } catch { return null; }

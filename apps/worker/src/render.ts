@@ -205,7 +205,7 @@ export async function renderJob(
       for (const [index, [id, asset]] of entries.entries()) {
         const key = asset.kind === "VIDEO" ? await renderSourceKey(s3, bucket, workdir, id, asset.objectKey, (line) => console.log(`[${job.id}] ${line}`), attempt) : asset.objectKey;
         const src = await getSignedUrl(s3, new GetObjectCommand({ Bucket: bucket, Key: key }), { expiresIn: 3600 });
-        assets[id] = { src, kind: asset.kind, ...(asset.transcript ? { transcript: asset.transcript } : {}) };
+        assets[id] = { src, kind: asset.kind, ...(asset.transcript ? { transcript: asset.transcript } : {}), ...(asset.durationMs != null ? { durationMs: asset.durationMs } : {}) };
         // Preparing sources is the first fifth of the bar; Remotion reports the rest.
         report(((index + 1) / entries.length) * 0.2);
       }

@@ -134,7 +134,20 @@ export function gateFor(checks: RenderChecks | null): Gate {
   return { blocked: checks.blocked, reason: postBlockReason(checks), reasons: checks.blockReasons, checked: true };
 }
 
-/** The audio trace's problems, whatever shape W3-A's route settles on, as checks; nothing when it is not a list. */
+/** The audio trace's problem kinds (ADR 0066) as the Checks panel titles them. */
+const AUDIO_PROBLEM_TITLES: Record<string, string> = {
+  "cut-off-beat": "Cut off the beat",
+  "speech-under-music": "Speech under the music",
+  "drop-mid-shot": "Drop mid-shot",
+  silence: "Silence",
+};
+
+/**
+ * The audio trace's problems as checks: the trace's own shape (`kind`,
+ * `severity`, `detail`, `atMs`; ADR 0066), or a list of titled items.
+ * Null, not an empty list, when there is no trace: the sound is then
+ * reported unchecked rather than clean.
+ */
 export function audioProblemsFrom(value: unknown): AudioProblem[] | null {
   const list = Array.isArray(value) ? value : value && typeof value === "object" ? ((value as { problems?: unknown }).problems ?? (value as { issues?: unknown }).issues) : null;
   if (!Array.isArray(list)) return null;
@@ -142,14 +155,16 @@ export function audioProblemsFrom(value: unknown): AudioProblem[] | null {
   for (const item of list) {
     if (!item || typeof item !== "object") continue;
     const p = item as Record<string, unknown>;
-    const title = typeof p.title === "string" ? p.title : typeof p.summary === "string" ? p.summary : null;
+    const kind = typeof p.kind === "string" ? p.kind : null;
+    const title = typeof p.title === "string" ? p.title : typeof p.summary === "string" ? p.summary : kind ? (AUDIO_PROBLEM_TITLES[kind] ?? kind) : null;
     if (!title) continue;
+    const atMs = typeof p.atMs === "number" ? p.atMs : undefined;
     out.push({
-      id: String(p.id ?? title).slice(0, 80),
+      id: String(p.id ?? (kind ? `${kind}${atMs !== undefined ? `@${atMs}` : ""}` : title)).slice(0, 80),
       level: p.level === "block" || p.severity === "high" ? "block" : "warn",
       title,
       detail: typeof p.detail === "string" ? p.detail : typeof p.reason === "string" ? p.reason : title,
-      ...(typeof p.atMs === "number" ? { atMs: p.atMs } : {}),
+      ...(atMs !== undefined ? { atMs } : {}),
     });
   }
   return out;

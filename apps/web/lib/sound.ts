@@ -3,12 +3,14 @@ import {
   audioAnalysisKeyFor,
   audioTrace,
   exportAudioKeyFor,
+  musicFieldsFromAnalysis,
   parseAudioAnalysis,
   parseExportLoudness,
   parseTimeline,
   referencedAssetIds,
   songMapFromAnalysis,
   timelineDurationMs,
+  timelineWithGrid,
   transcriptSchema,
   type AudioAnalysis,
   type AudioTrace,
@@ -68,19 +70,54 @@ export async function readStoredAnalysis(objectKey: string): Promise<AudioAnalys
 }
 
 /**
- * Caches an analysis beside the sound and fills in the asset's tempo, song
- * map and length when the browser had not already (the editor's own
- * detection runs the same code on the same samples, so the two agree).
+ * Caches an analysis beside the sound and puts the asset's tempo and song
+ * map on it: the analysis is the one source of the beat grid, so a corrected
+ * one (an agent's PUT, a better detector) replaces what an older detection
+ * stored. The length is filled in only when the browser had not measured it
+ * (the analysis covers the first 90 s at most).
  */
 export async function storeAnalysis(asset: SoundAsset, analysis: AudioAnalysis): Promise<void> {
   await putObject(audioAnalysisKeyFor(asset.objectKey), Buffer.from(JSON.stringify(analysis)), "application/json");
   const songMap = songMapFromAnalysis(analysis);
   const data = {
-    ...(asset.bpm === null && analysis.bpm !== null ? { bpm: analysis.bpm, beatOffsetMs: analysis.beatOffsetMs } : {}),
-    ...(asset.songMap === null && songMap ? { songMap } : {}),
+    ...(analysis.bpm !== null ? { bpm: analysis.bpm, beatOffsetMs: analysis.beatOffsetMs } : {}),
+    ...(songMap ? { songMap } : {}),
     ...(asset.durationMs === null && analysis.durationMs > 0 ? { durationMs: analysis.durationMs } : {}),
   };
   if (Object.keys(data).length > 0) await prisma.mediaAsset.update({ where: { id: asset.id }, data });
+}
+
+/**
+ * Puts every saved reel of the workspace that uses this sound on the
+ * analysis's grid (tempo, first beat, bars, sections), each as a new
+ * revision. The pacing engine, the critic and "Snap to the beat" read the
+ * reel's own music record, which otherwise keeps the tempo it was given when
+ * the song was chosen; after this they read the same grid the audio trace
+ * does. No cut moves. An editor open on a reel sees the new revision as a
+ * conflict on its next save and reloads, as for any other tab's save.
+ * Returns how many reels changed.
+ */
+export async function syncReelsToAnalysis(workspaceId: string, assetId: string, analysis: AudioAnalysis): Promise<number> {
+  const grid = musicFieldsFromAnalysis(analysis);
+  if (grid.bpm === null) return 0;
+  const reels = await prisma.reel.findMany({
+    where: { workspaceId, timeline: { path: ["music", "assetId"], equals: assetId } },
+    select: { id: true, revision: true, timeline: true },
+  });
+  let updated = 0;
+  for (const reel of reels) {
+    let timeline: Timeline;
+    try {
+      timeline = parseTimeline(reel.timeline);
+    } catch {
+      continue;
+    }
+    const synced = timelineWithGrid(timeline, grid);
+    if (synced === timeline) continue;
+    const result = await prisma.reel.updateMany({ where: { id: reel.id, workspaceId, revision: reel.revision }, data: { timeline: synced, revision: { increment: 1 } } });
+    updated += result.count;
+  }
+  return updated;
 }
 
 type ReelRow = { id: string; revision: number; timeline: Prisma.JsonValue };

@@ -70,7 +70,14 @@ export function RenderChecksPanel({ jobId, reelId, result }: { jobId: string; re
           <ChecksList checks={checks} judgeHref={judgeHref} />
           <p className="muted small verify-foot">
             {checks.facts.frames ? `${checks.facts.frames.count} frames read` : "Timeline only"}
-            {checks.audio.available ? ", sound checked" : ""}. <RunChecks jobId={jobId} label="Run again" quiet />
+            <span data-testid="checks-audio" data-available={checks.audio.available ? "true" : "false"}>
+              {checks.audio.available
+                ? checks.audio.problems.length
+                  ? `, sound checked: ${checks.audio.problems.length} ${checks.audio.problems.length === 1 ? "problem" : "problems"} listed above`
+                  : ", sound checked"
+                : ", sound not checked"}
+            </span>
+            . <RunChecks jobId={jobId} label="Run again" quiet />
           </p>
         </>
       ) : (

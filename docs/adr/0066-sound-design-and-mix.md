@@ -47,7 +47,7 @@ milliseconds:
   lifts.
 
 The analysis is cached in storage beside the audio object
-(`<objectKey>.analysis.v1.json`, `audioAnalysisKeyFor`), versioned so a
+(`<objectKey>.analysis.v<N>.json`, `audioAnalysisKeyFor`), versioned so a
 better detector invalidates old answers. Whoever decodes first writes it:
 the editor PUTs its own when it chooses an Instagram sound or opens the
 Music sheet on an unanalysed one (`storeTrackAnalysis`), and the worker's
@@ -306,3 +306,116 @@ with none, a hole is a hole). Problems are sorted by time.
   path reuses `decodeMono` and the S3 client the library importer already
   exercises), the routes against a running web app (typecheck and unit
   tests only), and the Music sheet and export page in a browser.
+
+## Follow-up, 2026-10-23: three defects from the first real reel
+
+Found on D4 (`output/series/d4-every-room-15s.md`, reel
+`cmviasyex000701ad6xg2wpeq`, Instagram audio 1018160750329642 "Fresh Dance
+Club (Instrumental)") the night the ADR shipped.
+
+### 1. The tempo locked onto a harmonic
+
+`detectBeats` read the track at 160 bpm with the first beat at 46 ms and
+the drop at 8 671 ms. Measured offline on the same preview it is 120 bpm,
+beats at 166 ms + k × 500 ms, drop onset at 7 666 ms: a 4:3 lock on the
+track's dotted-eighth hats, which repeat every three sixteenths as strongly
+as the kicks repeat every beat. Every cut the series had put "on the beat"
+was 166 ms early, and `findDrop`, which looks only at downbeats, put the
+drop a bar late.
+
+The estimator now (`detectBeatsFromOnsets`): the autocorrelation still
+finds the rough periods, but its strongest peaks (up to four, within half
+the best score) and each one's harmonics (½, ⅔, ¾, 1, 4⁄3, 3⁄2 and 2 times
+the tempo) are all fitted as beat combs over the whole onset curve, and the
+comb whose beats land on the most onset energy wins. A log-normal
+preference centred at 110 bpm (0.6 octaves wide) settles near-ties in
+favour of everyday tempos: 160 must explain the onsets about half again as
+well as 120 to be chosen over it. The first beat is where the winning comb
+starts, so the phase and the bars `analyseSong` counts from it belong to
+the chosen tempo. The comb at 4⁄3 of a dance track's tempo hits the hats
+but misses every other kick; the comb at the tempo hits every kick and a
+third of the hats. `AUDIO_ANALYSIS_VERSION` is 2: every cached analysis is
+made again by the new detector the next time it is asked for.
+
+Verified: the real preview (the editor's private copy, found in the agent
+browser's cache, decoded with Remotion's bundled ffmpeg at 11 025 Hz mono)
+now reads 120 bpm, first beat 174 ms, drop 7 674 ms, downbeats
+1 674 + k × 2 000 ms, against the offline 120 / 166 / 7 666 / 1 666. The
+whole 90 s analyses in about 60 ms (was 45). Its onset curve is kept as a
+regression fixture, `packages/core/tests/fixtures/fresh-dance-club.onsets.json`
+(a feature of the recording, 43 values a second, not the recording;
+derivation in the file's `about`), and `beats.test.ts` asserts 120 bpm with
+the beats within 40 ms of the measured grid. Two synthetic tracks fooled the
+old detector and are tests too: kicks at 120 with louder dotted-eighth hats
+(old answer 160 at every hat level tried, 0.4 to 1.1 times the kicks) and
+kicks with a louder 3+3+2 tresillo of hats (old answer 96). The existing
+click-track, song-map, pacing and Instagram-sound suites pass unchanged.
+
+### 2. A corrected analysis did not reach the reel
+
+`PUT /api/music/:audioId/analysis` replaced the cached analysis, but the
+reel's `music` record kept its own tempo (119 bpm, offset 0), which the
+pacing engine, `snapToBeat` and the critic's beat check read; the export
+dialog kept saying "12 of 12 cuts land between beats" after the fix, and
+"Snap to the beat" would have moved every cut onto the wrong grid.
+
+The analysis is now the one source of the beat grid and the music record a
+copy that follows it (`musicWithGrid`, `timelineWithGrid`: tempo, first
+beat, bars and sections replaced; nothing else about the music, and no cut,
+touched; the same object back when the grid already matches or no pulse was
+found):
+
+- `storeAnalysis` (the PUT) and the worker's `music-analysis` step write the
+  asset's `bpm`, `beatOffsetMs` and `songMap` from the analysis, not only
+  when they were empty.
+- The PUT then puts every saved reel of the workspace that uses the sound on
+  the grid, each as a new revision (`syncReelsToAnalysis`, found by the
+  timeline's `music.assetId` with a JSON path filter); the response says
+  `reelsUpdated`. An editor open on one sees the conflict on its next save
+  and reloads, as for any other tab's save.
+- The editor reads the analysis whenever the reel has a song (not only with
+  the Music sheet open; decoding the private copy in the browser is still
+  for the open sheet only) and, when the record differs, runs `setMusic`
+  with the synced record, so the critic before export and "Snap to the beat"
+  use the measured beats.
+- `loadReel` for `/api/reels/:id/commands` puts the timeline on the song
+  asset's grid before a command runs, so an agent's `snapToBeat` or `pace`
+  works from the measured beats even on a reel nobody has opened since.
+
+### 3. The checks reported the sound unchecked
+
+`GET /api/renders/:id/checks` fetched this app's own audio-trace route over
+HTTP with the caller's cookie; behind the proxy that request did not
+answer, so `audio.available` was false while
+`/api/reels/:id/audio-trace` answered 200 and the worker's
+`<outputKey>.audio.json` sidecar was there. And the mapping expected titled
+items: the trace's problems carry `kind`, `severity` and `detail`, so even
+an answered trace would have folded in nothing.
+
+The route now reads the trace in process (`reelAudioTrace`), and
+`audioProblemsFrom` reads the trace's own shape (a title per kind: "Cut off
+the beat", "Speech under the music", "Drop mid-shot", "Silence"; an id per
+moment, `cut-off-beat@2000`, so every off-beat cut is its own line;
+`severity: "high"` blocks, the rest warn). The export page reads the trace
+once and folds the problems into the stored checks the same way, and the
+Checks panel's foot says "sound checked: N problems listed above", "sound
+checked", or "sound not checked" (`data-testid="checks-audio"`).
+
+### Also: the recommended post volume was shown, not stored
+
+The export page recommended the Instagram sound at 100 % over the reel's
+own sound design at 60 %, but Post and Schedule stored the form's default
+choice (100 / 0). `instagramChoiceForSound` takes the trace's
+`recommended` mix and the page builds the reel's sound choice from it, so
+the form starts on the recommendation and `reelPostData` writes
+`audioVolume` / `videoVolume` from it (`posting.test.ts`). The studio can
+still change the mix in the picker; a post already scheduled keeps its own.
+`MixPreview` takes the page's trace instead of fetching its own.
+
+### Not verified here
+
+The routes, the editor's sync and the Checks panel against a running web
+app and a browser (typecheck, lint and unit tests only); the worker's step
+against a real queue. The fixture's phase differs from the offline measure
+by 8 ms (174 against 166) and the drop by 8 ms; both are within one
+analysis frame (23 ms).

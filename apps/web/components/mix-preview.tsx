@@ -19,11 +19,12 @@ const LUFS_FLOOR = -60;
 const HEIGHT = 72;
 const WIDTH = 1000;
 
-export function MixPreview({ reelId, sound }: { reelId: string; sound: InstagramAudioChoice | null }) {
-  const [trace, setTrace] = useState<Trace | null>(null);
+export function MixPreview({ reelId, sound, initial = null }: { reelId: string; sound: InstagramAudioChoice | null; /** The trace the page already read; without one it is fetched here. */ initial?: Trace | null }) {
+  const [trace, setTrace] = useState<Trace | null>(initial);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (initial) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -39,7 +40,7 @@ export function MixPreview({ reelId, sound }: { reelId: string; sound: Instagram
     return () => {
       cancelled = true;
     };
-  }, [reelId]);
+  }, [reelId, initial]);
 
   const mixed = useMemo<InstagramAudioChoice | null>(
     () => (sound && trace ? { ...sound, audioVolume: trace.recommended.audioVolume, videoVolume: trace.recommended.videoVolume } : null),

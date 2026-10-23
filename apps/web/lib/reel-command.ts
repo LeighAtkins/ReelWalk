@@ -1,4 +1,4 @@
-import { applyCommand, hasSpeech, referencedAssetIds, type Command, type CommandResult, type HookInputs, type Timeline } from "@reelwalk/core";
+import { applyCommand, hasSpeech, referencedAssetIds, timelineWithGrid, type Command, type CommandResult, type HookInputs, type Timeline } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
 import { toLibraryAssets, type LibraryAsset } from "./library";
 import { readTimeline } from "./reels";
@@ -24,7 +24,20 @@ export async function loadReel(user: { workspaceId: string }, id: string): Promi
   const ids = referencedAssetIds(timeline);
   const rows = ids.length ? await prisma.mediaAsset.findMany({ where: { id: { in: ids }, ...mediaScope(user.workspaceId) } }) : [];
   const library = Object.fromEntries((await toLibraryAssets(rows)).map((asset) => [asset.id, asset]));
-  return { id: reel.id, title: reel.title, revision: reel.revision, timeline, library };
+  return { id: reel.id, title: reel.title, revision: reel.revision, timeline: onSongGrid(timeline, library), library };
+}
+
+/**
+ * The reel's music on its song's measured grid (ADR 0066): the asset row
+ * mirrors the stored analysis, so a command like `snapToBeat` or `pace` sent
+ * by an agent works from the beats the audio trace reports, not from a tempo
+ * stored before a corrected analysis. The same timeline comes back when the
+ * grid already matches or the song has not been measured.
+ */
+function onSongGrid(timeline: Timeline, library: Record<string, LibraryAsset>): Timeline {
+  const song = timeline.music ? library[timeline.music.assetId] : undefined;
+  if (!song) return timeline;
+  return timelineWithGrid(timeline, { bpm: song.bpm, beatOffsetMs: song.beatOffsetMs, ...(song.songMap ? { downbeats: song.songMap.downbeats, sections: song.songMap.sections } : {}) });
 }
 
 /** What the planner can learn from the library alone: source lengths and the words of every transcribed video. */

@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { analyseAudio, audioTrace, BEAT_SAMPLE_RATE, beatDistanceMs, clipSchema, emptyTimeline, parseTimeline, type AudioAnalysis, type Timeline } from "../src";
+import { analyseAudio, AUDIO_ANALYSIS_VERSION, audioTrace, BEAT_SAMPLE_RATE, beatDistanceMs, clipSchema, emptyTimeline, parseTimeline, type AudioAnalysis, type Timeline } from "../src";
 
 const clip = (id: string, ms: number, extra: Record<string, unknown> = {}) => clipSchema.parse({ id, assetId: id, kind: "VIDEO", sourceStartMs: 0, sourceEndMs: ms, ...extra });
 const talk = { text: "hello there", words: [{ w: "hello", s: 500, e: 800 }, { w: "there", s: 900, e: 1200 }] };
 
 /** A 120 bpm analysis with beats every 500 ms from 0 and a drop at 4 s. */
 const analysis: AudioAnalysis = {
-  version: 1,
+  version: AUDIO_ANALYSIS_VERSION,
   durationMs: 30_000,
   bpm: 120,
   beatOffsetMs: 0,

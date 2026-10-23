@@ -22,7 +22,7 @@ export const musicAnalysisPayloadSchema = z.object({ assetId: z.string().min(1).
 
 export async function runMusicAnalysisStep(step: { payload: unknown; user: { workspaceId: string } }, scope?: AttemptScope): Promise<AudioAnalysis> {
   const { assetId } = musicAnalysisPayloadSchema.parse(step.payload);
-  const asset = await prisma.mediaAsset.findFirst({ where: { id: assetId, workspaceId: step.user.workspaceId, kind: "AUDIO" }, select: { id: true, objectKey: true, bpm: true, songMap: true } });
+  const asset = await prisma.mediaAsset.findFirst({ where: { id: assetId, workspaceId: step.user.workspaceId, kind: "AUDIO" }, select: { id: true, objectKey: true } });
   if (!asset) throw new Error("That sound is not in this workspace.");
   const config = getConfig();
   const privateScope = scope ? null : createAttemptScope();
@@ -36,12 +36,10 @@ export async function runMusicAnalysisStep(step: { payload: unknown; user: { wor
     const analysis = analyseAudio(await decodeMono(file, attempt));
     const body = Buffer.from(JSON.stringify(analysis));
     await s3.send(new PutObjectCommand({ Bucket: config.s3Bucket, Key: audioAnalysisKeyFor(asset.objectKey), Body: body, ContentLength: body.byteLength, ContentType: "application/json" }), { abortSignal: attempt.signal });
-    // The editor's fields, when the browser has not filled them in already.
+    // The editor's fields follow the analysis: it is the one source of the grid, so a better detector replaces what an older one stored.
     const songMap = songMapFromAnalysis(analysis);
-    await prisma.mediaAsset.update({
-      where: { id: asset.id },
-      data: { ...(asset.bpm === null && analysis.bpm !== null ? { bpm: analysis.bpm, beatOffsetMs: analysis.beatOffsetMs } : {}), ...(asset.songMap === null && songMap ? { songMap } : {}) },
-    });
+    const data = { ...(analysis.bpm !== null ? { bpm: analysis.bpm, beatOffsetMs: analysis.beatOffsetMs } : {}), ...(songMap ? { songMap } : {}) };
+    if (Object.keys(data).length > 0) await prisma.mediaAsset.update({ where: { id: asset.id }, data });
     return analysis;
   } finally {
     await privateScope?.close();

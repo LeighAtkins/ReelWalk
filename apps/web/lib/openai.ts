@@ -2,8 +2,9 @@
  * directly or through Google Cloud (Vertex AI, ADR 0072); the existing OpenAI
  * transport remains available for explicit rollback. */
 
-import Anthropic from "@anthropic-ai/sdk";
-import { AnthropicVertex } from "@anthropic-ai/vertex-sdk";
+// Type-only: the worker loads this module through its durable AI steps (ADR 0049) and its image carries
+// only the worker's dependencies. The Vertex SDK is loaded on first use, inside `vertexClient`.
+import type { AnthropicVertex } from "@anthropic-ai/vertex-sdk";
 import type { AuthClient } from "google-auth-library";
 import { defaultGoogleAuth, federatedGoogleAuth } from "./google-federation";
 import { beforeProviderRequest, providerAnswered, providerSignal } from "./provider-gate";
@@ -335,7 +336,8 @@ async function vertexClient(config: NonNullable<ReturnType<typeof vertexConfig>>
       // The SDK types its authClient against google-auth-library 10; the app shares the worker's 11. Same AuthClient
       // surface (getRequestHeaders), so the cast is safe; a mismatch would fail the first call, not silently.
       type VertexAuthClient = NonNullable<NonNullable<ConstructorParameters<typeof AnthropicVertex>[0]>["authClient"]>;
-      return new AnthropicVertex({ projectId: config.projectId, region: config.region, authClient: authClient as unknown as VertexAuthClient, maxRetries: 0, timeout: 60_000 });
+      const { AnthropicVertex: VertexClient } = await import("@anthropic-ai/vertex-sdk");
+      return new VertexClient({ projectId: config.projectId, region: config.region, authClient: authClient as unknown as VertexAuthClient, maxRetries: 0, timeout: 60_000 });
     })();
     vertexClients.set(key, client);
     client.catch(() => vertexClients.delete(key));
@@ -347,9 +349,16 @@ async function vertexClient(config: NonNullable<ReturnType<typeof vertexConfig>>
 export function vertexError(error: unknown): AiError {
   if (error instanceof AiError) return error;
   // Status codes only: SDK messages carry the provider body, which can echo request content.
-  if (error instanceof Anthropic.RateLimitError || error instanceof Anthropic.InternalServerError) return new AiError(`Claude on Google Cloud could not answer (HTTP ${error.status}).`, true);
-  if (error instanceof Anthropic.APIConnectionError) return new AiError("Could not reach Claude on Google Cloud.", true);
-  if (error instanceof Anthropic.APIError) return new AiError(`Claude on Google Cloud could not answer (HTTP ${error.status ?? "error"}).`, (error.status ?? 500) >= 500);
+  // The SDK's error classes are recognised by name along the prototype chain rather than by `instanceof`,
+  // so this module never needs the SDK loaded (the worker's image does not carry it).
+  const lineage = new Set<string>();
+  for (let proto = error && typeof error === "object" ? Object.getPrototypeOf(error) : null; proto && proto !== Object.prototype; proto = Object.getPrototypeOf(proto)) {
+    if (typeof proto.constructor?.name === "string") lineage.add(proto.constructor.name);
+  }
+  const status = typeof (error as { status?: unknown })?.status === "number" ? (error as { status: number }).status : undefined;
+  if (lineage.has("RateLimitError") || lineage.has("InternalServerError")) return new AiError(`Claude on Google Cloud could not answer (HTTP ${status}).`, true);
+  if (lineage.has("APIConnectionError")) return new AiError("Could not reach Claude on Google Cloud.", true);
+  if (lineage.has("APIError")) return new AiError(`Claude on Google Cloud could not answer (HTTP ${status ?? "error"}).`, (status ?? 500) >= 500);
   if (error instanceof Error && error.name === "AbortError") return new AiError("Could not reach Claude on Google Cloud.", true);
   return new AiError("Claude on Google Cloud could not be reached with these Google credentials.", true);
 }

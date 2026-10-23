@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { parseTimeline, referencedAssetIds, type Timeline } from "@reelwalk/core";
+import { keepSavedTextFields, parseTimeline, referencedAssetIds, timelineSchema, type Timeline } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
 import { mediaScope } from "./workspace";
 
@@ -21,9 +21,12 @@ export async function saveReelFor(user: { workspaceId: string }, input: unknown)
   const parsed = saveSchema.safeParse(input);
   if (!parsed.success) return { ok: false, reason: "invalid", message: "Could not read the changes." };
 
+  // Texts keep the saved values of fields the save leaves out (an explicit null clears one); see keepSavedTextFields.
+  const current = await prisma.reel.findFirst({ where: { id: parsed.data.id, workspaceId: user.workspaceId }, select: { timeline: true } });
+  const before = current ? timelineSchema.safeParse(current.timeline) : null;
   let timeline: Timeline;
   try {
-    timeline = parseTimeline(parsed.data.timeline);
+    timeline = parseTimeline(keepSavedTextFields(parsed.data.timeline, before?.success ? before.data : null));
   } catch {
     return { ok: false, reason: "invalid", message: "The edit is not valid and was not saved." };
   }

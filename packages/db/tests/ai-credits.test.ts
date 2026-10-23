@@ -80,6 +80,43 @@ describe.skipIf(!process.env.DATABASE_URL)("AI credits (Postgres)", () => {
     expect((await prisma.aiGeneration.findUniqueOrThrow({ where: { id: job.id } })).status).toBe("SUBMITTING");
   });
 
+  it("two takes submitted back to back compose one at a time: the second waits until the first is past the fence (ADR 0069)", async () => {
+    const input = await studio();
+    await prisma.aiCreditGrant.create({ data: { workspaceId: input.workspaceId, source: `${prefix}-queue-${randomUUID()}`, kind: "TOP_UP", amount: 10, remaining: 10 } });
+    const first = await reserveAiGeneration(prisma, { ...input, requestId: randomUUID() }); charged += 40;
+    const second = await reserveAiGeneration(prisma, { ...input, requestId: randomUUID() }); charged += 40;
+    // Other tests' queued jobs are excluded by moving these two before them, in order.
+    await prisma.aiGeneration.update({ where: { id: first.id }, data: { createdAt: new Date("2000-01-01T00:00:00Z") } });
+    await prisma.aiGeneration.update({ where: { id: second.id }, data: { createdAt: new Date("2000-01-01T00:00:02Z") } });
+    const ours = (claims: Awaited<ReturnType<typeof claimAiGeneration>>[]) => claims.map(c => c?.id).filter(id => id === first.id || id === second.id);
+    // Two workers claim at once: exactly one gets the first take; nobody gets the second.
+    expect(ours(await Promise.all([claimAiGeneration(prisma), claimAiGeneration(prisma)]))).toEqual([first.id]);
+    // While the first composes under its lease, the second waits, however often a worker asks.
+    expect(ours(await Promise.all([claimAiGeneration(prisma), claimAiGeneration(prisma), claimAiGeneration(prisma)]))).toEqual([]);
+    expect((await prisma.aiGeneration.findUniqueOrThrow({ where: { id: second.id } })).status).toBe("QUEUED");
+    // The fence: the first is with Veo, compose is over, so the second starts.
+    await prisma.aiGeneration.update({ where: { id: first.id }, data: { submitStartedAt: new Date() } });
+    expect(ours([await claimAiGeneration(prisma)])).toEqual([second.id]);
+    expect((await prisma.aiGeneration.findUniqueOrThrow({ where: { id: second.id } })).status).toBe("SUBMITTING");
+  });
+
+  it("a take refunded before Veo frees the queue for the next and does not count toward the hour", async () => {
+    const input = await studio();
+    await prisma.aiCreditGrant.create({ data: { workspaceId: input.workspaceId, source: `${prefix}-queue-${randomUUID()}`, kind: "TOP_UP", amount: 10, remaining: 10 } });
+    const first = await reserveAiGeneration(prisma, { ...input, requestId: randomUUID() }); charged += 40;
+    const second = await reserveAiGeneration(prisma, { ...input, requestId: randomUUID() }); charged += 40;
+    await prisma.aiGeneration.update({ where: { id: first.id }, data: { createdAt: new Date("2000-01-02T00:00:00Z") } });
+    await prisma.aiGeneration.update({ where: { id: second.id }, data: { createdAt: new Date("2000-01-02T00:00:02Z") } });
+    const claimed = await claimAiGeneration(prisma);
+    expect(claimed?.id).toBe(first.id);
+    // Compose failed: refunded under the lease, before any submitStartedAt.
+    await failAiGeneration(prisma, first.id, "The start and end stills could not be composed (HTTP 429). Your credit was returned.", true, { failureCode: "compose_failed", onlyIf: { leaseToken: claimed!.leaseToken, submitStartedAt: null } });
+    charged -= 40;
+    expect(await prisma.aiGeneration.findUniqueOrThrow({ where: { id: first.id } })).toMatchObject({ status: "FAILED", failureCode: "compose_failed", submitStartedAt: null });
+    expect((await aiCreditSummary(prisma, input.workspaceId)).remaining).toBe(11);
+    expect((await claimAiGeneration(prisma))?.id).toBe(second.id);
+  });
+
   it("charges an 8-second clip 2 credits across grants and refunds each grant exactly", async () => {
     const input = await studio();
     await reserveAiGeneration(prisma, { ...input, requestId: randomUUID() }); charged += 40;

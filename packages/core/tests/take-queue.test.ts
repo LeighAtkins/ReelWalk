@@ -27,6 +27,24 @@ describe("the take queue (ADR 0069)", () => {
     expect(queueDecision([row("x", "SUBMITTING", 3, { leaseUntil: at(1) }), row("a", "QUEUED", 2)], now).nextId).toBe("a");
   });
 
+  it("two takes submitted seconds apart: the second waits its turn, then for the compose, and starts once the first is past the fence", () => {
+    const first = row("first", "QUEUED", 1), second = row("second", "QUEUED", 0.9);
+    // Both queued: only the older may start.
+    expect(queueDecision([first, second], now)).toEqual({ nextId: "first", blockedBy: null, slotAt: null });
+    expect(queuePosition([first, second], "second", now)).toEqual({ position: 2, waitingFor: "turn", slotAt: null });
+    // The first is claimed and composing under a live lease: the second is next, but held.
+    const composing = { ...first, status: "SUBMITTING", leaseUntil: new Date(now.getTime() + 300_000) };
+    expect(queueDecision([composing, second], now)).toEqual({ nextId: null, blockedBy: "compose", slotAt: null });
+    expect(queuePosition([composing, second], "second", now)).toEqual({ position: 1, waitingFor: "compose", slotAt: null });
+    // Past the fence (Veo is being paid, compose is over): the second starts.
+    const fenced = { ...composing, submitStartedAt: now };
+    expect(queueDecision([fenced, second], now).nextId).toBe("second");
+    // Refunded before Veo (a compose failure): the second starts and the failure never counts toward the hour.
+    const refunded = { ...first, status: "FAILED" };
+    expect(queueDecision([refunded, second], now).nextId).toBe("second");
+    expect(hourlySubmissions([refunded, second], now)).toBe(0);
+  });
+
   it("counts only Veo submissions toward the hour: a failure before Veo never counts", () => {
     const failedBeforeVeo = Array.from({ length: 12 }, (_, i) => row(`f${i}`, "FAILED", 30 + i));
     expect(hourlySubmissions(failedBeforeVeo, now)).toBe(0);

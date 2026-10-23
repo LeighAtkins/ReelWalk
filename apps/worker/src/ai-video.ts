@@ -28,8 +28,8 @@ function voiceOf(shot: AiShot | undefined): { line: string; mode: "lipsync" | "v
 export const AI_SUBMIT_LEASE_MS = 300_000;
 const HEARTBEAT_MS = 30_000;
 export const UNRESOLVED_MESSAGE = "We couldn't confirm whether this take was made. Your credit is held; it won't be charged twice.";
-/** Waits between attempts to save an operation Google returned; tests set them to zero. */
-export const aiVideoTiming = { saveBackoffMs: [1000, 3000, 9000] };
+/** Waits between attempts to save an operation Google returned, and between tries at a composed still; tests set them to zero. */
+export const aiVideoTiming = { saveBackoffMs: [1000, 3000, 9000], composeRetryMs: [3000, 8000] };
 
 export async function processAiVideo(s3: S3Client, bucket: string): Promise<boolean> {
   // Recover an interrupted submission conservatively: never submit it again. One still being prepared
@@ -205,6 +205,47 @@ async function saveOperation(job: Job, operationName: string, identity: { identi
   }
 }
 
+/**
+ * One composed still, tried again after a transient answer. The queue (ADR
+ * 0069) already composes one take at a time per workspace, yet batches still
+ * lost takes at compose (D5 v2, 2026-10-23): a single HTTP 429 or 5xx from the
+ * image model, a timeout, or a reply with no image refunded the take at once,
+ * and the reason was dropped. Now such an answer is retried on
+ * `aiVideoTiming.composeRetryMs` while the claim holds; a refusal (another
+ * 4xx) is final. The reason travels with the refund so the next report says
+ * what happened.
+ */
+async function composeWithRetry(job: Job, make: () => Promise<InlineImage>): Promise<{ ok: true; image: InlineImage } | { ok: false; reason: string; lost?: true }> {
+  let last: unknown;
+  for (let attempt = 0; attempt <= aiVideoTiming.composeRetryMs.length; attempt++) {
+    if (attempt > 0) {
+      await new Promise(resolve => setTimeout(resolve, aiVideoTiming.composeRetryMs[attempt - 1]));
+      // Each try is a slow call: stop as soon as the claim is gone, before any more spend.
+      if (!await renewLease(job)) return { ok: false, reason: "claim lost", lost: true };
+    }
+    try {
+      return { ok: true, image: await make() };
+    } catch (error) {
+      last = error;
+      if (!composeTransient(error)) break;
+      console.warn(`ai-video: ${job.id}: compose try ${attempt + 1} failed: ${errorReason(error)}`);
+    }
+  }
+  return { ok: false, reason: errorReason(last) };
+}
+
+/** A transient answer at compose: a rate limit, a server error, a timeout, a reply without an image. A refusal (other 4xx) is not. */
+export function composeTransient(error: unknown): boolean {
+  if (error instanceof VertexError) return error.status === 408 || error.status === 429 || error.status >= 500;
+  return true;
+}
+
+/** The short reason kept with a refund, never a provider body. */
+function errorReason(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error ?? "unknown error");
+  return message.replace(/\.$/, "").slice(0, 120);
+}
+
 /** Extend a submission's claim while it is still being prepared; false once it is no longer this worker's. */
 async function renewLease(job: Job): Promise<boolean> {
   const renewed = await prisma.aiGeneration.updateMany({ where: { id: job.id, leaseToken: job.leaseToken, status: "SUBMITTING", submitStartedAt: null },
@@ -251,19 +292,21 @@ async function composeAndGate(s3: S3Client, bucket: string, job: Job, frames: Re
     let cropped: PresenterFraming = asked;
     let scene: InlineImage = inline(frame)!;
     for (const attempt of [1, 2] as const) {
-      let composed: InlineImage;
-      try {
-        const closer = attempt === 2 && previous?.reason === "face-too-small";
-        if (closer) framing = escalateFraming(framing);
+      const closer = attempt === 2 && previous?.reason === "face-too-small";
+      if (closer) framing = escalateFraming(framing);
+      const made = await composeWithRetry(job, async () => {
         if (framing !== cropped && frame.source) {
           scene = await recropScene(s3, bucket, frame, framing) ?? scene;
           cropped = framing;
         }
-        composed = await images.compose(end, frame.compose, scene, presenter, face, { framing, stronger: attempt === 2, ...(closer ? { closer: true } : {}) });
-      } catch {
-        await refund(job, "The start and end stills could not be composed. Your credit was returned.", { identityChecks: checks });
+        return images!.compose(end, frame.compose!, scene, presenter, face, { framing, stronger: attempt === 2, ...(closer ? { closer: true } : {}) });
+      });
+      if (!made.ok) {
+        if (made.lost) { console.warn(`ai-video: ${job.id}: claim lost while composing; not sent`); return { ok: false }; }
+        await refund(job, `The start and end stills could not be composed (${made.reason}). Your credit was returned.`, { failureCode: "compose_failed", identityChecks: checks });
         return { ok: false };
       }
+      const composed = made.image;
       let verdict: IdentityVerdict | null = null;
       try { verdict = await images.checkIdentity(composed, reference, { minFacePx: minimum }); } catch { verdict = null; }
       checks.push({ end, attempt, samePerson: verdict?.samePerson ?? null, confidence: verdict?.confidence ?? null, faceHeightPx: verdict?.faceHeightPx ?? null, minFacePx: minimum, framing,

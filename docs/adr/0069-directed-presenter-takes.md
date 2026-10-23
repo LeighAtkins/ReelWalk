@@ -189,3 +189,38 @@ takes. Agents: `applyCommand(timeline, { type: "cutaways", everyMs: 4000 },
   the performance-reference route against a live model; a cutaway rendered
   by the worker (the composition change is read by both paths, unit-tested
   only through the pure planner).
+
+## Follow-up (2026-10-23): three gaps the content agents hit
+
+The D2 and D5 agents building reels over HTTP found three defects while
+verifying this ADR; one small PR (`rw/agent-gaps`) fixed them.
+
+- **`cutaways` was not on the commands route.** `POST /api/reels/:id/commands`
+  kept its own copy of the accepted types, and the copy had fallen behind
+  the core (`cutaways`, `updateClip`, `matchLook`, `autoSfx`, `setSfx`,
+  `dropOnCut` were missing), so D5 v2 hand-built the J-cut through a save.
+  The core now exports `COMMAND_TYPES`, typed as a record over
+  `Command["type"]` so a new command that is not listed does not compile,
+  and the route reads that list (`apps/web/lib/command-types.ts`). A web
+  test reads the `Command` union from the core's source and fails if the
+  route would refuse any member.
+- **A save dropped a text's colour unless resent.** `/api/reels/:id/save`
+  parses the whole timeline, and the schema filled every omitted text field
+  with its default, so a boxed dark title saved without `color` came back
+  white (D5 v2, export 1). `keepSavedTextFields` (core) now merges each
+  incoming text over the saved text with the same id before the schema
+  runs: an omitted field keeps its saved value, an explicit `null` clears
+  it to the default, a new text is left as sent. The editor sends full
+  texts, so nothing changes for it.
+- **Takes still failed at compose in a batch.** The queue above was found
+  to be enforced on the deployed path (D5 v2 saw positions 1–4 with
+  `waitingFor: "turn"`, one compose at a time), and a Postgres test now
+  proves two back-to-back reservations are claimed one at a time, the
+  second only once the first is past the fence or refunded. The remaining
+  failures were not a race: the compose call had no retry, so one HTTP 429
+  or 5xx from the image model, a timeout, or a reply with no image refunded
+  the take at once, and the reason was swallowed. The worker now retries a
+  transient compose answer on `aiVideoTiming.composeRetryMs` (3 s, 8 s)
+  while the claim holds, treats another 4xx as final, and records
+  `failureCode: "compose_failed"` with the reason in the message. A failure
+  before Veo is still refunded under the lease.

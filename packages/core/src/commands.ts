@@ -133,6 +133,22 @@ export type Command =
 /** Commands a batch may hold: no proposals (they carry their own generation check) and no nested batches. */
 export type BatchableCommand = Exclude<Command, { type: "applyProposal" } | { type: "batch" }>;
 
+/**
+ * Every command type, as one record over `Command["type"]`: a member added to
+ * `Command` and not listed here does not compile. The HTTP commands route
+ * (ADR 0068) accepts exactly this list, so a new document command is reachable
+ * by the agents that build reels over HTTP the moment it exists, instead of
+ * being left off a hand-kept copy (as `cutaways` was, ADR 0069).
+ */
+const COMMAND_TYPE_REGISTRY: Record<Command["type"], true> = {
+  trimClip: true, moveClip: true, splitClip: true, deleteClip: true, duplicateClip: true, setSpeed: true, setMusic: true, snapToBeat: true, pace: true, setOnBeat: true,
+  retime: true, retimeToLength: true, insertPresenterTakes: true, cutaways: true, applyFinish: true, hook: true, applyProposal: true,
+  setRamp: true, setCamera: true, matchCuts: true, setTransition: true, updateText: true, updateClip: true, matchLook: true, addText: true,
+  autoSfx: true, setSfx: true, dropOnCut: true, batch: true,
+};
+/** The type of every command, in registry order. */
+export const COMMAND_TYPES = Object.keys(COMMAND_TYPE_REGISTRY) as Command["type"][];
+
 export type CommandContext = {
   /** The generation of the timeline the command is applied to. */
   generation: number;

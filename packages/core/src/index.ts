@@ -12,6 +12,7 @@ export * from "./presenter";
 export * from "./direction";
 export * from "./take-trim";
 export * from "./take-queue";
+export * from "./save-merge";
 export * from "./cutaways";
 export * from "./cinematic";
 export * from "./camera";

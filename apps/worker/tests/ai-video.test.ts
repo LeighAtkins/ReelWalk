@@ -20,6 +20,7 @@ vi.mock("../src/vertex-video", async (importOriginal) => {
 import { aiVideoTiming, processAiVideo, UNRESOLVED_MESSAGE } from "../src/ai-video";
 import { VertexError } from "../src/vertex-video";
 aiVideoTiming.saveBackoffMs = [0, 0, 0];
+aiVideoTiming.composeRetryMs = [0, 0];
 
 const a = clipSchema.parse({ id: "a", assetId: "real-a", kind: "VIDEO", sourceStartMs: 1000, sourceEndMs: 5000 });
 const b = clipSchema.parse({ id: "b", assetId: "real-b", kind: "VIDEO", sourceStartMs: 0, sourceEndMs: 4000 });
@@ -215,11 +216,46 @@ describe("AI shot worker", () => {
     expect(submit).toHaveBeenCalledWith("veo", 8, "Move", { bytesBase64Encoded: "composed", mimeType: "image/jpeg" }, { bytesBase64Encoded: "last", mimeType: "image/jpeg" }, false);
     expect((s3.send as ReturnType<typeof vi.fn>).mock.calls.map(([command]) => command.input?.Key)).toContain("workspaces/studio/ai/one-first.jpg");
   });
-  it("refunds when a still cannot be composed, before anything is paid", async () => {
-    claim.mockResolvedValue(job); frames.mockResolvedValueOnce(composed); compose.mockRejectedValueOnce(new Error("no image"));
+  it("refunds when a still cannot be composed, before anything is paid, and says why", async () => {
+    claim.mockResolvedValue(job); frames.mockResolvedValueOnce(composed); compose.mockRejectedValue(new Error("Google did not return a composed frame."));
     await processAiVideo(s3, "media");
     expect(submit).not.toHaveBeenCalled();
-    expect(fail).toHaveBeenCalledWith(db, "one", expect.stringContaining("composed"), true, expect.anything());
+    // A reply with no image is transient: every try on the schedule is used before the refund.
+    expect(compose).toHaveBeenCalledTimes(1 + aiVideoTiming.composeRetryMs.length);
+    expect(fail).toHaveBeenCalledWith(db, "one", "The start and end stills could not be composed (Google did not return a composed frame). Your credit was returned.", true,
+      expect.objectContaining({ failureCode: "compose_failed", onlyIf: { leaseToken: "mine", submitStartedAt: null } }));
+    compose.mockReset();
+  });
+  // D5 v2 (2026-10-23): the queue composed one take at a time, yet two of five still failed at compose. One transient answer was a refund.
+  it("a rate-limited compose (HTTP 429) is tried again under the lease and the take goes on to Veo", async () => {
+    claim.mockResolvedValue(job); frames.mockResolvedValueOnce(composed);
+    compose.mockRejectedValueOnce(new VertexError("Google image service returned HTTP 429.", 429, "RESOURCE_EXHAUSTED")).mockResolvedValue({ bytesBase64Encoded: "composed", mimeType: "image/jpeg" });
+    await processAiVideo(s3, "media");
+    expect(compose).toHaveBeenCalledTimes(2); // the first try and the retry; the last end of this fixture is not composed
+    expect(fail).not.toHaveBeenCalled();
+    expect(submit).toHaveBeenCalledTimes(1);
+    // The claim was renewed before the second try.
+    expect(db.aiGeneration.updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "one", leaseToken: "mine", status: "SUBMITTING", submitStartedAt: null }, data: { leaseUntil: expect.any(Date) } }));
+    compose.mockReset();
+  });
+  it("a refusal at compose (HTTP 400) is final: one try, refunded with the status", async () => {
+    claim.mockResolvedValue(job); frames.mockResolvedValueOnce(composed);
+    compose.mockRejectedValueOnce(new VertexError("Google image service returned HTTP 400.", 400, "INVALID_ARGUMENT")).mockResolvedValue({ bytesBase64Encoded: "composed", mimeType: "image/jpeg" });
+    await processAiVideo(s3, "media");
+    expect(compose).toHaveBeenCalledTimes(1);
+    expect(submit).not.toHaveBeenCalled();
+    expect(fail).toHaveBeenCalledWith(db, "one", expect.stringContaining("(Google image service returned HTTP 400)"), true, expect.objectContaining({ failureCode: "compose_failed" }));
+    compose.mockReset();
+  });
+  it("a claim lost between compose tries stops them without a refund", async () => {
+    claim.mockResolvedValue(job); frames.mockResolvedValueOnce(composed);
+    compose.mockRejectedValue(new VertexError("Google image service returned HTTP 503.", 503));
+    db.aiGeneration.updateMany.mockResolvedValue({ count: 0 }); // the renewal finds the row gone
+    await processAiVideo(s3, "media");
+    expect(compose).toHaveBeenCalledTimes(1);
+    expect(submit).not.toHaveBeenCalled();
+    expect(fail).not.toHaveBeenCalled();
+    compose.mockReset();
   });
   // ADR 0056: the kit's full-length still and face crop, and the identity gate before Veo is paid.
   const kit = [{ bytesBase64Encoded: "scene", mimeType: "image/png", role: "first", compose: "Beside the island bench, waist above it.", framing: "medium" }, { bytesBase64Encoded: "body", mimeType: "image/png", role: "presenter" }, { bytesBase64Encoded: "face", mimeType: "image/png", role: "face" }];

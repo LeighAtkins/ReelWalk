@@ -7,9 +7,12 @@
     "build": "next build",
     "start": "next start --hostname 0.0.0.0 --port 3000",
     "typecheck": "next typegen && tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "ai:compare": "tsx scripts/compare-ai-providers.mts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^1",
+    "@anthropic-ai/vertex-sdk": "^1.0.0",
     "@aws-sdk/client-ecs": "^3.1148.0",
     "@aws-sdk/client-s3": "^3.1148.0",
     "@aws-sdk/client-sesv2": "^3.1146.0",
@@ -23,6 +26,7 @@
     "@reelwalk/db": "workspace:*",
     "@reelwalk/render": "workspace:*",
     "@remotion/player": "4.0.534",
+    "google-auth-library": "^11.3.1",
     "mediabunny": "1.61.4",
     "next": "^16.4.2",
     "react": "^19.3.0",
@@ -36,6 +40,7 @@
     "@types/node": "^26.6.4",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "tsx": "^4.23.15",
     "typescript": "^6.0.3",
     "vitest": "^5.0.3"
   }

@@ -149,13 +149,21 @@ variable "pixabay_api_key" {
 }
 
 # Direct Anthropic API for editing chat; keep the key in encrypted SSM.
+# "vertex" bills the same Claude models through Google Cloud instead (ADR 0072):
+# no key, the web app's Google workload identity federation is used.
 variable "ai_provider" {
   type    = string
   default = "anthropic"
   validation {
-    condition     = contains(["anthropic", "openai"], var.ai_provider)
-    error_message = "AI provider must be anthropic or openai."
+    condition     = contains(["anthropic", "openai", "vertex"], var.ai_provider)
+    error_message = "AI provider must be anthropic, openai or vertex."
   }
+}
+
+# Where Claude on Vertex is called: "global" (Google's list price) or a region such as us-east5 (listed 10% higher).
+variable "vertex_claude_region" {
+  type    = string
+  default = "global"
 }
 
 variable "anthropic_api_key" {

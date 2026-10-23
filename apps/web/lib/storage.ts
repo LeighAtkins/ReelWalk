@@ -34,6 +34,11 @@ function makeClient(endpoint: string | undefined): S3Client {
 const s3 = makeClient(process.env.S3_ENDPOINT_URL);
 const presignClient = makeClient(process.env.S3_PUBLIC_ENDPOINT_URL || process.env.S3_ENDPOINT_URL);
 
+/** The app's own refreshing AWS credentials (the instance role in production), for exchanging into a Google token (ADR 0072). */
+export function awsCredentials(): () => Promise<{ accessKeyId: string; secretAccessKey: string; sessionToken?: string }> {
+  return () => s3.config.credentials();
+}
+
 export async function presignUpload(objectKey: string, contentType: string): Promise<string> {
   return getSignedUrl(presignClient, new PutObjectCommand({ Bucket: bucket, Key: objectKey, ContentType: contentType }), {
     expiresIn: 600,

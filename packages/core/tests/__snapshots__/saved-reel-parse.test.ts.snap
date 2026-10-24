@@ -1,0 +1,176 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`saved reels parse unchanged across zod versions > fills the defaults of a reel saved before the later fields existed 1`] = `
+{
+  "clips": [
+    {
+      "assetId": "a1",
+      "filter": "none",
+      "fit": "cover",
+      "id": "c1",
+      "kind": "VIDEO",
+      "motion": "none",
+      "pano": null,
+      "room": null,
+      "sourceEndMs": 4000,
+      "sourceStartMs": 0,
+      "speed": 1,
+      "spot": null,
+      "transitionIn": "cut",
+      "volume": 1,
+      "zoom": 1,
+    },
+    {
+      "assetId": "a2",
+      "filter": "none",
+      "fit": "cover",
+      "id": "c2",
+      "kind": "IMAGE",
+      "motion": "zoom-in",
+      "pano": null,
+      "room": "living room",
+      "sourceEndMs": 3000,
+      "sourceStartMs": 0,
+      "speed": 1,
+      "spot": null,
+      "transitionIn": "cut",
+      "volume": 1,
+      "zoom": 1,
+    },
+  ],
+  "cover": null,
+  "details": null,
+  "hook": null,
+  "logo": null,
+  "music": null,
+  "plan": null,
+  "texts": [
+    {
+      "animation": "auto",
+      "color": "#ffffff",
+      "endMs": 3000,
+      "id": "t1",
+      "size": 1,
+      "startMs": 0,
+      "style": "headline",
+      "text": "Just listed",
+      "x": 0.5,
+      "y": 0.4,
+    },
+  ],
+  "version": 1,
+}
+`;
+
+exports[`saved reels parse unchanged across zod versions > keeps a mid-life reel's fields and drops keys the schema never had 1`] = `
+{
+  "clips": [
+    {
+      "assetId": "a1",
+      "filter": "none",
+      "fit": "contain",
+      "id": "c1",
+      "kind": "VIDEO",
+      "motion": "none",
+      "pano": null,
+      "room": "kitchen",
+      "sourceEndMs": 6500,
+      "sourceStartMs": 500,
+      "speed": 1.5,
+      "spot": null,
+      "transitionIn": "cut",
+      "volume": 0.4,
+      "zoom": 1,
+    },
+    {
+      "assetId": "a3",
+      "filter": "none",
+      "fit": "cover",
+      "id": "c2",
+      "kind": "IMAGE",
+      "motion": "none",
+      "pano": null,
+      "room": null,
+      "sourceEndMs": 2500,
+      "sourceStartMs": 0,
+      "speed": 1,
+      "spot": {
+        "heading": 90,
+        "x": 0.5,
+        "y": 0.25,
+      },
+      "transitionIn": "cut",
+      "volume": 1,
+      "zoom": 1.4,
+    },
+  ],
+  "cover": null,
+  "details": {
+    "address": "",
+    "area": "",
+    "baths": "1",
+    "beds": "2",
+    "contact": "",
+    "placement": "end",
+    "price": "£450,000",
+  },
+  "hook": null,
+  "logo": null,
+  "music": {
+    "assetId": "s1",
+    "beatOffsetMs": 120,
+    "bpm": 96,
+    "sourceStartMs": 0,
+    "volume": 0.8,
+  },
+  "plan": null,
+  "texts": [
+    {
+      "animation": "auto",
+      "color": "#ffffff",
+      "endMs": 2200,
+      "id": "t1",
+      "size": 1,
+      "startMs": 200,
+      "style": "headline",
+      "text": "Corner flat",
+      "x": 0.5,
+      "y": 0.4,
+    },
+  ],
+  "version": 1,
+}
+`;
+
+exports[`saved reels parse unchanged across zod versions > refuses the same reels, at the same paths, with the same codes 1`] = `
+{
+  "missingClips": [
+    {
+      "code": "invalid_type",
+      "message": "Invalid input: expected array, received undefined",
+      "path": "clips",
+    },
+  ],
+  "speedOutOfRange": [
+    {
+      "code": "too_big",
+      "message": "Too big: expected number to be <=4",
+      "path": "clips.0.speed",
+    },
+  ],
+  "wrongVersion": [
+    {
+      "code": "invalid_value",
+      "message": "Invalid input: expected 1",
+      "path": "version",
+    },
+  ],
+  "zeroLengthClip": [
+    {
+      "code": "custom",
+      "message": "Clip must have a positive length",
+      "path": "clips.0",
+    },
+  ],
+}
+`;

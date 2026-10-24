@@ -8,13 +8,13 @@
  * file (the body slows slightly to make up the source, "compensated") and its
  * incoming shot has a lead-in to read ("preroll").
  */
-import { framePlan, parseTimeline, planSpeedRamps, SPEED_RAMP_PRESETS, type Timeline } from "@reelwalk/core";
+import { framePlan, parseTimeline, planSpeedRamps, SPEED_RAMP_PRESETS, type RampFootage, type SpeedRampParams, type Timeline } from "@reelwalk/core";
 
 export const FPS = 30;
 /** The test files' lengths (ms): the middle shot's file is exactly the 2.5 s the shot uses, so it has nothing before or after it. */
 export const ASSET_DURATIONS: Record<string, number> = { a: 14_000, b: 2_500, c: 14_000 };
 
-export function speedRampTimeline(ramps = true): Timeline {
+export function speedRampTimeline(ramps = true, direction: SpeedRampParams["direction"] = "right"): Timeline {
   const clip = (id: string, assetId: string, from: number, to: number, extra: Record<string, unknown> = {}) =>
     ({ id, assetId, kind: "VIDEO" as const, sourceStartMs: from, sourceEndMs: to, volume: 0, transitionIn: "cut" as const, ...extra });
   return parseTimeline({
@@ -22,9 +22,9 @@ export function speedRampTimeline(ramps = true): Timeline {
     clips: [
       clip("c1", "a", 3000, 5500),
       // The whole of its file: nothing before the in-point (it starts at the peak) and nothing after the out-point (the next cut makes up the source by slowing the body slightly).
-      clip("c2", "b", 0, 2500, ramps ? { transitionIn: "speedRamp", speedRamp: { ...SPEED_RAMP_PRESETS.punch, direction: "right" } } : {}),
+      clip("c2", "b", 0, 2500, ramps ? { transitionIn: "speedRamp", speedRamp: { ...SPEED_RAMP_PRESETS.punch, direction } } : {}),
       // Plenty of lead-in before it: the head reads its pre-roll.
-      clip("c3", "c", 9000, 11500, ramps ? { transitionIn: "speedRamp", speedRamp: { ...SPEED_RAMP_PRESETS.soft, direction: "right" } } : {}),
+      clip("c3", "c", 9000, 11500, ramps ? { transitionIn: "speedRamp", speedRamp: { ...SPEED_RAMP_PRESETS.soft, direction } } : {}),
     ],
     texts: [{ id: "t1", text: "SPEED RAMP", startMs: 0, endMs: 7500, x: 0.5, y: 0.5, style: "headline", size: 1.2, animation: "none" }],
     music: null,
@@ -41,4 +41,35 @@ export function stripFrames(timeline: Timeline, cutIndex: number, before = 10, a
   const plan = framePlan(timeline, FPS);
   const cut = plan.clips[cutIndex].from + plan.clips[cutIndex].durationInFrames;
   return Array.from({ length: before + after }, (_, i) => cut - before + i);
+}
+
+// ── The zoom-versus-axis fixture (ADR 0074) ─────────────────────
+
+/** A forward-dolly shot into a sweeping pan: the two files' lengths (ms), each used whole. */
+export const ZOOM_ASSET_DURATIONS: Record<string, number> = { a: 1700, b: 1000 };
+
+/**
+ * One Punch speed-ramp cut between a shot that pushes in (a) and a shot that
+ * pans (b). `direction: "auto"` with no footage reading is what the planner
+ * did before ADR 0074 (a horizontal blur: the reading was "still"); with the
+ * footage read (`rampFootage`) the outgoing side streaks from the vanishing
+ * point and the incoming side along its pan.
+ */
+export function zoomCutTimeline(footage?: RampFootage, direction: SpeedRampParams["direction"] = "auto"): Timeline {
+  const clip = (id: string, assetId: string, to: number, extra: Record<string, unknown> = {}) =>
+    ({ id, assetId, kind: "VIDEO" as const, sourceStartMs: 0, sourceEndMs: to, volume: 0, transitionIn: "cut" as const, ...extra });
+  return parseTimeline({
+    version: 1,
+    clips: [
+      clip("c1", "a", ZOOM_ASSET_DURATIONS.a),
+      clip("c2", "b", ZOOM_ASSET_DURATIONS.b, { transitionIn: "speedRamp", speedRamp: { ...SPEED_RAMP_PRESETS.punch, direction }, ...(footage ? { rampFootage: footage } : {}) }),
+    ],
+    texts: [],
+    music: null,
+  });
+}
+
+/** The plan the composition makes for the zoom fixture. */
+export function zoomCutPlan(timeline: Timeline) {
+  return planSpeedRamps(framePlan(timeline, FPS).clips.map(({ clip, durationInFrames }) => ({ clip, durationInFrames, sourceDurationMs: ZOOM_ASSET_DURATIONS[clip.assetId] })), FPS);
 }

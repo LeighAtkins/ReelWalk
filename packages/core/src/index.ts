@@ -60,6 +60,7 @@ export * from "./ai-director";
 export * from "./transcript";
 export * from "./guards";
 export * from "./motion";
+export * from "./motion-kind";
 export * from "./track";
 export * from "./surface";
 export * from "./view";

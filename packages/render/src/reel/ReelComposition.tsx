@@ -19,6 +19,7 @@ import { behindInPlane, calloutGeometry, calloutSvg, cameraAt, colorMatchFilterI
 import { domMeasure } from "./measure";
 import { textExit, titleFont } from "./title-motion";
 import { whipGeometry } from "./whip";
+import { zoomFilterSpec, zoomStageId } from "./zoom-blur";
 import { clipPresentation } from "./presentation";
 import { useFontsFor } from "./fonts";
 import { clipFilterCss, ELEGANT_FADE_S, textTreatmentCss } from "./look";
@@ -41,14 +42,40 @@ const WhipBlur: React.FC<{ id: string; amount: number; direction: Clip["whipDire
   </svg>;
 };
 
-/** The speed-ramp transition's directional blur (ADR 0073): an anisotropic Gaussian, σ along x and y in px, edges duplicated so the frame's border does not go clear. */
-const SpeedBlur: React.FC<{ id: string; x: number; y: number }> = ({ id, x, y }) => (
-  <svg width="0" height="0" style={{ position: "absolute" }} aria-hidden="true">
-    <filter id={id} x="-20%" y="-20%" width="140%" height="140%">
-      <feGaussianBlur stdDeviation={`${x.toFixed(2)} ${y.toFixed(2)}`} edgeMode="duplicate" />
-    </filter>
-  </svg>
-);
+/**
+ * The speed-ramp transition's blur: a directional Gaussian (ADR 0073), σ along x and y in px, edges duplicated so the
+ * frame's border does not go clear; or a zoom blur (ADR 0074), a stack of copies scaled about the focus (zoom-blur.ts).
+ */
+const SpeedBlur: React.FC<{ id: string; x: number; y: number; zoom: number; fx: number; fy: number }> = ({ id, x, y, zoom, fx, fy }) => {
+  if (zoom > 0) return <ZoomBlur id={id} spread={zoom} fx={fx} fy={fy} />;
+  return (
+    <svg width="0" height="0" style={{ position: "absolute" }} aria-hidden="true">
+      <filter id={id} x="-20%" y="-20%" width="140%" height="140%">
+        <feGaussianBlur stdDeviation={`${x.toFixed(2)} ${y.toFixed(2)}`} edgeMode="duplicate" />
+      </filter>
+    </svg>
+  );
+};
+
+/**
+ * Zoom blur (ADR 0074) as one SVG filter per stage (zoom-blur.ts): the `feImage` ramp is the displacement map, the stage
+ * displaces its input (the layer so far) and averages it with the original. The CSS `filter` chains the stages. sRGB so
+ * the map is read as written, not as linear light.
+ */
+const ZoomBlur: React.FC<{ id: string; spread: number; fx: number; fy: number }> = ({ id, spread, fx, fy }) => {
+  const spec = zoomFilterSpec(spread, fx, fy);
+  return (
+    <svg width="0" height="0" style={{ position: "absolute" }} aria-hidden="true">
+      {spec.stages.map((stage, s) => (
+        <filter key={s} id={zoomStageId(id, s)} x="0" y="0" width="100%" height="100%" colorInterpolationFilters="sRGB">
+          <feImage href={spec.map} x="0" y="0" width={spec.width} height={spec.height} preserveAspectRatio="none" result="zmap" />
+          <feDisplacementMap in="SourceGraphic" in2="zmap" scale={stage.scale.toFixed(2)} xChannelSelector="R" yChannelSelector="G" result="zc" />
+          <feComposite in="SourceGraphic" in2="zc" operator="arithmetic" k1="0" k2={stage.keep.toFixed(4)} k3={stage.add.toFixed(4)} k4="0" />
+        </filter>
+      ))}
+    </svg>
+  );
+};
 
 /**
  * The clip's colour match (ADR 0070) as an SVG filter the CSS `filter: url(#…)`

@@ -11,6 +11,7 @@
  */
 import { z } from "zod";
 import { motionProfile, type Gray, type MotionSample } from "./motion";
+import { motionReadSchema, sideReadOf, type MotionRead, type RampFootage } from "./motion-kind";
 import { clipEnergyFromMotion } from "./pacing";
 import type { Clip, Timeline } from "./timeline";
 
@@ -29,6 +30,13 @@ export const clipMotionSchema = z.object({
   subject: z.object({ x: z.number().min(0).max(1), y: z.number().min(0).max(1) }).nullable(),
   /** How much the shot moves, 0..1 (`clipEnergyFromMotion`). */
   energy: z.number().min(0).max(1),
+  /**
+   * What the camera is doing over the clip's first and last half second (ADR 0074): pan, tilt, push in, pull out,
+   * roll or nothing, found by fitting a flow to the whole frame, so slow footage and forward moves read as what they
+   * are. Optional: a motion measured the older way has only `start` and `end`.
+   */
+  startRead: motionReadSchema.optional(),
+  endRead: motionReadSchema.optional(),
 });
 export type ClipMotion = z.infer<typeof clipMotionSchema>;
 
@@ -86,13 +94,26 @@ export function summariseMotion(frames: readonly { t: number; gray: Gray }[]): C
   };
 }
 
+/**
+ * A clip's motion with the camera readings of its first and last half second attached (ADR 0074). The older `start` and
+ * `end` vectors are replaced by the readings' pans (px/s at 48 px wide), so whip directions and match scores see a slow
+ * pan the whole-pixel block matching missed; a reading that is not a pan leaves them at zero.
+ */
+export function withReads(motion: ClipMotion, head: MotionRead | null, tail: MotionRead | null): ClipMotion {
+  const pan = (read: MotionRead): MotionVector => (read.kind === "pan-x" || read.kind === "pan-y" ? { dx: round2(read.tx * ANALYSIS_PX), dy: round2(read.ty * ANALYSIS_PX) } : { dx: 0, dy: 0 });
+  return { ...motion, ...(head ? { start: pan(head), startRead: head } : {}), ...(tail ? { end: pan(tail), endRead: tail } : {}) };
+}
+
 export function motionSpeed(v: MotionVector): number {
   return Math.hypot(v.dx, v.dy);
 }
 
-/** The direction content travels, or null when the camera is as good as still. */
-export function motionDirection(v: MotionVector): WhipDirection | null {
-  if (motionSpeed(v) < STILL_PX_PER_S) return null;
+/** The analysis width, px: a reading's frame widths a second are this many px a second in the older vectors. */
+export const ANALYSIS_PX = 48;
+
+/** The direction content travels, or null when the camera is as good as still (`still`: px/s at 48 px wide, 0 for a vector from a reading that has already decided). */
+export function motionDirection(v: MotionVector, still: number = STILL_PX_PER_S): WhipDirection | null {
+  if (motionSpeed(v) < still || motionSpeed(v) === 0) return null;
   if (Math.abs(v.dx) >= Math.abs(v.dy)) return v.dx > 0 ? "right" : "left";
   return v.dy > 0 ? "down" : "up";
 }
@@ -103,7 +124,9 @@ export function motionDirection(v: MotionVector): WhipDirection | null {
  * camera panning right. Null when the shot does not move enough to whip from.
  */
 export function whipDirectionFor(outgoing: ClipMotion): WhipDirection | null {
-  const content = motionDirection(outgoing.end);
+  // A reading says whether the shot pans at all, however slowly; a push or a roll has no pan to whip along.
+  if (outgoing.endRead && outgoing.endRead.kind !== "pan-x" && outgoing.endRead.kind !== "pan-y") return null;
+  const content = outgoing.endRead ? motionDirection({ dx: outgoing.endRead.tx * ANALYSIS_PX, dy: outgoing.endRead.ty * ANALYSIS_PX }, 0) : motionDirection(outgoing.end);
   if (!content) return null;
   return ({ left: "right", right: "left", up: "down", down: "up" } as const)[content];
 }
@@ -115,14 +138,28 @@ export function whipDirectionFor(outgoing: ClipMotion): WhipDirection | null {
  * place. 0 is "nothing speaks for or against it".
  */
 export function matchCutScore(a: ClipMotion, b: ClipMotion): number {
-  const sa = motionSpeed(a.end), sb = motionSpeed(b.start);
   let direction = 0;
-  if (sa >= STILL_PX_PER_S && sb >= STILL_PX_PER_S) {
-    const cosine = (a.end.dx * b.start.dx + a.end.dy * b.start.dy) / (sa * sb);
-    direction = cosine * Math.min(1, Math.min(sa, sb) / FULL_PX_PER_S);
-  } else if (sa >= STILL_PX_PER_S || sb >= STILL_PX_PER_S) {
-    // One side moves, the other is still: the motion stops dead at the cut, the more so the faster it was.
-    direction = -0.25 * Math.min(1, Math.max(sa, sb) / FULL_PX_PER_S);
+  const ra = a.endRead, rb = b.startRead;
+  const zooms = (read: MotionRead | undefined) => read?.kind === "zoom-in" || read?.kind === "zoom-out";
+  if (ra && rb && (zooms(ra) || zooms(rb))) {
+    // A push carries into a push, and a push into a pull stops dead; a push against a pan says nothing, against a held shot a little against.
+    if (zooms(ra) && zooms(rb)) direction = (Math.sign(ra.zoom) === Math.sign(rb.zoom) ? 1 : -1) * Math.min(1, Math.min(ra.speed, rb.speed) / 0.15);
+    else if (ra.kind === "still" || rb.kind === "still") direction = -0.25 * Math.min(1, Math.max(ra.speed, rb.speed) / 0.15);
+  } else {
+    // With a reading on both sides, a pan counts however slow (a tenth of a frame width a second counts fully); the older vectors keep their thresholds.
+    const read = Boolean(ra && rb);
+    const still = read ? 0 : STILL_PX_PER_S, full = read ? 0.1 * ANALYSIS_PX : FULL_PX_PER_S;
+    const pan = (r: MotionRead): MotionVector => (r.kind === "pan-x" || r.kind === "pan-y" ? { dx: r.tx * ANALYSIS_PX, dy: r.ty * ANALYSIS_PX } : { dx: 0, dy: 0 });
+    const va = read ? pan(ra!) : a.end, vb = read ? pan(rb!) : b.start;
+    const sa = motionSpeed(va), sb = motionSpeed(vb);
+    const moves = (speed: number) => speed > 0 && speed >= still;
+    if (moves(sa) && moves(sb)) {
+      const cosine = (va.dx * vb.dx + va.dy * vb.dy) / (sa * sb);
+      direction = cosine * Math.min(1, Math.min(sa, sb) / full);
+    } else if (moves(sa) || moves(sb)) {
+      // One side moves, the other is still: the motion stops dead at the cut, the more so the faster it was.
+      direction = -0.25 * Math.min(1, Math.max(sa, sb) / full);
+    }
   }
   let subject = 0;
   if (a.subject && b.subject) subject = Math.max(0, 1 - Math.hypot(a.subject.x - b.subject.x, a.subject.y - b.subject.y) / 0.5) * 2 - 1;
@@ -132,6 +169,8 @@ export function matchCutScore(a: ClipMotion, b: ClipMotion): number {
 
 export type MatchCut = { fromId: string; toId: string; score: number; whip: WhipDirection | null };
 export type MatchCutSuggestions = {
+  /** For each speed-ramp cut with a reading on either side, what each side was doing (ADR 0074). */
+  footage: { clipId: string; footage: RampFootage }[];
   /** Pairs that cut well, best first, measured clips only. */
   pairs: MatchCut[];
   /** The clips reordered so each cut carries motion when one can: a greedy chain from the current opening shot. */
@@ -193,7 +232,14 @@ export function suggestMatchCuts(timeline: Timeline, motion: Record<string, Clip
     const direction = outgoing ? whipDirectionFor(outgoing) : null;
     if (direction && direction !== clip.whipDirection) whips.push({ clipId: clip.id, direction });
   });
-  return { pairs, order, whips };
+  const footage: MatchCutSuggestions["footage"] = [];
+  clips.forEach((clip, index) => {
+    if (index === 0 || clip.transitionIn !== "speedRamp") return;
+    const outgoing = motion[clips[index - 1].id]?.endRead, incoming = motion[clip.id]?.startRead;
+    if (!outgoing && !incoming) return;
+    footage.push({ clipId: clip.id, footage: { after: clips[index - 1].id, ...(outgoing ? { out: sideReadOf(outgoing) } : {}), ...(incoming ? { in: sideReadOf(incoming) } : {}) } });
+  });
+  return { pairs, order, whips, footage };
 }
 
 /** For the Add media flow: after which shots in the reel a candidate (by its motion) cuts well, best first. */

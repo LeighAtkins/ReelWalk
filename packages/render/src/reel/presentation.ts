@@ -2,6 +2,7 @@ import type React from "react";
 import { interpolate } from "remotion";
 import { clipCameraAt, speedPlanOf, type Clip } from "@reelwalk/core";
 import { whipGeometry } from "./whip";
+import { roundFocus, zoomBlurStageCount, zoomStageId } from "./zoom-blur";
 
 /** Frames of the dip-to-black on each side of a "fade" transition. */
 export const FADE_FRAMES = 8;
@@ -32,12 +33,24 @@ export type ClipPresentation = {
   whipAmount: number;
   whipId: string;
   whipDirection: Clip["whipDirection"] | undefined;
-  /** The speed-ramp transition's directional blur (ADR 0073): σ in px along each axis, with the filter's id; null when not blurring. Its style is in `whip` when no whip is drawn. */
-  speedBlur: { id: string; x: number; y: number } | null;
+  /**
+   * The speed-ramp transition's blur (ADR 0073): σ in px along each axis, or (ADR 0074) a zoom blur's spread (how much
+   * larger its outermost copy is) streaking from the focus (frame fractions); with the filter's id. Null when not
+   * blurring. Its style is in `whip` when no whip is drawn.
+   */
+  speedBlur: { id: string; x: number; y: number; zoom: number; fx: number; fy: number } | null;
 };
+
+/** The CSS filter of a speed-ramp blur: one reference for the Gaussian, one per stage for the zoom blur (chained, so each stage reads the one before as a finished layer). */
+export function speedBlurFilter(blur: { id: string; zoom: number }): string {
+  if (blur.zoom <= 0) return `url(#${blur.id})`;
+  return Array.from({ length: zoomBlurStageCount(blur.zoom) }, (_, s) => `url(#${zoomStageId(blur.id, s)})`).join(" ");
+}
 
 /** Blur σ under this (px at 1080 wide) is not drawn. */
 const BLUR_MIN_PX = 0.4;
+/** A zoom blur's spread under this (a 0.4 % larger outer copy: about two px at the edge) is not drawn. */
+const ZOOM_MIN = 0.004;
 
 /**
  * How a clip is shown at `frame`: its fade, its motion and its whip. One
@@ -53,7 +66,13 @@ export function clipPresentation(clip: Clip, frame: number, fps: number, duratio
   const plan = speedPlanOf(clip);
   const planned = plan ? Math.min(plan.frames - 1, Math.max(0, Math.round(frame))) : 0;
   const push = plan ? plan.push[planned] : 0;
-  const transform = push > 0 ? `scale(${1 + push})${motion ? ` ${motion}` : ""}` : motion;
+  const zoomSpread = plan?.zoom?.[planned] ?? 0;
+  const focusX = roundFocus(plan?.focusX?.[planned] ?? 0.5), focusY = roundFocus(plan?.focusY?.[planned] ?? 0.5);
+  // The push grows about the zoom blur's focus when it has one (a forward move expands from its vanishing point),
+  // so the blur's streaks and the push's growth radiate from the same place and reinforce each other.
+  const about = zoomSpread >= ZOOM_MIN && (focusX !== 0.5 || focusY !== 0.5) ? { x: Math.round((focusX - 0.5) * 10000) / 100, y: Math.round((focusY - 0.5) * 10000) / 100 } : null;
+  const pushed = about ? `translate(${about.x}%, ${about.y}%) scale(${1 + push}) translate(${-about.x}%, ${-about.y}%)` : `scale(${1 + push})`;
+  const transform = push > 0 ? `${pushed}${motion ? ` ${motion}` : ""}` : motion;
   const fadeIn = clip.transitionIn === "fade" ? interpolate(frame, [0, FADE_FRAMES], [0, 1], { extrapolateRight: "clamp" }) : 1;
   const fadeOutValue = fadeOut
     ? interpolate(frame, [durationInFrames - FADE_FRAMES, durationInFrames - 1], [1, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" })
@@ -65,9 +84,9 @@ export function clipPresentation(clip: Clip, frame: number, fps: number, duratio
   const whipId = `whip-${clip.id}`;
   const whipDirection = whipIn ? clip.whipDirection : whipOut ?? undefined;
   const blurX = plan ? plan.blurX[planned] : 0, blurY = plan ? plan.blurY[planned] : 0;
-  const speedBlur = blurX >= BLUR_MIN_PX || blurY >= BLUR_MIN_PX ? { id: `speedblur-${clip.id}`, x: blurX, y: blurY } : null;
+  const speedBlur = blurX >= BLUR_MIN_PX || blurY >= BLUR_MIN_PX || zoomSpread >= ZOOM_MIN ? { id: `speedblur-${clip.id}`, x: blurX, y: blurY, zoom: zoomSpread >= ZOOM_MIN ? zoomSpread : 0, fx: focusX, fy: focusY } : null;
   // A whip on the same frame wins (a clip too short for both); the blur is otherwise drawn the way a whip's is.
-  const whip = whipStyle(whipAmount, whipId, whipDirection) ?? (speedBlur ? ({ filter: `url(#${speedBlur.id})` } as React.CSSProperties) : undefined);
+  const whip = whipStyle(whipAmount, whipId, whipDirection) ?? (speedBlur ? ({ filter: speedBlurFilter(speedBlur) } as React.CSSProperties) : undefined);
   return { opacity: Math.min(fadeIn, fadeOutValue), transform, whip, whipAmount, whipId, whipDirection, speedBlur: whipAmount === 0 ? speedBlur : null };
 }
 

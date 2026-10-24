@@ -12,9 +12,17 @@ export const SPEED_RAMP_LIMITS = {
   push: { min: 0, max: 0.2 },
 } as const;
 
-export const SPEED_RAMP_DIRECTIONS = ["auto", "none", "left", "right", "up", "down"] as const;
+export const SPEED_RAMP_DIRECTIONS = ["auto", "none", "left", "right", "up", "down", "zoom"] as const;
 
-/** Where the blur streaks: "auto" follows the outgoing footage like the whip, a named axis, an angle in degrees (0 = horizontal), or "none" (no blur). */
+/** The widest zoom blur (ADR 0074): the stack of copies spans this much scale at `blur` 1 and the peak (0.2 = the outer copy is 20 % larger). */
+export const SPEED_RAMP_ZOOM_SPREAD = 0.2;
+
+/**
+ * Where the blur streaks: "auto" follows the footage (each side of the cut by what its own shot does: a forward
+ * move streaks from the middle, a pan along the pan; without a reading it follows the whip direction), a named
+ * axis, "zoom" (streaks radiate from the frame's middle, or from the shot's vanishing point when the footage has
+ * one), an angle in degrees (0 = horizontal), or "none" (no blur).
+ */
 export const speedRampDirectionSchema = z.union([z.enum(SPEED_RAMP_DIRECTIONS), z.number().min(0).max(360)]);
 
 export const speedRampSchema = z.object({

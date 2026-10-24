@@ -17,6 +17,7 @@ import { placeDropOnCut } from "./drop";
 import { suggestMatchCuts, type ClipMotion, type WhipDirection } from "./match-cut";
 import { paceTimeline, putOnTheBeat } from "./pacing";
 import { rampPreset, RAMP_PRESETS, type Ramp, type RampPreset } from "./ramp";
+import { motionReadSchema } from "./motion-kind";
 import { SPEED_RAMP_PRESETS, speedRampSchema, type SpeedRampParams, type SpeedRampPreset } from "./speed-ramp-params";
 import { autoPlaceSfx, trimSfxToReel, withSfx, type AutoSfxOptions } from "./sfx";
 import type { SongMap } from "./song";
@@ -110,7 +111,7 @@ export type Command =
    * Match cuts (ADR 0067) from measured motion by clip id: `reorder` puts the clips in the suggested chain (held
    * clips keep their slots), `whips` turns every whip to follow the outgoing shot's motion. Both by default.
    */
-  | { type: "matchCuts"; motion: Record<string, ClipMotion>; reorder?: boolean; whips?: boolean; heldClipIds?: string[] }
+  | { type: "matchCuts"; motion: Record<string, ClipMotion>; reorder?: boolean; whips?: boolean; /** Record what each side of a speed-ramp cut was doing, so "auto" blurs a push along its streaks (ADR 0074). Default true. */ ramps?: boolean; heldClipIds?: string[] }
   /**
    * One clip's transition in, with the whip's direction when it is a whip. A speed ramp (ADR 0073) is
    * `transition: "speedRamp"` with the parameters in `speedRamp` (or `transition: { kind: "speedRamp", peak, ... }`);
@@ -329,6 +330,12 @@ function run(timeline: Timeline, command: Command, context: CommandContext): Tim
       return updateClip(timeline, command.clipId, { transitionIn: "speedRamp", speedRamp: parsed.data, ...(command.whipDirection ? { whipDirection: command.whipDirection } : {}) });
     }
     case "matchCuts": {
+      // A reading of the camera (ADR 0074) is what the speed-ramp blur follows, so a malformed one is refused rather than guessed at.
+      for (const [id, measured] of Object.entries(command.motion)) {
+        for (const key of ["startRead", "endRead"] as const) {
+          if (measured?.[key] !== undefined && !motionReadSchema.safeParse(measured[key]).success) throw new Error(`The ${key} of the motion for ${id} is not a camera reading (kind, speed, tx, ty, zoom, rotate, focus, confidence).`);
+        }
+      }
       const suggestions = suggestMatchCuts(timeline, command.motion, { heldClipIds: command.heldClipIds });
       let next = timeline;
       if (command.reorder !== false && suggestions.order.length === timeline.clips.length) {
@@ -339,6 +346,9 @@ function run(timeline: Timeline, command: Command, context: CommandContext): Tim
       if (command.whips !== false) {
         const after = suggestMatchCuts(next, command.motion, { heldClipIds: command.heldClipIds });
         for (const whip of after.whips) next = updateClip(next, whip.clipId, { whipDirection: whip.direction });
+      }
+      if (command.ramps !== false) {
+        for (const entry of suggestMatchCuts(next, command.motion, { heldClipIds: command.heldClipIds }).footage) next = updateClip(next, entry.clipId, { rampFootage: entry.footage });
       }
       return next;
     }

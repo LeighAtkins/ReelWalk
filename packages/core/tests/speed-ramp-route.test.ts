@@ -68,6 +68,28 @@ describe("the commands route and the speed-ramp transition", () => {
     expect(mocks.updateMany).not.toHaveBeenCalled();
   });
 
+  it("takes the zoom blur direction and a footage reading through the route, and a dry run saves nothing (ADR 0074)", async () => {
+    const zoom = await send({ command: { type: "setTransition", clipId: "b", transition: { kind: "speedRamp", preset: "punch", direction: "zoom" } }, dryRun: true });
+    expect(zoom.status).toBe(200);
+    expect((await zoom.json()).timeline.clips[1].speedRamp).toMatchObject({ direction: "zoom", peak: 5 });
+    const badDirection = await send({ command: { type: "setTransition", clipId: "b", transition: "speedRamp", speedRamp: { direction: "radial" } } });
+    expect(badDirection.status).toBe(400);
+    expect((await badDirection.json()).message).toMatch(/direction/);
+    // matchCuts with a reading of the camera records it on the speed-ramp cut; a malformed reading is refused.
+    const reading = { kind: "zoom-in", speed: 0.15, tx: 0, ty: 0, zoom: 0.3, rotate: 0, focus: { x: 0.4, y: 0.5 }, confidence: 0.9 };
+    const flat = { start: { dx: 0, dy: 0 }, end: { dx: 0, dy: 0 }, subject: null, energy: 0.3 };
+    const commands = [
+      { type: "setTransition", clipId: "b", transition: "speedRamp" },
+      { type: "matchCuts", reorder: false, motion: { a: { ...flat, endRead: reading }, b: { ...flat, startRead: { ...reading, kind: "pan-x", zoom: 0, tx: 0.1 } } } },
+    ];
+    const matched = await send({ commands, dryRun: true });
+    expect(matched.status).toBe(200);
+    expect((await matched.json()).timeline.clips[1].rampFootage).toEqual({ after: "a", out: { kind: "zoom-in", focus: { x: 0.4, y: 0.5 } }, in: { kind: "pan-x" } });
+    const malformed = await send({ commands: [commands[0], { ...commands[1], motion: { a: { ...flat, endRead: { kind: "spin" } } } }], dryRun: true });
+    expect(malformed.status).toBe(400);
+    expect(mocks.updateMany).not.toHaveBeenCalled();
+  });
+
   it("answers 409 for a reel changed since it was read, and still needs a session", async () => {
     expect((await send({ command: { type: "setTransition", clipId: "b", transition: "speedRamp" }, revision: 3 })).status).toBe(409);
     mocks.user = null;

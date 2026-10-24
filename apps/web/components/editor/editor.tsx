@@ -10,6 +10,7 @@ import { canExport, fixAllCommand, safeFixes, type CriticFinding, type CriticFix
   cutsWellAfter,
   DEFAULT_ENERGY,
   whipDirectionFor,
+  describeMotionKind,
   type ClipMotion,
   insertAiShot,
   luxuryFinish,
@@ -776,8 +777,8 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
   }, [snapshot]);
 
   /** The clips' measured motion (ADR 0067), measuring what is not known yet; the same measurement Energy uses. */
-  const measureMotion = useCallback(async (): Promise<Record<string, ClipMotion>> => {
-    const measured = await measureClipMotion(snapshot().timeline, libraryRef.current, clipMotion.current);
+  const measureMotion = useCallback(async (edges = false): Promise<Record<string, ClipMotion>> => {
+    const measured = await measureClipMotion(snapshot().timeline, libraryRef.current, clipMotion.current, { edges });
     Object.assign(clipMotion.current, measured);
     Object.assign(clipEnergies.current, energiesOf(measured));
     return { ...clipMotion.current };
@@ -1880,6 +1881,21 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
             // The whip pans the way the outgoing shot's camera does (ADR 0067), read from its footage.
             const previous = timeline.clips[selectedClipIndex - 1];
             if (!previous) return;
+            if (selectedClip.transitionIn === "speedRamp") {
+              // A speed ramp reads each side of the cut separately (ADR 0074): the last half second of the shot before and the
+              // first of this one, so a forward move streaks from its vanishing point and a pan along its pan.
+              setMotionNote("Reading how both shots move…");
+              const motion = await measureMotion(true);
+              const out = motion[previous.id]?.endRead, into = motion[selectedClip.id]?.startRead;
+              if (!out && !into) {
+                setMotionNote("Could not read the shots.");
+                return;
+              }
+              const picked = Object.fromEntries([previous.id, selectedClip.id].flatMap((id) => (motion[id] ? [[id, motion[id]]] : [])));
+              runCommand({ type: "matchCuts", motion: picked, reorder: false });
+              setMotionNote(`Before the cut: ${out ? describeMotionKind(out.kind) : "unread"}. After it: ${into ? describeMotionKind(into.kind) : "unread"}.`);
+              return;
+            }
             setMotionNote("Reading the shot before…");
             const motion = await measureMotion();
             const direction = motion[previous.id] ? whipDirectionFor(motion[previous.id]) : null;

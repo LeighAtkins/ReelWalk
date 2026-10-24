@@ -79,7 +79,8 @@ async function main() {
   try {
     await makeMedia(media);
     const assets: Record<string, ReelAsset> = Object.fromEntries(Object.keys(ASSET_DURATIONS).map((id) => [id, { src: `${server.url}/${id}.mp4`, kind: "VIDEO" as const, durationMs: ASSET_DURATIONS[id] }]));
-    const timeline = speedRampTimeline();
+    const direction = (args.includes("--zoom") ? "zoom" : "right") as "zoom" | "right";
+    const timeline = speedRampTimeline(true, direction);
     console.log(`speed-ramp: cuts at ${clipStartsMs(timeline).slice(1).join(", ")} ms`);
     for (const cut of fixturePlan(timeline).cuts) console.log(`  ${cut.note}`);
 
@@ -115,7 +116,7 @@ async function main() {
         return { seconds, result };
       };
       const plain = await timed("plain", speedRampTimeline(false));
-      const ramped = await timed("ramped", timeline);
+      const ramped = await timed(direction === "zoom" ? "ramped-zoom" : "ramped", timeline);
       console.log(`speed-ramp: ramped export took ${(ramped.seconds / plain.seconds).toFixed(2)}× the plain one`);
       for (const f of ramped.result.flash) failures.push(`exported frame ${f} is near black`);
       if (ramped.result.longestRun >= 3) failures.push(`exported frames repeat for ${ramped.result.longestRun} in a row: the picture stalled`);

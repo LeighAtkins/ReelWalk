@@ -33,7 +33,8 @@
  * least 0.6 of the clip's own rate.
  */
 import { rampGain, rampSpeedAt } from "./ramp";
-import { defaultSpeedRamp, speedRampSchema, type SpeedRampDirection, type SpeedRampParams } from "./speed-ramp-params";
+import { describeMotionKind, type SideRead } from "./motion-kind";
+import { defaultSpeedRamp, speedRampSchema, SPEED_RAMP_ZOOM_SPREAD, type SpeedRampDirection, type SpeedRampParams } from "./speed-ramp-params";
 import { clipSourceFrame, msToFrame } from "./frames";
 import { REEL_FORMAT, type Clip } from "./timeline";
 
@@ -101,6 +102,8 @@ export type SpeedRampCutReport = {
   out: SideReport;
   /** The incoming head's fallback, and how it started. */
   in: SideReport & { start: HeadStart };
+  /** How each side of the cut is blurred, and why (ADR 0074): "outgoing: forward move → zoom". */
+  blur: { out: StreakReport; in: StreakReport };
   /** True when a plain cut was kept instead (nothing here moves). */
   skipped: boolean;
   /** One line for people. */
@@ -122,6 +125,10 @@ export type ClipSpeedPlan = {
   /** Blur σ in px at 1080 wide, per frame. */
   blurX: number[];
   blurY: number[];
+  /** Zoom blur (ADR 0074): how much larger the outermost copy is, per frame (0 = none), streaking from (focusX, focusY) in frame fractions. */
+  zoom: number[];
+  focusX: number[];
+  focusY: number[];
   /** Scale added to the picture, per frame (0 = none). */
   push: number[];
 };
@@ -131,8 +138,10 @@ export type ClipRampSide = {
   peak: number;
   blur: number;
   push: number;
-  /** The blur axis as unit-ish weights (1,0) horizontal, (0,1) vertical. */
+  /** The blur axis as unit-ish weights (1,0) horizontal, (0,1) vertical; (0,0) for a zoom blur or none. */
   axis: { x: number; y: number };
+  /** A zoom blur streaking from this point (frame fractions) instead of along an axis (ADR 0074). */
+  zoom?: { x: number; y: number } | null;
 };
 
 type ClipLike = Pick<Clip, "kind" | "speed" | "sourceStartMs" | "ramp">;
@@ -327,23 +336,33 @@ export function planClipSpeed(input: ClipPlanInput): ClipPlanResult {
 const scalePeak = (peak: number, scale: number) => 1 + (peak - 1) * scale;
 
 function identityPlan(clipId: string, frames: number): ClipSpeedPlan {
-  return { clipId, frames, position: Array.from({ length: frames }, (_, f) => f), rate: new Array(frames).fill(1), blurX: new Array(frames).fill(0), blurY: new Array(frames).fill(0), push: new Array(frames).fill(0) };
+  return { clipId, frames, position: Array.from({ length: frames }, (_, f) => f), rate: new Array(frames).fill(1), blurX: new Array(frames).fill(0), blurY: new Array(frames).fill(0), zoom: new Array(frames).fill(0), focusX: new Array(frames).fill(0.5), focusY: new Array(frames).fill(0.5), push: new Array(frames).fill(0) };
 }
 
 function toPlan(clipId: string, frames: number, shape: Shape, sim: Simulated): ClipSpeedPlan {
   const blurX = new Array<number>(frames).fill(0);
   const blurY = new Array<number>(frames).fill(0);
   const push = new Array<number>(frames).fill(0);
+  const zoom = new Array<number>(frames).fill(0);
+  const focusX = new Array<number>(frames).fill(0.5);
+  const focusY = new Array<number>(frames).fill(0.5);
   const { head, tail } = shape;
   const apply = (side: ClipRampSide, f: number, i: number) => {
-    const sigma = side.blur * i * SPEED_RAMP_BLUR_PX;
-    blurX[f] = Math.max(blurX[f], sigma * side.axis.x);
-    blurY[f] = Math.max(blurY[f], sigma * side.axis.y);
+    if (side.zoom) {
+      // A zoom blur follows the same curve as the axis blur: nothing at the start of the ramp, the full spread on the cut frame.
+      zoom[f] = Math.max(zoom[f], side.blur * i * SPEED_RAMP_ZOOM_SPREAD);
+      focusX[f] = side.zoom.x;
+      focusY[f] = side.zoom.y;
+    } else {
+      const sigma = side.blur * i * SPEED_RAMP_BLUR_PX;
+      blurX[f] = Math.max(blurX[f], sigma * side.axis.x);
+      blurY[f] = Math.max(blurY[f], sigma * side.axis.y);
+    }
     push[f] = Math.max(push[f], side.push * i);
   };
   if (head) for (let j = 0; j < head.frames && j < frames; j++) apply(head, j, speedRampIntensityAt(head.frames - 1 - j, head.frames));
   if (tail) for (let k = 0; k < tail.frames; k++) if (frames - tail.frames + k >= 0) apply(tail, frames - tail.frames + k, speedRampIntensityAt(k, tail.frames));
-  return { clipId, frames, position: sim.position, rate: sim.rate, blurX, blurY, push };
+  return { clipId, frames, position: sim.position, rate: sim.rate, blurX, blurY, zoom, focusX, focusY, push };
 }
 
 // ── Direction ───────────────────────────────────────────────────
@@ -367,6 +386,48 @@ export function blurAxis(direction: SpeedRampDirection, whipDirection?: Clip["wh
   }
 }
 const round3 = (value: number) => Math.round(value * 1000) / 1000;
+
+export type StreakKind = "horizontal" | "vertical" | "zoom" | "none";
+export type StreakReport = { kind: StreakKind; why: string };
+
+/** How one side of a cut is blurred: the axis weights or a zoom's focus, and the reason in words. */
+export type Streak = StreakReport & { axis: { x: number; y: number }; focus: { x: number; y: number } | null };
+
+const CENTRE = { x: 0.5, y: 0.5 };
+
+/**
+ * The blur for one side of a speed-ramp cut (ADR 0074). `read` is what the
+ * footage on that side was measured doing (the outgoing shot's last half
+ * second for the tail, the incoming shot's first for the head); the two sides
+ * are read separately and may streak differently.
+ *
+ *  - "zoom": always a zoom blur, from the read's vanishing point when the
+ *    footage is a push or a pull, else the frame's middle.
+ *  - "auto": by the footage. A push in or pull out streaks from its vanishing
+ *    point (a sideways smear on a forward move is what this replaces); a pan
+ *    streaks sideways and a tilt up and down, even when it is too slow for the
+ *    whip direction's still threshold. A roll or a shot that does not move
+ *    falls back to the whip direction, and without one to sideways, as before.
+ *  - anything else is as asked: an axis, an angle, or none.
+ */
+export function resolveStreak(direction: SpeedRampDirection, whipDirection: Clip["whipDirection"], read?: SideRead | null): Streak {
+  const zoomRead = read && (read.kind === "zoom-in" || read.kind === "zoom-out") ? read : null;
+  const zoomAt = zoomRead?.focus ?? CENTRE;
+  if (direction === "none") return { kind: "none", axis: { x: 0, y: 0 }, focus: null, why: "no blur" };
+  if (direction === "zoom") return { kind: "zoom", axis: { x: 0, y: 0 }, focus: zoomAt, why: zoomRead ? `zoom blur as asked, from the ${describeMotionKind(zoomRead.kind)}'s vanishing point` : "zoom blur as asked" };
+  if (direction === "auto" && read) {
+    const seen = describeMotionKind(read.kind);
+    if (zoomRead) return { kind: "zoom", axis: { x: 0, y: 0 }, focus: zoomAt, why: `${seen} → zoom` };
+    if (read.kind === "pan-x") return { kind: "horizontal", axis: { x: 1, y: 0 }, focus: null, why: `${seen} → horizontal` };
+    if (read.kind === "pan-y") return { kind: "vertical", axis: { x: 0, y: 1 }, focus: null, why: `${seen} → vertical` };
+    const axis = blurAxis("auto", whipDirection);
+    return { kind: axis.y > axis.x ? "vertical" : "horizontal", axis, focus: null, why: `${seen} → ${whipDirection ? "the whip direction" : "horizontal"}` };
+  }
+  const axis = blurAxis(direction, whipDirection);
+  const kind: StreakKind = axis.x === 0 && axis.y === 0 ? "none" : axis.y > axis.x ? "vertical" : "horizontal";
+  const why = direction === "auto" ? (whipDirection ? "follows the whip direction (the footage was not read)" : "horizontal (the footage was not read)") : "as asked";
+  return { kind, axis, focus: null, why };
+}
 
 // ── The reel's plan ─────────────────────────────────────────────
 
@@ -395,12 +456,21 @@ export function speedRampOf(clip: Pick<Clip, "speedRamp">): SpeedRampParams {
   return parsed.success ? parsed.data : defaultSpeedRamp();
 }
 
-const sideOf = (params: SpeedRampParams, peak: number, whipDirection: Clip["whipDirection"], fps: number): ClipRampSide => ({
+/** The footage reading for one side of the cut stored on the incoming clip; a reading of some other outgoing clip (the reel was reordered) is ignored. */
+function readOf(incoming: Clip, side: "out" | "in", previousId: string | undefined): SideRead | undefined {
+  const footage = incoming.rampFootage;
+  if (!footage) return undefined;
+  if (side === "in") return footage.in;
+  return footage.after === undefined || footage.after === previousId ? footage.out : undefined;
+}
+
+const sideOf = (params: SpeedRampParams, peak: number, streak: Streak, fps: number): ClipRampSide => ({
   frames: speedRampHalfFrames(params, fps),
   peak,
   blur: params.blur,
   push: params.push,
-  axis: blurAxis(params.direction, whipDirection),
+  axis: streak.axis,
+  zoom: streak.focus,
 });
 
 /**
@@ -413,6 +483,13 @@ const sideOf = (params: SpeedRampParams, peak: number, whipDirection: Clip["whip
 export function planSpeedRamps(inputs: readonly ReelClipInput[], fps: number = REEL_FORMAT.fps): SpeedRampReelPlan {
   const cutAt = inputs.map((entry, index) => (hasSpeedRampIn(entry.clip, index) ? speedRampOf(entry.clip) : null));
   const peaks = cutAt.map((params) => params?.peak ?? 0);
+  // How each cut's two sides are blurred (ADR 0074), read from the incoming clip's footage; the tail of clip i-1 takes the cut i's "out".
+  const streaks = inputs.map((entry, index) => {
+    const params = cutAt[index];
+    const whip = entry.clip.whipDirection;
+    const direction = params?.direction ?? "auto";
+    return { out: resolveStreak(direction, whip, readOf(entry.clip, "out", inputs[index - 1]?.clip.id)), in: resolveStreak(direction, whip, readOf(entry.clip, "in", undefined)) };
+  });
   const sourceFramesOf = (entry: ReelClipInput) => (entry.sourceDurationMs != null && entry.clip.kind === "VIDEO" ? msToFrame(entry.sourceDurationMs, fps) : null);
 
   /** One clip planned at the peaks now settled; `scalable` names the side still being asked for, `tail: false` leaves the tail out. */
@@ -423,8 +500,8 @@ export function planSpeedRamps(inputs: readonly ReelClipInput[], fps: number = R
     return planClipSpeed({
       clip: entry.clip,
       frames: entry.durationInFrames,
-      head: into && peaksNow[index] > 1 ? sideOf(into, peaksNow[index], entry.clip.whipDirection, fps) : null,
-      tail: out && peaksNow[index + 1] > 1 ? sideOf(out, peaksNow[index + 1], inputs[index + 1].clip.whipDirection, fps) : null,
+      head: into && peaksNow[index] > 1 ? sideOf(into, peaksNow[index], streaks[index].in, fps) : null,
+      tail: out && peaksNow[index + 1] > 1 ? sideOf(out, peaksNow[index + 1], streaks[index + 1].out, fps) : null,
       sourceFrames: sourceFramesOf(entry),
       speech: entry.speech,
       scalable,
@@ -460,6 +537,7 @@ export function planSpeedRamps(inputs: readonly ReelClipInput[], fps: number = R
     const lowered = !skipped && peaks[index] < params.peak - 1e-6;
     // A lowered peak is reported as such on both sides (the dip may also be used, see `dip`).
     const outgoing = skipped ? NO_SIDE : { ...results[index - 1]!.tail, ...(lowered ? { mode: "reduced" as const } : {}) };
+    const plain: StreakReport = { kind: "none", why: "kept as a plain cut" };
     const incoming = skipped ? { ...NO_SIDE, start: "none" as const } : { ...results[index]!.head, ...(lowered ? { mode: "reduced" as const } : {}) };
     reports.push({
       clipId: inputs[index].clip.id,
@@ -468,20 +546,22 @@ export function planSpeedRamps(inputs: readonly ReelClipInput[], fps: number = R
       peak: skipped ? 1 : peaks[index],
       out: outgoing,
       in: incoming,
+      blur: skipped ? { out: plain, in: plain } : { out: { kind: streaks[index].out.kind, why: streaks[index].out.why }, in: { kind: streaks[index].in.kind, why: streaks[index].in.why } },
       skipped,
-      note: cutNote(index, params.peak, peaks[index], outgoing, incoming, skipped),
+      note: cutNote(index, params.peak, peaks[index], outgoing, incoming, skipped, skipped ? null : streaks[index]),
     });
   }
   return { clips, cuts: reports };
 }
 
-function cutNote(index: number, requested: number, peak: number, out: SideReport, incoming: SideReport & { start: HeadStart }, skipped: boolean): string {
+function cutNote(index: number, requested: number, peak: number, out: SideReport, incoming: SideReport & { start: HeadStart }, skipped: boolean, streak: { out: Streak; in: Streak } | null): string {
   if (skipped) return `Cut ${index}: kept as a plain cut (the clips are too short or too close to their source's ends to ramp).`;
   const parts = [`Cut ${index}: speed ramp to ${round2(peak)}×${peak < requested - 0.005 ? ` (asked for ${round2(requested)}×)` : ""}`];
   const word: Record<SideMode, string> = { none: "no ramp", exact: "as it is", handles: "from the source beyond its end", compensated: "slowing slightly before the ramp", reduced: "at a lower peak" };
   parts.push(`outgoing ${word[out.mode]}`);
   parts.push(`incoming ${word[incoming.mode]}${incoming.start === "preroll" ? ", reading its lead-in" : incoming.start === "in-point" ? ", from its in-point" : ""}`);
-  return `${parts[0]}; ${parts.slice(1).join(", ")}.`;
+  const blur = streak ? ` Blur: outgoing ${streak.out.why}; incoming ${streak.in.why}.` : "";
+  return `${parts[0]}; ${parts.slice(1).join(", ")}.${blur}`;
 }
 
 /** A clip with its speed-ramp plan attached by the composition (runtime only, never saved): what every reader of the clip's frames takes its source frame from. */

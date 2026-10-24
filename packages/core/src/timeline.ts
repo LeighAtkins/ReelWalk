@@ -3,6 +3,7 @@ import { z } from "zod";
 import { cameraSchema } from "./camera";
 import { rampSchema, rampUnwarp, rampWarp, sliceRamp } from "./ramp";
 import { speedRampSchema } from "./speed-ramp-params";
+import { rampFootageSchema } from "./motion-kind";
 import { planOverlaySchema, roomTitle, spotSchema, type PlanOverlay } from "./plan";
 import { colorMatchSchema, colorStatsSchema, lookSchema } from "./look";
 
@@ -146,6 +147,8 @@ export const clipSchema = z
     whipDirection: z.enum(["left", "right", "up", "down"]).optional(),
     /** The speed-ramp transition's settings (ADR 0073), read when `transitionIn` is "speedRamp"; absent means the defaults. */
     speedRamp: speedRampSchema.optional(),
+    /** What each side of a speed-ramp cut was measured doing (ADR 0074), so "auto" blurs a push along its streaks and a pan along its pan. Set by "match the footage"; absent: the whip direction. */
+    rampFootage: rampFootageSchema.optional(),
     /** A closer crop of the picture about its centre: 1 shows it all, 2 the middle half. Added to any motion. */
     zoom: z.number().min(1).max(ZOOM_MAX).default(1),
     /**
@@ -714,7 +717,7 @@ export function trimClip(
   return fitTexts(updated);
 }
 
-export type ClipSettings = Partial<Pick<Clip, "speed" | "volume" | "fit" | "filter" | "motion" | "transitionIn" | "pano" | "zoom" | "lensSoftness" | "whipDirection" | "speedRamp" | "ramp" | "camera">>;
+export type ClipSettings = Partial<Pick<Clip, "speed" | "volume" | "fit" | "filter" | "motion" | "transitionIn" | "pano" | "zoom" | "lensSoftness" | "whipDirection" | "speedRamp" | "rampFootage" | "ramp" | "camera">>;
 
 export function updateClip(timeline: Timeline, id: string, settings: ClipSettings): Timeline {
   return fitTexts(replaceClip(timeline, id, (clip) => clipSchema.parse({ ...clip, ...settings })));

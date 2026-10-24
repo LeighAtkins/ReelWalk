@@ -2,13 +2,24 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { bundle } from "@remotion/bundler";
-import { makeCancelSignal, renderMedia, renderStill, selectComposition, type CancelSignal } from "@remotion/renderer";
+import { makeCancelSignal, renderMedia, renderStill, selectComposition, type CancelSignal, type OpenGlRenderer as GlRenderer } from "@remotion/renderer";
 import { clipDurationMs, clipStartsMs, isInstagramMusic, REEL_FORMAT, type Timeline } from "@reelwalk/core";
 import { mkdtemp, rm } from "node:fs/promises";
 import { REEL_COMPOSITION_ID, type ReelAsset } from "./reel/types";
 import { renderConcurrency } from "./concurrency";
 
 let bundled: Promise<string> | null = null;
+
+/**
+ * Chrome's GL backend for the render (`REELWALK_RENDER_GL`, a Remotion `gl` value such as "swangle"), unset by default so
+ * nothing changes. A zoom blur (ADR 0074) is displacement-map filters, which software GL runs several times slower than
+ * the Gaussian of the other transitions; on the machine measured, "swangle" took its export from 1.84× to 1.24× the
+ * plain-cut one. Unverified on the Linux worker, which is why it is a switch and not the default.
+ */
+function chromiumOptions(): { gl: GlRenderer } | undefined {
+  const gl = process.env.REELWALK_RENDER_GL?.trim();
+  return gl ? { gl: gl as GlRenderer } : undefined;
+}
 
 /**
  * Webpack-bundling the compositions takes several seconds. Reel assets are
@@ -68,6 +79,7 @@ export async function renderReel(
   // Instagram re-encodes every upload, so start from a high-quality source:
   // H.264, yuv420p, AAC, 30 fps, 1080x1920. Remotion adds +faststart for H.264.
   await renderMedia({
+    chromiumOptions: chromiumOptions(),
     composition,
     serveUrl,
     codec: "h264",
@@ -148,6 +160,7 @@ export async function preflightReel(
       const cancel = remotionCancel(input.signal);
       try {
         await renderStill({
+          chromiumOptions: chromiumOptions(),
           composition, serveUrl, inputProps, output, frame: point.frame, imageFormat: "jpeg", jpegQuality: 80,
           scale: (input.width ?? 540) / 1080,
           timeoutInMilliseconds: input.timeoutMs ?? 30_000,
@@ -185,6 +198,7 @@ export async function renderReelStills(input: { timeline: Timeline; assets: Reco
   for (const frame of [...new Set(input.frames)].filter((f) => f >= 0 && f < composition.durationInFrames)) {
     const output = path.join(input.dir, `frame-${frame}.png`);
     await renderStill({
+      chromiumOptions: chromiumOptions(),
       composition, serveUrl, inputProps, output, frame, imageFormat: "png",
       scale: (input.width ?? 540) / 1080,
       timeoutInMilliseconds: input.timeoutMs ?? 30_000,

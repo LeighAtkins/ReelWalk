@@ -773,15 +773,15 @@ export function TransitionSheet({
           />
           <Segmented
             label="Blur direction"
-            options={["auto", "right", "up", "none"] as const satisfies readonly SpeedRampDirection[]}
-            value={(typeof ramp.direction === "number" ? "auto" : ramp.direction === "left" ? "right" : ramp.direction === "down" ? "up" : ramp.direction) as "auto" | "right" | "up" | "none"}
+            options={["auto", "right", "up", "zoom", "none"] as const satisfies readonly SpeedRampDirection[]}
+            value={(typeof ramp.direction === "number" ? "auto" : ramp.direction === "left" ? "right" : ramp.direction === "down" ? "up" : ramp.direction) as "auto" | "right" | "up" | "zoom" | "none"}
             onChange={(direction) => onSpeedRamp({ ...ramp, direction }, `speedramp-direction-${clip.id}`)}
-            format={(direction) => (direction === "auto" ? "Follow the footage" : direction === "right" ? "Sideways" : direction === "up" ? "Up and down" : "No blur")}
+            format={(direction) => (direction === "auto" ? "Follow the footage" : direction === "right" ? "Sideways" : direction === "up" ? "Up and down" : direction === "zoom" ? "Zoom" : "No blur")}
           />
           {onMatchFootage ? <button type="button" className="btn btn-quiet btn-block" onClick={onMatchFootage} data-testid="speedramp-match-footage">Match the footage</button> : null}
           {onPlayCut ? <button type="button" className="btn btn-block" aria-pressed={looping} onClick={onPlayCut} data-testid="speedramp-play">{looping ? "Stop the loop" : "Play the cut"}</button> : null}
           {speedRampNote ? <p className="muted small" data-testid="speedramp-note">{speedRampNote}</p> : null}
-          <p className="muted small">The shot before speeds up into the cut and this one settles out of it, with a blur and a small push in. It is silent, and the reel does not get longer.</p>
+          <p className="muted small">The shot before speeds up into the cut and this one settles out of it, with a blur and a small push in. It is silent, and the reel does not get longer. Follow the footage streaks a push or pull from where it expands and a pan along its pan; Match the footage reads both shots.</p>
         </>
       ) : null}
       {clip.transitionIn === "whip" ? <Segmented label="Camera pan direction" options={["left", "right", "up", "down"] as const} value={clip.whipDirection ?? "right"} onChange={onDirection} format={direction => direction[0].toUpperCase() + direction.slice(1)} /> : null}

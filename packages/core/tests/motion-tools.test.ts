@@ -291,7 +291,7 @@ describe("match cuts from measured motion", () => {
     // A held clip keeps its slot.
     expect(suggestMatchCuts(timeline, motion, { heldClipIds: ["b"] }).order).toEqual(["a", "b", "c", "d"]);
     // Nothing measured: the order is kept and nothing is suggested.
-    expect(suggestMatchCuts(timeline, {})).toEqual({ pairs: [], order: ["a", "b", "c", "d"], whips: [] });
+    expect(suggestMatchCuts(timeline, {})).toEqual({ pairs: [], order: ["a", "b", "c", "d"], whips: [], footage: [] });
   });
 
   it("tells the Add media flow after which shots a candidate cuts well", () => {

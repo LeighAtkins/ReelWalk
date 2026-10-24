@@ -43,6 +43,8 @@ import { canExport, fixAllCommand, safeFixes, type CriticFinding, type CriticFix
   type Issue,
   type MusicChoice,
   hasSpeech,
+  framePlan,
+  planSpeedRamps,
   pastSongEndMs,
   type Plan,
   type SongMap,
@@ -798,6 +800,29 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
   }, [sheet, candidateMotion, measureMotion, snapshot]);
   useEffect(() => setMotionNote(null), [sheet]);
 
+  // ── The speed-ramp cut, looped on the stage while its sheet is open (ADR 0073) ──
+  const [cutLoop, setCutLoop] = useState<{ fromMs: number; toMs: number } | null>(null);
+  useEffect(() => {
+    if (sheet !== "transition" && cutLoop) {
+      setCutLoop(null);
+      playerRef.current?.pause();
+    }
+  }, [sheet, cutLoop]);
+  useEffect(() => {
+    if (!player || !cutLoop) return;
+    const onFrame = ({ detail }: { detail: { frame: number } }) => {
+      if ((detail.frame * 1000) / REEL_FORMAT.fps >= cutLoop.toMs) player.seekTo(toFrame(cutLoop.fromMs));
+    };
+    player.addEventListener("frameupdate", onFrame);
+    return () => player.removeEventListener("frameupdate", onFrame);
+  }, [player, cutLoop]);
+  // What the speed ramp did for the selected cut: the peak it ran and how the source was found (or why it stayed a plain cut).
+  const speedRampNote = useMemo(() => {
+    if (sheet !== "transition" || selectedClip?.transitionIn !== "speedRamp") return null;
+    const frames = framePlan(timeline).clips.map(({ clip, durationInFrames }) => ({ clip, durationInFrames, sourceDurationMs: library[clip.assetId]?.durationMs ?? null, speech: hasSpeech(library[clip.assetId]?.transcript) }));
+    return planSpeedRamps(frames).cuts.find((cut) => cut.clipId === selectedClip.id)?.note ?? null;
+  }, [sheet, selectedClip, timeline, library]);
+
   /** Add media's chip for a library video: "after 3" when its opening carries on the motion of shot 3 (ADR 0067). */
   const suggestAfter = useCallback((asset: LibraryAsset): string | null => {
     const motion = candidateMotion[asset.id];
@@ -1271,7 +1296,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
 
   const assets = useMemo<Record<string, ReelAsset>>(
     () => ({
-      ...Object.fromEntries(Object.values(library).map((asset) => [asset.id, { src: asset.url, kind: asset.kind, transcript: asset.transcript }])),
+      ...Object.fromEntries(Object.values(library).map((asset) => [asset.id, { src: asset.url, kind: asset.kind, transcript: asset.transcript, durationMs: asset.durationMs }])),
       // The bundled sound design files (ADR 0066), served from the app's public dir; the worker plays the same bytes from its bundle.
       ...sfxAssets({ sfx: timeline.sfx }, (file) => `/sfx/${file}`),
     }),
@@ -1830,6 +1855,26 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
           canWalkHere={canWalk(timeline.clips[timeline.clips.indexOf(selectedClip) - 1], selectedClip)}
           onChange={(transitionIn) => apply((current) => updateClip(current, selectedClip.id, { transitionIn }))}
           onDirection={whipDirection => apply(current => updateClip(current, selectedClip.id, { whipDirection }))}
+          // The speed-ramp transition (ADR 0073) is a command, so an agent sends exactly what the sheet does; a slider drag is one undo step.
+          onSpeedRamp={(params, gesture) => {
+            const { auto: _auto, ...rest } = params;
+            void _auto;
+            runCommand({ type: "setTransition", clipId: selectedClip.id, transition: { kind: "speedRamp", ...rest } }, gesture);
+          }}
+          speedRampNote={speedRampNote}
+          looping={cutLoop !== null}
+          onPlayCut={() => {
+            if (cutLoop) {
+              setCutLoop(null);
+              playerRef.current?.pause();
+              return;
+            }
+            const cut = clipStartsMs(timeline)[selectedClipIndex] ?? 0;
+            const from = Math.max(0, cut - 900);
+            setCutLoop({ fromMs: from, toMs: Math.min(totalMs, cut + 900) });
+            seek(from);
+            playerRef.current?.play();
+          }}
           matchNote={motionNote}
           onMatchFootage={async () => {
             // The whip pans the way the outgoing shot's camera does (ADR 0067), read from its footage.
@@ -1952,6 +1997,13 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
                     const music = snapshot().timeline.music;
                     runCommand({ type: "pace", energy: music?.energy ?? DEFAULT_ENERGY, ramps: on, clipEnergy: { ...clipEnergies.current }, songMap: music ? songMaps.current[music.assetId] : undefined, speechAssetIds: speechAssetIds(libraryRef.current) });
                     showToast(on ? "Shots in the build and the drop now speed up into their cuts." : "Speed ramps off.");
+                  }}
+                  onSpeedRamps={(on) => {
+                    // The cuts on the build's and the drop's downbeats become speed-ramp transitions (ADR 0073): one undo step.
+                    measureForPace();
+                    const music = snapshot().timeline.music;
+                    runCommand({ type: "pace", energy: music?.energy ?? DEFAULT_ENERGY, speedRamps: on, clipEnergy: { ...clipEnergies.current }, songMap: music ? songMaps.current[music.assetId] : undefined, speechAssetIds: speechAssetIds(libraryRef.current) });
+                    showToast(on ? "The strong cuts in the build and the drop now ramp." : "Speed-ramp cuts off.");
                   }}
                 />
               ) : null}

@@ -56,7 +56,8 @@ import { HOOK_DESCRIPTIONS, HOOK_FONTS, HOOK_LABELS, type Hook, type HookKind,
   type PlanOverlay,
   type TextAnimation,
   type TextOverlay,
-  type TextStyle, orientQuad } from "@reelwalk/core";
+  type TextStyle, orientQuad,
+  intensityOfSpeedRamp, SPEED_RAMP_PRESET_LABELS, SPEED_RAMP_PRESETS, speedRampAtIntensity, speedRampOf, speedRampPresetOf, type SpeedRampDirection, type SpeedRampParams, type SpeedRampPreset } from "@reelwalk/core";
 import { ClipSourceInfo } from "./clip-source-info";
 import { ELEGANT_FONT_FAMILY, FILTER_CSS, FILTER_LABELS, TEXT_ANIMATION_LABELS, TEXT_STYLE_LABELS, textTreatmentCss } from "@reelwalk/render/reel";
 import { StockPicker } from "./stock-picker";
@@ -717,6 +718,10 @@ export function TransitionSheet({
   onDirection,
   onMatchFootage,
   matchNote = null,
+  onSpeedRamp,
+  speedRampNote = null,
+  looping = false,
+  onPlayCut,
   onClose,
 }: {
   clip: Clip;
@@ -728,17 +733,57 @@ export function TransitionSheet({
   onMatchFootage?: () => void;
   /** What matching found, while it runs and after. */
   matchNote?: string | null;
+  /** The speed ramp's settings changed (ADR 0073): a preset, the intensity slider or the blur direction; `gesture` groups a slider drag into one undo step. */
+  onSpeedRamp?: (params: SpeedRampParams, gesture: string) => void;
+  /** What the speed ramp did for this cut (the peak it ran, how the source was found), or why it stayed a plain cut. */
+  speedRampNote?: string | null;
+  /** The cut plays in a loop on the stage above, so the studio sees the ramp as they change it. */
+  looping?: boolean;
+  onPlayCut?: () => void;
   onClose(): void;
 }) {
+  const ramp = clip.transitionIn === "speedRamp" ? speedRampOf(clip) : null;
+  const preset = ramp ? speedRampPresetOf(ramp) : null;
   return (
     <Sheet title="Transition in" onClose={onClose}>
       <Segmented
         label="Transition"
-        options={canWalkHere ? (["cut", "fade", "whip", "walk"] as const) : (["cut", "fade", "whip"] as const)}
+        options={[...(canWalkHere ? (["cut", "fade", "whip", "walk"] as const) : (["cut", "fade", "whip"] as const)), ...(onSpeedRamp ? (["speedRamp"] as const) : [])]}
         value={clip.transitionIn === "walk" && !canWalkHere ? "cut" : clip.transitionIn}
         onChange={onChange}
-        format={(transition) => (transition === "cut" ? "Cut" : transition === "fade" ? "Fade through black" : transition === "whip" ? "Whip pan" : "Walk there")}
+        format={(transition) => (transition === "cut" ? "Cut" : transition === "fade" ? "Fade through black" : transition === "whip" ? "Whip pan" : transition === "speedRamp" ? "Speed ramp" : "Walk there")}
       />
+      {ramp && onSpeedRamp ? (
+        <>
+          <Segmented
+            label="Speed ramp style"
+            options={["soft", "punch"] as const satisfies readonly SpeedRampPreset[]}
+            value={(preset ?? "") as SpeedRampPreset}
+            onChange={(name) => onSpeedRamp({ ...SPEED_RAMP_PRESETS[name], direction: ramp.direction }, `speedramp-${clip.id}`)}
+            format={(name) => `${SPEED_RAMP_PRESET_LABELS[name]} · ${SPEED_RAMP_PRESETS[name].peak}×`}
+          />
+          <Range
+            label="Intensity"
+            value={intensityOfSpeedRamp(ramp)}
+            min={0}
+            max={1}
+            step={0.05}
+            display={`${ramp.peak}× in ${ramp.durationMs} ms`}
+            onChange={(value) => onSpeedRamp(speedRampAtIntensity(value, ramp), `speedramp-${clip.id}`)}
+          />
+          <Segmented
+            label="Blur direction"
+            options={["auto", "right", "up", "none"] as const satisfies readonly SpeedRampDirection[]}
+            value={(typeof ramp.direction === "number" ? "auto" : ramp.direction === "left" ? "right" : ramp.direction === "down" ? "up" : ramp.direction) as "auto" | "right" | "up" | "none"}
+            onChange={(direction) => onSpeedRamp({ ...ramp, direction }, `speedramp-direction-${clip.id}`)}
+            format={(direction) => (direction === "auto" ? "Follow the footage" : direction === "right" ? "Sideways" : direction === "up" ? "Up and down" : "No blur")}
+          />
+          {onMatchFootage ? <button type="button" className="btn btn-quiet btn-block" onClick={onMatchFootage} data-testid="speedramp-match-footage">Match the footage</button> : null}
+          {onPlayCut ? <button type="button" className="btn btn-block" aria-pressed={looping} onClick={onPlayCut} data-testid="speedramp-play">{looping ? "Stop the loop" : "Play the cut"}</button> : null}
+          {speedRampNote ? <p className="muted small" data-testid="speedramp-note">{speedRampNote}</p> : null}
+          <p className="muted small">The shot before speeds up into the cut and this one settles out of it, with a blur and a small push in. It is silent, and the reel does not get longer.</p>
+        </>
+      ) : null}
       {clip.transitionIn === "whip" ? <Segmented label="Camera pan direction" options={["left", "right", "up", "down"] as const} value={clip.whipDirection ?? "right"} onChange={onDirection} format={direction => direction[0].toUpperCase() + direction.slice(1)} /> : null}
       {clip.transitionIn === "whip" && onMatchFootage ? (
         <button type="button" className="btn btn-quiet btn-block" onClick={onMatchFootage} data-testid="whip-match-footage">Match the footage</button>

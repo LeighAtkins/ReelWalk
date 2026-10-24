@@ -1,6 +1,6 @@
 import type React from "react";
 import { interpolate } from "remotion";
-import { clipCameraAt, type Clip } from "@reelwalk/core";
+import { clipCameraAt, speedPlanOf, type Clip } from "@reelwalk/core";
 import { whipGeometry } from "./whip";
 
 /** Frames of the dip-to-black on each side of a "fade" transition. */
@@ -32,7 +32,12 @@ export type ClipPresentation = {
   whipAmount: number;
   whipId: string;
   whipDirection: Clip["whipDirection"] | undefined;
+  /** The speed-ramp transition's directional blur (ADR 0073): σ in px along each axis, with the filter's id; null when not blurring. Its style is in `whip` when no whip is drawn. */
+  speedBlur: { id: string; x: number; y: number } | null;
 };
+
+/** Blur σ under this (px at 1080 wide) is not drawn. */
+const BLUR_MIN_PX = 0.4;
 
 /**
  * How a clip is shown at `frame`: its fade, its motion and its whip. One
@@ -43,7 +48,12 @@ export type ClipPresentation = {
 export function clipPresentation(clip: Clip, frame: number, fps: number, durationInFrames: number, fadeOut: boolean, whipOut: Clip["whipDirection"] | null, opening = false): ClipPresentation {
   // Clamped: a clip is mounted a second early (premount) with negative frames.
   const progress = durationInFrames > 1 ? Math.min(1, Math.max(0, frame / (durationInFrames - 1))) : 0;
-  const transform = motionTransform(clip, progress, Math.max(0, frame / fps), opening);
+  const motion = motionTransform(clip, progress, Math.max(0, frame / fps), opening);
+  // The speed-ramp transition (ADR 0073): a push-in and a directional blur that follow the clip's speed on its ramp frames.
+  const plan = speedPlanOf(clip);
+  const planned = plan ? Math.min(plan.frames - 1, Math.max(0, Math.round(frame))) : 0;
+  const push = plan ? plan.push[planned] : 0;
+  const transform = push > 0 ? `scale(${1 + push})${motion ? ` ${motion}` : ""}` : motion;
   const fadeIn = clip.transitionIn === "fade" ? interpolate(frame, [0, FADE_FRAMES], [0, 1], { extrapolateRight: "clamp" }) : 1;
   const fadeOutValue = fadeOut
     ? interpolate(frame, [durationInFrames - FADE_FRAMES, durationInFrames - 1], [1, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" })
@@ -54,7 +64,11 @@ export function clipPresentation(clip: Clip, frame: number, fps: number, duratio
   const whipAmount = whipIn || whipAway;
   const whipId = `whip-${clip.id}`;
   const whipDirection = whipIn ? clip.whipDirection : whipOut ?? undefined;
-  return { opacity: Math.min(fadeIn, fadeOutValue), transform, whip: whipStyle(whipAmount, whipId, whipDirection), whipAmount, whipId, whipDirection };
+  const blurX = plan ? plan.blurX[planned] : 0, blurY = plan ? plan.blurY[planned] : 0;
+  const speedBlur = blurX >= BLUR_MIN_PX || blurY >= BLUR_MIN_PX ? { id: `speedblur-${clip.id}`, x: blurX, y: blurY } : null;
+  // A whip on the same frame wins (a clip too short for both); the blur is otherwise drawn the way a whip's is.
+  const whip = whipStyle(whipAmount, whipId, whipDirection) ?? (speedBlur ? ({ filter: `url(#${speedBlur.id})` } as React.CSSProperties) : undefined);
+  return { opacity: Math.min(fadeIn, fadeOutValue), transform, whip, whipAmount, whipId, whipDirection, speedBlur: whipAmount === 0 ? speedBlur : null };
 }
 
 /**

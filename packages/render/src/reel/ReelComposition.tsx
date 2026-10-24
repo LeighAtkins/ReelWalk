@@ -15,7 +15,7 @@ import {
 // WebCodecs-based video, used when the worker renders: about twice as fast as
 // OffthreadVideo here, and it falls back to it for files it cannot decode.
 import { Video as RenderVideo } from "@remotion/media";
-import { behindInPlane, calloutGeometry, calloutSvg, cameraAt, colorMatchFilterId, colorMatrixValues, countUpText, duckGain, evaluateTitle, flareCss, framePlan, mediaWindow, glintLetter, glintSvg, INSTAGRAM, isInstagramMusic, kineticProgress, matrix3d, particleField, particleSvg, personLayerOpacity, REEL_FORMAT, sceneLayers, SFX_DUCK, SFX_SOUNDS, sfxAssetKey, sfxEndMs, sfxGainAt, shineAt, shineBandCss, shineSpec, slideFromBehind, speechWindows, TITLE_LEADING, timelineDurationMs, walkInto, wordReveal, type Clip, type Logo, type ParticleField, type PersonPass, type Plan, type SfxClip, type ShineFlare, type ShineGlint, type TextOverlay, type Timeline } from "@reelwalk/core";
+import { behindInPlane, calloutGeometry, calloutSvg, cameraAt, colorMatchFilterId, colorMatrixValues, countUpText, duckGain, evaluateTitle, flareCss, framePlan, hasSpeedRamps, hasSpeech, mediaWindow, glintLetter, glintSvg, INSTAGRAM, isInstagramMusic, kineticProgress, matrix3d, particleField, particleSvg, personLayerOpacity, REEL_FORMAT, sceneLayers, SFX_DUCK, SFX_SOUNDS, sfxAssetKey, sfxEndMs, sfxGainAt, shineAt, shineBandCss, shineSpec, slideFromBehind, planSpeedRamps, speechWindows, speedPlanOf, speedRampMediaWindow, TITLE_LEADING, timelineDurationMs, walkInto, withSpeedPlans, wordReveal, type Clip, type Logo, type ParticleField, type PersonPass, type Plan, type SfxClip, type ShineFlare, type ShineGlint, type TextOverlay, type Timeline } from "@reelwalk/core";
 import { domMeasure } from "./measure";
 import { textExit, titleFont } from "./title-motion";
 import { whipGeometry } from "./whip";
@@ -40,6 +40,15 @@ const WhipBlur: React.FC<{ id: string; amount: number; direction: Clip["whipDire
     </filter>
   </svg>;
 };
+
+/** The speed-ramp transition's directional blur (ADR 0073): an anisotropic Gaussian, σ along x and y in px, edges duplicated so the frame's border does not go clear. */
+const SpeedBlur: React.FC<{ id: string; x: number; y: number }> = ({ id, x, y }) => (
+  <svg width="0" height="0" style={{ position: "absolute" }} aria-hidden="true">
+    <filter id={id} x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation={`${x.toFixed(2)} ${y.toFixed(2)}`} edgeMode="duplicate" />
+    </filter>
+  </svg>
+);
 
 /**
  * The clip's colour match (ADR 0070) as an SVG filter the CSS `filter: url(#…)`
@@ -82,7 +91,9 @@ const Media: React.FC<{
   if (asset.kind === "IMAGE") return <Img src={resolveSrc(asset.src)} style={style} />;
   // Frame-exact cuts (ADR 0067): the window covers the whole sequence, never one frame short of the cut; a ramp
   // moves the rate per frame and fades the clip's own sound where the picture runs far from its mean speed.
-  const window = mediaWindow(clip, frame, durationInFrames, fps);
+  // A clip on a speed-ramp cut (ADR 0073) plays along its plan, which the composition attached; every other clip as before.
+  const speedPlan = speedPlanOf(clip);
+  const window = speedPlan ? speedRampMediaWindow(clip, speedPlan, frame, fps) : mediaWindow(clip, frame, durationInFrames, fps);
   const timing = {
     src: resolveSrc(asset.src),
     trimBefore: window.trimBefore,
@@ -127,7 +138,7 @@ const ClipView: React.FC<{
 
   // Clamped: a clip is mounted a second early (premount) with negative frames.
   const progress = durationInFrames > 1 ? Math.min(1, Math.max(0, frame / (durationInFrames - 1))) : 0;
-  const { transform, opacity: shown, whip, whipAmount, whipId, whipDirection } = clipPresentation(clip, frame, fps, durationInFrames, fadeOut, whipOut, opening);
+  const { transform, opacity: shown, whip, whipAmount, whipId, whipDirection, speedBlur } = clipPresentation(clip, frame, fps, durationInFrames, fadeOut, whipOut, opening);
 
   if (clip.pano && asset.kind === "IMAGE") {
     const clipMs = (durationInFrames * 1000) / fps;
@@ -138,7 +149,8 @@ const ClipView: React.FC<{
       : cameraAt(plan, undefined, clip, progress, 1);
     return (
       <AbsoluteFill style={{ opacity: shown, backgroundColor: "#000", ...whip }}>
-        {whip ? <WhipBlur id={whipId} amount={whipAmount} direction={whipDirection} /> : null}
+        {whipAmount !== 0 ? <WhipBlur id={whipId} amount={whipAmount} direction={whipDirection} /> : null}
+        {speedBlur ? <SpeedBlur {...speedBlur} /> : null}
         <ColorMatchFilter clip={clip} />
         <PanoView
           src={resolveSrc(asset.src)}
@@ -154,7 +166,8 @@ const ClipView: React.FC<{
 
   return (
     <AbsoluteFill style={{ opacity: shown, overflow: "hidden" }}>
-      {whip ? <WhipBlur id={whipId} amount={whipAmount} direction={whipDirection} /> : null}
+      {whipAmount !== 0 ? <WhipBlur id={whipId} amount={whipAmount} direction={whipDirection} /> : null}
+      {speedBlur ? <SpeedBlur {...speedBlur} /> : null}
       <ColorMatchFilter clip={clip} />
       <AbsoluteFill style={whip}>
       {clip.fit === "contain" ? (
@@ -628,8 +641,15 @@ const SfxTrack: React.FC<{ timeline: Timeline; assets: Record<string, ReelAsset>
  * The whole reel. Used by the Player in the editor and by the worker for the
  * final MP4, so the export always matches the preview.
  */
-export const ReelComposition: React.FC<ReelProps> = ({ timeline, assets, watermark = false }) => {
+export const ReelComposition: React.FC<ReelProps> = ({ timeline: saved, assets, watermark = false }) => {
   const { fps } = useVideoConfig();
+  // Speed-ramp cuts (ADR 0073) are planned here, once, from the frame plan and the assets' lengths, and each clip they
+  // touch carries its plan: the media, the mattes and the blur all read the same frames, in the preview and the export.
+  const timeline = React.useMemo(() => {
+    if (!hasSpeedRamps(saved)) return saved;
+    const frames = framePlan(saved, fps).clips;
+    return withSpeedPlans(saved, planSpeedRamps(frames.map(({ clip, durationInFrames }) => ({ clip, durationInFrames, sourceDurationMs: assets[clip.assetId]?.durationMs ?? null, speech: hasSpeech(assets[clip.assetId]?.transcript) })), fps));
+  }, [saved, assets, fps]);
   const plan = framePlan(timeline, fps);
   const musicAsset = timeline.music ? assets[timeline.music.assetId] : undefined;
   // Speech in reel time, for ducking the sound design (the music track finds its own, ADR 0035).

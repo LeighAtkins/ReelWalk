@@ -12,6 +12,7 @@ import type { MotionSample } from "./motion";
 import { setTypeMotionCue, typeMotionCues } from "./kinetic";
 import { isGeneratedAssetId } from "./presenter";
 import { rampPreset } from "./ramp";
+import { defaultSpeedRamp } from "./speed-ramp-params";
 import { BEATS_PER_BAR, sectionAt } from "./song";
 import { clipRunEndMs, retimeTexts, textAttachment } from "./text-timing";
 import { MIN_CLIP_MS, clipDurationMs, clipStartsMs, timelineDurationMs, type Clip, type Music, type SectionKind, type SongSection, type TextOverlay, type Timeline } from "./timeline";
@@ -151,6 +152,12 @@ export type PaceOptions = {
    * the hero (held longer, on the drop) are left alone.
    */
   ramps?: boolean;
+  /**
+   * Speed-ramp the strong cuts (ADR 0073): a cut that lands on a downbeat in the build or the drop, between two shots
+   * that are not held, comes in as a speed-ramp transition (every other such cut at most, so it stays an event). The
+   * shot before it then keeps no `into-cut` ramp of pacing's own: the transition is the acceleration.
+   */
+  speedRamps?: boolean;
 };
 
 /**
@@ -288,8 +295,36 @@ function cutPlan(timeline: Timeline, options: PaceOptions, sections: SongSection
     shots.push({ clipId: clip.id, startMs: t, endMs: t + actual, beats, section: kind, hero: isHero, held: false });
     t += actual;
   }
-  return { clips, shots, heroClipId: heroClip?.id ?? null };
+  return { clips: options.speedRamps ? withSpeedRamps(clips, shots, grid) : clips, shots, heroClipId: heroClip?.id ?? null };
 }
+
+/** The cuts that land on a downbeat in the build or the drop become speed-ramp transitions; see `PaceOptions.speedRamps`. */
+function withSpeedRamps(clips: Clip[], shots: PaceShot[], grid: ReelGrid): Clip[] {
+  const out = clips.slice();
+  let last = -2;
+  for (let i = 1; i < out.length; i++) {
+    const shot = shots[i], before = shots[i - 1];
+    if (shot.held || before.held || shot.section === "none" || (shot.section !== "build" && shot.section !== "drop")) continue;
+    if (out[i].transitionIn !== "cut" || last === i - 1) continue;
+    if (Math.min(shot.endMs - shot.startMs, before.endMs - before.startMs) < SPEED_RAMP_MIN_SHOT_MS) continue;
+    if (Math.abs(nearestDownbeatMs(grid, shot.startMs) - shot.startMs) > 1000 / 30) continue;
+    out[i] = { ...out[i], transitionIn: "speedRamp", speedRamp: { ...defaultSpeedRamp(), auto: true } };
+    if (out[i - 1].ramp?.preset === "into-cut") out[i - 1] = { ...out[i - 1], ramp: null };
+    last = i;
+  }
+  return out;
+}
+
+/** A clip whose speed-ramp transition Pace placed goes back to a plain cut; the studio's own speed ramps are left. */
+export function clearAutoSpeedRamp(clip: Clip): Clip {
+  if (clip.transitionIn !== "speedRamp" || !clip.speedRamp?.auto) return clip;
+  const { speedRamp: _speedRamp, ...rest } = clip;
+  void _speedRamp;
+  return { ...rest, transitionIn: "cut" };
+}
+
+/** Shots shorter than this are not speed-ramped into or out of (there is no room for the ramp to read). */
+const SPEED_RAMP_MIN_SHOT_MS = 600;
 
 /** Whether pacing gives this shot a ramp into its cut: a video without one, in a part of the song that drives. */
 function rampsHere(clip: Clip, kind: SectionKind | "none", energy: number): boolean {
@@ -338,7 +373,8 @@ export function paceOrigin(timeline: Timeline): { clips: Clip[]; heroClipId: str
 export function paceTimeline(timeline: Timeline, options: PaceOptions): Timeline {
   if (!timeline.music) return timeline;
   const origin = paceOrigin(timeline);
-  const plan = planPace({ ...timeline, clips: origin.clips }, { ...options, heroClipId: options.heroClipId ?? origin.heroClipId });
+  // What an earlier pass placed as speed-ramp cuts is cleared first: the cut is planned afresh (a cut that moved is no longer strong).
+  const plan = planPace({ ...timeline, clips: origin.clips.map(clearAutoSpeedRamp) }, { ...options, heroClipId: options.heroClipId ?? origin.heroClipId });
   if (!plan) return timeline;
   const pace = { base: origin.clips.map(({ id, sourceStartMs, sourceEndMs }) => ({ id, sourceStartMs, sourceEndMs })), resultKey: clipsKey(plan.clips), heroClipId: plan.heroClipId };
   const music = { ...timeline.music, energy: Math.round(Math.min(1, Math.max(0, options.energy)) * 100) / 100, pace };

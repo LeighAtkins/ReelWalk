@@ -188,7 +188,7 @@ export function suggestMatchCuts(timeline: Timeline, motion: Record<string, Clip
 
   const whips: MatchCutSuggestions["whips"] = [];
   clips.forEach((clip, index) => {
-    if (index === 0 || clip.transitionIn !== "whip") return;
+    if (index === 0 || (clip.transitionIn !== "whip" && clip.transitionIn !== "speedRamp")) return;
     const outgoing = motion[clips[index - 1].id];
     const direction = outgoing ? whipDirectionFor(outgoing) : null;
     if (direction && direction !== clip.whipDirection) whips.push({ clipId: clip.id, direction });

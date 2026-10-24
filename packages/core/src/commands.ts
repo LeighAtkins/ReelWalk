@@ -17,7 +17,7 @@ import { placeDropOnCut } from "./drop";
 import { suggestMatchCuts, type ClipMotion, type WhipDirection } from "./match-cut";
 import { paceTimeline, putOnTheBeat } from "./pacing";
 import { rampPreset, RAMP_PRESETS, type Ramp, type RampPreset } from "./ramp";
-import { motionReadSchema } from "./motion-kind";
+import { mergeRampFootage, motionReadSchema } from "./motion-kind";
 import { SPEED_RAMP_PRESETS, speedRampSchema, type SpeedRampParams, type SpeedRampPreset } from "./speed-ramp-params";
 import { autoPlaceSfx, trimSfxToReel, withSfx, type AutoSfxOptions } from "./sfx";
 import type { SongMap } from "./song";
@@ -111,7 +111,7 @@ export type Command =
    * Match cuts (ADR 0067) from measured motion by clip id: `reorder` puts the clips in the suggested chain (held
    * clips keep their slots), `whips` turns every whip to follow the outgoing shot's motion. Both by default.
    */
-  | { type: "matchCuts"; motion: Record<string, ClipMotion>; reorder?: boolean; whips?: boolean; /** Record what each side of a speed-ramp cut was doing, so "auto" blurs a push along its streaks (ADR 0074). Default true. */ ramps?: boolean; heldClipIds?: string[] }
+  | { type: "matchCuts"; motion: Record<string, ClipMotion>; reorder?: boolean; whips?: boolean; /** Record what each side of a speed-ramp cut was doing, so "auto" blurs a push along its streaks (ADR 0074). Default true. */ ramps?: boolean; heldClipIds?: string[]; /** Only the cuts into these clips are read (whip direction and footage); the others keep what they have. Absent: every cut that has a measurement. */ cuts?: string[] }
   /**
    * One clip's transition in, with the whip's direction when it is a whip. A speed ramp (ADR 0073) is
    * `transition: "speedRamp"` with the parameters in `speedRamp` (or `transition: { kind: "speedRamp", peak, ... }`);
@@ -336,7 +336,9 @@ function run(timeline: Timeline, command: Command, context: CommandContext): Tim
           if (measured?.[key] !== undefined && !motionReadSchema.safeParse(measured[key]).success) throw new Error(`The ${key} of the motion for ${id} is not a camera reading (kind, speed, tx, ty, zoom, rotate, focus, confidence).`);
         }
       }
-      const suggestions = suggestMatchCuts(timeline, command.motion, { heldClipIds: command.heldClipIds });
+      for (const id of command.cuts ?? []) requireClip(timeline, id);
+      const options = { heldClipIds: command.heldClipIds, cutClipIds: command.cuts };
+      const suggestions = suggestMatchCuts(timeline, command.motion, options);
       let next = timeline;
       if (command.reorder !== false && suggestions.order.length === timeline.clips.length) {
         const byId = new Map(timeline.clips.map((clip) => [clip.id, clip]));
@@ -344,11 +346,12 @@ function run(timeline: Timeline, command: Command, context: CommandContext): Tim
         if (clips.some((clip, index) => clip !== timeline.clips[index])) next = cut({ ...timeline, clips });
       }
       if (command.whips !== false) {
-        const after = suggestMatchCuts(next, command.motion, { heldClipIds: command.heldClipIds });
+        const after = suggestMatchCuts(next, command.motion, options);
         for (const whip of after.whips) next = updateClip(next, whip.clipId, { whipDirection: whip.direction });
       }
       if (command.ramps !== false) {
-        for (const entry of suggestMatchCuts(next, command.motion, { heldClipIds: command.heldClipIds }).footage) next = updateClip(next, entry.clipId, { rampFootage: entry.footage });
+        // A side with no reading keeps what the cut has, so a cut read from one side (or a cut beside the one just read) is not wiped.
+        for (const entry of suggestMatchCuts(next, command.motion, options).footage) next = updateClip(next, entry.clipId, { rampFootage: mergeRampFootage(next.clips.find((clip) => clip.id === entry.clipId)?.rampFootage, entry.footage) });
       }
       return next;
     }

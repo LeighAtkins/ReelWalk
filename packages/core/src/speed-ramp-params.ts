@@ -35,6 +35,12 @@ export const speedRampSchema = z.object({
   /** Extra scale at the peak: 0.08 pushes in by 8 %. */
   push: z.number().min(SPEED_RAMP_LIMITS.push.min).max(SPEED_RAMP_LIMITS.push.max).default(0.08),
   direction: speedRampDirectionSchema.default("auto"),
+  /**
+   * When both sides of the cut are zoom blurs, the radial burst is centred on one point through the cut (where the
+   * footage's vanishing points agree) instead of jumping from the outgoing shot's to the incoming one's. Absent or
+   * true: shared. False: each side keeps its own focus (ADR 0074).
+   */
+  shareFocus: z.boolean().optional(),
   /** Placed by Pace's "Speed-ramp the strong cuts", so switching that off takes back only what it placed. Absent: the studio's own. */
   auto: z.boolean().optional(),
 });

@@ -184,15 +184,22 @@ export type MatchCutOptions = {
   minScore?: number;
   /** Clips that must keep their place (a presenter take, a clip with speech). */
   heldClipIds?: readonly string[];
+  /**
+   * Only the cuts into these clips get a whip direction and a footage reading (the clip a cut comes in on carries both).
+   * The Transition sheet runs "Match the footage" on one cut with the two shots around it measured, and the neighbouring
+   * cuts, whose other sides were not measured, must keep what they have. Absent: every cut with a measurement.
+   */
+  cutClipIds?: readonly string[];
 };
 
 /**
  * Suggestions for a reel from its clips' measured motion. Clips without a
  * measurement take no part in `pairs` and keep their place in `order`.
  */
-export function suggestMatchCuts(timeline: Timeline, motion: Record<string, ClipMotion>, { minScore = 0.35, heldClipIds = [] }: MatchCutOptions = {}): MatchCutSuggestions {
+export function suggestMatchCuts(timeline: Timeline, motion: Record<string, ClipMotion>, { minScore = 0.35, heldClipIds = [], cutClipIds }: MatchCutOptions = {}): MatchCutSuggestions {
   const clips = timeline.clips;
   const held = new Set(heldClipIds);
+  const cuts = cutClipIds ? new Set(cutClipIds) : null;
   const measured = clips.filter((clip) => motion[clip.id]);
   const pairs: MatchCut[] = [];
   for (const a of measured) for (const b of measured) {
@@ -227,14 +234,14 @@ export function suggestMatchCuts(timeline: Timeline, motion: Record<string, Clip
 
   const whips: MatchCutSuggestions["whips"] = [];
   clips.forEach((clip, index) => {
-    if (index === 0 || (clip.transitionIn !== "whip" && clip.transitionIn !== "speedRamp")) return;
+    if (index === 0 || (clip.transitionIn !== "whip" && clip.transitionIn !== "speedRamp") || (cuts && !cuts.has(clip.id))) return;
     const outgoing = motion[clips[index - 1].id];
     const direction = outgoing ? whipDirectionFor(outgoing) : null;
     if (direction && direction !== clip.whipDirection) whips.push({ clipId: clip.id, direction });
   });
   const footage: MatchCutSuggestions["footage"] = [];
   clips.forEach((clip, index) => {
-    if (index === 0 || clip.transitionIn !== "speedRamp") return;
+    if (index === 0 || clip.transitionIn !== "speedRamp" || (cuts && !cuts.has(clip.id))) return;
     const outgoing = motion[clips[index - 1].id]?.endRead, incoming = motion[clip.id]?.startRead;
     if (!outgoing && !incoming) return;
     footage.push({ clipId: clip.id, footage: { after: clips[index - 1].id, ...(outgoing ? { out: sideReadOf(outgoing) } : {}), ...(incoming ? { in: sideReadOf(incoming) } : {}) } });

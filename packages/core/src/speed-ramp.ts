@@ -429,6 +429,20 @@ export function resolveStreak(direction: SpeedRampDirection, whipDirection: Clip
   return { kind, axis, focus: null, why };
 }
 
+const isZoomRead = (read?: SideRead | null): read is SideRead & { focus: { x: number; y: number } } => Boolean(read && (read.kind === "zoom-in" || read.kind === "zoom-out") && read.focus);
+
+/**
+ * The one point a cut's radial burst is centred on when both sides are zoom blurs: the middle of the two vanishing
+ * points when both shots were read as a push or a pull, the one that was read when only one was, and nothing (each
+ * side keeps the frame's middle) when neither was. Null when either side is not a zoom blur.
+ */
+export function sharedFocus(out: Streak, outRead: SideRead | undefined, into: Streak, inRead: SideRead | undefined): { x: number; y: number } | null {
+  if (out.kind !== "zoom" || into.kind !== "zoom") return null;
+  const a = isZoomRead(outRead) ? outRead.focus : null, b = isZoomRead(inRead) ? inRead.focus : null;
+  if (a && b) return { x: round3((a.x + b.x) / 2), y: round3((a.y + b.y) / 2) };
+  return a ?? b ?? null;
+}
+
 // ── The reel's plan ─────────────────────────────────────────────
 
 export type ReelClipInput = {
@@ -488,7 +502,13 @@ export function planSpeedRamps(inputs: readonly ReelClipInput[], fps: number = R
     const params = cutAt[index];
     const whip = entry.clip.whipDirection;
     const direction = params?.direction ?? "auto";
-    return { out: resolveStreak(direction, whip, readOf(entry.clip, "out", inputs[index - 1]?.clip.id)), in: resolveStreak(direction, whip, readOf(entry.clip, "in", undefined)) };
+    const outRead = readOf(entry.clip, "out", inputs[index - 1]?.clip.id), inRead = readOf(entry.clip, "in", undefined);
+    const streak = { out: resolveStreak(direction, whip, outRead), in: resolveStreak(direction, whip, inRead) };
+    if (params?.shareFocus !== false) {
+      const shared = sharedFocus(streak.out, outRead, streak.in, inRead);
+      if (shared) { streak.out = { ...streak.out, focus: shared }; streak.in = { ...streak.in, focus: shared }; }
+    }
+    return streak;
   });
   const sourceFramesOf = (entry: ReelClipInput) => (entry.sourceDurationMs != null && entry.clip.kind === "VIDEO" ? msToFrame(entry.sourceDurationMs, fps) : null);
 

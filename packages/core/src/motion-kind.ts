@@ -73,6 +73,19 @@ export type RampFootage = z.infer<typeof rampFootageSchema>;
 
 export const sideReadOf = (read: MotionRead): SideRead => ({ kind: read.kind, ...(read.focus && (read.kind === "zoom-in" || read.kind === "zoom-out") ? { focus: read.focus } : {}) });
 
+/**
+ * A cut's stored footage with a fresh reading laid over it: a side the reading has replaces that side, a side it does
+ * not have is kept (with the `after` that goes with the outgoing read), so reading one cut, or one side of it, never
+ * wipes the other side or another cut.
+ */
+export function mergeRampFootage(existing: RampFootage | undefined, fresh: RampFootage): RampFootage {
+  return {
+    ...(fresh.out ? { after: fresh.after } : existing?.after !== undefined ? { after: existing.after } : {}),
+    ...(fresh.out ? { out: fresh.out } : existing?.out ? { out: existing.out } : {}),
+    ...(fresh.in ? { in: fresh.in } : existing?.in ? { in: existing.in } : {}),
+  };
+}
+
 // ── Images ──────────────────────────────────────────────────────
 
 function blur3(g: Gray): Gray {

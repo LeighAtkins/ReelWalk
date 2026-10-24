@@ -1892,7 +1892,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
                 return;
               }
               const picked = Object.fromEntries([previous.id, selectedClip.id].flatMap((id) => (motion[id] ? [[id, motion[id]]] : [])));
-              runCommand({ type: "matchCuts", motion: picked, reorder: false });
+              runCommand({ type: "matchCuts", motion: picked, reorder: false, cuts: [selectedClip.id] });
               setMotionNote(`Before the cut: ${out ? describeMotionKind(out.kind) : "unread"}. After it: ${into ? describeMotionKind(into.kind) : "unread"}.`);
               return;
             }

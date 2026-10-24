@@ -236,3 +236,35 @@ The report is the line under the Transition sheet's controls and
   matte under a zoom blur (the matte layers use the same filter style, tested
   as style strings only); a photo (no source to read, so `auto` has no read and
   keeps the whip direction).
+
+## Follow-up (2026-10-24): Match the footage on one cut, and a shared focus
+
+**The bug.** The Transition sheet's Match the footage sent `matchCuts` the motion of the two shots around one cut. `matchCuts`
+then wrote `rampFootage` for *every* speed-ramp cut that had a reading on either side, and wrote it whole. The shot before
+(cut N-1's incoming clip) has a head reading but no shot before it in the request, so cut N-1 was rewritten with `in` only
+and lost its `out`; the shot after (cut N+1) has a tail reading from the selected shot, so cut N+1 was rewritten with `out`
+only and lost its `in`. It set the neighbours' whip directions the same way. So cuts after the first could not be completed
+one by one (the v1b reel needed one batch with all eight shots).
+
+**The fix.**
+- `matchCuts` takes `cuts?: string[]` (clip ids; each names the cut into that clip). Only those cuts get a whip direction and
+  a footage reading; absent, every cut with a measurement, as before. The sheet sends `cuts: [selected clip]`.
+- A fresh reading is laid over the stored one by `mergeRampFootage`: a side the reading has replaces that side (with the
+  `after` that goes with `out`), a side it lacks is kept. So even a whole-reel run with a partly measured reel never wipes a
+  cut's other side.
+- The stale rule is unchanged (an `out` whose `after` is not the clip before is ignored) and a cut-local update does not
+  revive stale readings on the cuts beside it.
+
+**A shared focus.** `speedRamp.shareFocus` (optional boolean; absent or true = shared). When both sides of a cut are zoom blurs
+the burst is centred on one point through the cut: the middle of the two vanishing points when both shots were read as a push
+or a pull, the one that was read when only one was, and the frame's middle when neither. False keeps each side's own focus.
+`setTransition` accepts it; there is no sheet control for it (the default is what the showcase wanted). A reel saved before
+has no `shareFocus`, so a zoom-to-zoom cut with two different read focuses now renders from the shared one: the one
+deliberate change to a saved reel's look, confined to cuts whose two sides were both read as zooms.
+
+**Verified.** `packages/core/tests/match-cuts-local.test.ts` (12): on a 7-cut fixture, cut 2 then 4 then 6 leave the
+earlier cuts' readings, whip directions and resolved blur kinds unchanged and the unrun cuts empty; a re-run of cut 4 with a
+different answer changes only cut 4; cut by cut (forwards or backwards) equals one batch; a reorder makes the stale
+readings ignored and a cut-local update re-reads only its own cut; the same tests fail with the old command (4 of 12
+fail with `cuts` and the merge switched off). Focus: shared by default, off with `shareFocus: false`, the read one when
+only one side has it, untouched when a side is not a zoom.

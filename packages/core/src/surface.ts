@@ -10,7 +10,7 @@ import type { Gray, Quad } from "./motion";
 export type SurfaceLine = { theta: number; rho: number; votes: number };
 
 /** Edge points of `gray` inside a window: position and gradient direction (radians, the edge's normal). */
-function edges(gray: Gray, x0: number, y0: number, x1: number, y1: number, threshold: number): { x: number; y: number; dir: number }[] {
+export function edgePoints(gray: Gray, x0: number, y0: number, x1: number, y1: number, threshold: number): { x: number; y: number; dir: number }[] {
   const out: { x: number; y: number; dir: number }[] = [];
   const { data, width } = gray;
   for (let y = Math.max(1, y0); y < Math.min(gray.height - 1, y1); y++) for (let x = Math.max(1, x0); x < Math.min(width - 1, x1); x++) {
@@ -72,7 +72,7 @@ export function houghLines(points: { x: number; y: number; dir: number }[], widt
   return kept;
 }
 
-function intersect(a: SurfaceLine, b: SurfaceLine): [number, number] | null {
+export function lineIntersection(a: SurfaceLine, b: SurfaceLine): [number, number] | null {
   const det = Math.cos(a.theta) * Math.sin(b.theta) - Math.sin(a.theta) * Math.cos(b.theta);
   if (Math.abs(det) < 1e-9) return null;
   return [(a.rho * Math.sin(b.theta) - b.rho * Math.sin(a.theta)) / det, (b.rho * Math.cos(a.theta) - a.rho * Math.cos(b.theta)) / det];
@@ -98,7 +98,7 @@ export function findSurfaceQuad(gray: Gray, cx: number, cy: number, { searchX = 
   const { width, height } = gray;
   const x0 = Math.round(cx - searchX * width), x1 = Math.round(cx + searchX * width);
   const y0 = Math.round(cy - searchY * height), y1 = Math.round(cy + searchY * height);
-  const points = edges(gray, x0, y0, x1, y1, threshold);
+  const points = edgePoints(gray, x0, y0, x1, y1, threshold);
   if (points.length < 40) return null;
   const lines = houghLines(points, width, height, { minVotes: Math.round(Math.min(width, height) * 0.08) });
   if (!lines.length) return null;
@@ -120,7 +120,7 @@ export function findSurfaceQuad(gray: Gray, cx: number, cy: number, { searchX = 
   const bNeg = pick(familyB, thetaB, -1), bPos = pick(familyB, thetaB, 1);
   // At most one side may be a fallback: with two or more the "surface" is just the search window.
   if ([aNeg, aPos, bNeg, bPos].filter((l) => l.votes === 0).length > 1) return null;
-  const corners = [intersect(aNeg, bNeg), intersect(aPos, bNeg), intersect(aPos, bPos), intersect(aNeg, bPos)];
+  const corners = [lineIntersection(aNeg, bNeg), lineIntersection(aPos, bNeg), lineIntersection(aPos, bPos), lineIntersection(aNeg, bPos)];
   if (corners.some((c) => !c)) return null;
   // Order the corners tl, tr, br, bl by their angle about the point.
   const ordered = (corners as [number, number][]).map((c) => ({ c, angle: Math.atan2(c[1] - cy, c[0] - cx) })).sort((p, q) => p.angle - q.angle).map((o) => o.c);

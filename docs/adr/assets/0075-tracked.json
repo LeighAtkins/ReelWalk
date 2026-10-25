@@ -1,0 +1,83 @@
+[
+  {
+    "label": "snow-aerial-lodge",
+    "tracking": "tracked",
+    "kind": "ground",
+    "grade": "good",
+    "confidence": 0.98,
+    "points": 78,
+    "notes": [
+      "Followed the ground through the shot: good track (67 points agreeing, confidence 0.98)."
+    ],
+    "candidates": 1,
+    "ms": 5120.1295,
+    "vision": "stand-in"
+  },
+  {
+    "label": "snow-red-cabin",
+    "tracking": "tracked",
+    "kind": "wall",
+    "grade": "good",
+    "confidence": 0.91,
+    "points": 75,
+    "notes": [
+      "Followed the wall, centre through the shot: good track (41 points agreeing, confidence 0.91)."
+    ],
+    "candidates": 3,
+    "ms": 4413.645700000001,
+    "vision": "stand-in"
+  },
+  {
+    "label": "snow-window-view",
+    "tracking": "tracked",
+    "kind": "wall",
+    "grade": "good",
+    "confidence": 0.99,
+    "points": 80,
+    "notes": [
+      "Followed the wall through the shot: good track (60 points agreeing, confidence 0.99)."
+    ],
+    "candidates": 3,
+    "ms": 4451.692399999998,
+    "vision": "stand-in"
+  },
+  {
+    "label": "snow-chalet",
+    "tracking": "fixed",
+    "kind": "sky",
+    "points": 0,
+    "notes": [
+      "The sky has too little detail for the tracker to hold on to (0 points, spread over 0% of the title), so the title is placed in perspective but does not follow the camera."
+    ],
+    "candidates": 1,
+    "ms": 995.015800000001,
+    "vision": "stand-in"
+  },
+  {
+    "label": "villa-2",
+    "tracking": "tracked",
+    "kind": "floor",
+    "grade": "lost",
+    "confidence": 0.63,
+    "points": 17,
+    "notes": [
+      "Followed the floor through the shot: lost track (16 points agreeing, confidence 0.63).",
+      "The surface is lost 1.8 s in, so the title fades there."
+    ],
+    "candidates": 2,
+    "ms": 6777.6572000000015,
+    "vision": "stand-in"
+  },
+  {
+    "label": "villa-5",
+    "tracking": "fixed",
+    "kind": "ceiling",
+    "points": 10,
+    "notes": [
+      "The ceiling has too little detail for the tracker to hold on to (10 points, spread over 13% of the title), so the title is placed in perspective but does not follow the camera."
+    ],
+    "candidates": 2,
+    "ms": 649.7707000000009,
+    "vision": "stand-in"
+  }
+]

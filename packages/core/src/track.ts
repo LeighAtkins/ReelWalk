@@ -579,7 +579,8 @@ function* runFrom(frames: Gray[], start: number, end: number, quad0: Quad, o: Re
   const refPoints = supportPoints(refLevels[0], support, { margin, maxPoints: o.maxPoints, window: o.window, minCorner: o.minCorner });
   const stats: TrackStats = { points: refPoints.length, meanInliers: 0, held: 0, steps: 0, corrections: 0 };
   const out = new Map<number, TrackFrame>();
-  const startCov = quadCoverage(refPoints, quad0, width, height);
+  // With a wider support (ADR 0075) the features are judged where they were taken from, not on the part of it the title fills.
+  const startCov = quadCoverage(refPoints, support, width, height);
   if (refPoints.length < o.minPoints || startCov.coverage < 0.25) {
     return { frames: out, lostAt: null, lostReason: null, detail: "", stats, failure: { reason: "too-few-features", detail: `${refPoints.length} found, covering ${Math.round(startCov.coverage * 100)}% of it; need ${o.minPoints} spread over a quarter of it` } };
   }
@@ -596,11 +597,12 @@ function* runFrom(frames: Gray[], start: number, end: number, quad0: Quad, o: Re
   let reacquiredAt: number | null = null;
   const regOptions = { window: o.window, levels: o.levels, fbMax: o.fbMax, tolerance: o.tolerance, minInliers: Math.max(6, Math.ceil(o.minPoints * 0.75)), maxResidual: o.maxResidual };
   const saneFromRef = (h: number[]) => { const q = mapQuad(h, quad0), stretch = quadAspect(q) / quadAspect(quad0); return quadIsSane(q) && stretch >= 0.5 && stretch <= 2; };
+  const regionAt = (h: number[], quad: Quad) => (o.support ? mapQuad(h, o.support) : quad);
   const freshPoints = (k: number, quad: Quad, keep: Point[]) => {
     const edge = o.window + 1;
-    const region = o.support ? mapQuad(H, o.support) : quad;
+    const region = regionAt(H, quad);
     const points = keep.filter((p) => p[0] >= edge && p[1] >= edge && p[0] < width - edge && p[1] < height - edge && insideQuad(region, p[0], p[1], 0));
-    if (points.length < Math.max(o.minPoints * 2, refPoints.length * 0.5) || quadCoverage(points, quad, width, height).coverage < 0.5) {
+    if (points.length < Math.max(o.minPoints * 2, refPoints.length * 0.5) || quadCoverage(points, region, width, height).coverage < 0.5) {
       const fresh = supportPoints(pyramids(k)[0], region, { margin, maxPoints: o.maxPoints, window: o.window, minCorner: o.minCorner });
       for (const f of fresh) if (!points.some((p) => Math.hypot(p[0] - f[0], p[1] - f[1]) < o.window)) points.push(f);
     }
@@ -615,7 +617,7 @@ function* runFrom(frames: Gray[], start: number, end: number, quad0: Quad, o: Re
         H = found.h; velocity = null; misses = 0; stats.corrections++;
         reacquiredAt ??= k;
         const quad = mapQuad(H, quad0);
-        const s = score(found.inliers, quad, found.error, found.inliers.length, width, height, o.tolerance);
+        const s = score(found.inliers, regionAt(H, quad), found.error, found.inliers.length, width, height, o.tolerance);
         inlierSum += found.inliers.length; measured++;
         out.set(k, { index: k, quad, confidence: s.confidence, attachment: s.attachment, coverage: s.coverage, error: found.error, uncertaintyPx: s.uncertaintyPx, inliers: found.inliers.length, model: "homography", held: false, lost: false, registered: true, anchor: false });
         anchorIdx = k; anchorPts = freshPoints(k, quad, found.inliers);
@@ -674,7 +676,7 @@ function* runFrom(frames: Gray[], start: number, end: number, quad0: Quad, o: Re
     const stepInliers = sel.ok ? sel.inliers.map((i) => to[i]) : [];
     const evidence = registered?.ok ? registered.inliers : stepInliers;
     const error = sel.ok ? percentile(residuals(sel.h, from, to), 0.75) : (registered as { error: number }).error;
-    const s = score(evidence, nextQuad, Number.isFinite(error) ? error : o.tolerance * 2, evidence.length, width, height, o.tolerance);
+    const s = score(evidence, regionAt(candidate, nextQuad), Number.isFinite(error) ? error : o.tolerance * 2, evidence.length, width, height, o.tolerance);
     inlierSum += evidence.length; measured++;
     out.set(k, { index: k, quad: nextQuad, confidence: s.confidence, attachment: s.attachment, coverage: s.coverage, error: Number.isFinite(error) ? error : o.tolerance * 2, uncertaintyPx: s.uncertaintyPx, inliers: evidence.length, model: sel.ok ? sel.model : "homography", held: false, lost: false, registered: !!registered?.ok, anchor: false });
     // Carry the agreeing points on; top up from the current frame, inside the current quad only.

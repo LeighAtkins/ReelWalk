@@ -1,0 +1,1148 @@
+[
+  {
+    "label": "snow-aerial-lodge",
+    "ms": 153,
+    "horizonY": null,
+    "lines": 48,
+    "candidates": [
+      {
+        "id": "vision-ground-0",
+        "kind": "ground",
+        "label": "Ground",
+        "source": "vision",
+        "plane": [
+          0.02,
+          0.62,
+          0.98,
+          0.62,
+          0.98,
+          0.99,
+          0.02,
+          0.99
+        ],
+        "placement": [
+          0.0968,
+          0.6957,
+          0.9032,
+          0.6957,
+          0.9032,
+          0.7821,
+          0.0968,
+          0.7821
+        ],
+        "area": 0.3457,
+        "texture": {
+          "points": 78,
+          "coverage": 0.875
+        },
+        "tracking": "surface",
+        "scores": {
+          "size": 1,
+          "texture": 1,
+          "fit": 0.4673,
+          "total": 0.4746
+        },
+        "ink": {
+          "color": "#1b1915",
+          "shadow": "strong",
+          "luminance": 0.661,
+          "contrast": 7.29
+        },
+        "reasons": [
+          "78 points of detail to follow, spread over 88% of the title",
+          "covers 35% of the frame",
+          "an edge runs across it, so it may be two surfaces",
+          "snow-covered forecourt"
+        ]
+      }
+    ],
+    "rejected": [
+      {
+        "kind": "wall",
+        "source": "vision",
+        "plane": [
+          0.0553,
+          0.4,
+          0.3,
+          0.4,
+          0.3,
+          0.56,
+          0.0752,
+          0.56
+        ],
+        "reason": "too small to carry a title"
+      },
+      {
+        "kind": "wall",
+        "source": "lines",
+        "plane": [
+          0.4608,
+          0.3487,
+          0.9643,
+          0.1274,
+          0.9098,
+          0.5661,
+          0.4699,
+          0.4952
+        ],
+        "reason": "an edge runs across it, and nothing but edges vouches for it"
+      },
+      {
+        "kind": "wall",
+        "source": "lines",
+        "plane": [
+          0.6247,
+          0.3062,
+          0.9257,
+          0.4385,
+          0.9098,
+          0.5661,
+          0.5986,
+          0.5159
+        ],
+        "reason": "too small to be convincing from edges alone"
+      },
+      {
+        "kind": "wall",
+        "source": "lines",
+        "plane": [
+          0.6247,
+          0.3062,
+          0.9257,
+          0.4385,
+          0.8869,
+          0.7506,
+          0.5859,
+          0.6183
+        ],
+        "reason": "an edge runs across it, and nothing but edges vouches for it"
+      },
+      {
+        "kind": "wall",
+        "source": "lines",
+        "plane": [
+          0.0177,
+          0.3263,
+          0.4533,
+          0.2273,
+          0.47,
+          0.4969,
+          0.1027,
+          0.5977
+        ],
+        "reason": "an edge runs straight across it: it is two surfaces, not one"
+      },
+      {
+        "kind": "wall",
+        "source": "lines",
+        "plane": [
+          0.0177,
+          0.3263,
+          0.6397,
+          0.1849,
+          0.5986,
+          0.5156,
+          0.0179,
+          0.327
+        ],
+        "reason": "no legible title fits inside it, in the safe area"
+      },
+      {
+        "kind": "wall",
+        "source": "lines",
+        "plane": [
+          0.4768,
+          0.2889,
+          0.6054,
+          0.3454,
+          0.6497,
+          0.7019,
+          0.4564,
+          0.617
+        ],
+        "reason": "no legible title fits inside it, in the safe area"
+      }
+    ]
+  },
+  {
+    "label": "snow-chalet",
+    "ms": 34,
+    "horizonY": 0.52,
+    "lines": 48,
+    "candidates": [
+      {
+        "id": "vision-sky-0",
+        "kind": "sky",
+        "label": "Sky",
+        "source": "vision",
+        "plane": [
+          0.02,
+          0.02,
+          0.72,
+          0.02,
+          0.72,
+          0.2,
+          0.02,
+          0.2
+        ],
+        "placement": [
+          0.076,
+          0.1042,
+          0.664,
+          0.1042,
+          0.664,
+          0.1672,
+          0.076,
+          0.1672
+        ],
+        "area": 0.1296,
+        "texture": {
+          "points": 0,
+          "coverage": 0
+        },
+        "tracking": "fixed",
+        "scores": {
+          "size": 0.6044,
+          "texture": 0,
+          "fit": 0.9243,
+          "total": 0.5526
+        },
+        "ink": {
+          "color": "#1b1915",
+          "shadow": "strong",
+          "luminance": 0.4938,
+          "contrast": 4.24
+        },
+        "reasons": [
+          "almost no detail to follow: it can be placed but not tracked",
+          "covers 13% of the frame",
+          "clear blue sky"
+        ]
+      }
+    ],
+    "rejected": [
+      {
+        "kind": "ground",
+        "source": "vision",
+        "plane": [
+          0,
+          0.8,
+          1,
+          0.8,
+          1,
+          0.99,
+          0,
+          0.99
+        ],
+        "reason": "an edge runs straight across it: it is two surfaces, not one"
+      },
+      {
+        "kind": "sky",
+        "source": "band",
+        "plane": [
+          0.03,
+          0.02,
+          0.97,
+          0.02,
+          0.97,
+          0.1488,
+          0.03,
+          0.1488
+        ],
+        "reason": "overlaps a better sky"
+      }
+    ]
+  },
+  {
+    "label": "snow-red-cabin",
+    "ms": 61,
+    "horizonY": 0.42,
+    "lines": 48,
+    "candidates": [
+      {
+        "id": "vision-wall-1",
+        "kind": "wall",
+        "label": "Wall",
+        "source": "vision",
+        "plane": [
+          0.2,
+          0.35,
+          0.7,
+          0.37,
+          0.7,
+          0.5594,
+          0.2,
+          0.5594
+        ],
+        "placement": [
+          0.2439,
+          0.4321,
+          0.6635,
+          0.4424,
+          0.6635,
+          0.4855,
+          0.2439,
+          0.479
+        ],
+        "area": 0.0975,
+        "texture": {
+          "points": 75,
+          "coverage": 0.625
+        },
+        "tracking": "surface",
+        "scores": {
+          "size": 0.5096,
+          "texture": 0.9571,
+          "fit": 0.787,
+          "total": 0.8598
+        },
+        "ink": {
+          "color": "#f4eee2",
+          "shadow": "soft",
+          "luminance": 0.3353,
+          "contrast": 6.37
+        },
+        "reasons": [
+          "75 points of detail to follow, spread over 63% of the title",
+          "covers 10% of the frame",
+          "red plank wall"
+        ]
+      },
+      {
+        "id": "vision-ground-0",
+        "kind": "ground",
+        "label": "Ground",
+        "source": "vision",
+        "plane": [
+          0.05,
+          0.62,
+          0.95,
+          0.62,
+          0.99,
+          0.98,
+          0.01,
+          0.98
+        ],
+        "placement": [
+          0.1145,
+          0.7009,
+          0.8855,
+          0.7009,
+          0.8932,
+          0.7832,
+          0.1068,
+          0.7832
+        ],
+        "area": 0.3494,
+        "texture": {
+          "points": 0,
+          "coverage": 0
+        },
+        "tracking": "fixed",
+        "scores": {
+          "size": 1,
+          "texture": 0,
+          "fit": 1,
+          "total": 0.694
+        },
+        "ink": {
+          "color": "#1b1915",
+          "shadow": "soft",
+          "luminance": 0.9569,
+          "contrast": 15.66
+        },
+        "reasons": [
+          "almost no detail to follow: it can be placed but not tracked",
+          "covers 35% of the frame",
+          "deep snow in front of the cabin"
+        ]
+      }
+    ],
+    "rejected": [
+      {
+        "kind": "ground",
+        "source": "band",
+        "plane": [
+          0,
+          0.595,
+          1,
+          0.595,
+          1,
+          0.97,
+          0,
+          0.97
+        ],
+        "reason": "overlaps a better ground"
+      }
+    ]
+  },
+  {
+    "label": "snow-window-view",
+    "ms": 104,
+    "horizonY": 0.45,
+    "lines": 26,
+    "candidates": [
+      {
+        "id": "lines-wall-2",
+        "kind": "wall",
+        "label": "Wall",
+        "source": "lines",
+        "plane": [
+          0.1111,
+          0.4559,
+          0.7812,
+          0.4955,
+          0.7912,
+          0.6563,
+          0.1111,
+          0.6563
+        ],
+        "placement": [
+          0.177,
+          0.5241,
+          0.7406,
+          0.5465,
+          0.7438,
+          0.6016,
+          0.1774,
+          0.5904
+        ],
+        "area": 0.1191,
+        "texture": {
+          "points": 80,
+          "coverage": 0.8125
+        },
+        "tracking": "surface",
+        "scores": {
+          "size": 0.5746,
+          "texture": 1,
+          "fit": 0.9067,
+          "total": 0.7244
+        },
+        "ink": {
+          "color": "#f4eee2",
+          "shadow": "soft",
+          "luminance": 0.4025,
+          "contrast": 4.9
+        },
+        "reasons": [
+          "80 points of detail to follow, spread over 81% of the title",
+          "covers 12% of the frame"
+        ]
+      },
+      {
+        "id": "vision-sky-0",
+        "kind": "sky",
+        "label": "Sky",
+        "source": "vision",
+        "plane": [
+          0.18,
+          0.03,
+          0.92,
+          0.03,
+          0.92,
+          0.36,
+          0.18,
+          0.36
+        ],
+        "placement": [
+          0.2392,
+          0.1853,
+          0.8608,
+          0.1853,
+          0.8608,
+          0.2519,
+          0.2392,
+          0.2519
+        ],
+        "area": 0.2414,
+        "texture": {
+          "points": 0,
+          "coverage": 0
+        },
+        "tracking": "fixed",
+        "scores": {
+          "size": 0.8777,
+          "texture": 0,
+          "fit": 0.5285,
+          "total": 0.3222
+        },
+        "ink": {
+          "color": "#1b1915",
+          "shadow": "strong",
+          "luminance": 0.5908,
+          "contrast": 5.87
+        },
+        "reasons": [
+          "almost no detail to follow: it can be placed but not tracked",
+          "covers 24% of the frame",
+          "an edge runs across it, so it may be two surfaces",
+          "sky through the window"
+        ]
+      }
+    ],
+    "rejected": [
+      {
+        "kind": "window",
+        "source": "vision",
+        "plane": [
+          0.1111,
+          0.02,
+          0.94,
+          0.02,
+          0.94,
+          0.6563,
+          0.1111,
+          0.6563
+        ],
+        "reason": "an edge runs straight across it: it is two surfaces, not one"
+      },
+      {
+        "kind": "wall",
+        "source": "lines",
+        "plane": [
+          0.1111,
+          0.4762,
+          0.7792,
+          0.4631,
+          0.8002,
+          0.8014,
+          0.1111,
+          0.7607
+        ],
+        "reason": "an edge runs straight across it: it is two surfaces, not one"
+      },
+      {
+        "kind": "ground",
+        "source": "band",
+        "plane": [
+          0.1731,
+          0.87,
+          0.9808,
+          0.87,
+          1,
+          0.97,
+          0,
+          0.97
+        ],
+        "reason": "no legible title fits inside it, in the safe area"
+      },
+      {
+        "kind": "sky",
+        "source": "band",
+        "plane": [
+          0.03,
+          0.02,
+          0.97,
+          0.02,
+          0.97,
+          0.3894,
+          0.03,
+          0.3894
+        ],
+        "reason": "overlaps a better sky"
+      }
+    ]
+  },
+  {
+    "label": "villa-1",
+    "ms": 104,
+    "horizonY": null,
+    "lines": 48,
+    "candidates": [
+      {
+        "id": "vision-floor-1",
+        "kind": "floor",
+        "label": "Floor",
+        "source": "vision",
+        "plane": [
+          0,
+          0.8005,
+          1,
+          0.8201,
+          1,
+          0.99,
+          0,
+          0.99
+        ],
+        "placement": [
+          0.2713,
+          0.8096,
+          0.6714,
+          0.8172,
+          0.6714,
+          0.859,
+          0.2713,
+          0.8531
+        ],
+        "area": 0.1716,
+        "texture": {
+          "points": 24,
+          "coverage": 0.0625
+        },
+        "tracking": "fixed",
+        "scores": {
+          "size": 0.7152,
+          "texture": 0.5157,
+          "fit": 0.7688,
+          "total": 0.7335
+        },
+        "ink": {
+          "color": "#1b1915",
+          "shadow": "strong",
+          "luminance": 0.6053,
+          "contrast": 6.15
+        },
+        "reasons": [
+          "detail is bunched in one part: it can be placed but not tracked",
+          "covers 17% of the frame",
+          "pale floor"
+        ]
+      },
+      {
+        "id": "vision-wall-0",
+        "kind": "wall",
+        "label": "Wall",
+        "source": "vision",
+        "plane": [
+          0,
+          0.29,
+          0.8914,
+          0.3004,
+          0.908,
+          0.5683,
+          0,
+          0.6
+        ],
+        "placement": [
+          0.0819,
+          0.3996,
+          0.8345,
+          0.396,
+          0.8389,
+          0.4719,
+          0.0824,
+          0.4855
+        ],
+        "area": 0.2586,
+        "texture": {
+          "points": 28,
+          "coverage": 0.125
+        },
+        "tracking": "fixed",
+        "scores": {
+          "size": 0.9148,
+          "texture": 0.6314,
+          "fit": 0.4359,
+          "total": 0.4253
+        },
+        "ink": {
+          "color": "#1b1915",
+          "shadow": "soft",
+          "luminance": 0.7467,
+          "contrast": 9.31
+        },
+        "reasons": [
+          "detail is bunched in one part: it can be placed but not tracked",
+          "covers 26% of the frame",
+          "something stands in front of part of it",
+          "an edge runs across it, so it may be two surfaces",
+          "cream wall behind the sofa"
+        ]
+      }
+    ],
+    "rejected": [
+      {
+        "kind": "wall",
+        "source": "lines",
+        "plane": [
+          0.3828,
+          0.6875,
+          0.9054,
+          0.6875,
+          0.8865,
+          0.763,
+          0.2877,
+          0.8346
+        ],
+        "reason": "too small to be convincing from edges alone"
+      }
+    ]
+  },
+  {
+    "label": "villa-2",
+    "ms": 54,
+    "horizonY": 0.5,
+    "lines": 48,
+    "candidates": [
+      {
+        "id": "vision-floor-0",
+        "kind": "floor",
+        "label": "Floor",
+        "source": "vision",
+        "plane": [
+          0.02,
+          0.7,
+          0.9389,
+          0.7,
+          0.9389,
+          0.98,
+          0.02,
+          0.98
+        ],
+        "placement": [
+          0.0935,
+          0.7386,
+          0.8654,
+          0.7386,
+          0.8654,
+          0.8214,
+          0.0935,
+          0.8214
+        ],
+        "area": 0.25,
+        "texture": {
+          "points": 17,
+          "coverage": 0.3125
+        },
+        "tracking": "surface",
+        "scores": {
+          "size": 0.8964,
+          "texture": 0.5186,
+          "fit": 1,
+          "total": 0.8643
+        },
+        "ink": {
+          "color": "#1b1915",
+          "shadow": "soft",
+          "luminance": 0.738,
+          "contrast": 9.09
+        },
+        "reasons": [
+          "17 points of detail to follow, spread over 31% of the title",
+          "covers 25% of the frame",
+          "marble floor"
+        ]
+      },
+      {
+        "id": "vision-ceiling-1",
+        "kind": "ceiling",
+        "label": "Ceiling",
+        "source": "vision",
+        "plane": [
+          0.12,
+          0.04,
+          0.8474,
+          0.04,
+          0.8611,
+          0.26,
+          0.12,
+          0.26
+        ],
+        "placement": [
+          0.1786,
+          0.1317,
+          0.7945,
+          0.1317,
+          0.7983,
+          0.1979,
+          0.179,
+          0.1979
+        ],
+        "area": 0.1617,
+        "texture": {
+          "points": 13,
+          "coverage": 0.0625
+        },
+        "tracking": "fixed",
+        "scores": {
+          "size": 0.6902,
+          "texture": 0.2957,
+          "fit": 0.9491,
+          "total": 0.6981
+        },
+        "ink": {
+          "color": "#1b1915",
+          "shadow": "strong",
+          "luminance": 0.6118,
+          "contrast": 6.27
+        },
+        "reasons": [
+          "detail is bunched in one part: it can be placed but not tracked",
+          "covers 16% of the frame",
+          "white ceiling"
+        ]
+      }
+    ],
+    "rejected": [
+      {
+        "kind": "ground",
+        "source": "band",
+        "plane": [
+          0.2314,
+          0.77,
+          0.8059,
+          0.77,
+          1,
+          0.97,
+          0,
+          0.97
+        ],
+        "reason": "overlaps a better floor"
+      }
+    ]
+  },
+  {
+    "label": "villa-3",
+    "ms": 115,
+    "horizonY": 0.5111,
+    "lines": 48,
+    "candidates": [
+      {
+        "id": "vision-wall-0",
+        "kind": "wall",
+        "label": "Wall",
+        "source": "vision",
+        "plane": [
+          0.0556,
+          0.1679,
+          0.28,
+          0.2,
+          0.28,
+          0.55,
+          0.0556,
+          0.5901
+        ],
+        "placement": [
+          0.0769,
+          0.3673,
+          0.2649,
+          0.3656,
+          0.2649,
+          0.3849,
+          0.0769,
+          0.3899
+        ],
+        "area": 0.0772,
+        "texture": {
+          "points": 37,
+          "coverage": 0
+        },
+        "tracking": "fixed",
+        "scores": {
+          "size": 0.4428,
+          "texture": 0.6,
+          "fit": 0.3349,
+          "total": 0.3809
+        },
+        "ink": {
+          "color": "#1b1915",
+          "shadow": "soft",
+          "luminance": 0.6421,
+          "contrast": 6.89
+        },
+        "reasons": [
+          "detail is bunched in one part: it can be placed but not tracked",
+          "covers 8% of the frame",
+          "an edge runs across it, so it may be two surfaces",
+          "beige wall panel"
+        ]
+      }
+    ],
+    "rejected": [
+      {
+        "kind": "floor",
+        "source": "vision",
+        "plane": [
+          0.2956,
+          0.84,
+          0.9549,
+          0.84,
+          0.98,
+          0.99,
+          0.02,
+          0.99
+        ],
+        "reason": "no legible title fits inside it, in the safe area"
+      },
+      {
+        "kind": "floor",
+        "source": "lines",
+        "plane": [
+          0.0556,
+          0.5586,
+          0.7416,
+          0.5451,
+          0.7205,
+          0.6584,
+          0.0556,
+          0.7243
+        ],
+        "reason": "an edge runs straight across it: it is two surfaces, not one"
+      },
+      {
+        "kind": "floor",
+        "source": "lines",
+        "plane": [
+          0.0556,
+          0.6691,
+          0.7561,
+          0.6277,
+          0.7605,
+          0.6988,
+          0.0556,
+          0.7688
+        ],
+        "reason": "an edge runs straight across it: it is two surfaces, not one"
+      }
+    ]
+  },
+  {
+    "label": "villa-5",
+    "ms": 97,
+    "horizonY": null,
+    "lines": 48,
+    "candidates": [
+      {
+        "id": "vision-ceiling-1",
+        "kind": "ceiling",
+        "label": "Ceiling",
+        "source": "vision",
+        "plane": [
+          0,
+          0.02,
+          0.9605,
+          0.02,
+          0.9493,
+          0.2,
+          0,
+          0.2
+        ],
+        "placement": [
+          0.1106,
+          0.0933,
+          0.9136,
+          0.0933,
+          0.9085,
+          0.1789,
+          0.11,
+          0.1789
+        ],
+        "area": 0.1784,
+        "texture": {
+          "points": 10,
+          "coverage": 0.125
+        },
+        "tracking": "fixed",
+        "scores": {
+          "size": 0.7321,
+          "texture": 0.2714,
+          "fit": 1,
+          "total": 0.7162
+        },
+        "ink": {
+          "color": "#1b1915",
+          "shadow": "soft",
+          "luminance": 0.6681,
+          "contrast": 7.45
+        },
+        "reasons": [
+          "detail is bunched in one part: it can be placed but not tracked",
+          "covers 18% of the frame",
+          "white ceiling"
+        ]
+      },
+      {
+        "id": "vision-wall-0",
+        "kind": "wall",
+        "label": "Wall",
+        "source": "vision",
+        "plane": [
+          0.2221,
+          0.3012,
+          0.88,
+          0.32,
+          0.88,
+          0.5176,
+          0.1715,
+          0.5037
+        ],
+        "placement": [
+          0.2609,
+          0.3695,
+          0.8275,
+          0.384,
+          0.8263,
+          0.4446,
+          0.2467,
+          0.4313
+        ],
+        "area": 0.1346,
+        "texture": {
+          "points": 30,
+          "coverage": 0.375
+        },
+        "tracking": "surface",
+        "scores": {
+          "size": 0.6181,
+          "texture": 0.8143,
+          "fit": 0.4922,
+          "total": 0.4434
+        },
+        "ink": {
+          "color": "#1b1915",
+          "shadow": "strong",
+          "luminance": 0.5065,
+          "contrast": 4.43
+        },
+        "reasons": [
+          "30 points of detail to follow, spread over 38% of the title",
+          "covers 13% of the frame",
+          "an edge runs across it, so it may be two surfaces",
+          "padded wall above the bed"
+        ]
+      },
+      {
+        "id": "band-ground-8",
+        "kind": "ground",
+        "label": "Floor or ground",
+        "source": "band",
+        "plane": [
+          0,
+          0.8231,
+          1,
+          0.8231,
+          1,
+          0.97,
+          0,
+          0.97
+        ],
+        "placement": [
+          0.3579,
+          0.8289,
+          0.6421,
+          0.8289,
+          0.6421,
+          0.8593,
+          0.3579,
+          0.8593
+        ],
+        "area": 0.1481,
+        "texture": {
+          "points": 13,
+          "coverage": 0
+        },
+        "tracking": "fixed",
+        "scores": {
+          "size": 0.6549,
+          "texture": 0.26,
+          "fit": 0.6757,
+          "total": 0.4232
+        },
+        "ink": {
+          "color": "#1b1915",
+          "shadow": "soft",
+          "luminance": 0.7352,
+          "contrast": 9.02
+        },
+        "reasons": [
+          "detail is bunched in one part: it can be placed but not tracked",
+          "covers 15% of the frame",
+          "a smooth band across the bottom"
+        ]
+      }
+    ],
+    "rejected": [
+      {
+        "kind": "floor",
+        "source": "vision",
+        "plane": [
+          0.0077,
+          0.84,
+          0.9454,
+          0.84,
+          0.964,
+          0.99,
+          0.017,
+          0.99
+        ],
+        "reason": "no legible title fits inside it, in the safe area"
+      },
+      {
+        "kind": "wall",
+        "source": "lines",
+        "plane": [
+          0.1135,
+          0.3057,
+          0.9448,
+          0.273,
+          0.9254,
+          0.5841,
+          0.1298,
+          0.5685
+        ],
+        "reason": "an edge runs straight across it: it is two surfaces, not one"
+      },
+      {
+        "kind": "wall",
+        "source": "lines",
+        "plane": [
+          0.1135,
+          0.3057,
+          0.6611,
+          0.2841,
+          0.6611,
+          0.5133,
+          0.1257,
+          0.5028
+        ],
+        "reason": "an edge runs across it, and nothing but edges vouches for it"
+      },
+      {
+        "kind": "wall",
+        "source": "lines",
+        "plane": [
+          0.1135,
+          0.3057,
+          0.7943,
+          0.2789,
+          0.7606,
+          0.8211,
+          0.1417,
+          0.7598
+        ],
+        "reason": "an edge runs straight across it: it is two surfaces, not one"
+      },
+      {
+        "kind": "wall",
+        "source": "lines",
+        "plane": [
+          0.1257,
+          0.5028,
+          0.7688,
+          0.5154,
+          0.7132,
+          0.738,
+          0.1375,
+          0.6925
+        ],
+        "reason": "an edge runs across it, and nothing but edges vouches for it"
+      },
+      {
+        "kind": "sky",
+        "source": "band",
+        "plane": [
+          0.03,
+          0.02,
+          0.97,
+          0.02,
+          0.97,
+          0.1706,
+          0.03,
+          0.1706
+        ],
+        "reason": "overlaps a better ceiling"
+      }
+    ]
+  }
+]

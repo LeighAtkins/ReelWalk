@@ -64,6 +64,7 @@ model Workspace {
   workflowRuns WorkflowRun[]
   presenters Presenter[]
   variantGroups VariantGroup[]
+  funnelEvents FunnelEvent[]
 
   // Set by the Stripe webhook from the subscription (plans in @reelwalk/core).
   plan                 Plan      @default(FREE)
@@ -194,6 +195,9 @@ model User {
   passwordHash String?
   // May open /admin/*. Set by hand (packages/db/scripts/set-admin.ts), never by the app.
   isAdmin     Boolean     @default(false)
+  // Where the person came from, captured at sign-up from the UTM and click-id
+  // parameters on the link they followed (apps/web/lib/attribution.ts, ADR 0080). Null when none.
+  attribution Json?
   workspaceId String
   workspace   Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   createdAt   DateTime    @default(now())
@@ -205,6 +209,7 @@ model User {
   scheduledPosts ScheduledPost[]
   aiGenerations AiGeneration[]
   oauthGrants OAuthGrant[]
+  funnelEvents FunnelEvent[]
 }
 
 // A "forgot your password" link. The email carries a random token; only its
@@ -260,6 +265,27 @@ model AuthThrottle {
   windowStart DateTime @default(now())
 
   @@index([windowStart])
+}
+
+// A step in the sign-up funnel, recorded on our own server (ADR 0080): signup,
+// first_export, checkout_started, subscribed. The base any ad pixel or
+// Conversions API call reads later. No email or name is stored here; the row
+// outlives an account deletion without them (userId and workspaceId go null).
+// eventKey makes an event that should happen once per thing idempotent.
+model FunnelEvent {
+  id          String     @id @default(cuid())
+  name        String
+  userId      String?
+  user        User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
+  workspaceId String?
+  workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+  eventKey    String?    @unique
+  // The attribution captured at sign-up (utm_*, gclid, fbclid) and what the event is about (plan, interval, amount).
+  data        Json?
+  createdAt   DateTime   @default(now())
+
+  @@index([name, createdAt])
+  @@index([userId])
 }
 
 // ── Connected apps: the MCP connector's OAuth 2.1 server (ADR 0077) ──

@@ -156,7 +156,7 @@ export default async function ExportPage({
                   <InstagramPublishing jobId={job.id} username={instagram.username} live={isInstagramConfigured() || isFakeInstagram()} reelSound={reelSound} scheduledSound={scheduledSound} aiContent={aiContent} story={story} blocked={gate.blocked ? gate.reasons : null} />
                 ) : null}
                 {planId === "FREE" && isInstagramConfigured() ? (
-                  <Link className="btn btn-quiet" href="/account#plan" prefetch={false}>
+                  <Link className="btn btn-quiet export-upsell" href="/account#plan" prefetch={false}>
                     Post straight to Instagram with Agent
                   </Link>
                 ) : null}

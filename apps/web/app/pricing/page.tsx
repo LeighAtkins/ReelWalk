@@ -4,6 +4,7 @@ import { SiteFooter, SiteHeader } from "@/components/landing/landing";
 import styles from "@/components/landing/landing.module.css";
 import { PricingSection } from "@/components/landing/pricing";
 import { TabBar } from "@/components/tab-bar";
+import { pickAttribution, withAttribution } from "@/lib/attribution";
 import { getSessionUser } from "@/lib/auth";
 import { workspacePlan } from "@/lib/plans";
 import { isBillingConfigured, isIntervalAvailable } from "@/lib/stripe";
@@ -19,14 +20,16 @@ export const metadata: Metadata = {
  * section between its header and footer; signed in, the same cards open
  * Stripe Checkout at the chosen interval, inside the app's shell.
  */
-export default async function PricingPage() {
+export default async function PricingPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const user = await getSessionUser();
   if (!user) {
+    // Ad parameters on the link to /pricing travel on to sign-up (ADR 0080).
+    const attribution = pickAttribution(await searchParams);
     return (
       <div className={styles.page}>
-        <SiteHeader />
+        <SiteHeader plansHref="#pricing" attribution={attribution} />
         <main className={styles.main}>
-          <PricingSection viewer={{ signedIn: false }} />
+          <PricingSection viewer={{ signedIn: false, signupHref: withAttribution("/signup", attribution) }} />
         </main>
         <SiteFooter />
       </div>

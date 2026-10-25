@@ -3,6 +3,8 @@ import { addClips, clipDurationMs, clipSchema, clipStartsMs, type Clip, type Fil
 import { luxuryFinish } from "./cinematic";
 import { CHAINED_REFERENCE_MESSAGE, PRESENTER_FRAMINGS, defaultFraming, isGeneratedAssetId, type PresenterFraming } from "./presenter";
 import { aiDirectionSchema, directionPrompt, hasDirection } from "./direction";
+import { MOVE_IDS, moveById, type MoveId } from "./moves";
+import { AI_DRAFT_NO_END_FRAME } from "./ai";
 
 /**
  * The listing shots a gimbal operator makes on every job (ADR 0040), as Veo
@@ -23,23 +25,11 @@ export const AI_SHOT_LABELS: Record<AiShotMode, string> = {
   "pull-back": "Pull back · walk backwards, level", "detail-orbit": "Detail · creep in, orbit the object",
   static: "Static · locked off, let it move",
 };
-/** How the operator gets each move, for the panel and for Opus: lens, hands, body. */
-export const AI_CAMERA_MOVE_RECIPES: Record<AiCameraMove, { lens: string; hands: string; prompt: string }> = {
-  cathedral: { lens: "12–24 mm, wide", hands: "Lens tilted up. Walk across the space while twisting slowly so the camera arcs around the room.",
-    prompt: "Ultra-wide lens tilted up toward the ceiling and upper walls. The camera walks sideways across the room while slowly rotating, so the architecture arcs past: a slow lateral arc that keeps the ceiling, cornices and tall openings in frame. Smooth gimbal motion, constant slow speed, no shake, no cuts." },
-  twist: { lens: "12–24 mm, wide · opening shots", hands: "Lens pointed at the sky. Lower it to the facade while twisting the wrist left.",
-    prompt: "Opening move: the ultra-wide lens starts pointed at the sky above the building, then lowers smoothly onto the facade while the frame rolls gently to level, a slow wrist twist that straightens as the house settles into the composition. Smooth gimbal motion, one continuous move, no cuts." },
-  tilt: { lens: "12–24 mm, wide", hands: "Walk forward. Arms stay put; the hands tilt the camera up.",
-    prompt: "Ultra-wide lens. The camera walks slowly forward into the space while tilting up from the floor toward the ceiling and skylights, a steady forward push and rising tilt in one motion. Smooth gimbal motion, no shake, no cuts." },
-  "wide-walk": { lens: "12–24 mm, wide", hands: "Camera locked straight. Walk forward.",
-    prompt: "Ultra-wide lens locked level and straight ahead. The camera walks slowly forward through the room at a constant pace with no pan or tilt, a clean straight push. Smooth gimbal motion, no shake, no cuts." },
-  "pull-back": { lens: "35 mm, medium", hands: "Walk backwards slowly. Keep it level.",
-    prompt: "Medium 35 mm lens held level. The camera walks slowly backwards away from the subject, revealing more of the room, with the horizon kept level and the framing centred. Smooth gimbal motion, constant slow speed, no cuts." },
-  "detail-orbit": { lens: "24–70 mm", hands: "Body creeps forward; the wrist twists slowly to orbit the detail.",
-    prompt: "24–70 mm lens on a close detail: a tap, a handle, a light, a texture. The camera creeps forward very slowly while twisting around the detail, a tight partial orbit that keeps the detail centred and shallow focus on it. Smooth gimbal motion, no cuts." },
-  static: { lens: "24–70 mm on a tripod", hands: "Hands off. Let the water, light or curtains move.",
-    prompt: "Camera locked off on a tripod, perfectly still, 24–70 mm. Nothing moves but the scene itself: water, curtains, leaves, light. Hold the exact composition for the whole take, no camera motion at all." },
-};
+/** How the operator gets each move, for the panel and for Opus: lens, hands, body. The words live in the moves table (ADR 0076). */
+export const AI_CAMERA_MOVE_RECIPES = Object.fromEntries(AI_CAMERA_MOVES.map(move => {
+  const { lens, hands, prompt } = moveById(move).ai;
+  return [move, { lens, hands, prompt }];
+})) as Record<AiCameraMove, { lens: string; hands: string; prompt: string }>;
 export const isCameraMove = (mode: AiShotMode): mode is AiCameraMove => (AI_CAMERA_MOVES as readonly string[]).includes(mode);
 export const AI_SHOT_STYLES = ["auto", "source", "neon", "refined", "modern"] as const;
 export type AiShotStyle = typeof AI_SHOT_STYLES[number];
@@ -54,8 +44,8 @@ export const AI_SHOT_ATMOSPHERE_LABELS: Record<AiShotAtmosphere, string> = {
 };
 export const aiConnectsClips = (mode: AiShotMode) => ["bridge", "burst", "construction"].includes(mode);
 /** Timelapses need the full 8 seconds to progress; every other move fits a 4-second clip. */
-export const aiDefaultClipSeconds = (mode?: AiShotMode): 4 | 8 => mode === "day-night" || mode === "construction" ? 8 : 4;
-export const aiReplacesStill = (mode: AiShotMode) => ["gimbal", "drone", "orbit", "fly-through", "day-night"].includes(mode) || isCameraMove(mode);
+export const aiDefaultClipSeconds = (mode?: AiShotMode, move?: MoveId): 4 | 8 => mode === "day-night" || mode === "construction" ? 8 : move ? moveById(move).ai.seconds : 4;
+export const aiReplacesStill = (mode: AiShotMode, move?: MoveId) => ["gimbal", "drone", "orbit", "fly-through", "day-night"].includes(mode) || isCameraMove(mode) || Boolean(move && !aiConnectsClips(mode));
 const frame = z.object({
   assetId: z.string().min(1).max(64), atMs: z.number().int().min(0).max(86_400_000).default(0),
 });
@@ -99,6 +89,14 @@ export const aiScriptMetaSchema = z.object({
 export type AiScriptMeta = z.infer<typeof aiScriptMetaSchema>;
 export const aiShotSchema = z.object({
   mode: z.enum(AI_SHOT_MODES), first: frame.optional(), last: frame.optional(),
+  /** A named camera move from the moves table (ADR 0076): its words replace the mode's own camera sentence. */
+  move: z.enum(MOVE_IDS).optional(),
+  /** A draft is the cheap preview tier (ADR 0076): Veo 3.1 Lite at 720p, silent, no ending frame. Absent means a full take. */
+  tier: z.enum(["draft", "final"]).optional(),
+  /** The seed the take was asked for, so "Make it final" asks the closest reproducible take. Absent: the provider chose. */
+  seed: z.number().int().min(0).max(4_294_967_295).optional(),
+  /** On a final made from a draft: the draft's generation id, whose credit it uses. */
+  finalOf: z.string().min(1).max(64).optional(),
   script: aiScriptMetaSchema.optional(),
   style: z.enum(AI_SHOT_STYLES).optional(), atmosphere: z.enum(AI_SHOT_ATMOSPHERES).optional(),
   energy: z.enum(["subtle", "bold"]).optional(), harmonize: z.boolean().optional(),
@@ -116,6 +114,9 @@ export const aiShotSchema = z.object({
   if (shot.mode !== "custom" && !shot.first) ctx.addIssue({ code: "custom", message: "Choose a source image or video." });
   if (aiConnectsClips(shot.mode) && !shot.last) ctx.addIssue({ code: "custom", message: "Choose an ending frame (the completed building for a construction timelapse)." });
   if (shot.last && !shot.first) ctx.addIssue({ code: "custom", message: "An ending frame needs a starting frame." });
+  if (shot.move && aiConnectsClips(shot.mode)) ctx.addIssue({ code: "custom", message: "A camera move is for a single shot; a bridge, burst or construction timelapse has its own move." });
+  if (shot.tier === "draft" && shot.last) ctx.addIssue({ code: "custom", message: AI_DRAFT_NO_END_FRAME });
+  if (shot.finalOf && shot.tier === "draft") ctx.addIssue({ code: "custom", message: "A final made from a draft is not itself a draft." });
   if (shot.voice && !shot.line) ctx.addIssue({ code: "custom", message: "A voiced shot needs a line to say." });
   if (shot.compose?.first && !shot.first) ctx.addIssue({ code: "custom", message: "A composed starting frame needs a starting frame." });
   if (shot.compose?.last && !shot.last) ctx.addIssue({ code: "custom", message: "A composed ending frame needs an ending frame." });
@@ -128,7 +129,7 @@ export const aiShotSchema = z.object({
   if (shot.next && shot.last && JSON.stringify(aiBoundary(shot.next, false)) !== JSON.stringify(shot.last)) {
     ctx.addIssue({ code: "custom", message: "The next clip no longer matches its ending frame." });
   }
-  if (aiReplacesStill(shot.mode) && shot.anchor?.kind === "IMAGE" && clipDurationMs(shot.anchor) > 32000) {
+  if (aiReplacesStill(shot.mode, shot.move) && shot.anchor?.kind === "IMAGE" && clipDurationMs(shot.anchor) > 32000) {
     ctx.addIssue({ code: "custom", message: "Trim this still to 32 seconds or less before animating it." });
   }
   // The composed framing is settled here, where the voice is known: a spoken line is composed close unless asked otherwise (ADR 0069).
@@ -186,8 +187,11 @@ export function aiShotPrompt(mode: AiShotMode, direction: string, recipe?: AiSho
     mist: "Use delicate atmospheric mist and soft diffused light, keeping the property clearly visible.",
     rain: "Use cinematic light rain, wet exterior surfaces and believable reflections, keeping interior spaces dry.",
   };
+  // A named move (ADR 0076) replaces the mode's camera sentence, unless the studio's own words already carry it.
+  const move = shot.move && !aiConnectsClips(mode) ? moveById(shot.move) : undefined;
+  const moveText = move && !direction.includes(move.ai.prompt) ? `${shot.first ? "Start exactly from the supplied first frame. " : ""}${move.ai.prompt}` : "";
   const preserveLight = (shot.atmosphere ?? "source") === "source" && aiShotStyle(shot) === "source" && !["day-night", "construction"].includes(mode);
-  return [moves[mode],
+  return [move ? moveText : moves[mode],
     mode === "construction" ? "Preserve the completed building's design and site boundaries from the ending reference." : "Preserve the property's architecture, room layout, openings, furniture and materials.",
     preserveLight ? "Keep reference lighting unchanged." : "Lighting, weather and colour may evolve according to the chosen treatment; keep geometry and materials consistent.",
     styles[aiShotStyle(shot)],
@@ -218,7 +222,7 @@ export function insertAiShot(timeline: Timeline, generated: Clip, shot: AiShot):
   if (shot.anchor && (index < 0 || !same(timeline.clips[index], shot.anchor))) return timeline;
   if (shot.next && !same(timeline.clips[index + 1], shot.next)) return timeline;
   const bridge = aiConnectsClips(shot.mode);
-  const replace = aiReplacesStill(shot.mode) && shot.anchor?.kind === "IMAGE";
+  const replace = aiReplacesStill(shot.mode, shot.move) && shot.anchor?.kind === "IMAGE";
   // Generated clips are 4 or 8 seconds; full-length modes play at 1x, moves fit 4 s, bursts 2 s.
   const sourceMs = generated.sourceEndMs - generated.sourceStartMs;
   const duration = replace ? clipDurationMs(shot.anchor!) : shot.mode === "burst" ? Math.min(2000, sourceMs)

@@ -16,6 +16,7 @@ export * from "./save-merge";
 export * from "./cutaways";
 export * from "./cinematic";
 export * from "./camera";
+export * from "./moves";
 export * from "./ramp";
 export * from "./frames";
 export * from "./speed-ramp-params";

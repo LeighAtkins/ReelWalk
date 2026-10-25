@@ -1,5 +1,7 @@
-import { AI_VIDEO_MODEL, CHAINED_REFERENCE_MESSAGE, aiClipCostCents, aiDefaultClipSeconds, aiShotSchema, aiShotPrompt, composeFraming, directionStill, hasDirection, isEquirect, isGeneratedAssetId, referenceDepthOf } from "@reelwalk/core";
+import { randomInt } from "node:crypto";
+import { AI_DRAFT_MODEL, AI_VIDEO_MODEL, CHAINED_REFERENCE_MESSAGE, MOVE_IDS, aiClipCostCents, aiDefaultClipSeconds, aiDraftCostCents, aiShotSchema, aiShotPrompt, composeFraming, directionStill, hasDirection, isEquirect, isGeneratedAssetId, parseStoredAiShot, referenceDepthOf, type AiShot } from "@reelwalk/core";
 import { aiCreditSummary, prisma, reserveAiGeneration } from "@reelwalk/db";
+import type { Prisma } from "@reelwalk/db";
 import { z } from "zod";
 import { mediaScope } from "./workspace";
 import { storageBlockedReason } from "./quotas";
@@ -26,14 +28,60 @@ export const generationInput = z.object({
   referenceAssetId: z.string().min(1).max(64).optional(),
   shot: aiShotSchema.optional(),
   durationSeconds: z.union([z.literal(4), z.literal(8)]).optional(),
+  /** A named camera move from the moves table (ADR 0076): its words replace the mode's camera sentence. */
+  move: z.enum(MOVE_IDS).optional(),
+  /** "draft" is the cheap preview tier (ADR 0076); absent or "final" is the full take. */
+  quality: z.enum(["draft", "final"]).optional(),
+  /** Make this finished draft final: the same prompt, frames and seed on the full model, the draft's credit used toward the price. */
+  finalOf: z.string().min(1).max(64).optional(),
 });
 
-export async function createAiGeneration(user: { id: string; workspaceId: string; email: string }, input: z.infer<typeof generationInput>, options: { exactPrompt?: boolean } = {}) {
+type AiUser = { id: string; workspaceId: string; email: string };
+
+async function assertMayGenerate(user: AiUser) {
   if (!aiVideoConfigured()) throw new Error("AI video is being connected. Please check back soon.");
   // The shared demo is public and must never spend the trial credit.
   if (user.email === "demo@reelwalk.local") throw new Error("Create your own account to try AI video.");
   const storageError = await storageBlockedReason(user.workspaceId, 100 * 1024 * 1024, "An AI clip");
   if (storageError) throw new Error(storageError);
+}
+
+/**
+ * "Make it final" (ADR 0076): the finished draft's prompt, frames, presenter and seed again on the full model. Everything
+ * the draft was asked is read back from its row, never from the browser, so the final is the closest reproducible take;
+ * the worker composes and gates the stills again as for any take. The draft's credit is used toward the price inside the
+ * reservation, under the account lock.
+ */
+async function createFinal(user: AiUser, input: z.infer<typeof generationInput>) {
+  const draft = await prisma.aiGeneration.findFirst({ where: { id: input.finalOf, workspaceId: user.workspaceId, status: "SUCCEEDED" } });
+  const stored = draft ? parseStoredAiShot(draft.shot) : null;
+  if (!draft || !stored?.success || stored.data.tier !== "draft") throw new Error("Make it final needs a finished draft from this workspace.");
+  const shot: AiShot = { ...stored.data, tier: "final", finalOf: draft.id };
+  const voiced = Boolean(shot.voice && shot.line);
+  if (voiced && !aiVoiceConfigured()) throw new Error("Voiced shots are being connected. Please check back soon.");
+  const durationSeconds = draft.durationSeconds as 4 | 8;
+  const budgetCents = Number(process.env.AI_VIDEO_BUDGET_CENTS ?? 24000);
+  if (!Number.isSafeInteger(budgetCents) || budgetCents < aiClipCostCents(durationSeconds, voiced)) throw new Error("AI generation is temporarily paused.");
+  return reserveAiGeneration(prisma, {
+    workspaceId: user.workspaceId, userId: user.id, requestId: input.requestId, prompt: draft.prompt, shot: shot as Prisma.InputJsonValue,
+    frameSources: (draft.frameSources ?? undefined) as Prisma.InputJsonValue | undefined,
+    referenceKey: draft.referenceKey ?? undefined, referenceType: draft.referenceType ?? undefined,
+    model: AI_VIDEO_MODEL, durationSeconds, costCents: aiClipCostCents(durationSeconds, voiced), budgetCents, voiced,
+    presenterId: draft.presenterId ?? undefined, referenceDepth: draft.referenceDepth ?? undefined, tier: "final", finalOf: draft.id,
+  });
+}
+
+export async function createAiGeneration(user: AiUser, request: z.infer<typeof generationInput>, options: { exactPrompt?: boolean } = {}) {
+  await assertMayGenerate(user);
+  if (request.finalOf) return createFinal(user, request);
+  // A named move and the tier belong to the shot (ADR 0076), so they are stored with it and read back by the worker.
+  const draft = request.quality === "draft";
+  const merged = request.move || draft ? aiShotSchema.safeParse({
+    ...(request.shot ?? { mode: "custom" }), ...(request.move ? { move: request.move } : {}),
+    ...(draft ? { tier: "draft", seed: request.shot?.seed ?? randomInt(1, 2 ** 32), draftReelId: undefined } : {}),
+  }) : null;
+  if (merged && !merged.success) throw new Error(merged.error.issues[0]?.message || "Choose a valid shot.");
+  const input = { ...request, shot: merged?.data ?? request.shot };
   if (input.shot?.draftReelId && !await prisma.reel.findFirst({ where: { id: input.shot.draftReelId, workspaceId: user.workspaceId }, select: { id: true } })) {
     throw new Error("That source reel is no longer available.");
   }
@@ -80,18 +128,20 @@ export async function createAiGeneration(user: { id: string; workspaceId: string
     const described = written ? [written, acting].filter(Boolean).join(" ").slice(0, 1000) : undefined;
     frames.push({ key: asset.objectKey, kind: asset.kind, atMs: asset.kind === "IMAGE" ? 0 : frame.atMs, role, ...(described ? { compose: described, framing: input.shot ? composeFraming(input.shot) : "medium" } : {}) });
   }
-  const voiced = Boolean(input.shot?.voice);
+  // A draft is a silent preview: the voice is made, and charged, with the final.
+  const voiced = Boolean(input.shot?.voice) && !draft;
   if (voiced && !aiVoiceConfigured()) throw new Error("Voiced shots are being connected. Please check back soon.");
-  const durationSeconds = input.durationSeconds ?? aiDefaultClipSeconds(input.shot?.mode);
+  const durationSeconds = input.durationSeconds ?? aiDefaultClipSeconds(input.shot?.mode, input.shot?.move);
+  const costCents = draft ? aiDraftCostCents(durationSeconds) : aiClipCostCents(durationSeconds, voiced);
   const budgetCents = Number(process.env.AI_VIDEO_BUDGET_CENTS ?? 24000);
-  if (!Number.isSafeInteger(budgetCents) || budgetCents < aiClipCostCents(durationSeconds, voiced)) throw new Error("AI generation is temporarily paused.");
+  if (!Number.isSafeInteger(budgetCents) || budgetCents < costCents) throw new Error("AI generation is temporarily paused.");
   return reserveAiGeneration(prisma, {
     workspaceId: user.workspaceId, userId: user.id, requestId: input.requestId,
     prompt: input.shot && !options.exactPrompt ? aiShotPrompt(input.shot.mode, input.prompt, input.shot) : input.prompt,
     shot: input.shot, frameSources: frames.length ? frames : undefined,
     referenceKey: reference?.objectKey, referenceType: reference?.contentType,
-    model: AI_VIDEO_MODEL, durationSeconds, costCents: aiClipCostCents(durationSeconds, voiced), budgetCents, voiced,
-    presenterId: kit?.id, referenceDepth,
+    model: draft ? AI_DRAFT_MODEL : AI_VIDEO_MODEL, durationSeconds, costCents, budgetCents, voiced,
+    presenterId: kit?.id, referenceDepth, ...(draft ? { tier: "draft" as const } : {}),
   });
 }
 

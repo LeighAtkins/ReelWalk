@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { AI_PLAN_CREDITS, AI_QUEUE_LIMIT, AI_TRIAL_CREDITS, IN_FLIGHT_STATUSES, aiClipCredits, aiCreditWindow, queueDecision, type AiClipSeconds } from "@reelwalk/core";
+import { AI_DRAFT_CREDITS, AI_PLAN_CREDITS, AI_QUEUE_LIMIT, AI_TRIAL_CREDITS, IN_FLIGHT_STATUSES, aiClipCredits, aiCreditWindow, aiFinalCredits, queueDecision, type AiClipSeconds } from "@reelwalk/core";
 import type { Prisma, PrismaClient } from "./generated/prisma/client";
 
 type Tx = Prisma.TransactionClient;
@@ -61,6 +61,10 @@ export async function reserveAiGeneration(db: PrismaClient, input: {
   voiced?: boolean;
   /** The presenter kit the composed stills use, and how many generated hops the face reference is from a real one (ADR 0056). */
   presenterId?: string; referenceDepth?: number;
+  /** A draft (ADR 0076) costs one credit whatever its length; the voice is not made until the final. */
+  tier?: "draft" | "final";
+  /** The finished draft this take makes final: its credit is used toward the full price. A draft is made final once. */
+  finalOf?: string;
 }, now = new Date()) {
   return db.$transaction(async (tx) => {
     await lockBillingAccount(tx, input.workspaceId, now);
@@ -74,14 +78,22 @@ export async function reserveAiGeneration(db: PrismaClient, input: {
     if (inFlight >= AI_QUEUE_LIMIT) throw new AiCreditError(`The take queue is full (${AI_QUEUE_LIMIT} waiting or generating). Wait for one to finish.`);
     // Spend expiring monthly credits before lifetime trial/purchased credits.
     // An 8-second clip may draw on two grants, so plan the whole debit before taking any of it.
-    const credits = aiClipCredits(input.durationSeconds, input.voiced);
+    let credits = input.tier === "draft" ? AI_DRAFT_CREDITS : aiClipCredits(input.durationSeconds, input.voiced);
+    if (input.finalOf) {
+      // Under the account lock, so two taps on "Make it final" cannot both use the draft's credit.
+      const draft = await tx.aiGeneration.findFirst({ where: { id: input.finalOf, workspaceId: input.workspaceId, status: "SUCCEEDED" } });
+      if ((draft?.shot as { tier?: string } | null)?.tier !== "draft") throw new AiCreditError("Make it final needs a finished draft from this workspace.");
+      const taken = await tx.aiGeneration.count({ where: { workspaceId: input.workspaceId, status: { not: "FAILED" }, shot: { path: ["finalOf"], equals: draft!.id } } });
+      if (taken) throw new AiCreditError("This draft has already been made final.");
+      credits = aiFinalCredits(input.durationSeconds, Boolean(input.voiced), draft!.credits);
+    }
     const grants = await tx.$queryRaw<{ id: string; remaining: number }[]>`
       SELECT "id", "remaining" FROM "AiCreditGrant" WHERE "workspaceId" = ${input.workspaceId}
       AND "remaining" > 0 AND ("expiresAt" IS NULL OR "expiresAt" > ${now})
       ORDER BY "expiresAt" ASC NULLS LAST, "createdAt" ASC FOR UPDATE`;
     const available = grants.reduce((sum, grant) => sum + grant.remaining, 0);
     if (!available) throw new AiCreditError("No AI credits left. Choose a plan or add more credits in Account.");
-    if (available < credits) throw new AiCreditError(`${input.voiced ? "A voiced" : "An"} ${input.durationSeconds}-second clip needs ${credits} credits and you have ${available}. Choose 4 seconds or add credits in Account.`);
+    if (available < credits) throw new AiCreditError(`${input.tier === "draft" ? "A draft" : input.voiced ? "A voiced" : "An"} ${input.durationSeconds}-second clip needs ${credits} ${credits === 1 ? "credit" : "credits"} and you have ${available}. Choose 4 seconds or add credits in Account.`);
     const debits: { grantId: string; credits: number }[] = [];
     for (const grant of grants) {
       const owed = credits - debits.reduce((sum, debit) => sum + debit.credits, 0);

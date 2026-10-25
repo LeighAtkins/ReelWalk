@@ -4,6 +4,7 @@ vi.mock("google-auth-library", () => ({
   GoogleAuth: class { async getAccessToken() { return "test-token"; } },
   AwsClient: class { constructor(options: unknown) { awsOptions(options); } async getAccessToken() { return { token: "federated-token" }; } },
 }));
+import { AI_DRAFT_MODEL, AI_VIDEO_MODEL } from "@reelwalk/core";
 import { definitelyRejected, federatedVideoAuth, VertexError, VertexVideo, vertexVideoParameters } from "../src/vertex-video";
 
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
@@ -40,6 +41,26 @@ describe("Vertex video", () => {
     expect(vertexVideoParameters(8).durationSeconds).toBe(8);
     // Only lengths that have a credit price can reach the paid API.
     expect(() => vertexVideoParameters(6)).toThrow("Unsupported");
+  });
+  it("asks the draft model for 720p and the same seed as its final, keeping everything else the same", async () => {
+    const fetcher = vi.fn().mockImplementation(async () => Response.json({ name: "projects/test/operations/draft" }));
+    vi.stubGlobal("fetch", fetcher);
+    const first = { bytesBase64Encoded: "first-frame", mimeType: "image/jpeg" };
+    await new VertexVideo("test-project").submit(AI_DRAFT_MODEL, 4, "A slow camera move", first, undefined, false, 4242);
+    expect(fetcher.mock.calls[0]![0]).toContain("/models/veo-3.1-lite-generate-001:predictLongRunning");
+    const draft = JSON.parse(fetcher.mock.calls[0]![1].body);
+    expect(draft.instances).toEqual([{ prompt: "A slow camera move", image: first }]);
+    expect(draft.parameters).toEqual({ aspectRatio: "9:16", durationSeconds: 4, sampleCount: 1, resolution: "720p", generateAudio: false, personGeneration: "allow_adult", seed: 4242 });
+    await new VertexVideo("test-project").submit(AI_VIDEO_MODEL, 4, "A slow camera move", first, undefined, false, 4242);
+    expect(JSON.parse(fetcher.mock.calls[1]![1].body).parameters).toEqual({ ...draft.parameters, resolution: "1080p" });
+    // A take with no seed sends none: the provider chooses, as before.
+    await new VertexVideo("test-project").submit(AI_VIDEO_MODEL, 4, "A room");
+    expect(JSON.parse(fetcher.mock.calls[2]![1].body).parameters).not.toHaveProperty("seed");
+    expect(vertexVideoParameters(8, false, { model: AI_DRAFT_MODEL }).resolution).toBe("720p");
+  });
+  it("refunds a draft the provider refuses outright, like any take", () => {
+    expect(definitelyRejected(new VertexError("Google video service returned HTTP 404 (NOT_FOUND).", 404, "NOT_FOUND"))).toBe(true);
+    expect(definitelyRejected(new VertexError("Google video service returned HTTP 503.", 503))).toBe(false);
   });
   it("does not retry an ambiguous paid submission", async () => {
     const fetcher = vi.fn().mockRejectedValue(new Error("timeout")); vi.stubGlobal("fetch", fetcher);

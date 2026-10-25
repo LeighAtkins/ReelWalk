@@ -131,4 +131,60 @@ describe.skipIf(!process.env.DATABASE_URL)("AI credits (Postgres)", () => {
     await failAiGeneration(prisma, long.id, "failed");
     expect(await aiCreditSummary(prisma, input.workspaceId)).toMatchObject({ trial: 1, topUp: 10 });
   });
+  describe("draft tier (ADR 0076)", () => {
+    const shot = (extra: object = {}) => ({ mode: "custom", move: "orbit", seed: 7, ...extra });
+
+    it("charges a draft one credit, refunds it exactly once, and keeps it off the full take's price", async () => {
+      const input = { ...await studio(), durationSeconds: 8 as const, costCents: 40, tier: "draft" as const, shot: shot({ tier: "draft" }) };
+      const draft = await reserveAiGeneration(prisma, { ...input, requestId: randomUUID() }); charged += 40;
+      expect(draft).toMatchObject({ durationSeconds: 8, credits: 1, costCents: 40 });
+      // The trial's two credits: one left, where an 8-second full take would have used both.
+      expect((await aiCreditSummary(prisma, input.workspaceId)).remaining).toBe(1);
+      await Promise.all([failAiGeneration(prisma, draft.id, "failed", true), failAiGeneration(prisma, draft.id, "failed", true)]);
+      charged -= 40;
+      expect((await aiCreditSummary(prisma, input.workspaceId)).remaining).toBe(2);
+    });
+
+    it("makes a finished draft final for the rest of the price, once, and gives the credit back with a failed final", async () => {
+      const input = await studio();
+      const draftInput = { ...input, durationSeconds: 8 as const, costCents: 40, tier: "draft" as const, shot: shot({ tier: "draft" }) };
+      const draft = await reserveAiGeneration(prisma, { ...draftInput, requestId: randomUUID() }); charged += 40;
+      const finalInput = { ...input, durationSeconds: 8 as const, costCents: 80, finalOf: draft.id, shot: shot({ tier: "final", finalOf: draft.id }) };
+      // Not finished: refused, nothing taken.
+      await expect(reserveAiGeneration(prisma, { ...finalInput, requestId: randomUUID() })).rejects.toThrow("finished draft");
+      await prisma.aiGeneration.update({ where: { id: draft.id }, data: { status: "SUCCEEDED" } });
+      const made = await reserveAiGeneration(prisma, { ...finalInput, requestId: randomUUID() }); charged += 80;
+      // 2 credits for 8 s, less the draft's 1: draft + final together are the full price.
+      expect(made.credits).toBe(1);
+      expect((await aiCreditSummary(prisma, input.workspaceId)).remaining).toBe(0);
+      await expect(reserveAiGeneration(prisma, { ...finalInput, requestId: randomUUID() })).rejects.toThrow("already been made final");
+      // A failed final returns what it took and frees the draft for another.
+      await failAiGeneration(prisma, made.id, "failed", true); charged -= 80;
+      expect((await aiCreditSummary(prisma, input.workspaceId)).remaining).toBe(1);
+      const again = await reserveAiGeneration(prisma, { ...finalInput, requestId: randomUUID() }); charged += 80;
+      expect(again.credits).toBe(1);
+    });
+
+    it("never makes another workspace's draft, or a take that is not a draft, final", async () => {
+      const mine = await studio();
+      const theirs = await studio();
+      const draft = await reserveAiGeneration(prisma, { ...theirs, tier: "draft" as const, shot: shot({ tier: "draft" }), requestId: randomUUID() }); charged += 40;
+      await prisma.aiGeneration.update({ where: { id: draft.id }, data: { status: "SUCCEEDED" } });
+      await expect(reserveAiGeneration(prisma, { ...mine, finalOf: draft.id, requestId: randomUUID() })).rejects.toThrow("finished draft");
+      const full = await reserveAiGeneration(prisma, { ...mine, shot: shot(), requestId: randomUUID() }); charged += 40;
+      await prisma.aiGeneration.update({ where: { id: full.id }, data: { status: "SUCCEEDED" } });
+      await expect(reserveAiGeneration(prisma, { ...mine, finalOf: full.id, requestId: randomUUID() })).rejects.toThrow("finished draft");
+      expect((await aiCreditSummary(prisma, mine.workspaceId)).remaining).toBe(1);
+    });
+
+    it("lets only one of two simultaneous 'Make it final' taps use the draft's credit", async () => {
+      const input = await studio();
+      await prisma.aiCreditGrant.create({ data: { workspaceId: input.workspaceId, source: `${prefix}-race-${randomUUID()}`, kind: "TOP_UP", amount: 10, remaining: 10 } });
+      const draft = await reserveAiGeneration(prisma, { ...input, durationSeconds: 8 as const, tier: "draft" as const, shot: shot({ tier: "draft" }), requestId: randomUUID() }); charged += 40;
+      await prisma.aiGeneration.update({ where: { id: draft.id }, data: { status: "SUCCEEDED" } });
+      const results = await Promise.allSettled([1, 2].map(() => reserveAiGeneration(prisma, { ...input, durationSeconds: 8 as const, costCents: 80, finalOf: draft.id, shot: shot({ tier: "final", finalOf: draft.id }), requestId: randomUUID() })));
+      expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+      charged += 80;
+    });
+  });
 });

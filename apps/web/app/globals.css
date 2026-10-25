@@ -4332,3 +4332,74 @@ input.inspect-scrub {
   background: var(--signal);
   color: var(--ink);
 }
+
+/* Moves (ADR 0076): the Moves sheet's cards. A loop of the move on the shot's own picture, then the name and what it does. */
+.move-group {
+  display: grid;
+  gap: 6px;
+}
+
+.move-group-title {
+  margin: 10px 0 0;
+  font-size: 0.8rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+
+.move-card {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 76px;
+  padding: 6px 12px 6px 6px;
+  border: 0;
+  border-radius: var(--radius-m);
+  background: var(--panel);
+  text-align: left;
+}
+
+.move-card[aria-pressed="true"] {
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.move-card:disabled {
+  opacity: 0.45;
+}
+
+.move-card-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.move-loop {
+  position: relative;
+  flex: 0 0 auto;
+  width: 48px;
+  height: 64px;
+  overflow: hidden;
+  border-radius: 6px;
+  background: var(--panel);
+}
+
+.move-loop-picture {
+  position: absolute;
+  inset: 0;
+  background-color: rgba(128, 128, 128, 0.45);
+  background-position: center;
+  background-size: cover;
+  will-change: transform;
+}
+
+.move-badge {
+  margin-left: auto;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--signal);
+  color: var(--ink);
+  font-size: 0.7rem;
+  font-weight: 700;
+}

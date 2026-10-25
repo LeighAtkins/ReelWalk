@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { pickAttribution, readAttribution, withAttribution } from "./attribution";
+import { pickAttribution, planIntentOf, readAttribution, signupHrefFor, withAttribution } from "./attribution";
 
 describe("pickAttribution", () => {
   it("keeps only the known utm and click-id keys", () => {
@@ -56,5 +56,35 @@ describe("readAttribution", () => {
     expect(readAttribution(null)).toBeNull();
     expect(readAttribution(["utm_source"])).toBeNull();
     expect(readAttribution("x")).toBeNull();
+  });
+});
+
+describe("plan intent (ADR 0081)", () => {
+  it("keeps a paid plan and an interval in canonical form, and ignores anything else", () => {
+    expect(pickAttribution({ intent_plan: "agent", intent_interval: "YEAR" })).toEqual({ intent_plan: "AGENT", intent_interval: "year" });
+    expect(pickAttribution({ intent_plan: "Studio" })).toEqual({ intent_plan: "OFFICE" });
+    expect(pickAttribution({ intent_plan: "FREE", intent_interval: "week" })).toBeNull();
+    expect(pickAttribution({ intent_plan: "<script>" })).toBeNull();
+  });
+
+  it("reads the intent back, defaulting to monthly", () => {
+    expect(planIntentOf({ intent_plan: "AGENT", intent_interval: "year" })).toEqual({ plan: "AGENT", interval: "year" });
+    expect(planIntentOf({ intent_plan: "OFFICE" })).toEqual({ plan: "OFFICE", interval: "month" });
+    expect(planIntentOf({ utm_source: "meta" })).toBeNull();
+    expect(planIntentOf(null)).toBeNull();
+    // A stored value that was tampered with is not a plan.
+    expect(planIntentOf(readAttribution({ intent_plan: "ROOT" }))).toBeNull();
+  });
+
+  it("builds a sign-up link, never a checkout link, that carries the plan and the ad parameters", () => {
+    expect(signupHrefFor("AGENT", "month", null)).toBe("/signup?intent_plan=AGENT&intent_interval=month");
+    expect(signupHrefFor("AGENT", "year", { utm_source: "meta" })).toBe("/signup?intent_plan=AGENT&intent_interval=year&utm_source=meta");
+    expect(signupHrefFor("FREE", "month", null)).toBe("/signup");
+  });
+
+  it("round-trips through the sign-up form", () => {
+    const form = new FormData();
+    for (const [key, value] of Object.entries({ intent_plan: "AGENT", intent_interval: "year", utm_source: "meta" })) form.set(key, value);
+    expect(planIntentOf(pickAttribution(form))).toEqual({ plan: "AGENT", interval: "year" });
   });
 });

@@ -13,6 +13,7 @@ const db = vi.hoisted(() => {
     users: new Map<string, { attribution: unknown }>(),
     events: [] as { name: string; data: unknown }[],
     failWith: null as Error | null,
+    keys: new Set<string>(),
   };
 });
 
@@ -27,19 +28,22 @@ vi.mock("@reelwalk/db", () => ({
       create: async ({ data }: { data: Record<string, unknown> }) => {
         if (db.failWith) throw db.failWith;
         db.created.push(data);
+        if (typeof data.eventKey === "string") db.keys.add(data.eventKey);
       },
+      findUnique: async ({ where }: { where: { eventKey: string } }) => (db.keys.has(where.eventKey) ? { id: "e1" } : null),
       findMany: async () => db.events,
     },
   },
 }));
 
-import { funnelSummary, recordFunnelEvent } from "./funnel";
+import { claimUpgradePrompt, funnelSummary, recordFunnelEvent } from "./funnel";
 
 beforeEach(() => {
   db.created.length = 0;
   db.users.clear();
   db.events.length = 0;
   db.failWith = null;
+  db.keys.clear();
 });
 
 describe("recordFunnelEvent", () => {
@@ -70,6 +74,19 @@ describe("recordFunnelEvent", () => {
   });
 });
 
+describe("claimUpgradePrompt (ADR 0081)", () => {
+  it("is true once per studio: the message after a first export is shown once", async () => {
+    db.users.set("u1", { attribution: { utm_source: "meta", intent_plan: "AGENT" } });
+    expect(await claimUpgradePrompt({ userId: "u1", workspaceId: "w1", data: { plan: "AGENT" } })).toBe(true);
+    expect(db.created).toEqual([
+      { name: "upgrade_prompt", userId: "u1", workspaceId: "w1", eventKey: "upgrade_prompt:w1", data: { utm_source: "meta", intent_plan: "AGENT", plan: "AGENT" } },
+    ]);
+    expect(await claimUpgradePrompt({ userId: "u1", workspaceId: "w1" })).toBe(false);
+    expect(await claimUpgradePrompt({ userId: "u1", workspaceId: "w2" })).toBe(true);
+    expect(db.created).toHaveLength(2);
+  });
+});
+
 describe("funnelSummary", () => {
   it("counts per source and campaign, falling back to the click id's platform, busiest first", async () => {
     db.events.push(
@@ -81,7 +98,7 @@ describe("funnelSummary", () => {
       { name: "something_else", data: {} },
     );
     const { total, rows } = await funnelSummary(new Date(0));
-    expect(total).toEqual({ signup: 4, first_export: 0, checkout_started: 0, subscribed: 1 });
+    expect(total).toEqual({ signup: 4, first_export: 0, upgrade_prompt: 0, checkout_started: 0, subscribed: 1 });
     expect(rows.map((r) => [r.source, r.campaign, r.counts.signup, r.counts.subscribed])).toEqual([
       ["meta", "agents", 2, 1],
       ["facebook (fbclid)", "(none)", 1, 0],

@@ -64,6 +64,7 @@ import {
   framePlan,
   locate,
   MIN_CLIP_MS,
+  placedByApp,
   REEL_FORMAT,
   TEXT_SIZE_MAX,
   timelineDurationMs,
@@ -558,7 +559,8 @@ function titleChecks(ctx: Context): CriticFinding[] {
     // Safe zones.
     const into = intrusion(geometry.box);
     const worst = Math.max(into.left, into.right, into.top, into.bottom);
-    if (worst > CRITIC.intrusionPx) {
+    // Only a title a person placed or moved is theirs to fix; the app answers for its own (ADR 0081).
+    if (worst > CRITIC.intrusionPx && !placedByApp(text)) {
       const where = into.bottom === worst ? "the caption" : into.top === worst ? "the header" : into.right === worst ? "the like and share buttons" : "the screen edge";
       const fixes: CriticFix[] = [];
       if (movable) {

@@ -7,6 +7,7 @@ import { AskForChange } from "@/components/ask-for-change";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { CaptionEditor } from "@/components/caption-editor";
 import { FeatureConsent } from "@/components/feature-consent";
+import { FirstExportNudgeCard } from "@/components/first-export-nudge";
 import { BackIcon, DownloadIcon } from "@/components/icons";
 import { ShareButton } from "@/components/share-button";
 import { ShareLink } from "@/components/share-link";
@@ -16,6 +17,8 @@ import { InstagramPublishing } from "@/components/instagram-publishing";
 import { RenderChecksPanel } from "@/components/render-checks";
 import { MixPreview } from "@/components/mix-preview";
 import { aiEditUsage } from "@/lib/ai-edit";
+import { firstExportNudge } from "@/lib/first-export-nudge";
+import { claimUpgradePrompt } from "@/lib/funnel";
 import { isFakeInstagram, isInstagramConfigured } from "@/lib/instagram";
 import { isAiAvailable } from "@/lib/openai";
 import { workspacePlan } from "@/lib/plans";
@@ -25,6 +28,7 @@ import { outputUrls } from "@/lib/render-jobs";
 import { audioProblemsFrom, ensureChecks, gateFor, withAudio, type ChecksResult } from "@/lib/render-verify";
 import { coverUrls, readTimeline } from "@/lib/reels";
 import { reelAudioTrace } from "@/lib/sound";
+import { isBillingConfigured, isIntervalAvailable } from "@/lib/stripe";
 import { getCurrentUser, mediaScope } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
@@ -56,7 +60,7 @@ export default async function ExportPage({
   });
   const sources = reelSources(readTimeline(reel.timeline), Object.fromEntries(stockAssets.map((asset) => [asset.id, asset])));
 
-  const [urls, [cover], base, instagram, { plan, id: planId }, aiUsage] = await Promise.all([
+  const [urls, [cover], base, instagram, { plan, id: planId, comped }, aiUsage] = await Promise.all([
     outputUrls(job),
     coverUrls([readTimeline(reel.timeline)]),
     appUrl(),
@@ -103,6 +107,11 @@ export default async function ExportPage({
   // The sound's problems from the trace, folded into the picture's checks as the checks route does.
   const verification: ChecksResult | null = stored?.checks ? { ...stored, checks: withAudio(stored.checks, audioProblemsFrom(trace)) } : stored;
   const gate = gateFor(verification?.checks ?? null);
+  // The one message after a first successful export (ADR 0081): only a Free studio that could buy, and only once.
+  const nudge =
+    urls && planId === "FREE" && !comped && isBillingConfigured() && (await claimUpgradePrompt({ userId: user.id, workspaceId: user.workspaceId, data: { reelId: reel.id } }))
+      ? firstExportNudge(user.attribution, { yearlyAvailable: isIntervalAvailable("year") })
+      : null;
 
   return (
     <main className="shell">
@@ -174,6 +183,7 @@ export default async function ExportPage({
                   Variants
                 </Link>
               </div>
+              {nudge ? <FirstExportNudgeCard nudge={nudge} /> : null}
               {verification ? <RenderChecksPanel jobId={job.id} reelId={reel.id} result={verification} /> : null}
               {/* The mix, seen and heard (ADR 0066): loudness, beats, cuts, speech, the recommended sound volume, and a preview at that level. */}
               <MixPreview reelId={reel.id} sound={reelSound} initial={trace} />
@@ -207,7 +217,7 @@ export default async function ExportPage({
                     </a>{" "}
                     <span className="muted small">
                       {STOCK_SOURCE_LABELS[source.source]} · {source.license ?? "licence not recorded"}
-                      {source.importedAt ? ` · imported ${new Date(source.importedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}` : ""}
+                      {source.importedAt ? ` · imported ${new Date(source.importedAt).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" })}` : ""}
                       {" · "}
                       {source.clipIds.length === 1 ? "1 clip" : `${source.clipIds.length} clips`}
                     </span>

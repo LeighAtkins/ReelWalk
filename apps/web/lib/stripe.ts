@@ -9,6 +9,11 @@ import { BILLING_INTERVALS, type BillingInterval, type PlanId } from "@reelwalk/
  * STRIPE_PRICE_AGENT_YEARLY, STRIPE_PRICE_OFFICE_MONTHLY and
  * STRIPE_PRICE_OFFICE_YEARLY. The monthly prices are required for billing to
  * be on; a missing yearly price just hides the yearly option.
+ *
+ * Prices are Australian dollars (ADR 0081). A subscription bought before the
+ * swap still carries its old USD price id, so a price that is not one of the
+ * env ids is also recognised by its lookup key (agent_monthly_aud, ...) and by
+ * its product (STRIPE_PRODUCT_AGENT / STRIPE_PRODUCT_OFFICE, optional).
  */
 export function isBillingConfigured(): boolean {
   return ["STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", ...PAID.map((plan) => priceEnvName(plan, "month"))].every(isSet);
@@ -44,10 +49,46 @@ export function isIntervalAvailable(interval: BillingInterval): boolean {
   return PAID.every((plan) => priceForPlan(plan, interval) !== null);
 }
 
-/** The plan a Stripe price id sells, or null for a price this app does not know. */
-export function planForPrice(priceId: string | null | undefined): PlanId | null {
-  if (!priceId) return null;
-  return PAID.find((plan) => BILLING_INTERVALS.some((interval) => priceForPlan(plan, interval) === priceId)) ?? null;
+/** What identifies a Stripe price: its id, and when the object is at hand its lookup key and product. */
+export type PriceRef = { id?: string | null; lookup_key?: string | null; product?: string | { id: string } | null };
+
+/** The lookup keys the AUD prices are created with; the plan they sell. */
+export const PRICE_LOOKUP_KEYS: Record<string, Exclude<PlanId, "FREE">> = {
+  agent_monthly_aud: "AGENT",
+  agent_yearly_aud: "AGENT",
+  office_monthly_aud: "OFFICE",
+  office_yearly_aud: "OFFICE",
+};
+
+/** The env var holding a plan's Stripe product id (optional): its prices in any currency sell that plan. */
+export function productEnvName(plan: Exclude<PlanId, "FREE">): string {
+  return `STRIPE_PRODUCT_${plan}`;
+}
+
+/**
+ * The plan a Stripe price sells, or null for a price this app does not know. Matches, in order: the
+ * price id against the env ids, then its lookup key, then its product. Pass the price object (a
+ * subscription item has it) so a price replaced by a currency swap still resolves; a bare id only
+ * matches the env ids.
+ */
+export function planForPrice(price: string | PriceRef | null | undefined): PlanId | null {
+  if (!price) return null;
+  const ref: PriceRef = typeof price === "string" ? { id: price } : price;
+  if (ref.id) {
+    const byId = PAID.find((plan) => BILLING_INTERVALS.some((interval) => priceForPlan(plan, interval) === ref.id));
+    if (byId) return byId;
+  }
+  if (ref.lookup_key && Object.hasOwn(PRICE_LOOKUP_KEYS, ref.lookup_key)) return PRICE_LOOKUP_KEYS[ref.lookup_key];
+  const product = typeof ref.product === "string" ? ref.product : ref.product?.id;
+  if (product) {
+    return (
+      PAID.find((plan) => {
+        const id = process.env[productEnvName(plan)];
+        return Boolean(id) && id !== "unset" && id === product;
+      }) ?? null
+    );
+  }
+  return null;
 }
 
 /**
@@ -58,7 +99,8 @@ export function planForPrice(priceId: string | null | undefined): PlanId | null 
 export function planForSubscription(subscription: Pick<Stripe.Subscription, "status" | "items">): PlanId {
   const inGoodStanding = subscription.status === "active" || subscription.status === "trialing" || subscription.status === "past_due";
   if (!inGoodStanding) return "FREE";
-  return planForPrice(subscription.items.data[0]?.price.id) ?? "FREE";
+  // The whole price, not just its id: a price from before a currency swap resolves by lookup key or product.
+  return planForPrice(subscription.items.data[0]?.price) ?? "FREE";
 }
 
 /** When the current billing period ends; Stripe moved this onto the items. */

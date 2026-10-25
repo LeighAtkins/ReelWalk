@@ -1,4 +1,5 @@
-const dateTime = new Intl.DateTimeFormat("en-US", {
+// Australian order and spelling: "4 Oct, 07:08 UTC", "4 Oct".
+const dateTime = new Intl.DateTimeFormat("en-AU", {
   month: "short",
   day: "numeric",
   hour: "2-digit",
@@ -7,7 +8,7 @@ const dateTime = new Intl.DateTimeFormat("en-US", {
   timeZone: "UTC",
 });
 
-/** "Oct 4, 07:08 UTC". Fixed to UTC so server-rendered times do not depend on the pod's timezone. */
+/** "4 Oct, 07:08 UTC". Fixed to UTC so server-rendered times do not depend on the pod's timezone. */
 export function formatDateTime(date: Date): string {
   return `${dateTime.format(date)} UTC`;
 }
@@ -21,9 +22,9 @@ export function formatDuration(ms: number, tenths = false): string {
   return tenths ? `${base}.${totalTenths % 10}` : base;
 }
 
-const shortDate = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+const shortDate = new Intl.DateTimeFormat("en-AU", { month: "short", day: "numeric", timeZone: "UTC" });
 
-/** "just now", "5 min ago", "3 h ago", "yesterday", "4 days ago", then "Oct 4". */
+/** "just now", "5 min ago", "3 h ago", "yesterday", "4 days ago", then "4 Oct". */
 export function formatAgo(date: Date, now: Date = new Date()): string {
   const minutes = Math.floor((now.getTime() - date.getTime()) / 60_000);
   if (minutes < 1) return "just now";

@@ -196,7 +196,7 @@ async function importTour(dir: string, name: string, workspaceId: string, workdi
 
 /** The same home cut for five audiences: one sample reel per vibe. */
 async function createVibeReels(tourId: string, name: string, workspaceId: string, plan: Plan, shots: TourShot[]): Promise<void> {
-  const details = listingDetailsSchema.parse({ price: "$485,000", beds: "3", baths: "2", area: "1,640 sq ft", address: "Sample home (ZInD)", placement: "end" });
+  const details = listingDetailsSchema.parse({ price: "$485,000", beds: "3", baths: "2", area: "152 m²", address: "Sample home (ZInD)", placement: "end" });
   for (const vibe of VIBES) {
     const id = `sample-${tourId}-${vibe.id}`;
     if (process.env.RESET_SAMPLES === "1") await prisma.reel.deleteMany({ where: { id, workspaceId } });
@@ -239,7 +239,7 @@ async function createSampleReel(tourId: string, name: string, workspaceId: strin
     shots,
     plan,
     music: song ? { assetId: song.id, sourceStartMs: 0, volume: 0.7, bpm: song.bpm, beatOffsetMs: song.beatOffsetMs } : null,
-    details: listingDetailsSchema.parse({ price: "$485,000", beds: "3", baths: "2", area: "1,640 sq ft", address: "Sample home (ZInD)", placement: "end" }),
+    details: listingDetailsSchema.parse({ price: "$485,000", beds: "3", baths: "2", area: "152 m²", address: "Sample home (ZInD)", placement: "end" }),
   });
   if (!timeline) return;
 

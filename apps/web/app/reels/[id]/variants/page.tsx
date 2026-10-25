@@ -134,8 +134,8 @@ export default async function VariantsPage({
                   {numbers && (numbers.views !== null || numbers.reach !== null) ? (
                     <span className="variant-numbers" data-testid="variant-numbers">
                       {[
-                        numbers.views !== null ? `${numbers.views.toLocaleString("en-US")} plays` : null,
-                        numbers.reach !== null ? `${numbers.reach.toLocaleString("en-US")} reached` : null,
+                        numbers.views !== null ? `${numbers.views.toLocaleString("en-AU")} plays` : null,
+                        numbers.reach !== null ? `${numbers.reach.toLocaleString("en-AU")} reached` : null,
                         numbers.postedAt ? `posted ${formatAgo(numbers.postedAt, now)}` : null,
                       ]
                         .filter(Boolean)

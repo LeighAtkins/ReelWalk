@@ -71,7 +71,7 @@ test("the ten asks: sticker, ending text, logo, zoom, typing, strip, caption, ex
   await askFor("make the title type in letter by letter", /arrives with a type/);
   await reelSetting("Details");
   const details = page.getByRole("dialog", { name: "Property details" });
-  await details.getByPlaceholder("¥48,000,000").fill("$899,000");
+  await details.getByPlaceholder("$1,250,000").fill("$899,000");
   await details.getByRole("button", { name: "Strip, whole reel" }).click();
   await details.getByRole("button", { name: /close/i }).click();
 

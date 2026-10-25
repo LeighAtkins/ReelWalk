@@ -1,4 +1,4 @@
-import { REEL_FORMAT, textUnderCard, timelineDurationMs, type Timeline } from "./timeline";
+import { placedByApp, REEL_FORMAT, textUnderCard, timelineDurationMs, type Timeline } from "./timeline";
 
 /**
  * Instagram Reels limits the export is checked against. Instagram changes
@@ -76,7 +76,8 @@ export function instagramIssues(timeline: Timeline, caption = ""): Issue[] {
       });
       continue;
     }
-    if (!isInSafeArea(text.x, text.y)) {
+    // Only text a person placed or moved is theirs to fix; the app answers for its own (ADR 0081).
+    if (!placedByApp(text) && !isInSafeArea(text.x, text.y)) {
       issues.push({
         level: "warning",
         code: "text-unsafe",

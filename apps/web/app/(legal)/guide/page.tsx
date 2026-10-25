@@ -86,7 +86,7 @@ export default function GuidePage() {
           <strong>Over something dark and calm</strong>: sky, water, a wall. White text on a white kitchen disappears.
         </li>
         <li>
-          <strong>One idea per screen.</strong> Price, open house time and your number belong on separate moments, or on a card at the end.
+          <strong>One idea per screen.</strong> Price, open home time and your number belong on separate moments, or on a card at the end.
         </li>
       </ul>
 
@@ -127,7 +127,7 @@ export default function GuidePage() {
       <ul>
         <li>&quot;make it 15 seconds&quot; · &quot;faster cuts&quot; · &quot;first shot longer&quot;</li>
         <li>&quot;start with the deck&quot; · &quot;pool first, then the rest&quot; · &quot;drop the bathroom&quot; · &quot;only show the outside&quot;</li>
-        <li>&quot;add the price $1.2m&quot; · &quot;open house saturday 2-4&quot; · &quot;add my number&quot; · &quot;say under offer&quot;</li>
+        <li>&quot;add the price $1.2m&quot; · &quot;open home saturday 2-4&quot; · &quot;add my number&quot; · &quot;say under offer&quot;</li>
         <li>&quot;bigger text&quot; · &quot;put the title lower&quot; · &quot;no text&quot;</li>
         <li>&quot;something more upbeat&quot; · &quot;brighter&quot; · &quot;make it look like a luxury listing&quot;</li>
         <li>With a 360 photo: &quot;face the door in the bedroom&quot; · &quot;bedroom shot: end on the bed&quot; · &quot;do a full spin&quot;</li>

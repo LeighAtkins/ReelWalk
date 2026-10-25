@@ -4,7 +4,7 @@ import { aiCreditSummary, prisma, reserveAiGeneration } from "../src";
 const mocks = vi.hoisted(() => ({ listLineItems: vi.fn() }));
 vi.mock("../../../apps/web/lib/stripe", () => ({
   customerId: (value: string | { id: string } | null) => typeof value === "string" ? value : value?.id ?? null,
-  planForPrice: (id: string) => id === "price-agent" ? "AGENT" : id === "price-studio" ? "OFFICE" : null,
+  planForPrice: (ref: string | { id?: string | null }) => { const id = typeof ref === "string" ? ref : ref.id; return id === "price-agent" ? "AGENT" : id === "price-studio" ? "OFFICE" : null; },
   stripe: () => ({ checkout: { sessions: { listLineItems: mocks.listLineItems } } }),
 }));
 import { applyAiInvoice, applyAiTopUp } from "../../../apps/web/lib/billing-ai";
@@ -20,10 +20,10 @@ describe.skipIf(!process.env.DATABASE_URL)("Stripe AI funding (Postgres)", () =>
     }, include: { users: true } }); ids.push(workspace.id); return workspace;
   }
   function invoice(customer: string, price = "price-agent", created = now) {
-    return { status: "paid", customer, created, lines: { data: [{ amount: 2900, period: { start: now, end }, pricing: { price_details: { price } } }] } } as unknown as Parameters<typeof applyAiInvoice>[0];
+    return { status: "paid", customer, created, lines: { data: [{ amount: 3900, period: { start: now, end }, pricing: { price_details: { price } } }] } } as unknown as Parameters<typeof applyAiInvoice>[0];
   }
   function subscription(workspace: { stripeCustomerId: string | null; stripeSubscriptionId: string | null }) {
-    return { id: workspace.stripeSubscriptionId, customer: workspace.stripeCustomerId, status: "active" } as unknown as Parameters<typeof applyAiInvoice>[1];
+    return { id: workspace.stripeSubscriptionId, customer: workspace.stripeCustomerId, status: "active", items: { data: [] } } as unknown as Parameters<typeof applyAiInvoice>[1];
   }
   let charged = 0;
   afterAll(async () => {
@@ -59,21 +59,25 @@ describe.skipIf(!process.env.DATABASE_URL)("Stripe AI funding (Postgres)", () =>
   it("a paid top-up is granted once across concurrent delivery and rejects the wrong customer", async () => {
     const w = await studio(); process.env.STRIPE_PRICE_AI_TOP_UP = "price-top-up";
     mocks.listLineItems.mockResolvedValue({ data: [{ price: { id: "price-top-up" }, quantity: 1 }] });
-    const session = { id: `cs_${randomUUID()}`, mode: "payment", payment_status: "paid", metadata: { purpose: "ai-top-up" }, currency: "usd", amount_subtotal: 1500, amount_total: 1500, customer: w.stripeCustomerId, client_reference_id: w.id } as unknown as Parameters<typeof applyAiTopUp>[0];
+    const session = { id: `cs_${randomUUID()}`, mode: "payment", payment_status: "paid", metadata: { purpose: "ai-top-up" }, currency: "aud", amount_subtotal: 1900, amount_total: 1900, customer: w.stripeCustomerId, client_reference_id: w.id } as unknown as Parameters<typeof applyAiTopUp>[0];
     await Promise.all([applyAiTopUp(session), applyAiTopUp(session)]);
     expect((await aiCreditSummary(prisma, w.id)).topUp).toBe(10);
     await expect(applyAiTopUp({ ...session, id: `cs_${randomUUID()}`, customer: "cus_wrong" })).rejects.toThrow("does not match");
     expect((await aiCreditSummary(prisma, w.id)).topUp).toBe(10);
   });
-  it("funds a $15 top-up with sales tax, but rejects discounts and unexplained totals", async () => {
+  it("funds an A$19 top-up (GST inside the price, or added on top), but rejects discounts, USD and unexplained totals", async () => {
     const w = await studio(); process.env.STRIPE_PRICE_AI_TOP_UP = "price-top-up";
     mocks.listLineItems.mockResolvedValue({ data: [{ price: { id: "price-top-up" }, quantity: 1 }] });
-    const session = { id: `cs_${randomUUID()}`, mode: "payment", payment_status: "paid", metadata: { purpose: "ai-top-up" }, currency: "usd", amount_subtotal: 1500, amount_total: 1650, total_details: { amount_tax: 150, amount_discount: 0, amount_shipping: 0 }, customer: w.stripeCustomerId, client_reference_id: w.id } as unknown as Parameters<typeof applyAiTopUp>[0];
+    const session = { id: `cs_${randomUUID()}`, mode: "payment", payment_status: "paid", metadata: { purpose: "ai-top-up" }, currency: "aud", amount_subtotal: 1900, amount_total: 2090, total_details: { amount_tax: 190, amount_discount: 0, amount_shipping: 0 }, customer: w.stripeCustomerId, client_reference_id: w.id } as unknown as Parameters<typeof applyAiTopUp>[0];
     await applyAiTopUp(session);
     expect((await aiCreditSummary(prisma, w.id)).topUp).toBe(10);
+    // A GST-inclusive price: the total is the price, with the tax shown inside it.
+    await applyAiTopUp({ ...session, id: `cs_${randomUUID()}`, amount_total: 1900, total_details: { amount_tax: 173, amount_discount: 0, amount_shipping: 0 } } as typeof session);
+    expect((await aiCreditSummary(prisma, w.id)).topUp).toBe(20);
     await expect(applyAiTopUp({ ...session, id: `cs_${randomUUID()}`, amount_total: 1500 })).rejects.toThrow("Unexpected");
+    await expect(applyAiTopUp({ ...session, id: `cs_${randomUUID()}`, currency: "usd" })).rejects.toThrow("Unexpected");
     await expect(applyAiTopUp({ ...session, id: `cs_${randomUUID()}`, total_details: { ...session.total_details!, amount_discount: 150 } })).rejects.toThrow("Unexpected");
     await expect(applyAiTopUp({ ...session, id: `cs_${randomUUID()}`, amount_subtotal: 1400 })).rejects.toThrow("Unexpected");
-    expect((await aiCreditSummary(prisma, w.id)).topUp).toBe(10);
+    expect((await aiCreditSummary(prisma, w.id)).topUp).toBe(20);
   });
 });

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { PLANS } from "@reelwalk/core";
+import { formatAud, PLANS } from "@reelwalk/core";
 import { BrandMark, InstagramIcon } from "@/components/icons";
 import { withAttribution, type Attribution } from "@/lib/attribution";
 import type { SampleReel } from "@/lib/sample-reels";
@@ -34,7 +34,7 @@ export function Landing({ samples, attribution = null }: { samples: SampleReel[]
           <div className={styles.heroRow}>
             <div className={styles.heroText}>
               <p className={styles.lede}>
-                You shoot three or four houses a day and spend the rest of it driving. ReelWalk turns the photos and clips already on
+                You shoot three or four listings a day and spend the rest of it driving. ReelWalk turns the photos and clips already on
                 your phone into a vertical reel for the listing: a few minutes of taps, a cloud render while you are on the road, and
                 it is ready to post before the next door.
               </p>
@@ -175,7 +175,7 @@ export function Landing({ samples, attribution = null }: { samples: SampleReel[]
           </ul>
         </section>
 
-        <PricingSection viewer={{ signedIn: false, signupHref: signup }} />
+        <PricingSection viewer={{ signedIn: false, attribution }} />
 
         <section className={styles.faq} aria-labelledby="faq-title">
           <h2 id="faq-title">Questions</h2>
@@ -183,7 +183,7 @@ export function Landing({ samples, attribution = null }: { samples: SampleReel[]
             <summary>How long does one reel take?</summary>
             <p>
               A few minutes of taps on your phone to pick the shots, choose a song and type the details, then a few minutes of cloud
-              render that you do not have to wait for. Start one at the curb and it is usually finished before you are at the next house.
+              render that you do not have to wait for. Start one at the kerb and it is usually finished before you are at the next listing.
             </p>
           </details>
           <details>
@@ -216,7 +216,7 @@ export function Landing({ samples, attribution = null }: { samples: SampleReel[]
         <section className={styles.closing} aria-labelledby="closing-title">
           <h2 id="closing-title">Try it on the next listing</h2>
           <p className={styles.lede}>
-            Make a reel from a shoot you have already done. If it earns its keep, the Agent plan is ${paid.priceUsd} a month.
+            Make a reel from a shoot you have already done. If it earns its keep, the Agent plan is {formatAud(paid.priceAud)} a month, GST included.
           </p>
           <Link href={signup} className="btn">
             Start free, no card

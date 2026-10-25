@@ -14,7 +14,12 @@ test.describe("signed out", () => {
     await expect(pricing.getByTestId("plan-free")).toBeVisible();
     await expect(pricing.getByTestId("plan-agent")).toBeVisible();
     await expect(pricing.getByTestId("plan-office")).toBeVisible();
-    await expect(pricing.getByTestId("cta-agent")).toHaveAttribute("href", "/signup");
+    // "Start free, then Agent" goes to sign-up and remembers the pick (ADR 0081), never to checkout.
+    await expect(pricing.getByTestId("cta-agent")).toHaveAttribute("href", "/signup?intent_plan=AGENT&intent_interval=month");
+    await expect(pricing.getByTestId("cta-agent-yearly")).toHaveAttribute("href", "/signup?intent_plan=AGENT&intent_interval=year");
+    await expect(pricing.getByTestId("founding-note")).toContainText("FOUNDING50");
+    await expect(pricing.getByTestId("price-small-print")).toHaveText("Prices in Australian dollars. GST included where it applies.");
+    await expect(pricing.getByTestId("plan-agent")).toContainText("A$39");
 
     // The monthly/yearly switch is two radios and a CSS rule: yearly prices show once it is flipped.
     const agent = pricing.getByTestId("plan-agent");

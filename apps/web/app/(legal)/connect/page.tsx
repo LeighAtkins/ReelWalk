@@ -68,6 +68,13 @@ export default async function ConnectPage() {
         revision of the reel, so it shows up in the editor like any save.
       </p>
 
+      <h2>Which workspace</h2>
+      <p>
+        If you have more than one workspace, the sign-in page asks which one the assistant should work in, and it stays in that one: its
+        reels, media and credits, nothing from the others. AI credits are not ticked unless you tick them, and are not offered at all for
+        a workspace that has AI generation switched off. To use a different workspace, disconnect the app and connect it again.
+      </p>
+
       <h2>House style</h2>
       <p>
         The connector tells the assistant how ReelWalk reels should look: no boxed text, no whoosh sounds, something moving inside the first

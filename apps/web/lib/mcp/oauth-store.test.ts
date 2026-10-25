@@ -16,7 +16,7 @@ const REDIRECT = "https://claude.ai/api/mcp/auth_callback";
 
 async function connect(scopes: ("reels:read" | "reels:write" | "exports" | "ai:generate")[] = ["reels:read", "reels:write"]) {
   const client = await registerClient({ name: "Claude", redirectUris: [REDIRECT] });
-  const code = await approve({ userId: "user_1", clientId: client.id, scopes, redirectUri: REDIRECT, codeChallenge: challengeFor(VERIFIER), origin: ORIGIN });
+  const code = await approve({ userId: "user_1", workspaceId: "ws_user_1", clientId: client.id, scopes, redirectUri: REDIRECT, codeChallenge: challengeFor(VERIFIER), origin: ORIGIN });
   return { client, code };
 }
 
@@ -176,7 +176,7 @@ describe("revocation", () => {
     const { client, tokens: old } = await tokens();
     const [grant] = await listGrants("user_1");
     await revokeGrant("user_1", grant.id);
-    const code = await approve({ userId: "user_1", clientId: client.id, scopes: ["reels:read"], redirectUri: REDIRECT, codeChallenge: challengeFor(VERIFIER), origin: ORIGIN });
+    const code = await approve({ userId: "user_1", workspaceId: "ws_user_1", clientId: client.id, scopes: ["reels:read"], redirectUri: REDIRECT, codeChallenge: challengeFor(VERIFIER), origin: ORIGIN });
     const fresh = (await exchange(code, client.id)) as TokenResponse;
     expect(await verifyAccessToken(old.access_token, ORIGIN)).toBeNull();
     expect((await verifyAccessToken(fresh.access_token, ORIGIN))?.scopes).toEqual(["reels:read"]);
@@ -193,5 +193,83 @@ describe("revocation", () => {
     const again = await tokens();
     await revokeToken(again.tokens.refresh_token, again.client.id);
     expect(await verifyAccessToken(again.tokens.access_token, ORIGIN)).toBeNull();
+  });
+});
+
+describe("a connection is bound to one workspace (ADR 0079)", () => {
+  async function connectTo(workspaceId: string, scopes: Parameters<typeof connect>[0] = ["reels:read", "reels:write"], userId = "user_1") {
+    const client = await registerClient({ name: "Claude", redirectUris: [REDIRECT] });
+    const code = await approve({ userId, workspaceId, clientId: client.id, scopes, redirectUri: REDIRECT, codeChallenge: challengeFor(VERIFIER), origin: ORIGIN });
+    const issued = (await exchange(code, client.id)) as TokenResponse;
+    return { client, issued };
+  }
+
+  it("stores the workspace on the grant and acts as the person in that workspace, not their home one", async () => {
+    db.seedWorkspace("ws_lm", "user_1", { name: "Last Mile" });
+    const { issued } = await connectTo("ws_lm");
+    expect(db.tables.oAuthGrant[0]).toMatchObject({ userId: "user_1", workspaceId: "ws_lm" });
+    const context = await verifyAccessToken(issued.access_token, ORIGIN);
+    expect(context?.user).toMatchObject({ id: "user_1", workspaceId: "ws_lm", homeWorkspaceId: "ws_user_1", role: "OWNER" });
+    expect(context?.user.workspace.name).toBe("Last Mile");
+  });
+
+  it("a token for the home workspace acts in the home workspace", async () => {
+    db.seedWorkspace("ws_lm", "user_1");
+    const { issued } = await connectTo("ws_user_1");
+    expect((await verifyAccessToken(issued.access_token, ORIGIN))?.user.workspaceId).toBe("ws_user_1");
+  });
+
+  it("the same app connected to two workspaces is two grants with separate tokens", async () => {
+    db.seedWorkspace("ws_lm", "user_1", { name: "Last Mile" });
+    const client = await registerClient({ name: "Claude", redirectUris: [REDIRECT] });
+    const issueFor = async (workspaceId: string) => {
+      const code = await approve({ userId: "user_1", workspaceId, clientId: client.id, scopes: ["reels:read"], redirectUri: REDIRECT, codeChallenge: challengeFor(VERIFIER), origin: ORIGIN });
+      return (await exchange(code, client.id)) as TokenResponse;
+    };
+    const home = await issueFor("ws_user_1");
+    const lastMile = await issueFor("ws_lm");
+    expect(db.tables.oAuthGrant).toHaveLength(2);
+    expect((await verifyAccessToken(home.access_token, ORIGIN))?.user.workspaceId).toBe("ws_user_1");
+    expect((await verifyAccessToken(lastMile.access_token, ORIGIN))?.user.workspaceId).toBe("ws_lm");
+    const listed = await listGrants("user_1");
+    expect(listed.map((grant) => grant.workspaceName).sort()).toEqual(["Last Mile", "Studio"]);
+  });
+
+  it("reconnecting to the same workspace updates that grant instead of adding one", async () => {
+    const client = await registerClient({ name: "Claude", redirectUris: [REDIRECT] });
+    for (const scopes of [["reels:read"], ["reels:read", "exports"]] as const) {
+      await approve({ userId: "user_1", workspaceId: "ws_user_1", clientId: client.id, scopes: [...scopes], redirectUri: REDIRECT, codeChallenge: challengeFor(VERIFIER), origin: ORIGIN });
+    }
+    expect(db.tables.oAuthGrant).toHaveLength(1);
+    expect(db.tables.oAuthGrant[0].scopes).toEqual(["reels:read", "exports"]);
+  });
+
+  it("checks the seat on every call: a person who lost their seat loses the connection to that workspace", async () => {
+    db.seedWorkspace("ws_lm", "user_1");
+    const { issued } = await connectTo("ws_lm");
+    expect(await verifyAccessToken(issued.access_token, ORIGIN)).not.toBeNull();
+    db.tables.workspaceMember = db.tables.workspaceMember.filter((row) => row.workspaceId !== "ws_lm");
+    expect(await verifyAccessToken(issued.access_token, ORIGIN)).toBeNull();
+  });
+
+  it("a grant whose workspace is not the person's never authenticates, even if one was written", async () => {
+    db.seedWorkspace("ws_other", "user_2");
+    const { issued } = await connectTo("ws_other");
+    expect(await verifyAccessToken(issued.access_token, ORIGIN)).toBeNull();
+  });
+
+  it("drops ai:generate from the token's scopes when the workspace has AI off (even if it was granted earlier)", async () => {
+    db.seedWorkspace("ws_lm", "user_1", { ai: "on" });
+    const { issued } = await connectTo("ws_lm", ["reels:read", "ai:generate"]);
+    expect((await verifyAccessToken(issued.access_token, ORIGIN))?.scopes).toEqual(["reels:read", "ai:generate"]);
+    db.tables.workspace.find((row) => row.id === "ws_lm")!.aiGeneration = "off";
+    expect((await verifyAccessToken(issued.access_token, ORIGIN))?.scopes).toEqual(["reels:read"]);
+  });
+
+  it("a refreshed token stays bound to the same workspace", async () => {
+    db.seedWorkspace("ws_lm", "user_1");
+    const { issued, client } = await connectTo("ws_lm");
+    const next = (await refreshTokens({ refreshToken: issued.refresh_token, clientId: client.id, scope: undefined })) as TokenResponse;
+    expect((await verifyAccessToken(next.access_token, ORIGIN))?.user.workspaceId).toBe("ws_lm");
   });
 });

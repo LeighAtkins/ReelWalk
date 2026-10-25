@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { MINUTE, allow, json, readCapped, requestIp, retryAfterSeconds, siteOrigin } from "./http";
 import { isAllowedRedirectUri, isCodeChallenge, isOurResource, redirectUriMatches, resourceFor, withParams } from "./oauth-core";
+import { grantableScopes } from "./consent";
 import { approve, exchangeCode, getClient, refreshTokens, registerClient, revokeToken, type OAuthFailure } from "./oauth-store";
 import { DEFAULT_SCOPES, SCOPES, parseScopes, type Scope } from "./scopes";
 
@@ -189,10 +190,13 @@ export async function checkAuthorizeRequest(params: AuthorizeParams, origin: str
   return { kind: "consent", clientId: client.id, clientName: client.name, redirectUri, scopes: requested, requested, codeChallenge, state };
 }
 
-/** Where the browser goes with the person's answer. `granted` is the scopes they left ticked; none means they declined. */
-export async function completeAuthorization(check: Extract<AuthorizeCheck, { kind: "consent" }>, userId: string, granted: Scope[], origin: string): Promise<string> {
-  const allowed = granted.filter((scope) => check.requested.includes(scope));
+/**
+ * Where the browser goes with the person's answer. `granted` is the scopes they left ticked; none means they declined.
+ * The grant is bound to `workspaceId` (ADR 0079), and `ai:generate` is never granted for a workspace with AI off.
+ */
+export async function completeAuthorization(check: Extract<AuthorizeCheck, { kind: "consent" }>, userId: string, workspace: { id: string; aiOn: boolean }, granted: Scope[], origin: string): Promise<string> {
+  const allowed = grantableScopes(granted, check.requested, workspace.aiOn);
   if (allowed.length === 0) return withParams(check.redirectUri, { error: "access_denied", error_description: "The person declined.", state: check.state, iss: origin });
-  const code = await approve({ userId, clientId: check.clientId, scopes: allowed, redirectUri: check.redirectUri, codeChallenge: check.codeChallenge, origin });
+  const code = await approve({ userId, workspaceId: workspace.id, clientId: check.clientId, scopes: allowed, redirectUri: check.redirectUri, codeChallenge: check.codeChallenge, origin });
   return withParams(check.redirectUri, { code, state: check.state, iss: origin });
 }

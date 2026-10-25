@@ -135,7 +135,7 @@ describe("authorization request", () => {
     const id = await client();
     const check = await checkAuthorizeRequest(request(id, { scope: "reels:read reels:write" }), ORIGIN);
     if (check.kind !== "consent") throw new Error("expected consent");
-    const target = new URL(await completeAuthorization(check, "user_1", ["reels:read", "exports"], ORIGIN));
+    const target = new URL(await completeAuthorization(check, "user_1", { id: "ws_user_1", aiOn: true }, ["reels:read", "exports"], ORIGIN));
     expect(target.origin + target.pathname).toBe(REDIRECT);
     expect(target.searchParams.get("state")).toBe("xyz");
     expect(target.searchParams.get("iss")).toBe(ORIGIN);
@@ -147,7 +147,7 @@ describe("authorization request", () => {
     const id = await client();
     const check = await checkAuthorizeRequest(request(id), ORIGIN);
     if (check.kind !== "consent") throw new Error("expected consent");
-    const target = new URL(await completeAuthorization(check, "user_1", [], ORIGIN));
+    const target = new URL(await completeAuthorization(check, "user_1", { id: "ws_user_1", aiOn: true }, [], ORIGIN));
     expect(target.searchParams.get("error")).toBe("access_denied");
     expect(target.searchParams.get("code")).toBeNull();
     expect(db.tables.oAuthGrant).toHaveLength(0);
@@ -157,7 +157,7 @@ describe("authorization request", () => {
 describe("token endpoint", () => {
   async function code() {
     const { body } = await register();
-    const authorization = await approve({ userId: "user_1", clientId: body.client_id, scopes: ["reels:read"], redirectUri: REDIRECT, codeChallenge: challengeFor(VERIFIER), origin: ORIGIN });
+    const authorization = await approve({ userId: "user_1", workspaceId: "ws_user_1", clientId: body.client_id, scopes: ["reels:read"], redirectUri: REDIRECT, codeChallenge: challengeFor(VERIFIER), origin: ORIGIN });
     return { clientId: body.client_id as string, code: authorization };
   }
 

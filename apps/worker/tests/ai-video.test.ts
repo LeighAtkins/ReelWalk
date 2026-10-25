@@ -376,6 +376,38 @@ describe("AI shot worker", () => {
     }));
     expect((s3.send as ReturnType<typeof vi.fn>).mock.calls.some(([command]) => command.input.ContentType === "image/jpeg")).toBe(true);
   });
+  // Draft tier (ADR 0076): a preview on the Lite model, 720p, silent, and the same seed on its final.
+  describe("draft tier", () => {
+    const draftShot = { mode: "custom", move: "orbit", first: { assetId: "real-a", atMs: 0 }, tier: "draft", seed: 99, line: "Welcome home.", voice: "lipsync" };
+    const draftJob = { ...job, model: "veo-3.1-lite-generate-001", durationSeconds: 4, shot: draftShot };
+    it("submits on the draft model with the seed, and a spoken line waits for the final", async () => {
+      claim.mockResolvedValue(draftJob);
+      await processAiVideo(s3, "media");
+      // The line is not voiced in a draft: the prompt is the plain one and Veo is asked for no audio.
+      expect(submit).toHaveBeenCalledWith("veo-3.1-lite-generate-001", 4, "Move", expect.anything(), expect.anything(), false, 99);
+    });
+    it("sends the same seed on the final, and the voice with it", async () => {
+      claim.mockResolvedValue({ ...draftJob, model: "veo", shot: { ...draftShot, tier: "final", finalOf: "draft-one" } });
+      await processAiVideo(s3, "media");
+      expect(submit).toHaveBeenCalledWith("veo", 4, "Move [Welcome home.]", expect.anything(), expect.anything(), false, 99);
+    });
+    it("stores a finished draft as a 720p draft in the library", async () => {
+      claim.mockResolvedValue({ ...draftJob, status: "RUNNING" });
+      await processAiVideo(s3, "media");
+      expect(tx.mediaAsset.upsert).toHaveBeenCalledWith(expect.objectContaining({ create: expect.objectContaining({ fileName: expect.stringMatching(/^AI draft — /), width: 720, height: 1280 }) }));
+    });
+    it("refunds a draft the provider refuses outright, credit and budget together", async () => {
+      claim.mockResolvedValue(draftJob); submit.mockRejectedValueOnce(new VertexError("HTTP 404 (NOT_FOUND)", 404, "NOT_FOUND"));
+      await processAiVideo(s3, "media");
+      expect(fail).toHaveBeenCalledWith(db, "one", expect.stringContaining("Your credit was returned"), true, { onlyIf: { leaseToken: "mine" } });
+    });
+    it("holds a draft whose submission is unknown, never refunds or resends it", async () => {
+      claim.mockResolvedValue(draftJob); submit.mockRejectedValueOnce(new Error("timeout"));
+      await processAiVideo(s3, "media");
+      expect(fail).not.toHaveBeenCalled();
+      expect(submit).toHaveBeenCalledTimes(1);
+    });
+  });
   it("retries thumbnail import through the saved operation without another generation or refund", async () => {
     claim.mockResolvedValue({ ...job, status: "RUNNING" });
     thumbnail.mockRejectedValueOnce(new Error("temporary decode failure"));

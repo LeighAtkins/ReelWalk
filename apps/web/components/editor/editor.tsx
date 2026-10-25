@@ -61,7 +61,7 @@ import { canExport, fixAllCommand, safeFixes, type CriticFinding, type CriticFix
   hookTextRequest,
 } from "@reelwalk/core";
 import { ELEGANT_FADE_S, sfxAssets, type ReelAsset } from "@reelwalk/render/reel";
-import { musicFieldsFromAnalysis, musicWithGrid, parseAudioAnalysis, type AudioAnalysis as TrackAnalysis } from "@reelwalk/core";
+import { musicFieldsFromAnalysis, musicWithGrid, parseAudioAnalysis, type AudioAnalysis as TrackAnalysis, type MoveId } from "@reelwalk/core";
 import { SoundControl } from "./sound-control";
 import { deleteReel, exportReel, readyPreviews, saveCaption } from "@/app/actions";
 import { deleteBrief, saveBrief } from "@/app/ai-actions";
@@ -138,7 +138,7 @@ import { HookSheet, PinSheet,
   LogoSheet,
   LookSheet,
   MediaSheet,
-  MotionSheet,
+  MovesSheet,
   MusicSheet,
   PanoSheet,
   PlanSheet,
@@ -347,6 +347,8 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
   const [title, setTitle] = useState(reel.title);
   const [caption, setCaption] = useState(reel.caption);
   const [selection, setSelection] = useState<Selection>(null);
+  // The camera move the Moves sheet asked the AI sheet for (ADR 0076); cleared when that sheet closes.
+  const [aiMove, setAiMove] = useState<MoveId | null>(null);
   const [sheet, setSheet] = useState<SheetName | null>(autoStart ? "autopilot" : openLibrary && initialTimeline.clips.length === 0 ? "media" : null);
   const [uploads, setUploads] = useState<PendingUpload[]>([]);
   const [musicUploading, setMusicUploading] = useState(false);
@@ -1397,7 +1399,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
     caption: { icon: <CaptionIcon />, onClick: () => setSheet("caption") },
     logo: { icon: <LogoIcon />, onClick: () => setSheet("logo"), disabled: !hasClips, pressed: timeline.logo !== null },
     plan: { icon: <PlanIcon />, onClick: () => setSheet("plan") },
-    "ai-video": { icon: <MotionIcon />, onClick: () => setSheet("ai-video") },
+    "ai-video": { icon: <MotionIcon />, onClick: () => { setAiMove(null); setSheet("ai-video"); } },
     director: { icon: <AskIcon />, onClick: () => setSheet("director"), disabled: !hasClips },
     split: { icon: <SplitIcon />, onClick: split, disabled: !hasClips },
     guides: { icon: <GuidesIcon />, onClick: () => setGuides(!guides), pressed: guides },
@@ -1740,7 +1742,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
       ) : null}
 
       {sheet === "ai-video" ? <Sheet title="AI video" onClose={closeSheet}>
-        <AiVideoPanel photos={libraryList} clips={timeline.clips} selectedClip={selectedClip} reelId={reel.id} beforeGenerate={autosave.flush} onAdd={(asset, shot) => {
+        <AiVideoPanel initialMove={aiMove} photos={libraryList} clips={timeline.clips} selectedClip={selectedClip} reelId={reel.id} beforeGenerate={autosave.flush} onAdd={(asset, shot) => {
           const clip = { ...clipFromAsset(asset), id: `ai-insert-${asset.id}` };
           if (shot && insertAiShot(timeline, clip, shot) === timeline) {
             showToast("The source cut changed or this shot is already placed. Add the saved clip from Media to choose a new position.", 6000);
@@ -1842,8 +1844,16 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         />
       ) : null}
       {sheet === "motion" && selectedClip ? (
-        <MotionSheet
+        <MovesSheet
           clip={selectedClip}
+          index={selectedClipIndex}
+          thumbUrl={library[selectedClip.assetId]?.thumbUrl ?? null}
+          // One command, so an agent sends exactly what the card does and Undo takes the whole move back (ADR 0076).
+          onMove={(move) => {
+            const result = runCommand({ type: "applyMove", clipId: selectedClip.id, move });
+            if (!result.rejected) closeSheet();
+          }}
+          onAskAi={(move) => { setAiMove(move); setSheet("ai-video"); }}
           // A simple move switches the eased move off: the composition reads the eased one first (ADR 0067).
           onChange={(motion) => apply((current) => updateClip(current, selectedClip.id, { motion, camera: null }))}
           onCamera={(camera) => runCommand({ type: "setCamera", clipId: selectedClip.id, camera })}

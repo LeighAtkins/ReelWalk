@@ -21,7 +21,8 @@ const LIPSYNC = "lipsync:";
 
 /** The spoken line and voice mode of a take, when it has one (ADR 0038). */
 function voiceOf(shot: AiShot | undefined): { line: string; mode: "lipsync" | "veo" } | null {
-  return shot?.line && shot.voice ? { line: shot.line, mode: shot.voice } : null;
+  // A draft (ADR 0076) is a silent preview: the voice is made, and paid for, with the final.
+  return shot?.line && shot.voice && shot.tier !== "draft" ? { line: shot.line, mode: shot.voice } : null;
 }
 
 /** A submission's claim; renewed while its stills are prepared (ADR 0056). */
@@ -52,6 +53,8 @@ export async function processAiVideo(s3: S3Client, bucket: string): Promise<bool
   if (!job) return false;
   const shot = parseStoredAiShot(job.shot);
   const voice = voiceOf(shot.success ? shot.data : undefined);
+  // The seed a draft and its final share (ADR 0076); only a take that has one sends one.
+  const seed = shot.success ? shot.data.seed : undefined;
   let heartbeat: ReturnType<typeof setInterval> | undefined;
   /** Past the fence: from here an error may follow a paid submission and is never a refund. */
   let sent = false;
@@ -105,7 +108,7 @@ export async function processAiVideo(s3: S3Client, bucket: string): Promise<bool
       sent = true;
       let operationName: string;
       try {
-        operationName = await provider.submit(job.model, job.durationSeconds, prompt, image, lastFrame, voice?.mode === "veo");
+        operationName = await provider.submit(job.model, job.durationSeconds, prompt, image, lastFrame, voice?.mode === "veo", ...(seed === undefined ? [] : [seed] as const));
       } catch (error) {
         if (definitelyRejected(error)) {
           // Google refused it outright: nothing was made, so the credit and budget go back.
@@ -380,6 +383,7 @@ async function transcript(video: Buffer, id: string) {
 
 /** Store the take, make its thumbnail and library record, and assemble the promo draft when asked. */
 async function finish(s3: S3Client, bucket: string, job: Job, video: Buffer, shot: AiShot | undefined, voice: { line: string; mode: "lipsync" | "veo" } | null, note?: "silent") {
+  const draft = shot?.tier === "draft";
   const objectKey = `workspaces/${job.workspaceId}/ai/${job.id}.mp4`;
   await s3.send(new PutObjectCommand({ Bucket: bucket, Key: objectKey, Body: video, ContentType: "video/mp4" }));
   const thumbKey = `workspaces/${job.workspaceId}/ai/${job.id}.jpg`;
@@ -398,8 +402,8 @@ async function finish(s3: S3Client, bucket: string, job: Job, video: Buffer, sho
     if (!changed.count) return;
     await tx.mediaAsset.upsert({ where: { objectKey }, update: { thumbKey }, create: {
       id: `ai-${job.id}`, workspaceId: job.workspaceId, kind: "VIDEO", objectKey, thumbKey, previewKey: objectKey,
-      contentType: "video/mp4", fileName: `AI shot — ${voice ? `"${voice.line.slice(0, 40)}"` : job.prompt.slice(0, 60)}${note === "silent" ? " (silent)" : ""}.mp4`,
-      sizeBytes: BigInt(video.length), durationMs: job.durationSeconds * 1000, width: 1080, height: 1920,
+      contentType: "video/mp4", fileName: `${draft ? "AI draft" : "AI shot"} — ${voice ? `"${voice.line.slice(0, 40)}"` : job.prompt.slice(0, 60)}${note === "silent" ? " (silent)" : ""}.mp4`,
+      sizeBytes: BigInt(video.length), durationMs: job.durationSeconds * 1000, width: draft ? 720 : 1080, height: draft ? 1280 : 1920,
       attribution: "AI-generated with Google Veo",
       ...(transcriptRecord ? { transcript: transcriptRecord as never } : {}),
     } });

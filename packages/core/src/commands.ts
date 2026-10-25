@@ -12,6 +12,7 @@
  * what they did in the meantime.
  */
 import { snapCutsToBeats } from "./beats";
+import { applyMove, type MoveId } from "./moves";
 import { cameraPreset, CAMERA_PRESETS, type Camera, type CameraPreset } from "./camera";
 import { placeDropOnCut } from "./drop";
 import { suggestMatchCuts, type ClipMotion, type WhipDirection } from "./match-cut";
@@ -108,6 +109,12 @@ export type Command =
   /** A clip's eased camera move (ADR 0067): a preset's name, keys, or null to go back to its `motion`. */
   | { type: "setCamera"; clipId: string; camera: Camera | CameraPreset | null }
   /**
+   * A named camera move from the moves table (ADR 0076) written onto a clip: its eased camera, speed ramp and the zoom or
+   * streak blur on the cut in or out. One undo step. An AI-only move (a dolly zoom, an orbit) is refused with the reason;
+   * ask for it as an AI shot with `move` on POST /api/ai/generations instead.
+   */
+  | { type: "applyMove"; clipId: string; move: MoveId }
+  /**
    * Match cuts (ADR 0067) from measured motion by clip id: `reorder` puts the clips in the suggested chain (held
    * clips keep their slots), `whips` turns every whip to follow the outgoing shot's motion. Both by default.
    */
@@ -152,7 +159,7 @@ export type BatchableCommand = Exclude<Command, { type: "applyProposal" } | { ty
 const COMMAND_TYPE_REGISTRY: Record<Command["type"], true> = {
   trimClip: true, moveClip: true, splitClip: true, deleteClip: true, duplicateClip: true, setSpeed: true, setMusic: true, snapToBeat: true, pace: true, setOnBeat: true,
   retime: true, retimeToLength: true, insertPresenterTakes: true, cutaways: true, applyFinish: true, hook: true, applyProposal: true,
-  setRamp: true, setCamera: true, matchCuts: true, setTransition: true, updateText: true, updateClip: true, matchLook: true, addText: true,
+  setRamp: true, setCamera: true, applyMove: true, matchCuts: true, setTransition: true, updateText: true, updateClip: true, matchLook: true, addText: true,
   autoSfx: true, setSfx: true, dropOnCut: true, batch: true,
 };
 /** The type of every command, in registry order. */
@@ -313,6 +320,8 @@ function run(timeline: Timeline, command: Command, context: CommandContext): Tim
       if (typeof command.camera === "string" && !camera) throw new Error(`There is no camera move called ${command.camera}.`);
       return updateClip(timeline, command.clipId, { camera });
     }
+    case "applyMove":
+      return applyMove(timeline, command.clipId, command.move);
     case "setTransition": {
       requireClip(timeline, command.clipId);
       const name = typeof command.transition === "string" ? command.transition : command.transition.kind;

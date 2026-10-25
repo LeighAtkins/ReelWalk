@@ -3,7 +3,7 @@ import { aiVideoConfigured, createAiGeneration, generationInput, getAiBalance } 
 import { ensureWorkerRunning } from "@/lib/render-capacity";
 import { toLibraryAssets } from "@/lib/library";
 import { prisma } from "@reelwalk/db";
-import { CHAINED_REFERENCE_MESSAGE, queuePosition, type PresenterFraming } from "@reelwalk/core";
+import { AI_DRAFT_NO_END_FRAME, CHAINED_REFERENCE_MESSAGE, queuePosition, type PresenterFraming } from "@reelwalk/core";
 
 export const runtime = "nodejs";
 
@@ -22,6 +22,11 @@ export async function GET() {
   const library = new Map((await toLibraryAssets(assets)).map(a => [a.id, a]));
   const drafts = await prisma.reel.findMany({ where: { workspaceId: user.workspaceId, id: { in: jobs.map(j => `ai-promo-${j.id}`) } }, select: { id: true } });
   const draftIds = new Set(drafts.map(d => d.id));
+  // A draft that already has a final (not a failed one) is not offered "Make it final" again (ADR 0076).
+  const finals = new Map(jobs.flatMap(j => {
+    const of = (j.shot as { finalOf?: unknown } | null)?.finalOf;
+    return typeof of === "string" && j.status !== "FAILED" ? [[of, j.id] as const] : [];
+  }));
   if (jobs.some(j => ["QUEUED", "SUBMITTING", "RUNNING"].includes(j.status))) await ensureWorkerRunning();
   return Response.json({ enabled: aiVideoConfigured(), balance, jobs: jobs.map(j => {
     const asset = j.assetId ? library.get(j.assetId) ?? null : null;
@@ -35,6 +40,7 @@ export async function GET() {
       // The auto-trim of a voiced take and whether it said its line (ADR 0069).
       take: asset?.transcript?.take ?? null,
       draftId: draftIds.has(`ai-promo-${j.id}`) ? `ai-promo-${j.id}` : null,
+      credits: j.credits, durationSeconds: j.durationSeconds, finalId: finals.get(j.id) ?? null,
       createdAt: j.createdAt.toISOString(), asset,
     };
   }) }, { headers: { "Cache-Control": "private, no-store" } });
@@ -56,7 +62,9 @@ export async function POST(request: Request) {
   if (!input.success) {
     // A chained reference has its own answer (ADR 0056); everything else is the usual description error.
     const chained = input.error.issues.some(issue => issue.message === CHAINED_REFERENCE_MESSAGE);
-    return Response.json({ error: chained ? CHAINED_REFERENCE_MESSAGE : "Describe your shot in 10–2,000 characters." }, { status: 400 });
+    const draftEnd = input.error.issues.some(issue => issue.message === AI_DRAFT_NO_END_FRAME);
+    const badMove = input.error.issues.some(issue => issue.path[0] === "move");
+    return Response.json({ error: chained ? CHAINED_REFERENCE_MESSAGE : draftEnd ? AI_DRAFT_NO_END_FRAME : badMove ? "That is not one of the camera moves. GET /api/moves lists them." : "Describe your shot in 10–2,000 characters." }, { status: 400 });
   }
   try {
     const job = await createAiGeneration(user, input.data);

@@ -1,4 +1,5 @@
 import { AwsClient, GoogleAuth } from "google-auth-library";
+import { aiVideoResolution } from "@reelwalk/core";
 
 export type AwsCredentials = () => Promise<{ accessKeyId: string; secretAccessKey: string; sessionToken?: string }>;
 
@@ -34,9 +35,16 @@ export function definitelyRejected(error: unknown): boolean {
     && error.reason !== undefined && REJECTED.has(error.reason);
 }
 
-export function vertexVideoParameters(durationSeconds: number, generateAudio = false) {
+/**
+ * What a take is asked for. The resolution follows the model (ADR 0076): the draft model is asked for 720p, every other 1080p.
+ * A `seed` (0 to 2^32 − 1) is sent only when the studio's take carries one, so a draft and its final ask for the same one.
+ */
+export function vertexVideoParameters(durationSeconds: number, generateAudio = false, options: { model?: string; seed?: number } = {}) {
   if (![4, 8].includes(durationSeconds)) throw new Error("Unsupported AI clip length.");
-  return { aspectRatio: "9:16", durationSeconds, sampleCount: 1, resolution: "1080p", generateAudio, personGeneration: "allow_adult" };
+  return {
+    aspectRatio: "9:16", durationSeconds, sampleCount: 1, resolution: aiVideoResolution(options.model ?? ""), generateAudio, personGeneration: "allow_adult",
+    ...(options.seed !== undefined ? { seed: options.seed } : {}),
+  };
 }
 
 /** A bearer-token source for Vertex: workload identity through the task role when configured, otherwise application default credentials. */
@@ -76,9 +84,9 @@ export class VertexVideo {
     return response.json();
   }
 
-  async submit(model: string, durationSeconds: number, prompt: string, image?: { bytesBase64Encoded: string; mimeType: string }, lastFrame?: { bytesBase64Encoded: string; mimeType: string }, generateAudio = false) {
+  async submit(model: string, durationSeconds: number, prompt: string, image?: { bytesBase64Encoded: string; mimeType: string }, lastFrame?: { bytesBase64Encoded: string; mimeType: string }, generateAudio = false, seed?: number) {
     const result = await this.request(model, "predictLongRunning", {
-      instances: [{ prompt, ...(image ? { image } : {}), ...(lastFrame ? { lastFrame } : {}) }], parameters: vertexVideoParameters(durationSeconds, generateAudio),
+      instances: [{ prompt, ...(image ? { image } : {}), ...(lastFrame ? { lastFrame } : {}) }], parameters: vertexVideoParameters(durationSeconds, generateAudio, { model, seed }),
     });
     if (typeof result.name !== "string") throw new Error("Google did not return a video operation.");
     return result.name as string;

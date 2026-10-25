@@ -34,12 +34,17 @@ import { HOOK_DESCRIPTIONS, HOOK_FONTS, HOOK_LABELS, type Hook, type HookKind,
   TEXT_SIZE_MAX,
   TEXT_STYLES,
   ZOOM_MAX,
-  CAMERA_LABELS,
-  CAMERA_PRESETS,
+  AI_DRAFT_CREDITS,
+  MOVES,
+  MOVE_GROUPS,
+  MOVE_GROUP_LABELS,
+  moveBlockedAt,
+  moveLoop,
+  moveOnClip,
   RAMP_LABELS,
   RAMP_PRESETS,
   rampProfile,
-  type CameraPreset,
+  type MoveId,
   type RampPreset,
   type Clip,
   type Corner,
@@ -597,22 +602,83 @@ export function LogoSheet({
   );
 }
 
-type CameraChoice = "off" | CameraPreset;
-const CAMERA_NOTES: Record<CameraPreset, string> = {
-  push: "A slow, even push in, moving from the first frame to the last.",
-  "push-settle": "Pushes in quickly, overshoots a touch, settles.",
-  drift: "A lateral drift across a slightly closer picture.",
-  snap: "Snaps closer over the first few frames, on the beat the cut is on, then holds.",
-};
-
-export function MotionSheet({ clip, onChange, onCamera, onClose }: { clip: Clip; onChange(motion: Motion): void; /** An eased move (ADR 0067), or null to go back to the simple move. */ onCamera(camera: CameraPreset | null): void; onClose(): void }) {
-  const camera: CameraChoice = clip.camera && (CAMERA_PRESETS as readonly string[]).includes(clip.camera.preset) ? (clip.camera.preset as CameraPreset) : clip.camera ? "push" : "off";
+/** A move's loop on the clip's own picture (ADR 0076): the table's camera maths, played back and forth. A sketch for an AI-only move. */
+function MoveLoop({ id, thumbUrl }: { id: MoveId; thumbUrl: string | null }) {
+  const picture = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const element = picture.current;
+    if (!element) return;
+    const poses = moveLoop(id, 24);
+    const frames = poses.map((pose, i) => ({ offset: i / (poses.length - 1), transform: `translate(${pose.x}%, ${pose.y}%) rotate(${pose.rotate}deg) scale(${pose.scale})` }));
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches || typeof element.animate !== "function") {
+      element.style.transform = frames[Math.floor(frames.length / 2)].transform;
+      return;
+    }
+    const animation = element.animate(frames, { duration: 1800, iterations: Infinity, direction: "alternate", easing: "linear" });
+    return () => animation.cancel();
+  }, [id]);
   return (
-    <Sheet title="Camera motion" onClose={onClose}>
-      <Segmented<CameraChoice> label="Eased move" options={["off", ...CAMERA_PRESETS]} value={camera} onChange={(value) => onCamera(value === "off" ? null : value)} format={(value) => (value === "off" ? "Off" : CAMERA_LABELS[value])} />
-      <p className="muted small" data-testid="camera-note">
-        {clip.camera ? (clip.camera.preset === "custom" ? "A custom eased move." : CAMERA_NOTES[camera as CameraPreset]) : "Eased moves start and settle like a real camera, and the opening shot is already moving on its first frame."}
+    <span className="move-loop" aria-hidden="true">
+      <span className="move-loop-picture" ref={picture} style={thumbUrl ? { backgroundImage: `url("${thumbUrl}")` } : undefined} />
+    </span>
+  );
+}
+
+/**
+ * Moves (ADR 0076): the clip's Camera motion controls, as cards. On the clip a card is `applyMove` (one undo step); asking
+ * for a new AI shot opens the AI sheet with the move chosen and its words in the prompt. A move that needs depth, a roll or
+ * a path the footage lacks (AI-only) goes straight to the AI side.
+ */
+export function MovesSheet({ clip, index, thumbUrl, onMove, onAskAi, onChange, onCamera, onClose }: {
+  clip: Clip; index: number; thumbUrl: string | null;
+  /** A move from the table, applied to this clip as one command. */
+  onMove(move: MoveId): void;
+  /** Ask for this move as a new AI shot: the AI sheet opens with it chosen. */
+  onAskAi(move: MoveId): void;
+  onChange(motion: Motion): void;
+  /** Take an eased move off (back to the simple move). */
+  onCamera(camera: null): void;
+  onClose(): void;
+}) {
+  const [target, setTarget] = useState<"clip" | "ai">("clip");
+  const active = moveOnClip(clip);
+  return (
+    <Sheet title="Moves" onClose={onClose}>
+      <Segmented<"clip" | "ai"> label="Use a move on" options={["clip", "ai"]} value={target} onChange={setTarget} format={(value) => (value === "clip" ? "This shot" : "A new AI shot")} />
+      <p className="muted small" data-testid="moves-note">
+        {target === "clip"
+          ? "Applies to this shot in one step, and Undo takes it back. Moves marked AI need a take Veo makes: tap one to ask for it."
+          : `Opens AI video with the move chosen. A draft costs ${AI_DRAFT_CREDITS} credit and shows the move first; Make it final runs it at full quality.`}
       </p>
+      {MOVE_GROUPS.map((group) => {
+        const moves = MOVES.filter((move) => move.group === group);
+        if (!moves.length) return null;
+        return (
+          <section className="move-group" key={group} aria-label={MOVE_GROUP_LABELS[group]}>
+            <h3 className="move-group-title">{MOVE_GROUP_LABELS[group]}</h3>
+            {moves.map((move) => {
+              const toAi = target === "ai" || move.real === null;
+              const blocked = !toAi ? moveBlockedAt(move.id, index) : null;
+              return (
+                <button type="button" key={move.id} className="move-card" data-testid={`move-${move.id}`} aria-pressed={!toAi && active === move.id} disabled={Boolean(blocked)}
+                  onClick={() => (toAi ? onAskAi(move.id) : onMove(move.id))}>
+                  <MoveLoop id={move.id} thumbUrl={thumbUrl} />
+                  <span className="move-card-text">
+                    <strong>{move.label}</strong>
+                    <span className="muted small">{blocked ?? (move.real === null && target === "clip" ? move.aiOnly : move.blurb)}</span>
+                  </span>
+                  {move.real === null ? <span className="move-badge">AI</span> : null}
+                </button>
+              );
+            })}
+          </section>
+        );
+      })}
+      {clip.camera ? (
+        <button type="button" className="btn btn-quiet btn-block" onClick={() => onCamera(null)}>
+          Take the move off{clip.camera.preset === "custom" && !active ? " (a custom eased move)" : ""}
+        </button>
+      ) : null}
       <Segmented label="Simple move" options={MOTIONS} value={clip.camera ? ("" as Motion) : clip.motion} onChange={onChange} format={(motion) => MOTION_LABELS[motion]} />
       <p className="muted small">{clip.camera ? "Choosing a simple move switches the eased move off." : "A steady push or pan, or a short snap zoom to accent a cut. Works on photos and video."}</p>
     </Sheet>

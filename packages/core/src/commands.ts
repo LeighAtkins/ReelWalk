@@ -29,6 +29,7 @@ import { insertPresenterTakes, type PresenterTakeInsert } from "./script";
 import { planCutaways, type CutawayOptions } from "./cutaways";
 import { matchLook, type ColorStats } from "./look";
 import { attachedAnchors, retimeTexts } from "./text-timing";
+import { placementProblem, surfacePatch, type SurfacePick, type TitleOnSurface } from "./surface-place";
 import {
   clipDurationMs,
   duplicateClip,
@@ -127,6 +128,14 @@ export type Command =
   | { type: "setTransition"; clipId: string; transition: Timeline["clips"][number]["transitionIn"] | SpeedRampChoice; whipDirection?: WhipDirection; speedRamp?: Partial<Omit<SpeedRampParams, "auto">> & { preset?: SpeedRampPreset } }
   /** One title's look or place (the critic's fixes, ADR 0062). Does not change the cut, so nothing is retimed. */
   | { type: "updateText"; textId: string; patch: Partial<Omit<TextOverlay, "id">> }
+  /**
+   * A title put on a surface of the picture (ADR 0075): its corners, the surface blend, the house serif, the ink and (when it
+   * could be followed) the track, in one step and one undo. `atMs` is the reel time of the frame that was looked at and
+   * `clipId` the shot it is in; `pick` which kind of surface to take ("auto": the best). The surface is found from the picture,
+   * which this pure command cannot do: the HTTP commands route (and the editor's sheet) find it and send it as `placement`;
+   * without one the command is refused with that explanation.
+   */
+  | { type: "placeOnSurface"; textId: string; clipId?: string; atMs?: number; pick?: SurfacePick; placement?: TitleOnSurface }
   /** One clip's look (a camera move, zoom, grade, fit, transition; the retention critic's fixes, ADR 0071). Not its timing: `setSpeed` and `trimClip` change the cut. */
   | { type: "updateClip"; clipId: string; patch: Omit<ClipSettings, "speed"> }
   /**
@@ -159,7 +168,7 @@ export type BatchableCommand = Exclude<Command, { type: "applyProposal" } | { ty
 const COMMAND_TYPE_REGISTRY: Record<Command["type"], true> = {
   trimClip: true, moveClip: true, splitClip: true, deleteClip: true, duplicateClip: true, setSpeed: true, setMusic: true, snapToBeat: true, pace: true, setOnBeat: true,
   retime: true, retimeToLength: true, insertPresenterTakes: true, cutaways: true, applyFinish: true, hook: true, applyProposal: true,
-  setRamp: true, setCamera: true, applyMove: true, matchCuts: true, setTransition: true, updateText: true, updateClip: true, matchLook: true, addText: true,
+  setRamp: true, setCamera: true, applyMove: true, matchCuts: true, setTransition: true, updateText: true, placeOnSurface: true, updateClip: true, matchLook: true, addText: true,
   autoSfx: true, setSfx: true, dropOnCut: true, batch: true,
 };
 /** The type of every command, in registry order. */
@@ -368,6 +377,13 @@ function run(timeline: Timeline, command: Command, context: CommandContext): Tim
     case "updateText":
       if (!timeline.texts.some((text) => text.id === command.textId)) throw new Error(`There is no text called ${command.textId} in the reel.`);
       return updateText(timeline, command.textId, command.patch);
+    case "placeOnSurface": {
+      if (!timeline.texts.some((text) => text.id === command.textId)) throw new Error(`There is no text called ${command.textId} in the reel.`);
+      if (!command.placement) throw new Error("placeOnSurface needs a surface: send it to POST /api/reels/:id/commands with clipId and atMs and the app finds one in the picture, or pass placement.corners yourself.");
+      const problem = placementProblem(command.placement);
+      if (problem) throw new Error(problem);
+      return updateText(timeline, command.textId, surfacePatch(command.placement));
+    }
     case "updateClip": {
       if (!timeline.clips.some((clip) => clip.id === command.clipId)) throw new Error(`There is no clip called ${command.clipId} in the reel.`);
       // Speed is a cut change (it retimes everything after the clip), so it is not a setting this command may touch.

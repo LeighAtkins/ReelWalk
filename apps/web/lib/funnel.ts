@@ -7,7 +7,7 @@ import { readAttribution, type Attribution } from "./attribution";
  * are the base any ad platform's pixel or Conversions API call is built from
  * later; nothing here talks to a third party.
  */
-export const FUNNEL_EVENTS = ["signup", "first_export", "checkout_started", "subscribed"] as const;
+export const FUNNEL_EVENTS = ["signup", "first_export", "upgrade_prompt", "checkout_started", "subscribed"] as const;
 export type FunnelEventName = (typeof FUNNEL_EVENTS)[number];
 
 type EventData = Record<string, string | number | boolean | null>;
@@ -44,6 +44,23 @@ export async function recordFunnelEvent(event: {
   }
 }
 
+/**
+ * Whether this studio has not yet been shown the one message after a first
+ * export (ADR 0081), and marks it shown. True exactly once per studio, so the
+ * message appears once even if the page is reloaded or never dismissed.
+ */
+export async function claimUpgradePrompt(input: { userId: string; workspaceId: string; data?: EventData }): Promise<boolean> {
+  const key = `upgrade_prompt:${input.workspaceId}`;
+  try {
+    if (await prisma.funnelEvent.findUnique({ where: { eventKey: key }, select: { id: true } })) return false;
+  } catch (error) {
+    console.error("funnel: could not check the upgrade prompt", error);
+    return false;
+  }
+  await recordFunnelEvent({ name: "upgrade_prompt", userId: input.userId, workspaceId: input.workspaceId, key, data: input.data });
+  return true;
+}
+
 async function firstUserOf(workspaceId: string): Promise<string | null> {
   const user = await prisma.user.findFirst({ where: { workspaceId }, orderBy: { createdAt: "asc" }, select: { id: true } });
   return user?.id ?? null;
@@ -54,7 +71,7 @@ export type FunnelRow = { source: string; campaign: string; counts: Record<Funne
 /** Events since `since`, counted per utm_source and utm_campaign ("(none)" when the visitor came without). For /api/admin/funnel. */
 export async function funnelSummary(since: Date): Promise<{ total: Record<FunnelEventName, number>; rows: FunnelRow[] }> {
   const events = await prisma.funnelEvent.findMany({ where: { createdAt: { gte: since } }, select: { name: true, data: true } });
-  const empty = (): Record<FunnelEventName, number> => ({ signup: 0, first_export: 0, checkout_started: 0, subscribed: 0 });
+  const empty = (): Record<FunnelEventName, number> => ({ signup: 0, first_export: 0, upgrade_prompt: 0, checkout_started: 0, subscribed: 0 });
   const total = empty();
   const rows = new Map<string, FunnelRow>();
   for (const event of events) {

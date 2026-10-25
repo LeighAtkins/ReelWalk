@@ -4,15 +4,18 @@ import { SiteFooter, SiteHeader } from "@/components/landing/landing";
 import styles from "@/components/landing/landing.module.css";
 import { PricingSection } from "@/components/landing/pricing";
 import { TabBar } from "@/components/tab-bar";
-import { pickAttribution, withAttribution } from "@/lib/attribution";
+import { pickAttribution } from "@/lib/attribution";
 import { getSessionUser } from "@/lib/auth";
 import { workspacePlan } from "@/lib/plans";
+import { OG_IMAGE } from "@/lib/site";
 import { isBillingConfigured, isIntervalAvailable } from "@/lib/stripe";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
   title: "Plans · ReelWalk",
-  description: "Free, Agent and Studio plans for making listing reels on your phone. Monthly or yearly.",
+  description: "Free, Agent (A$39 a month) and Studio (A$99 a month) plans for making listing reels on your phone. Australian dollars, GST included.",
+  openGraph: { type: "website", siteName: "ReelWalk", locale: "en_AU", title: "Plans · ReelWalk", description: "Your listing, as a reel, in a minute. Free, Agent from A$39 a month, Studio from A$99. GST included.", url: "/pricing", images: [OG_IMAGE] },
+  twitter: { card: "summary_large_image", title: "Plans · ReelWalk", description: "Your listing, as a reel, in a minute. Free, Agent from A$39 a month, Studio from A$99. GST included.", images: [OG_IMAGE] },
 };
 
 /**
@@ -29,7 +32,7 @@ export default async function PricingPage({ searchParams }: { searchParams: Prom
       <div className={styles.page}>
         <SiteHeader plansHref="#pricing" attribution={attribution} />
         <main className={styles.main}>
-          <PricingSection viewer={{ signedIn: false, signupHref: withAttribution("/signup", attribution) }} />
+          <PricingSection viewer={{ signedIn: false, attribution }} />
         </main>
         <SiteFooter />
       </div>

@@ -8,7 +8,7 @@ export default function robots(): MetadataRoute.Robots {
       {
         userAgent: "*",
         // "/$" is the landing page alone; everything else under / stays out unless listed.
-        allow: ["/$", "/pricing", "/login", "/signup", "/guide", "/privacy", "/terms", "/data-deletion"],
+        allow: ["/$", "/pricing", "/login", "/signup", "/guide", "/privacy", "/terms", "/data-deletion", "/og/"],
         disallow: ["/"],
       },
     ],

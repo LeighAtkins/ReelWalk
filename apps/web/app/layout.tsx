@@ -10,17 +10,17 @@ import "@fontsource-variable/cormorant-garamond/wght.css";
 import "./globals.css";
 import type { Metadata, Viewport } from "next";
 import { WheelScroll } from "@/components/wheel-scroll";
-import { SITE_URL } from "@/lib/site";
+import { OG_IMAGE, SITE_URL } from "@/lib/site";
 
-const DESCRIPTION = "Turn the photos and clips on your phone into a vertical listing reel in minutes, with the music cut to the beat. Free to start, no card.";
+const DESCRIPTION = "Your listing, as a reel, in a minute. Turn the photos and clips on your phone into a vertical listing reel for Instagram, with the music cut to the beat. Free to start, no card.";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: "ReelWalk",
   description: DESCRIPTION,
-  // What a shared link or an ad preview shows (no image yet: the owner picks one).
-  openGraph: { type: "website", siteName: "ReelWalk", title: "ReelWalk: listing reels, made between shoots", description: DESCRIPTION, url: "/" },
-  twitter: { card: "summary", title: "ReelWalk: listing reels, made between shoots", description: DESCRIPTION },
+  // What a shared link or an ad preview shows: the 1200x630 image of a phone playing a reel (ADR 0081).
+  openGraph: { type: "website", siteName: "ReelWalk", locale: "en_AU", title: "ReelWalk: listing reels, made between shoots", description: DESCRIPTION, url: "/", images: [OG_IMAGE] },
+  twitter: { card: "summary_large_image", title: "ReelWalk: listing reels, made between shoots", description: DESCRIPTION, images: [OG_IMAGE] },
   appleWebApp: { capable: true, title: "ReelWalk", statusBarStyle: "black-translucent" },
 };
 
@@ -38,7 +38,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en-AU">
       <body>
         {children}
         <WheelScroll />

@@ -1,20 +1,23 @@
 import Link from "next/link";
-import { BILLING_INTERVALS, PLAN_IDS, PLANS, planPrice, yearlyPerMonth, type BillingInterval, type PlanDef, type PlanId } from "@reelwalk/core";
+import { BILLING_INTERVALS, formatAud, PLAN_IDS, PLANS, planPrice, PRICE_SMALL_PRINT, yearlyPerMonth, type BillingInterval, type PlanDef, type PlanId } from "@reelwalk/core";
 import { startCheckout } from "@/app/billing-actions";
 import { CheckIcon } from "@/components/icons";
 import { SubmitButton } from "@/components/submit-button";
+import { signupHrefFor, type Attribution } from "@/lib/attribution";
 import styles from "./landing.module.css";
 
 /**
  * The three plans from @reelwalk/core, with a monthly/yearly switch that is
  * two radio buttons and a :has() rule: no script runs on this page.
  *
- * Signed out, every button leads to sign-up. Signed in (the /pricing page),
+ * Signed out, every button leads to sign-up (never to checkout): a paid plan's
+ * button remembers the pick, so the first export can offer it (ADR 0081).
+ * Prices are Australian dollars, GST included. Signed in (the /pricing page),
  * paid plans open Stripe Checkout at the chosen interval, and the plan the
  * studio is on says so.
  */
 export type PricingViewer =
-  | { signedIn: false; /** Sign-up link carrying the visitor's utm and click ids (ADR 0080). */ signupHref?: string }
+  | { signedIn: false; /** The visitor's utm and click ids (ADR 0080), carried on to sign-up. */ attribution?: Attribution | null }
   | { signedIn: true; currentPlan: PlanId; billingOn: boolean; yearlyOn: boolean };
 
 export function PricingSection({ viewer, id = "pricing" }: { viewer: PricingViewer; id?: string }) {
@@ -41,12 +44,16 @@ export function PricingSection({ viewer, id = "pricing" }: { viewer: PricingView
           <PlanCard key={planId} plan={PLANS[planId]} viewer={viewer} yearlyOn={yearlyOn} />
         ))}
       </ul>
+      <p className={styles.founding} data-testid="founding-note">
+        Founding agents: half price for your first 3 months with code FOUNDING50.
+      </p>
+      <p className={styles.smallPrint} data-testid="price-small-print">{PRICE_SMALL_PRINT}</p>
     </section>
   );
 }
 
 function PlanCard({ plan, viewer, yearlyOn }: { plan: PlanDef; viewer: PricingViewer; yearlyOn: boolean }) {
-  const paid = plan.priceUsd > 0;
+  const paid = plan.priceAud > 0;
   const featured = plan.id === "AGENT";
   return (
     <li className={styles.plan} data-featured={featured} data-testid={`plan-${plan.id.toLowerCase()}`}>
@@ -59,7 +66,7 @@ function PlanCard({ plan, viewer, yearlyOn }: { plan: PlanDef; viewer: PricingVi
         </>
       ) : (
         <p className={styles.price}>
-          <span className={styles.amount}>$0</span>
+          <span className={styles.amount}>{formatAud(0)}</span>
           <span className={styles.per}>for as long as you like</span>
         </p>
       )}
@@ -80,19 +87,39 @@ function Price({ plan, interval, className }: { plan: PlanDef; interval: Billing
   const amount = planPrice(plan, interval);
   return (
     <p className={`${styles.price} ${className}`}>
-      <span className={styles.amount}>${interval === "year" ? yearlyPerMonth(plan).toFixed(0) : amount}</span>
-      <span className={styles.per}>{interval === "year" ? `a month, $${amount} billed yearly` : "a month, billed monthly"}</span>
+      <span className={styles.amount}>{formatAud(interval === "year" ? yearlyPerMonth(plan) : amount)}</span>
+      <span className={styles.per}>{interval === "year" ? `a month, ${formatAud(amount)} billed yearly` : "a month, billed monthly"}</span>
     </p>
   );
 }
 
 function PlanAction({ plan, viewer, yearlyOn }: { plan: PlanDef; viewer: PricingViewer; yearlyOn: boolean }) {
-  const paid = plan.priceUsd > 0;
+  const paid = plan.priceAud > 0;
   if (!viewer.signedIn) {
+    const attribution = viewer.attribution ?? null;
+    const className = `btn btn-block ${plan.id === "AGENT" ? "" : "btn-quiet"}`;
+    if (!paid) {
+      return (
+        <Link href={signupHrefFor("FREE", "month", attribution)} className={className} data-testid="cta-free">
+          Start free, no card
+        </Link>
+      );
+    }
+    // Sign-up, not checkout: the pick is kept with the account and offered after the first export. One link per
+    // interval, shown by the same CSS switch as the prices.
     return (
-      <Link href={viewer.signupHref ?? "/signup"} className={`btn btn-block ${plan.id === "AGENT" ? "" : "btn-quiet"}`} data-testid={`cta-${plan.id.toLowerCase()}`}>
-        {paid ? `Start free, then ${plan.name}` : "Start free, no card"}
-      </Link>
+      <>
+        {BILLING_INTERVALS.map((interval) => (
+          <Link
+            key={interval}
+            href={signupHrefFor(plan.id, interval, attribution)}
+            className={`${className} ${interval === "year" ? styles.yearly : styles.monthly}`}
+            data-testid={interval === "year" ? `cta-${plan.id.toLowerCase()}-yearly` : `cta-${plan.id.toLowerCase()}`}
+          >
+            Start free, then {plan.name}
+          </Link>
+        ))}
+      </>
     );
   }
   if (viewer.currentPlan === plan.id) {
@@ -128,9 +155,9 @@ function audience(plan: PlanDef): string {
     case "FREE":
       return "Try it on a listing or two.";
     case "AGENT":
-      return "One photographer, every listing.";
+      return "One agent or photographer, every listing.";
     default:
-      return "A studio, five people posting.";
+      return "An agency, five people posting.";
   }
 }
 

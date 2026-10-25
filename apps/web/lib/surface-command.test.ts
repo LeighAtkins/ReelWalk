@@ -20,7 +20,7 @@ const timeline = parseTimeline({
   music: null,
 });
 const asset = (id: string) => ({ id, url: `https://cdn.example/${id}.mp4`, width: 1080, height: 1920 }) as never;
-const loaded = { id: "r", title: "r", revision: 3, timeline, library: { v1: asset("v1"), v2: { id: "v2", url: "https://cdn.example/v2.mp4", width: null, height: 1920 } as never } };
+const loaded = { id: "r", title: "r", revision: 3, brandKit: null, timeline, library: { v1: asset("v1"), v2: { id: "v2", url: "https://cdn.example/v2.mp4", width: null, height: 1920 } as never } };
 const found = { search: { candidates: [{ id: "c1" }], rejected: [], horizonY: 0.4, lines: 9 }, sourceMs: 500, vision: { used: false } };
 const placed = { ok: true, placement: { corners: [0.2, 0.3, 0.8, 0.3, 0.8, 0.4, 0.2, 0.4], ink: { color: "#f4eee2", shadow: "soft" } }, candidate: { id: "c1", kind: "wall", label: "Wall", texture: { points: 40, coverage: 0.5 } }, tracking: "tracked", quality: { grade: "good" }, notes: ["Followed."], search: found.search, vision: found.vision };
 

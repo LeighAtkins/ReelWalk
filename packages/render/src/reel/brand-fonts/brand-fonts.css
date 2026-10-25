@@ -1,0 +1,19 @@
+/*
+ * Brand kit fonts (ADR 0078). All SIL Open Font License 1.1; the licence text (with each family's copyright) is the
+ * OFL.txt in each folder, and the notices are listed in NOTICE.md. The files are the unmodified upstream TTFs, so the
+ * licence's Reserved Font Name clause is not engaged. Big Shoulders Display is a variable font (wght 100-900, no slant
+ * axis: the kit's lean is a skew); the others are static files.
+ */
+@font-face { font-family: "Big Shoulders Display"; font-style: normal; font-weight: 100 900; font-display: block; src: url("./big-shoulders-display/BigShouldersDisplay-Variable.ttf") format("truetype"); }
+
+@font-face { font-family: "Chakra Petch"; font-style: normal; font-weight: 500; font-display: block; src: url("./chakra-petch/ChakraPetch-Medium.ttf") format("truetype"); }
+@font-face { font-family: "Chakra Petch"; font-style: normal; font-weight: 600; font-display: block; src: url("./chakra-petch/ChakraPetch-SemiBold.ttf") format("truetype"); }
+@font-face { font-family: "Chakra Petch"; font-style: normal; font-weight: 700; font-display: block; src: url("./chakra-petch/ChakraPetch-Bold.ttf") format("truetype"); }
+
+@font-face { font-family: "Atkinson Hyperlegible"; font-style: normal; font-weight: 400; font-display: block; src: url("./atkinson-hyperlegible/AtkinsonHyperlegible-Regular.ttf") format("truetype"); }
+@font-face { font-family: "Atkinson Hyperlegible"; font-style: normal; font-weight: 700; font-display: block; src: url("./atkinson-hyperlegible/AtkinsonHyperlegible-Bold.ttf") format("truetype"); }
+@font-face { font-family: "Atkinson Hyperlegible"; font-style: italic; font-weight: 400; font-display: block; src: url("./atkinson-hyperlegible/AtkinsonHyperlegible-Italic.ttf") format("truetype"); }
+
+@font-face { font-family: "Anton"; font-style: normal; font-weight: 400; font-display: block; src: url("./anton/Anton-Regular.ttf") format("truetype"); }
+
+@font-face { font-family: "Caveat Brush"; font-style: normal; font-weight: 400; font-display: block; src: url("./caveat-brush/CaveatBrush-Regular.ttf") format("truetype"); }

@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import { colorMatchCss, type ColorMatch, type Filter, type TextAnimation, type TextStyle, type TextOverlay } from "@reelwalk/core";
+import { brandFontFamily, BRAND_FONTS, colorMatchCss, type ColorMatch, type Filter, type TextAnimation, type TextStyle, type TextOverlay, type TextTreatment } from "@reelwalk/core";
 
 /**
  * Colour filters are CSS filters, so the Player preview in the browser and the
@@ -104,13 +104,53 @@ export function textContrastCss(text: Pick<TextOverlay, "style" | "color" | "siz
     ...(text.style !== "outline" ? { WebkitTextStroke: `${edge}px rgba(${rgb},0.65)`, paintOrder: "stroke fill" as const } : {}) };
 }
 
-export function textTreatmentCss(text: Pick<TextOverlay, "style" | "color" | "size" | "font" | "tracking" | "shadow">): CSSProperties {
+/** `#rrggbb` as `rgba(r, g, b, a)`. */
+function withAlpha(color: string, alpha: number): string {
+  const value = parseInt(color.slice(1), 16);
+  return `rgba(${(value >> 16) & 255}, ${(value >> 8) & 255}, ${value & 255}, ${alpha})`;
+}
+
+/**
+ * A brand kit style's treatment as CSS (ADR 0078), over the text's own: the bundled brand face and weight, capitals, a
+ * hard offset shadow (no blur), a plate with an edge, and a forward lean. Lengths are fractions of the font size, so the
+ * look scales with the text. The lean is a `skewX` on the title (the fonts have no slant axis) and so also tilts a plate; it
+ * is the only transform on the face, which the composition composes with its own scale where it sets one.
+ */
+export function brandCss(brand: TextTreatment, fontSize: number): CSSProperties {
+  const px = (em: number) => em * fontSize;
+  const spec = BRAND_FONTS[brand.font];
+  const { shadow, plate } = brand;
+  const edge = plate?.edge && plate.edge.width > 0 ? Math.max(1, px(plate.edge.width)) : 0;
+  return {
+    fontFamily: brandFontFamily(brand.font),
+    fontWeight: brand.weight,
+    fontStretch: "100%",
+    fontStyle: brand.italic && spec.italic ? "italic" : "normal",
+    textTransform: brand.caps ? "uppercase" : "none",
+    // A hard shadow is a second copy of the letters: no blur, and none of the style's own halo or edge.
+    textShadow: shadow ? `${px(shadow.dx).toFixed(2)}px ${px(shadow.dy).toFixed(2)}px 0 ${shadow.color}` : "none",
+    WebkitTextStroke: "0px",
+    ...(brand.slant ? { transform: `skewX(${-brand.slant}deg)` } : {}),
+    ...(plate ? {
+      backgroundColor: withAlpha(plate.color, plate.opacity),
+      padding: `${px(plate.padY ?? 0.2).toFixed(2)}px ${px(plate.padX ?? 0.4).toFixed(2)}px`,
+      borderRadius: px(plate.radius ?? 0),
+      boxDecorationBreak: "clone" as const,
+      WebkitBoxDecorationBreak: "clone" as const,
+      ...(edge ? { border: `${edge.toFixed(2)}px solid ${plate.edge!.color}` } : {}),
+    } : {}),
+  };
+}
+
+export function textTreatmentCss(text: Pick<TextOverlay, "style" | "color" | "size" | "font" | "tracking" | "shadow" | "brand">): CSSProperties {
   const fonts = { auto: undefined, serif: ELEGANT_FONT_FAMILY, sans: REEL_FONT_FAMILY, editorial: '"Bodoni Moda Variable", Georgia, "Noto Color Emoji", serif' };
-  return { ...textCss(text.style, text.color, text.size),
+  const base: CSSProperties = { ...textCss(text.style, text.color, text.size),
     ...(text.font && text.font !== "auto" ? { fontFamily: fonts[text.font] } : {}),
     ...(text.tracking !== undefined ? { letterSpacing: `${text.tracking}em` } : {}),
     ...textContrastCss(text),
   };
+  // A kit style replaces the style's own face, shadow and plate; reels saved before it have no `brand` and are untouched.
+  return text.brand ? { ...base, ...brandCss(text.brand, Number(base.fontSize) || BASE_TEXT_PX * text.size) } : base;
 }
 
 /** Styles for a text overlay, in frame pixels (the composition is 1080x1920). */

@@ -6,6 +6,7 @@ import { Editor } from "@/components/editor/editor";
 import { isFakeInstagram, isInstagramConfigured } from "@/lib/instagram";
 import { isAiAvailable } from "@/lib/openai";
 import { aiEditUsage } from "@/lib/ai-edit";
+import { workspaceBrandKit } from "@/lib/brand-kit";
 import { instagramSoundProblem } from "@/lib/instagram-sound";
 import { toLibraryAssets } from "@/lib/library";
 import { readTimeline } from "@/lib/reels";
@@ -66,6 +67,7 @@ export default async function EditReelPage({
       briefs={briefs}
       autopilot={auto === "1"}
       aiUsage={await aiEditUsage(user.workspaceId)}
+      brandKit={await workspaceBrandKit(user.workspaceId)}
     />
   );
 }

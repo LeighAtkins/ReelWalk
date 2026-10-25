@@ -20,6 +20,7 @@ export function titleFont(text: Pick<TextOverlay, "tracking" | "kinetic">, css: 
   return {
     fontFamily: String(css.fontFamily ?? ""), fontWeight: css.fontWeight as TitleFont["fontWeight"], fontSize: Number(css.fontSize) || 64, letterSpacing: text.tracking ?? letterSpacingEm(css.letterSpacing),
     fontStretch: css.fontStretch ? String(css.fontStretch) : undefined,
+    ...(css.textTransform && css.textTransform !== "none" ? { textTransform: String(css.textTransform) } : {}),
     ...(text.kinetic?.preset === "count" ? { fontVariantNumeric: "tabular-nums" } : {}),
   };
 }

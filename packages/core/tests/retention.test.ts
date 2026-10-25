@@ -97,7 +97,8 @@ describe("cut rate against the song", () => {
 
   it("shots in the drop twice as long as the song wants drag; the fix is the pacing command", () => {
     // 500 ms beats. Intro: two 4 s shots (8 beats each, wanted 8 at 0.5... fine). Drop: four 4 s shots (8 beats, wanted 2).
-    const clips = [video("i1", "v1", 4000), video("i2", "v2", 4000), video("d1", "v3", 4000), video("d2", "v4", 4000), video("d3", "v1", 4000), video("d4", "v2", 4000)];
+    // Ten drop shots: after the fix the reel is still longer than the 15 s a re-pace keeps.
+    const clips = [video("i1", "v1", 4000), video("i2", "v2", 4000), ...Array.from({ length: 10 }, (_, i) => video(`d${i + 1}`, `v${(i % 4) + 1}`, 4000))];
     const timeline = reel(clips, { music: song });
     const [finding] = ofCheck(run(timeline), "cut-rate");
     expect(finding.severity).toBe("medium");

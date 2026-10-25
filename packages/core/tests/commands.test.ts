@@ -105,7 +105,8 @@ describe("a trim handle dragged in and back out", () => {
       applyCommand(timeline, { type: "trimClip", clipId: "a", window: { sourceStartMs, sourceEndMs: 8000 } }, { ...ctx, gestureBase: start }).timeline;
     // The title shows source 5.5–7 s of clip a; dragging the start to 6 s cuts into it, back to 2 s restores it.
     const squeezed = step(start, 6000);
-    expect(times(squeezed).title).toEqual([0, 1000]);
+    // It shows from the clip's first frame, for no less than 1.2 s (never the old 100 ms sliver).
+    expect(times(squeezed).title).toEqual([0, 1200]);
     expect(times(step(squeezed, 2000)).title).toEqual(times(start).title);
   });
 });

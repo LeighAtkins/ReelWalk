@@ -10,14 +10,8 @@ import { addRoomLabels, clipDurationMs, clipStartsMs, hasRoomLabels, timelineDur
 export const OPENING_TITLE_MS = 500;
 /** An opening title stays up at least this long when a change would cut it shorter (the house rule: readable from frame 0). */
 export const OPENING_TITLE_MIN_MS = 1500;
-/** No title is made shorter than this by a change to the cut, unless it was shorter when the user set it. */
+/** A title whose picture is trimmed away from under it still shows this long (or as long as it was, if the user set it shorter), not the old 100 ms sliver. */
 export const MIN_TITLE_MS = 1200;
-
-/** The shortest a change to the cut may leave `text`: its floor, or its own length when the user set it shorter. */
-function titleFloorMs(text: TextOverlay, was: TextOverlay | undefined): number {
-  const length = (was ?? text).endMs - (was ?? text).startMs;
-  return Math.min(text.startMs < OPENING_TITLE_MS ? OPENING_TITLE_MIN_MS : MIN_TITLE_MS, length);
-}
 
 // ── Keeping the rest of the reel in step ────────────────────────
 
@@ -249,8 +243,10 @@ export function retimeTexts(before: Timeline, after: Timeline, options: TextReti
     };
     const next = moved();
     if (except.has(text.id) || text.id.startsWith("room-")) return next;
-    // Whatever the change did, a title is not left a sliver (an opening title stays readable from frame 0).
-    const floor = titleFloorMs(next, before.texts.find((entry) => entry.id === text.id));
+    // An opening title stays readable from frame 0, whatever the change did to the first clip.
+    const was = before.texts.find((entry) => entry.id === text.id);
+    if (!was || was.startMs >= OPENING_TITLE_MS || owner.has(text.id)) return next;
+    const floor = Math.min(OPENING_TITLE_MIN_MS, was.endMs - was.startMs);
     return next.endMs - next.startMs < floor ? { ...next, endMs: next.startMs + floor } : next;
   });
   const total = timelineDurationMs(current);

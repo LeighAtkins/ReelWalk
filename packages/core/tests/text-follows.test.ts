@@ -50,8 +50,9 @@ describe("text follows the picture", () => {
 
   it("trimmed from the start, a line keeps its frame; one cut away shows from the first frame", () => {
     const { timeline } = run([op({ op: "trim", clip: 1, startMs: 1500, endMs: 8000 })]);
+    // "first" (1 s) had half its picture trimmed away: it shows from the first frame for its whole length, not the 500 ms left.
     expect(timeline.texts.map((text) => [text.startMs, text.endMs])).toEqual([
-      [0, 500],
+      [0, 1000],
       [3500, 5500],
     ]);
   });

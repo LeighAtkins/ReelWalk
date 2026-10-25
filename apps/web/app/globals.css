@@ -4403,3 +4403,55 @@ input.inspect-scrub {
   font-size: 0.7rem;
   font-weight: 700;
 }
+
+/* The workspace switcher (ADR 0079): one line in the reels header, a list under it. */
+.ws-switch { position: relative; min-width: 0; }
+.ws-switch > summary {
+  list-style: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  min-height: 44px;
+  padding: 0 14px;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1.5px var(--line-strong);
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ws-switch > summary::-webkit-details-marker { display: none; }
+.ws-switch > summary::after { content: "\25BE"; color: var(--muted); }
+.ws-switch-list {
+  position: absolute;
+  right: 0;
+  z-index: 30;
+  margin: 6px 0 0;
+  padding: 6px;
+  list-style: none;
+  min-width: 220px;
+  background: var(--ink-deep);
+  border-radius: 14px;
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+.ws-switch-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 48px;
+  padding: 0 12px;
+  background: none;
+  border: 0;
+  border-radius: 10px;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+.ws-switch-row:not(:disabled) { cursor: pointer; }
+.ws-switch-row[aria-current="true"] { color: var(--muted); }
+.ws-list { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 8px; }
+.ws-list form { margin: 0; }

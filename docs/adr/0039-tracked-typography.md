@@ -62,3 +62,32 @@ showed three faults in this design, fixed together:
 - **Glyphs were pasted on.** `blend: "surface"` composites the text with
   hard-light, a slight blur and 92% opacity, so the wall's light and grain
   show through the letters.
+
+## Note, 2026-10-25: emoji in titles
+
+Emoji (🚩 ❤️ 🏠 …) showed in the editor preview, where the browser has an emoji
+font, and came out as empty boxes in exports: the worker's Chrome Headless
+Shell, on Debian bookworm, had none.
+
+- The worker image installs `fonts-noto-color-emoji` (CBDT, which Chrome
+  draws), refreshes the fontconfig cache, and `RUN fc-list | grep -qi "Noto Color
+  Emoji"` fails the build if it is missing. `BASE_REFRESH` was bumped so the
+  cached runtime layer is rebuilt.
+- Every title font stack (`REEL_FONT_FAMILY`, `ELEGANT_FONT_FAMILY`, the
+  editorial stack, the hook stacks) names `"Noto Color Emoji"` after the house
+  fonts and before the generic family, so emoji glyphs fall back to it the same
+  way everywhere. A phone without it still falls back to its own emoji font.
+- Tried and dropped: bundling `@fontsource/noto-color-emoji` for exact
+  preview/export parity (SIL OFL 1.1). Its files are OpenType-SVG, which Chrome
+  does not draw: the glyphs took the emoji's width and drew nothing. A COLRv1 or
+  CBDT build of the font would be needed; until then preview uses the device's
+  emoji font and export uses Noto, so shapes differ slightly and metrics match
+  closely.
+- `pnpm --filter @reelwalk/render emoji` (scripts/emoji.ts) draws "ABC 🚩 ❤️ 🏠"
+  with `renderReelStills` and fails unless thousands of saturated pixels appear
+  in three separate groups. `tests/emoji-fonts.test.ts` pins the stacks and the
+  Dockerfile lines. Frame: `docs/adr/assets/emoji-render.png`, drawn locally
+  with Windows' Segoe UI Emoji; the Debian path is verified only by CI's image
+  build (`fc-list` check).
+
+![Emoji in an exported title frame](assets/emoji-render.png)

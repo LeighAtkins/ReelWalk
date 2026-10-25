@@ -17,8 +17,8 @@ export const HOOK_DESCRIPTIONS: Record<HookKind | "words-behind", string> = {
   "words-behind": "Three big words appear one by one behind the person in the first shot, who walks in front of them.",
 };
 export const HOOK_FONT_FAMILIES: Record<Hook["font"], string> = {
-  sans: "'Archivo', 'Helvetica Neue', Arial, sans-serif",
-  serif: "'Cormorant Garamond', 'Cormorant', Georgia, serif",
+  sans: "'Archivo', 'Helvetica Neue', Arial, 'Noto Color Emoji', sans-serif",
+  serif: "'Cormorant Garamond', 'Cormorant', Georgia, 'Noto Color Emoji', serif",
 };
 
 export function setHook(timeline: Timeline, hook: Hook | null): Timeline {

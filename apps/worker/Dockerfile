@@ -7,8 +7,9 @@ FROM node:22-bookworm-slim AS runtime
 # The upgrade layer is rebuilt whenever this ARG changes: bump the date when Debian ships
 # fixes that CI's cached layer lacks (2026-10-21: libssh 0.10.6-0+deb12u3;
 # 2026-10-23: libexpat1 2.5.0-1+deb12u5 for CVE-2025-59375 / CVE-2026-77214;
-# 2026-10-24: libbrotli1 1.0.9-2+deb12u1 for CVE-2026-111497).
-ARG BASE_REFRESH=2026-10-24
+# 2026-10-24: libbrotli1 1.0.9-2+deb12u1 for CVE-2026-111497;
+# 2026-10-25: fonts-noto-color-emoji added, so emoji in titles are not tofu).
+ARG BASE_REFRESH=2026-10-25
 RUN apt-get update \
   && apt-get upgrade -y \
   && apt-get install -y --no-install-recommends ca-certificates curl \
@@ -18,8 +19,11 @@ RUN apt-get update \
   && apt-get update \
   && apt-get install -y --no-install-recommends postgresql-client-17 \
   && apt-get purge -y curl && apt-get autoremove -y \
-  && apt-get install -y --no-install-recommends ffmpeg ca-certificates libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libpango-1.0-0 libcairo2 libasound2 libatspi2.0-0 libxshmfence1 \
+  && apt-get install -y --no-install-recommends ffmpeg ca-certificates libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libpango-1.0-0 libcairo2 libasound2 libatspi2.0-0 libxshmfence1 fonts-noto-color-emoji \
+  && fc-cache -f \
   && rm -rf /var/lib/apt/lists/*
+# Chrome Headless Shell draws emoji with whatever fontconfig finds; fail the build if the colour font is missing.
+RUN fc-list | grep -qi "Noto Color Emoji"
 
 ## ── Stage 2: build ────────────────────────────────────────────
 FROM runtime AS build

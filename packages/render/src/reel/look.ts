@@ -46,10 +46,10 @@ export const FILTER_LABELS: Record<Filter, string> = {
  * Archivo for Latin text, Noto Sans JP for Japanese. Both ship with the
  * bundle, so the worker needs no system fonts and renders what the preview shows.
  */
-export const REEL_FONT_FAMILY = '"Archivo Variable", "Noto Sans JP Variable", sans-serif';
+export const REEL_FONT_FAMILY = '"Archivo Variable", "Noto Sans JP Variable", "Noto Color Emoji", sans-serif';
 
-/** A thin classic serif for the "elegant" style; Japanese falls back to Noto Sans JP. */
-export const ELEGANT_FONT_FAMILY = '"Cormorant Garamond Variable", "Noto Sans JP Variable", serif';
+/** A thin classic serif for the "elegant" style; Japanese falls back to Noto Sans JP, emoji to Noto Color Emoji. */
+export const ELEGANT_FONT_FAMILY = '"Cormorant Garamond Variable", "Noto Sans JP Variable", "Noto Color Emoji", serif';
 
 /**
  * The elegant serif is set smaller than the base size: at size 1 it is about
@@ -105,7 +105,7 @@ export function textContrastCss(text: Pick<TextOverlay, "style" | "color" | "siz
 }
 
 export function textTreatmentCss(text: Pick<TextOverlay, "style" | "color" | "size" | "font" | "tracking" | "shadow">): CSSProperties {
-  const fonts = { auto: undefined, serif: ELEGANT_FONT_FAMILY, sans: REEL_FONT_FAMILY, editorial: '"Bodoni Moda Variable", Georgia, serif' };
+  const fonts = { auto: undefined, serif: ELEGANT_FONT_FAMILY, sans: REEL_FONT_FAMILY, editorial: '"Bodoni Moda Variable", Georgia, "Noto Color Emoji", serif' };
   return { ...textCss(text.style, text.color, text.size),
     ...(text.font && text.font !== "auto" ? { fontFamily: fonts[text.font] } : {}),
     ...(text.tracking !== undefined ? { letterSpacing: `${text.tracking}em` } : {}),

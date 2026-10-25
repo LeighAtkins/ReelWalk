@@ -204,6 +204,7 @@ model User {
   aiEdits     AiEdit[]
   scheduledPosts ScheduledPost[]
   aiGenerations AiGeneration[]
+  oauthGrants OAuthGrant[]
 }
 
 // A "forgot your password" link. The email carries a random token; only its
@@ -259,6 +260,81 @@ model AuthThrottle {
   windowStart DateTime @default(now())
 
   @@index([windowStart])
+}
+
+// ── Connected apps: the MCP connector's OAuth 2.1 server (ADR 0077) ──
+
+// An app that registered itself (RFC 7591 dynamic client registration): Claude,
+// ChatGPT, an inspector. Public clients only; PKCE is the proof of possession.
+model OAuthClient {
+  // The client_id handed out at registration.
+  id           String       @id
+  name         String
+  redirectUris String[]
+  clientUri    String?
+  createdAt    DateTime     @default(now())
+  grants       OAuthGrant[]
+}
+
+// One person's consent to one app: the row the account page lists as a
+// connected app. Revoking it ends every token under it.
+model OAuthGrant {
+  id         String       @id @default(cuid())
+  userId     String
+  user       User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clientId   String
+  client     OAuthClient  @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  // Subset of reels:read, reels:write, exports, ai:generate.
+  scopes     String[]
+  createdAt  DateTime     @default(now())
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
+  codes      OAuthCode[]
+  tokens     OAuthToken[]
+
+  @@unique([userId, clientId])
+  @@index([clientId])
+}
+
+// An authorization code, good for one exchange within minutes. Only its SHA-256 is stored.
+model OAuthCode {
+  codeHash      String     @id
+  grantId       String
+  grant         OAuthGrant @relation(fields: [grantId], references: [id], onDelete: Cascade)
+  redirectUri   String
+  // PKCE S256 challenge the token request's verifier must hash to.
+  codeChallenge String
+  scopes        String[]
+  // RFC 8707 resource the token is for (the /mcp URL).
+  resource      String
+  expiresAt     DateTime
+  // Set on the exchange; a second presentation revokes the grant.
+  usedAt        DateTime?
+
+  @@index([grantId])
+  @@index([expiresAt])
+}
+
+enum OAuthTokenKind {
+  ACCESS
+  REFRESH
+}
+
+// An access token (an hour) or a refresh token (30 days, rotated on use). Only the SHA-256 is stored.
+model OAuthToken {
+  hash      String         @id
+  kind      OAuthTokenKind
+  grantId   String
+  grant     OAuthGrant     @relation(fields: [grantId], references: [id], onDelete: Cascade)
+  scopes    String[]
+  resource  String
+  expiresAt DateTime
+  // A refresh token that has been exchanged. Presenting it again revokes the grant.
+  usedAt    DateTime?
+  createdAt DateTime       @default(now())
+
+  @@index([grantId])
+  @@index([expiresAt])
 }
 
 // What a ScheduledPost publishes (ADR 0065): a Reel to the feed, or a Story.

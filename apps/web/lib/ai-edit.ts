@@ -4,6 +4,7 @@ import {
   PLANS,
   aiEditPlanSchema,
   applyAiEditPlan,
+  namesCuts,
   describeReel,
   fakeAiEditPlan,
   monthStart,
@@ -208,7 +209,7 @@ export async function askForChange(input: {
       op.content = aimed.what;
     }
   }
-  const result = applyAiEditPlan(input.timeline, plan, { assets, songs, unused, newId: () => crypto.randomUUID() });
+  const result = applyAiEditPlan(input.timeline, plan, { assets, songs, unused, newId: () => crypto.randomUUID(), namedCuts: namesCuts(request) });
   const record = await prisma.aiEdit.create({
     data: {
       workspaceId: input.user.workspaceId,

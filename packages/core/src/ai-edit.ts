@@ -26,6 +26,7 @@ import {
   TAG_Y,
   TEXT_ANIMATIONS,
   TEXT_COLORS,
+  TEXT_SAFE_BOTTOM,
   TEXT_STYLES,
   TRANSITIONS,
   ZOOM_MAX,
@@ -250,7 +251,7 @@ export const AI_BRIEFS: AiBrief[] = [
   {
     id: "just-listed",
     name: "Just listed",
-    text: "Cut a 20 to 30 second just-listed reel from my shots: open on the best exterior or drone shot, then living, kitchen, bedrooms, bath, outdoor last. Quick cuts of 1.5 to 2.5 seconds on the beat, a bright song, room labels on, a short headline at the start and the details card at the end.",
+    text: "Cut a 20 to 30 second just-listed reel from my shots: open on the best exterior or drone shot, then living, kitchen, bedrooms, bath, outdoor last. Quick cuts of 1.5 to 2.5 seconds on the beat, a bright song, no room labels, a short headline at the start and the details card at the end.",
   },
   {
     id: "privacy",
@@ -260,12 +261,12 @@ export const AI_BRIEFS: AiBrief[] = [
   {
     id: "open-house",
     name: "Open house",
-    text: "Cut a 15 to 25 second open-house reel from my shots: the hook is the open-house day and time in a box at the start, the walk goes exterior, living, kitchen, primary bedroom, outdoor, cuts of 1.5 to 2.5 seconds on the beat; room labels on; the details card with the address and time at the end. Ask me for the day and time if I have not given them.",
+    text: "Cut a 15 to 25 second open-house reel from my shots: the hook is the open-house day and time in a box at the start, the walk goes exterior, living, kitchen, primary bedroom, outdoor, cuts of 1.5 to 2.5 seconds on the beat; no room labels; the details card with the address and time at the end. Ask me for the day and time if I have not given them.",
   },
   {
     id: "walkthrough",
     name: "Walkthrough",
-    text: "Cut a natural 25 to 40 second walkthrough from my shots in the order a visitor would see the rooms, every shot 2 to 3 seconds, gentle zoom on photos, warm look, room labels on, the details card at the end.",
+    text: "Cut a natural 25 to 40 second walkthrough from my shots in the order a visitor would see the rooms, every shot 2 to 3 seconds, gentle zoom on photos, warm look, no room labels, the details card at the end.",
   },
 ];
 
@@ -363,7 +364,7 @@ Rules:
 - Refer to clips and texts by the numbers in the description. Those numbers never change during a plan: after an order, remove or add operation, clip 3 still means the third clip in the description, so number every operation from the description, not from the result of earlier operations. Never invent clips, assets or songs; the only songs you may switch to are in the list.
 - Times are milliseconds. A clip must be at least ${MIN_CLIP_MS} ms. A video clip cannot show more than its source has; a photo can be any length.
 - "Longer" without a number means about 1.5x the current length; "shorter" about 0.7x; "much" doubles the change. "Slower" halves speed, "faster" doubles it, within 0.5 to 3.
-- Transitions (op transition, clip 0 for every cut): cut; fade (through black, slow and soft); whip (a fast whip pan with motion blur and a whoosh: "whoosh", "swipe", "whip", "smooth transitions", "make it flow", "transitions like the house-tour reels"); speedRamp (the shot before speeds up into the cut and the next one settles out of it, with a blur and a small push in, silent: "speed ramp", "ramp the cut", "speed cut", "zoom blur transition"; the reel does not get longer); walk (only between two 360 photos with known positions).
+- Transitions (op transition, clip 0 for every cut): cut; fade (through black, slow and soft); whip (a fast whip pan with motion blur and a whoosh: "whoosh", "swipe", "whip", "smooth transitions", "make it flow", "transitions like the house-tour reels"); speedRamp (the shot before speeds up into the cut and the next one settles out of it, with a blur and a small push in, silent: "speed ramp", "ramp the cut", "speed cut", "zoom blur transition"; the reel does not get longer); walk (only between two 360 photos with known positions). Whip and speedRamp are events, not a default: put them on at most two cuts of a reel from one ask, the rest stay hard cuts, unless the user names the cuts. Even "smooth transitions" or "speed ramps where appropriate" means two good cuts, not every cut.
 - Looks: warm, cool, vivid, mono (black and white), fade (soft, filmic), golden (golden hour, late low sun), dusk (twilight, blue hour), crisp (bright, clean, the look of listing photography), none. Use clip 0 to apply to every clip when the user means the whole reel.
 - 360 photos (the clips marked "360 photo") are a camera turning inside the picture; each one's description gives its turn ("turns 90° clockwise"). op turn (clip) aims it: content names what to face (door, window, the view, the bed, the pool) and it is found in the picture; sweep is how far it turns on the way, 90 a quarter turn, 180 a half, 360 a full spin, 0 to hold still, negative to turn the other way (so "the other way" is the clip's turn with the sign flipped); null keeps the sweep it has. A sweep alone, with content and yaw null, keeps the direction the shot ends on. "Turn slower" or "faster" on a 360 photo is op trim with a longer or shorter lengthMs (the same sweep over more or less time), never speed. A 360 photo has no speed and no motion.
 - Zoom: op zoom (clip, zoom) crops closer into a shot about its centre: 1.3 is "a bit closer", 1.6 "much closer", 1 is the whole picture; clip 0 is every clip. It adds to any motion a photo has.
@@ -371,8 +372,8 @@ Rules:
 - The cover: op cover (clip, startMs = how far into that clip, 0 for its first frame) picks the frame Instagram shows in the grid and feed. Without one the cover is 0.7 s into the reel.
 - A logo: op logo with assetId of an unused image whose name suggests a logo, a brand, a mark or a headshot puts it in a corner (corner, default top-right; size as a fraction of the frame's width, 0.2 is usual, 0.12 small, 0.3 large) for the whole reel; assetId null removes it. When no such image exists, do nothing and say the logo must be uploaded first.
 - Music requests like "calmer" or "more energy" pick the song whose mood fits best; say which in the note. Songs marked "from Instagram" come from Instagram's library for business accounts and are the ones to use; their mood says which search found them, and "popular with business accounts right now" is the safest pick when nothing more specific fits. Bright listings suit house and nu disco, slow luxury suits piano, luxury and soft house, walkthroughs suit real estate, soft house and lo-fi. Songs marked "the studio's own" were chosen by the studio: prefer one of them when its mood fits, ahead of stock songs. Never pick the song already playing. Leave the music alone unless the user asks about it (the song, the mood, "calmer", "more energy") or the reel has none: a request about clips, text, the look or the order keeps the song it has, and so does cutting a whole reel that already has music. "No music" is op music with songId null.
-- Text: keep it short; style "elegant" is a thin serif, "headline" is bold, "box" is text on a pill, "plain" is white text with a shadow. y is 0 at the top and 1 at the bottom. Where text goes: the opening hook at y 0.42 (the middle, where the eye is), size 1.1 to 1.3; a second line or caption-style text at y 0.6; never above 0.3 or below 0.72, because Instagram's name, caption and buttons cover the top fifth and the bottom quarter. Room labels and the details card place themselves. A hook shows over the whole first clip. To put text over a particular shot give atClip (the clip's number): the text then starts and ends with that shot, which is how "at the start" (atClip 1), "at the end" (the last clip's number) and "over the kitchen" are done; prefer atClip to startMs and endMs.
-- Speech: a clip line that includes "says:" gives the words spoken and when, measured from the audio (times from that clip's own start as played). To caption dialogue use op captionSpeech with clip: it lays one caption per phrase, timed to the words (style and y optional; default a thin serif at y 0.6). Never hand-time captions over speech with addText, and never claim a muted clip is heard. The editor enforces: captions stay between y 0.3 and 0.72, two captions never share a line at the same time, and only the first voiced AI take plays with sound (later voiced AI takes are muted; caption their lines).
+- Text: keep it short; style "elegant" is a thin serif, "headline" is bold, "box" is text on a pill, "plain" is white text with a shadow. y is 0 at the top and 1 at the bottom. Where text goes: the opening hook at y 0.42 (the middle, where the eye is), size 1.1 to 1.3; a second line or caption-style text at y 0.6; never above 0.3 or below ${TEXT_SAFE_BOTTOM}, because Instagram's name, caption and buttons cover the top fifth and the bottom quarter. Room labels and the details card place themselves. A hook shows over the whole first clip. To put text over a particular shot give atClip (the clip's number): the text then starts and ends with that shot, which is how "at the start" (atClip 1), "at the end" (the last clip's number) and "over the kitchen" are done; prefer atClip to startMs and endMs.
+- Speech: a clip line that includes "says:" gives the words spoken and when, measured from the audio (times from that clip's own start as played). To caption dialogue use op captionSpeech with clip: it lays one caption per phrase, timed to the words (style and y optional; default a thin serif at y 0.6). Never hand-time captions over speech with addText, and never claim a muted clip is heard. The editor enforces: captions stay between y 0.3 and ${TEXT_SAFE_BOTTOM}, two captions never share a line at the same time, and only the first voiced AI take plays with sound (later voiced AI takes are muted; caption their lines).
 - A status sticker (JUST LISTED, PRICE DROP, NEW PRICE, SOLD, UNDER CONTRACT, OPEN HOUSE, COMING SOON) is addText with style "tag": two or three words in capitals, size 0.8 to 1; it places itself at the top of the safe area, over the first clip unless atClip says otherwise. One sticker at a time: change an existing tag with editText rather than adding a second.
 - How text arrives (animation on addText or editText): pop (a quick pop, the bold styles' own), fade (a slow fade, the elegant style's own), rise (drifts up as it fades in), type (letter by letter, like typing), none (simply there); auto is the style's own.
 - Room labels are the texts whose number is marked (room label); to turn them all off use roomLabels on=false rather than removing each.
@@ -500,7 +501,19 @@ type ApplyOptions = {
   /** Media the reel may add (op add), by id. */
   unused?: AiAsset[];
   newId?: () => string;
+  /** The user named the cuts for an effect transition (`namesCuts`): the two-per-reel limit on whips and speed ramps does not apply. */
+  namedCuts?: boolean;
 };
+
+/** Transitions that are an event rather than a hard cut. A reel of them on every cut reads as a template, so one ask gets at most `EFFECT_TRANSITION_LIMIT`. */
+const EFFECT_TRANSITIONS: ReadonlySet<string> = new Set(["whip", "speedRamp"]);
+export const EFFECT_TRANSITION_LIMIT = 2;
+
+/** Whether a request points at particular cuts ("the cut into the kitchen", "between clips 2 and 3", "the last cut") rather than asking for them in general. */
+export function namesCuts(request: string): boolean {
+  const text = request.toLowerCase();
+  return /\b(clip|shot|cut|transition)s?\s*#?\d/.test(text) || /\b(between|into|before|after|from)\b[^.]{0,40}\b(clip|shot|cut|kitchen|bed|bath|living|pool|exterior|view|room)\b/.test(text) || /\b(first|last|second|third|fourth|final)\s+(cut|clip|shot|transition)\b/.test(text);
+}
 
 const defaultId = () => `ai-${Math.random().toString(36).slice(2, 10)}`;
 
@@ -553,6 +566,8 @@ export function applyAiEditPlan(timeline: Timeline, plan: Pick<AiEditPlan, "ops"
   // Clips added by this plan get numbers after the ones the model was shown.
   const added: string[] = [];
   const numberOf = (n: number) => clipIds[n - 1] ?? added[n - 1 - clipIds.length];
+  // Cuts this plan gave a whip or speed ramp, counted against the limit.
+  const effectCuts = new Set<string>();
   const structural = () => plan.ops.some((op) => STRUCTURAL_OPS.has(op.op));
 
   const clipsFor = (op: AiEditOp, allowAll: boolean): Clip[] | null => {
@@ -685,8 +700,20 @@ export function applyAiEditPlan(timeline: Timeline, plan: Pick<AiEditPlan, "ops"
           skipped.push("transition: the first clip has nothing to transition from");
           break;
         }
-        for (const clip of eligible) current = updateClip(current, clip.id, { transitionIn: op.transition });
-        applied.push(`${eligible.length === 1 ? clipLabel(current, eligible[0], assets) : `${eligible.length} clips`}: transition ${op.transition}`);
+        let chosen = eligible;
+        if (EFFECT_TRANSITIONS.has(op.transition) && !options.namedCuts) {
+          // An effect on every cut is a template: one ask gets a couple, spread through the reel; the rest stay hard cuts.
+          const room = Math.max(0, EFFECT_TRANSITION_LIMIT - effectCuts.size);
+          const kept = eligible.filter((clip) => effectCuts.has(clip.id));
+          const fresh = eligible.filter((clip) => !effectCuts.has(clip.id));
+          const take = Math.min(room, fresh.length);
+          chosen = [...kept, ...Array.from({ length: take }, (_, k) => fresh[Math.min(fresh.length - 1, Math.floor(((k + 1) * fresh.length) / (take + 1)))])];
+          if (chosen.length < eligible.length) skipped.push(`transition ${op.transition}: only ${EFFECT_TRANSITION_LIMIT} cuts get a whip or speed ramp unless you name them; the rest stay cuts`);
+          if (chosen.length === 0) break;
+          for (const clip of chosen) effectCuts.add(clip.id);
+        } else if (EFFECT_TRANSITIONS.has(op.transition)) for (const clip of eligible) effectCuts.add(clip.id);
+        for (const clip of chosen) current = updateClip(current, clip.id, { transitionIn: op.transition });
+        applied.push(`${chosen.length === 1 ? clipLabel(current, chosen[0], assets) : `${chosen.length} clips`}: transition ${op.transition}`);
         break;
       }
       case "fit": {
@@ -1126,7 +1153,7 @@ export function fakeAiEditPlan(request: string, timeline: Timeline, songs: AiSon
   }
   if (/\b(whoosh|whip|swipe|smooth transitions?)\b/.test(text) && timeline.clips.length > 1) {
     ops.push({ ...blank, op: "transition", clip: 0, transition: "whip" });
-    notes.push("Every cut is now a whip pan with a whoosh.");
+    notes.push("A couple of cuts are now a whip pan with a whoosh; name the cuts to add more.");
   }
   const look = FILTERS.filter((name) => name !== "none").find((name) => text.includes(name)) ?? (/black and white/.test(text) ? "mono" : /golden hour/.test(text) ? "golden" : null);
   if (look) {
@@ -1156,7 +1183,6 @@ export function fakeAiEditPlan(request: string, timeline: Timeline, songs: AiSon
   if (/\b(cut (it|a|an)|make something|make a reel|from scratch)\b/.test(text) && timeline.clips.length > 0) {
     ops.push({ ...blank, op: "addText", content: "Just listed", style: "headline", startMs: 0, y: 0.3 });
     if (timeline.music?.bpm) ops.push({ ...blank, op: "snapToBeat" });
-    if (timeline.clips.some((clip) => clip.room)) ops.push({ ...blank, op: "roomLabels", on: true });
     notes.push("The reel opens with a headline" + (timeline.music?.bpm ? ", the cuts are on the beat" : "") + ".");
   }
   if (/\broom (labels|names)\b/.test(text)) {

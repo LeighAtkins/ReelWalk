@@ -1,4 +1,4 @@
-import type { Timeline } from "./timeline";
+import { TEXT_SAFE_BOTTOM, type Timeline } from "./timeline";
 import { hasSpeech, type Transcript } from "./transcript";
 
 /**
@@ -10,7 +10,7 @@ import { hasSpeech, type Transcript } from "./transcript";
  */
 
 /** Instagram's name, caption and buttons cover the top fifth and the bottom quarter. */
-export const CAPTION_SAFE = { top: 0.3, bottom: 0.72 } as const;
+export const CAPTION_SAFE = { top: 0.3, bottom: TEXT_SAFE_BOTTOM } as const;
 /** Captions closer than this in y are read as the same line on screen. */
 const SAME_LINE = 0.1;
 /** A caption shorter than this is not readable; drop it rather than flash it. */

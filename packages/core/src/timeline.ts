@@ -22,6 +22,20 @@ import { textTreatmentSchema } from "./brand-fonts";
 
 export const REEL_FORMAT = { width: 1080, height: 1920, fps: 30 } as const;
 
+/**
+ * The lowest a title may sit (y, 0 at the top, 1 at the bottom): below it
+ * Instagram's caption, audio label and buttons cover the frame. One value
+ * for the first cut, the caption guard, the export check and the model's
+ * prompt, so they cannot disagree.
+ */
+export const TEXT_SAFE_BOTTOM = 0.72;
+
+/** Where a room label sits when labels are on: clear of the safe-zone limit. */
+export const ROOM_LABEL_Y = 0.66;
+
+/** Words for a shot that is not a room: a label would read as nonsense over it. */
+export const NON_ROOM_NAME = /\b(aerial|exterior|facade|façade|views?|drone|street|outside|arrival|sunset|dusk|skyline|overhead|establishing)\b/i;
+
 /** Shortest clip the editor will produce by trimming or splitting. */
 export const MIN_CLIP_MS = 500;
 /** Default on-screen time for a photo. */
@@ -823,7 +837,7 @@ export function addRoomLabels(timeline: Timeline): Timeline {
   // Plain windows first: a label is only validated once it is known to be long enough (a 167 ms clip at 3x has no room for one).
   const labels: { id: string; text: string; startMs: number; endMs: number }[] = [];
   timeline.clips.forEach((clip, index) => {
-    if (!clip.room) return;
+    if (!clip.room || NON_ROOM_NAME.test(clip.room)) return;
     // Consecutive shots of the same room share one label.
     if (index > 0 && timeline.clips[index - 1].room === clip.room) {
       const previous = labels[labels.length - 1];
@@ -841,7 +855,7 @@ export function addRoomLabels(timeline: Timeline): Timeline {
   const fitted = labels
     .map((label) => ({ ...label, startMs: Math.max(label.startMs, clearFrom), endMs: Math.min(label.endMs, clearUntil) }))
     .filter((label) => label.endMs - label.startMs >= 600)
-    .map((label) => textSchema.parse({ ...label, x: 0.5, y: 0.74, style: "box", color: "#ffffff", size: 0.8 }));
+    .map((label) => textSchema.parse({ ...label, x: 0.5, y: ROOM_LABEL_Y, style: "box", color: "#ffffff", size: 0.8 }));
   const others = timeline.texts.filter((text) => !managed.has(text.id) && !text.id.startsWith("room-"));
   // Labels never take the reel past the most texts it may have: the first rooms are named, the rest are not.
   return { ...timeline, texts: [...others, ...fitted.slice(0, Math.max(0, MAX_TEXTS - others.length))] };

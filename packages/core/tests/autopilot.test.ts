@@ -35,14 +35,15 @@ let n = 0;
 const context = (styleId: string, info = {}) => ({ assets, songs, info, style: autopilotStyle(styleId), newId: () => `n${++n}` });
 
 describe("ruleCut", () => {
-  it("opens outside, ends on the view, splits long video, and finishes the reel", () => {
+  it("opens outside, ends on the view, keeps one shot per video, and finishes the reel", () => {
     const cut = ruleCut(picked(), context("just-listed", { price: "$1,250,000", address: "1427 Lakeview Dr" }));
     const names = cut.clips.map((clip) => clip.assetId);
     expect(names[0]).toBe("front");
     expect(names.at(-1)).toBe("pool");
-    // The 12 s front video gives three shots, the 7 s bedroom two.
-    expect(names.filter((name) => name === "front")).toHaveLength(3);
-    expect(names.filter((name) => name === "bed")).toHaveLength(2);
+    // Four clips: each long video is one shot (no mid-clip split of a longer shoot).
+    expect(names).toHaveLength(4);
+    expect(names.filter((name) => name === "front")).toHaveLength(1);
+    expect(names.filter((name) => name === "bed")).toHaveLength(1);
     expect(cut.music?.assetId).toBe("bright");
     expect(cut.texts[0]).toMatchObject({ text: "Just listed", style: "headline", y: 0.42, startMs: 0, endMs: clipDurationMs(cut.clips[0]) });
     expect(cut.details).toMatchObject({ price: "$1,250,000", address: "1427 Lakeview Dr", placement: "end" });

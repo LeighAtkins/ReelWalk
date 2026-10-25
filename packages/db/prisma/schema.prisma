@@ -64,6 +64,11 @@ model Workspace {
   workflowRuns WorkflowRun[]
   presenters Presenter[]
   variantGroups VariantGroup[]
+  oauthGrants OAuthGrant[]
+  members    WorkspaceMember[]
+
+  // "on" or "off" (ADR 0079). Off refuses every AI generation path server-side: no AI video, no model calls, no credits spent.
+  aiGeneration String @default("on")
 
   // Set by the Stripe webhook from the subscription (plans in @reelwalk/core).
   plan                 Plan      @default(FREE)
@@ -205,6 +210,29 @@ model User {
   scheduledPosts ScheduledPost[]
   aiGenerations AiGeneration[]
   oauthGrants OAuthGrant[]
+  // Every workspace this person can switch to (ADR 0079). `workspaceId` above stays their home workspace.
+  memberships WorkspaceMember[]
+}
+
+enum WorkspaceRole {
+  OWNER
+  EDITOR
+}
+
+// A person's seat in a workspace (ADR 0079). Every user has one OWNER row for their home workspace (backfilled by
+// the migration; the app also treats the home workspace as theirs when the row is missing) plus one per extra
+// workspace they own or were added to. The active workspace of a request is always checked against this.
+model WorkspaceMember {
+  id          String        @id @default(cuid())
+  userId      String
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspaceId String
+  workspace   Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  role        WorkspaceRole @default(OWNER)
+  createdAt   DateTime      @default(now())
+
+  @@unique([userId, workspaceId])
+  @@index([workspaceId])
 }
 
 // A "forgot your password" link. The email carries a random token; only its
@@ -282,6 +310,9 @@ model OAuthGrant {
   id         String       @id @default(cuid())
   userId     String
   user       User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // The workspace this connection acts on (ADR 0079), picked on the consent screen. Membership is re-checked on every call.
+  workspaceId String
+  workspace  Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   clientId   String
   client     OAuthClient  @relation(fields: [clientId], references: [id], onDelete: Cascade)
   // Subset of reels:read, reels:write, exports, ai:generate.
@@ -292,8 +323,9 @@ model OAuthGrant {
   codes      OAuthCode[]
   tokens     OAuthToken[]
 
-  @@unique([userId, clientId])
+  @@unique([userId, clientId, workspaceId])
   @@index([clientId])
+  @@index([workspaceId])
 }
 
 // An authorization code, good for one exchange within minutes. Only its SHA-256 is stored.

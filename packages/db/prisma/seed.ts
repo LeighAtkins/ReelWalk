@@ -17,10 +17,16 @@ async function main() {
   const passwordHash = process.env.DEMO_PASSWORD ? await hashPassword(process.env.DEMO_PASSWORD) : undefined;
   // On a local stack the demo user is also the admin, so the suite can check /admin/featured.
   const isAdmin = Boolean(passwordHash);
-  await prisma.user.upsert({
+  const demo = await prisma.user.upsert({
     where: { email: DEFAULT_USER_EMAIL },
     update: { ...(passwordHash ? { passwordHash } : {}), isAdmin },
     create: { email: DEFAULT_USER_EMAIL, name: "Demo Agent", workspaceId: workspace.id, passwordHash, isAdmin },
+  });
+  // Every user owns their home workspace (ADR 0079).
+  await prisma.workspaceMember.upsert({
+    where: { userId_workspaceId: { userId: demo.id, workspaceId: demo.workspaceId } },
+    update: {},
+    create: { userId: demo.id, workspaceId: demo.workspaceId, role: "OWNER" },
   });
 
   const templates = [

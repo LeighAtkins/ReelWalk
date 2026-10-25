@@ -13,7 +13,8 @@ import { exportsThisMonth, storageUsed, workspacePlan } from "@/lib/plans";
 export type Limit = { message: string; upgrade: boolean };
 
 export async function isUnlimited(workspaceId: string): Promise<boolean> {
-  return (await prisma.user.count({ where: { workspaceId, isAdmin: true } })) > 0;
+  // An admin whose home it is, or who holds a seat in it (ADR 0079).
+  return (await prisma.user.count({ where: { isAdmin: true, OR: [{ workspaceId }, { memberships: { some: { workspaceId } } }] } })) > 0;
 }
 
 const gb = (bytes: number) => `${(bytes / 1024 ** 3).toFixed(bytes < 10 * 1024 ** 3 ? 1 : 0)} GB`;

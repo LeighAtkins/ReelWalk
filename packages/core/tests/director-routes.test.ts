@@ -4,6 +4,8 @@ import { directorPlanSchema } from "../src/ai-director";
 import { directorGenerationRequestId } from "../../../apps/web/lib/director-request";
 
 const mocks = vi.hoisted(() => ({ user: { id: "u", workspaceId: "w", email: "owner@test.invalid" } as { id: string; workspaceId: string; email: string } | null, find: vi.fn(), generate: vi.fn(), wake: vi.fn(), direct: vi.fn(), findEdits: vi.fn(), findGenerations: vi.fn(), findJob: vi.fn(), createJob: vi.fn(), updateJob: vi.fn(), findReel: vi.fn(), provider: "anthropic", model: "claude-opus-5-5" }));
+// The workspace AI switch has its own tests (apps/web/lib/ai-off.test.ts); here every workspace has AI on.
+vi.mock("@/lib/ai-gate", () => ({ aiOffResponse: async () => null, aiIsOff: async () => false, assertAiOn: async () => undefined, AI_OFF_MESSAGE: "off" }));
 vi.mock("@/lib/auth", () => ({ getSessionUser: async () => mocks.user }));
 vi.mock("@reelwalk/db", () => ({ prisma: { aiEdit: { findFirst: mocks.find, findMany: mocks.findEdits }, aiGeneration: { findMany: mocks.findGenerations }, aiJob: { findUnique: mocks.findJob, create: mocks.createJob, update: mocks.updateJob }, reel: { findFirst: mocks.findReel } } }));
 vi.mock("@/lib/ai-video", () => ({ createAiGeneration: mocks.generate }));

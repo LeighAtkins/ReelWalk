@@ -224,6 +224,8 @@ export type EditorProps = {
   library: LibraryAsset[];
   /** Whether "Ask for a change" (ADR 0020) is offered on this deployment. */
   askAvailable?: boolean;
+  /** AI generation is off for this workspace (ADR 0079): the AI buttons are not shown (the server refuses them regardless). */
+  aiOff?: boolean;
   /** Ways of cutting a whole reel: built-in briefs and the studio's own. */
   briefs?: Brief[];
   /** Opened from "Make it for me": the panel opens at once, and the reel it makes opens in the review. */
@@ -317,7 +319,7 @@ function songFields(asset: LibraryAsset): Pick<MusicChoice, "bpm" | "beatOffsetM
   return { bpm: asset.bpm, beatOffsetMs: asset.beatOffsetMs, ...(asset.songMap ? { downbeats: asset.songMap.downbeats, sections: asset.songMap.sections } : {}) };
 }
 
-export function Editor({ reel, timeline: initialTimeline, library: initialLibrary, openLibrary, tours = {}, instagramSounds = null, askAvailable = false, briefs: initialBriefs = [], autopilot = false, aiUsage: initialAiUsage = null, brandKit = null }: EditorProps) {
+export function Editor({ reel, timeline: initialTimeline, library: initialLibrary, openLibrary, tours = {}, instagramSounds = null, askAvailable = false, aiOff = false, briefs: initialBriefs = [], autopilot = false, aiUsage: initialAiUsage = null, brandKit = null }: EditorProps) {
   const [aiUsage, setAiUsage] = useState(initialAiUsage);
   const [briefs, setBriefs] = useState<Brief[]>(initialBriefs);
   // One entry (ADR 0064): a reel started from the home screen goes straight from the upload to a
@@ -1382,6 +1384,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
     text: selectedText,
     asset: selectedAsset ? { kind: selectedAsset.kind, isPano: selectedAsset.isPano, isPresenterTake: selectedAsset.isPresenterTake } : null,
     askAvailable,
+    aiOff,
     instagram: instagramSounds !== null,
   };
   const controls = controlsFor(targetsFor(activeSelection, presenterSelected), controlContext, CONTROL_SPECS);
@@ -1676,7 +1679,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         onAddMedia={() => setSheet("media")}
         onAddText={() => setSheet("text-new")}
         onAddMusic={() => setSheet("music")}
-        onPresenter={() => setSheet("presenter")}
+        onPresenter={aiOff ? undefined : () => setSheet("presenter")}
         presenterReady={scriptRun.toPlace.length > 0}
       />
 

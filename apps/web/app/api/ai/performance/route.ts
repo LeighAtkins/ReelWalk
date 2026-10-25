@@ -1,3 +1,4 @@
+import { aiOffResponse } from "@/lib/ai-gate";
 import { z } from "zod";
 import { getSessionUser } from "@/lib/auth";
 import { AiError, isAiAvailable, structuredAnswer } from "@/lib/openai";
@@ -28,12 +29,14 @@ const INSTRUCTIONS = [
 export async function POST(request: Request) {
   const user = await getSessionUser();
   if (!user) return Response.json({ error: "Sign in to describe a reference." }, { status: 401 });
+  { const off = await aiOffResponse(user.workspaceId); if (off) return off; }
   if (request.headers.get("origin") !== new URL(process.env.APP_URL || request.url).origin) return Response.json({ error: "Invalid request origin." }, { status: 403 });
   if (!isAiAvailable()) return Response.json({ error: "Describing a reference is not set up on this deployment." }, { status: 409 });
   const parsed = input.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return Response.json({ error: parsed.error.issues[0]?.message ?? "Choose up to three frames from at most three seconds." }, { status: 400 });
   try {
     const answer = await structuredAnswer({
+      workspaceId: user.workspaceId,
       instructions: INSTRUCTIONS, input: `Frames from ${(parsed.data.fromMs / 1000).toFixed(1)} s to ${(parsed.data.toMs / 1000).toFixed(1)} s of the reference clip.`,
       images: parsed.data.frames, schemaName: "performance_reference",
       schema: { type: "object", additionalProperties: false, required: ["description"], properties: { description: { type: "string" } } },

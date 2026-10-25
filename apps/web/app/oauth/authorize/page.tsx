@@ -6,6 +6,8 @@ import { appUrl } from "@/lib/app-url";
 import { checkAuthorizeRequest, type AuthorizeParams } from "@/lib/mcp/oauth-http";
 import { withParams } from "@/lib/mcp/oauth-core";
 import { SCOPE_LABELS } from "@/lib/mcp/scopes";
+import { OAuthConsentFields } from "@/components/oauth-consent-fields";
+import { listWorkspaces } from "@/lib/workspaces";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Connect an app · ReelWalk", robots: { index: false } };
@@ -29,6 +31,7 @@ export default async function AuthorizePage({ searchParams }: { searchParams: Pr
 
   const origin = await appUrl();
   const check = await checkAuthorizeRequest(params, origin);
+  const workspaces = await listWorkspaces(user, user.workspaceId);
   if (check.kind === "bounce") redirect(withParams(check.redirectUri, { error: check.error, error_description: check.description, state: check.state, iss: origin }));
 
   return (
@@ -56,23 +59,14 @@ export default async function AuthorizePage({ searchParams }: { searchParams: Pr
         <form method="post" action="/oauth/authorize/decision" className="auth-card" data-testid="oauth-consent">
           <h1>Connect {check.clientName}?</h1>
           <p className="muted small">
-            {check.clientName} wants to work in {user.workspace.name} as {user.email}. It can use only what you leave ticked, and it cannot post to Instagram or schedule posts.
+            {check.clientName} wants to work in {workspaces.length > 1 ? "one of your workspaces" : user.workspace.name} as {user.email}. It can use only what you leave ticked, and it cannot post to Instagram or schedule posts.
           </p>
           <input type="hidden" name="client_id" value={check.clientId} />
           <input type="hidden" name="redirect_uri" value={check.redirectUri} />
           <input type="hidden" name="code_challenge" value={check.codeChallenge} />
           <input type="hidden" name="state" value={check.state ?? ""} />
           <input type="hidden" name="requested" value={check.requested.join(" ")} />
-          {check.requested.map((scope) => (
-            <label className="check" key={scope}>
-              <input type="checkbox" name="scope" value={scope} defaultChecked />
-              <span>
-                <strong>{SCOPE_LABELS[scope].title}</strong>
-                <br />
-                <span className="muted small">{SCOPE_LABELS[scope].detail}</span>
-              </span>
-            </label>
-          ))}
+          <OAuthConsentFields workspaces={workspaces.map((workspace) => ({ id: workspace.id, name: workspace.name, ai: workspace.ai }))} activeId={user.workspaceId} requested={check.requested} labels={SCOPE_LABELS} />
           <p className="muted small">You can disconnect it any time under Account, Connected apps.</p>
           <button className="btn btn-block" type="submit" name="decision" value="allow" data-testid="oauth-allow">
             Allow

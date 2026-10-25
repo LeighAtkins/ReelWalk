@@ -1,7 +1,11 @@
+import { prisma } from "@reelwalk/db";
+import { aiSwitchOf } from "@/lib/ai-gate";
 import { getSessionUser } from "@/lib/auth";
 import { siteOrigin } from "@/lib/mcp/http";
+import { grantableScopes } from "@/lib/mcp/consent";
 import { checkAuthorizeRequest, completeAuthorization } from "@/lib/mcp/oauth-http";
 import { isScope, type Scope } from "@/lib/mcp/scopes";
+import { seatRole } from "@/lib/workspaces";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -49,13 +53,20 @@ export async function POST(request: Request) {
   );
   if (check.kind !== "consent") return page(400, "Can't connect", `<p>${escapeHtml(check.kind === "reject" ? check.message : check.description)}</p>`);
 
+  // The workspace the connection will act on (ADR 0079): one the person holds a seat in, else refused.
+  const workspaceId = field("workspace") ?? user.workspaceId;
+  const workspace = (await seatRole(user.id, user.homeWorkspaceId, workspaceId)) ? await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { id: true, aiGeneration: true } }) : null;
+  if (!workspace) return page(403, "Can't connect", "<p>That workspace is not one of yours.</p>");
+
   const granted = form.getAll("scope").filter((value): value is Scope => typeof value === "string" && isScope(value));
   const allowed = field("decision") === "allow" ? granted : [];
-  const target = await completeAuthorization(check, user.id, allowed, origin);
+  const aiOn = aiSwitchOf(workspace.aiGeneration) === "on";
+  const effective = grantableScopes(allowed, check.requested, aiOn);
+  const target = await completeAuthorization(check, user.id, { id: workspace.id, aiOn }, allowed, origin);
   const safe = escapeHtml(target);
   return page(
     200,
-    allowed.length > 0 ? `Connected to ${check.clientName}` : "Cancelled",
+    effective.length > 0 ? `Connected to ${check.clientName}` : "Cancelled",
     `<p>Returning to ${escapeHtml(check.clientName)}. If nothing happens, <a href="${safe}">continue</a>.</p><meta http-equiv="refresh" content="0;url=${safe}"><script>location.replace(${JSON.stringify(target).replace(/</g, "\\u003c")})</script>`,
   );
 }

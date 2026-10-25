@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+// The workspace AI switch has its own tests (apps/web/lib/ai-off.test.ts); here every workspace has AI on.
+vi.mock("../../../apps/web/lib/ai-gate", () => ({ assertAiOn: async () => undefined }));
 import { structuredAnswer } from "../../../apps/web/lib/openai";
 import { withProviderGate } from "../../../apps/web/lib/provider-gate";
 
 // ADR 0049: the durable worker learns about paid submissions from the gate
 // around the provider fetch. These check where structuredAnswer calls it.
-const options = { instructions: "i", input: "x", schemaName: "s", schema: { type: "object" } };
+const options = { workspaceId: "ws1", instructions: "i", input: "x", schemaName: "s", schema: { type: "object" } };
 
 describe("provider gate around structuredAnswer", () => {
   const env = { ...process.env };

@@ -1,10 +1,12 @@
-import { afterEach, test } from 'vitest';
+import { afterEach, test, vi } from 'vitest';
+// The workspace AI switch has its own tests (apps/web/lib/ai-off.test.ts); here every workspace has AI on.
+vi.mock('../../../apps/web/lib/ai-gate', () => ({ assertAiOn: async () => undefined }));
 import assert from 'node:assert/strict';
 import { structuredAnswer, aiModel, isAiConfigured, usageCostUsd } from '../../../apps/web/lib/openai';
 import { AI_EDIT_PLAN_JSON_SCHEMA, DIRECTOR_PLAN_JSON_SCHEMA, aiEditPlanSchema, directorPlanSchema, applyAiEditPlan, emptyTimeline, clipSchema } from '../src';
 const env={...process.env};const originalFetch=globalThis.fetch;
 afterEach(()=>{process.env={...env};globalThis.fetch=originalFetch;});
-const options={instructions:'Edit this reel safely.',input:'Keep natural speed.',schemaName:'reel_edit_plan',schema:AI_EDIT_PLAN_JSON_SCHEMA as unknown as Record<string,unknown>};
+const options={workspaceId:'ws1',instructions:'Edit this reel safely.',input:'Keep natural speed.',schemaName:'reel_edit_plan',schema:AI_EDIT_PLAN_JSON_SCHEMA as unknown as Record<string,unknown>};
 function claude(){process.env.AI_PROVIDER='anthropic';process.env.ANTHROPIC_API_KEY='test-only';delete process.env.ANTHROPIC_MODEL;}
 test('Claude sends strict edit schema and applies a validated plan through the existing editor',async()=>{
  claude();const blank=Object.fromEntries(AI_EDIT_PLAN_JSON_SCHEMA.properties.ops.items.required.map(k=>[k,null]));const plan={ops:[{...blank,op:'speed',clip:1,speed:1}],note:'Natural speed preserved.',questions:[],caption:null};
@@ -29,7 +31,7 @@ test('director reviews send the edit plan in Claude transport form and decode it
  globalThis.fetch=async(_url,init)=>{const body=JSON.parse(init!.body as string);const sent=body.output_config.format.schema;
   assert.deepEqual(numericEnums(sent),[]);assert.deepEqual(sent.properties.edit.properties.ops.items.required,['op','arguments']);assert.match(body.system,/edit object uses this transport/);
   return Response.json({stop_reason:'end_turn',content:[{type:'text',text:JSON.stringify({...review,edit:{ops:[{op:'speed',arguments:JSON.stringify({clip:1,speed:1})}],note:'Natural speed.',questions:[],caption:null}})}]});};
- const answer=await structuredAnswer({instructions:'Direct this reel.',input:'Review it.',schemaName:'opus_director',schema:DIRECTOR_PLAN_JSON_SCHEMA as unknown as Record<string,unknown>});
+ const answer=await structuredAnswer({workspaceId:'ws1',instructions:'Direct this reel.',input:'Review it.',schemaName:'opus_director',schema:DIRECTOR_PLAN_JSON_SCHEMA as unknown as Record<string,unknown>});
  const plan=directorPlanSchema.parse(answer.json);
  assert.deepEqual(plan.edit.ops,[{...blank,op:'speed',clip:1,speed:1}]);
 });

@@ -3,6 +3,7 @@ import { cache } from "react";
 import { cookies, headers } from "next/headers";
 import { prisma } from "@reelwalk/db";
 import { actingUser } from "./mcp/acting-user";
+import { ACTIVE_WORKSPACE_COOKIE, resolveSeat, seatsFor, signActiveWorkspace } from "./workspace-access";
 
 /**
  * Sessions live in Postgres. The browser holds a random token in an httpOnly
@@ -29,13 +30,25 @@ export async function createSession(userId: string): Promise<void> {
   const expiresAt = new Date(Date.now() + SESSION_DAYS * 24 * 3600 * 1000);
   const userAgent = (await headers()).get("user-agent")?.slice(0, 200) ?? null;
   await prisma.session.create({ data: { id: hashToken(token), userId, expiresAt, userAgent } });
-  (await cookies()).set(SESSION_COOKIE, token, {
+  const store = await cookies();
+  store.set(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: "lax",
     secure: secureCookies(),
     path: "/",
     expires: expiresAt,
   });
+  // A new sign-in starts in the home workspace (ADR 0079).
+  store.delete(ACTIVE_WORKSPACE_COOKIE);
+}
+
+/** Remembers the workspace this browser works in. The caller has already checked the person's seat; the cookie is signed for this session and person, and read back through the seats again on every request. Server Actions and Route Handlers only. */
+export async function setActiveWorkspace(userId: string, workspaceId: string): Promise<void> {
+  const store = await cookies();
+  const token = store.get(SESSION_COOKIE)?.value;
+  if (!token) return;
+  const expires = new Date(Date.now() + SESSION_DAYS * 24 * 3600 * 1000);
+  store.set(ACTIVE_WORKSPACE_COOKIE, signActiveWorkspace(token, userId, workspaceId), { httpOnly: true, sameSite: "lax", secure: secureCookies(), path: "/", expires });
 }
 
 /** Signs this browser out. Other devices stay signed in. */
@@ -44,11 +57,20 @@ export async function destroySession(): Promise<void> {
   const token = store.get(SESSION_COOKIE)?.value;
   if (token) await prisma.session.deleteMany({ where: { id: hashToken(token) } });
   store.delete(SESSION_COOKIE);
+  store.delete(ACTIVE_WORKSPACE_COOKIE);
 }
 
 export type SessionUser = NonNullable<Awaited<ReturnType<typeof getSessionUser>>>;
 
-/** The signed-in user with their workspace, or null. Cached per request. */
+/**
+ * The signed-in user acting in their active workspace, or null. Cached per request.
+ *
+ * `workspaceId` and `workspace` are the ACTIVE workspace (ADR 0079): the one
+ * the browser switched to if the person still has a seat there, else their
+ * home workspace. Every page, route and action that scopes by
+ * `user.workspaceId` therefore follows the switcher without a change. The home
+ * workspace is `homeWorkspaceId`; `role` is the seat in the active one.
+ */
 export const getSessionUser = cache(async () => {
   // A connector request (ADR 0077) acts as the person its bearer token belongs to; it never reads a cookie.
   const acting = actingUser();
@@ -57,8 +79,12 @@ export const getSessionUser = cache(async () => {
   if (!token) return null;
   const session = await prisma.session.findUnique({
     where: { id: hashToken(token) },
-    include: { user: { include: { workspace: true } } },
+    include: { user: { include: { workspace: true, memberships: { include: { workspace: true } } } } },
   });
   if (!session || session.expiresAt.getTime() < Date.now()) return null;
-  return session.user;
+  const { memberships, ...user } = session.user;
+  const seats = seatsFor(user.workspaceId, memberships);
+  const seat = resolveSeat({ homeWorkspaceId: user.workspaceId, seats, cookieValue: (await cookies()).get(ACTIVE_WORKSPACE_COOKIE)?.value, sessionToken: token, userId: user.id });
+  const workspace = seat.workspaceId === user.workspaceId ? user.workspace : (memberships.find((row) => row.workspaceId === seat.workspaceId)?.workspace ?? user.workspace);
+  return { ...user, homeWorkspaceId: user.workspaceId, workspaceId: workspace.id, workspace, role: seat.role };
 });

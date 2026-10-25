@@ -1,3 +1,4 @@
+import { aiOffResponse } from "@/lib/ai-gate";
 import { draftHookLines, draftScriptLines, hasDetails, parseTimeline, SCRIPT_LINE_MAX, SCRIPT_MAX_LINES } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
 import { getSessionUser } from "@/lib/auth";
@@ -43,6 +44,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const reel = await prisma.reel.findFirst({ where: { id, workspaceId: user.workspaceId }, select: { id: true, title: true, timeline: true, caption: true } });
   if (!reel) return Response.json({ ok: false, message: "This reel was deleted." }, { status: 404 });
   const body = (await request.json().catch(() => ({}))) as { kind?: unknown; text?: unknown; currentAudioId?: unknown; page?: unknown; count?: unknown; rooms?: unknown; titles?: unknown };
+  // Everything here but the song list asks the model (ADR 0079).
+  if (body.kind !== "music") { const off = await aiOffResponse(user.workspaceId); if (off) return off; }
 
   if (body.kind === "script") {
     // The presenter's lines for Script mode (ADR 0060), from the rooms and titles on the reel as the editor has it now.
@@ -52,6 +55,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     if (!isAiConfigured()) return Response.json({ ok: true, lines: draftScriptLines(rooms, reel.title, count) });
     try {
       const answer = await structuredAnswer({
+        workspaceId: user.workspaceId,
         instructions:
           `You write what an on-camera presenter says in a vertical real-estate listing reel. Write exactly ${count} lines, one per take, in the order they play: the first opens the reel and greets the viewer, the last closes it with a call to action (a private tour, a message), any between talk about the rooms named. Each line is something a person says aloud in one breath: 4 to 14 words, warm and plain, first person, no hashtags, no emoji, no prices, addresses or sizes unless they appear in the titles. Use only rooms and facts given.`,
         input: `Reel "${reel.title}". Rooms in order: ${rooms.join(", ") || "unknown"}. Titles on the reel: ${titles.length ? titles.map((title) => `"${title}"`).join(", ") : "none"}.`,
@@ -94,6 +98,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     if (!isAiConfigured()) return Response.json({ ok: true, lines: draftHookLines(subject, count) });
     try {
       const answer = await structuredAnswer({
+        workspaceId: user.workspaceId,
         instructions:
           `You write the opening line of vertical real-estate reels: the words on screen in the first second that stop a thumb. Write exactly ${count} different hook lines for this reel. Each is 3 to 8 words, plain and specific, one of: a question the viewer answers for themselves, a promise of what they will see if they stay, a surprising fact from the facts given, or a pattern interrupt ("Nobody shows you this room"). No hashtags, no emoji, no exclamation marks, no clickbait that the reel cannot pay off, no prices, addresses or sizes unless they appear in the facts. Use only rooms and facts given.`,
         input: `Reel "${reel.title}". Rooms shown: ${rooms.join(", ") || "unknown"}. Text on the reel: ${titles.length ? titles.map((title) => `"${title}"`).join(", ") : "none"}. Facts: ${facts || "none given"}.`,
@@ -133,6 +138,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     if (!isAiConfigured()) return Response.json({ ok: true, options: [text.toUpperCase(), text.toLowerCase(), text] });
     try {
       const answer = await structuredAnswer({
+        workspaceId: user.workspaceId,
         instructions:
           "You write the short on-screen text for vertical real-estate listing reels. Given one line from a reel, offer exactly three alternatives: same meaning, the same length or shorter, plain words a buyer would stop for, no hashtags, no emoji. Keep any facts (prices, addresses, times) exactly as given. If the line has a line break, the alternatives may use one too.",
         input: `The reel is "${reel.title}". The line: ${text}`,
@@ -168,6 +174,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     }
     try {
       const answer = await structuredAnswer({
+        workspaceId: user.workspaceId,
         instructions:
           "You write Instagram captions for real-estate listing reels, in the voice of the listing agent. Two to four short lines: a hook, the facts given (never invented ones: no price, address or size unless given), a call to action (DM, link in bio, open house), then one line of at most five hashtags, #realestate among them and the city's or area's when the address says where. Plain words, no emoji, no markdown. Under 400 characters.",
         input: `Reel "${reel.title}". Facts: ${facts || "none given"}. Text on the reel: ${lines.length ? lines.map((line) => `"${line}"`).join(", ") : "none"}. Rooms shown: ${rooms.join(", ") || "unknown"}.${reel.caption ? ` The current caption, to improve on: "${reel.caption.slice(0, 600)}"` : ""}`,

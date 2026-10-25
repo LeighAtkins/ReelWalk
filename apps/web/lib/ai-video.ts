@@ -5,6 +5,7 @@ import type { Prisma } from "@reelwalk/db";
 import { z } from "zod";
 import { mediaScope } from "./workspace";
 import { storageBlockedReason } from "./quotas";
+import { assertAiOn } from "./ai-gate";
 
 /** Voiced takes (ADR 0038) need the voice and lip-sync keys on the worker; the web only needs the switch. */
 export function aiVoiceConfigured(): boolean {
@@ -39,6 +40,8 @@ export const generationInput = z.object({
 type AiUser = { id: string; workspaceId: string; email: string };
 
 async function assertMayGenerate(user: AiUser) {
+  // The workspace's AI switch comes first (ADR 0079): off means no generation, no reservation, no credits.
+  await assertAiOn(user.workspaceId);
   if (!aiVideoConfigured()) throw new Error("AI video is being connected. Please check back soon.");
   // The shared demo is public and must never spend the trial credit.
   if (user.email === "demo@reelwalk.local") throw new Error("Create your own account to try AI video.");

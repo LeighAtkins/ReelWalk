@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // ADR 0049 review item 6: a run's ending records what happened, and a review
 // refused because another tab has the round tells the sheet why.
 const mocks = vi.hoisted(() => ({ endRun: vi.fn(), addReview: vi.fn() }));
+// The workspace AI switch has its own tests (apps/web/lib/ai-off.test.ts); here every workspace has AI on.
+vi.mock("@/lib/ai-gate", () => ({ aiOffResponse: async () => null, aiIsOff: async () => false, assertAiOn: async () => undefined, AI_OFF_MESSAGE: "off" }));
 vi.mock("@/lib/auth", () => ({ getSessionUser: async () => ({ id: "u", workspaceId: "w" }) }));
 vi.mock("@/lib/workflows", () => ({
   endRun: mocks.endRun, advanceRun: vi.fn(), noteRun: vi.fn(), findDirectorRun: vi.fn(), publicRun: vi.fn(),

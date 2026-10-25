@@ -18,6 +18,7 @@ import {
   transcriptSchema,
 } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
+import { AI_OFF_MESSAGE, aiIsOff } from "@/lib/ai-gate";
 import { AiError, aiModel, isAiAvailable, isFakeAi, structuredAnswer, usageCostUsd } from "@/lib/openai";
 import { workspacePlan } from "@/lib/plans";
 import { isUnlimited } from "@/lib/quotas";
@@ -59,6 +60,7 @@ export function aiEditsThisMonth(workspaceId: string, now: Date = new Date()): P
 /** Why another request cannot be made now, or null if it can. */
 export async function aiEditBlockedReason(workspaceId: string): Promise<{ message: string; upgrade: boolean } | null> {
   if (!isAiAvailable()) return { message: "Asking for changes is not set up on this deployment.", upgrade: false };
+  if (await aiIsOff(workspaceId)) return { message: AI_OFF_MESSAGE, upgrade: false };
   const [{ plan, id }, used, unlimited] = await Promise.all([workspacePlan(workspaceId), aiEditsThisMonth(workspaceId), isUnlimited(workspaceId)]);
   if (unlimited || used < plan.aiEditsPerMonth) return null;
   const next = nextPlan(id);
@@ -165,6 +167,7 @@ export async function askForChange(input: {
   } else {
     const ask = () =>
       structuredAnswer({
+        workspaceId: input.user.workspaceId,
         instructions: AI_EDIT_SYSTEM_PROMPT,
         input: `${description}\n\nThe user asks: ${request}${asked}`,
         schemaName: "reel_edit_plan",

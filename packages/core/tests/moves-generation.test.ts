@@ -3,6 +3,8 @@ import { AI_DRAFT_MODEL, AI_VIDEO_MODEL, MOVES, aiClipCostCents, aiDraftCostCent
 
 // ADR 0076: a move and a draft ride on the ordinary generation request; "Make it final" reads everything from the draft.
 const mocks = vi.hoisted(() => ({ mediaAsset: { findFirst: vi.fn() }, aiGeneration: { findFirst: vi.fn() }, reel: { findFirst: vi.fn() }, reserve: vi.fn() }));
+// The workspace AI switch has its own tests (apps/web/lib/ai-off.test.ts); here every workspace has AI on.
+vi.mock("@/lib/ai-gate", () => ({ aiOffResponse: async () => null, aiIsOff: async () => false, assertAiOn: async () => undefined, AI_OFF_MESSAGE: "off" }));
 vi.mock("@reelwalk/db", () => ({ prisma: { mediaAsset: mocks.mediaAsset, aiGeneration: mocks.aiGeneration, reel: mocks.reel, presenter: { findFirst: vi.fn() } }, reserveAiGeneration: mocks.reserve, aiCreditSummary: vi.fn() }));
 vi.mock("@/lib/quotas", () => ({ storageBlockedReason: async () => null }));
 vi.mock("@/lib/workspace", () => ({ mediaScope: (workspaceId: string) => ({ OR: [{ workspaceId }, { shared: true }] }) }));

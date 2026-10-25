@@ -12,6 +12,13 @@
     "typecheck": {
       "dependsOn": ["db:generate", "^db:generate"]
     },
+    "@reelwalk/core#typecheck": {
+      "dependsOn": ["@reelwalk/db#db:generate"]
+    },
+    "@reelwalk/core#test": {
+      "dependsOn": ["@reelwalk/db#db:generate"],
+      "env": ["DATABASE_URL"]
+    },
     "test": {
       "dependsOn": ["db:generate", "^db:generate"],
       "env": ["DATABASE_URL"]

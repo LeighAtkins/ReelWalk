@@ -7,6 +7,9 @@ import { DEFAULT_USER_EMAIL, hashPassword, prisma, verifyPassword } from "@reelw
 import { checksKeyFor, exportAudioKeyFor, frameThumbKeyFor, renderSourceKeyFor, thumbKeyFor } from "@reelwalk/core";
 import { pickAttribution, withAttribution } from "@/lib/attribution";
 import { createSession, destroySession } from "@/lib/auth";
+import { slugify } from "@/lib/slug";
+import { loadSeats } from "@/lib/workspaces";
+import { canManage } from "@/lib/workspace-access";
 import { recordFunnelEvent } from "@/lib/funnel";
 import { deleteObjects } from "@/lib/storage";
 import { clearAttempts, clientIp, countAttempt, MINUTE, overLimit, type Limit } from "@/lib/throttle";
@@ -68,15 +71,6 @@ const signUpSchema = z.object({
   password: z.string().min(8, "Use at least 8 characters").max(200),
 });
 
-function slugify(value: string): string {
-  return value
-    .toLowerCase()
-    .normalize("NFKD")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 40);
-}
-
 export async function signUp(formData: FormData): Promise<void> {
   // A refused form comes back with the same utm and click ids, so the next try is still attributed (ADR 0080).
   const attribution = pickAttribution(formData);
@@ -109,8 +103,9 @@ export async function signUp(formData: FormData): Promise<void> {
     const workspace = await tx.workspace.create({
       data: { slug: `${slugify(studio) || "studio"}-${randomBytes(3).toString("hex")}`, name: studio },
     });
-    // Where they came from: the utm and click-id fields the form carried.
-    return tx.user.create({ data: { email, name, passwordHash, workspaceId: workspace.id, ...(attribution ? { attribution } : {}) } });
+    const created = await tx.user.create({ data: { email, name, passwordHash, workspaceId: workspace.id, ...(attribution ? { attribution } : {}) } });
+    await tx.workspaceMember.create({ data: { userId: created.id, workspaceId: workspace.id, role: "OWNER" } });
+    return created;
   });
 
   await countAttempt(signupLimit);
@@ -135,7 +130,8 @@ export async function updateProfile(formData: FormData): Promise<void> {
   if (!parsed.success) redirect("/account?error=1");
   await prisma.$transaction([
     prisma.user.update({ where: { id: user.id }, data: { name: parsed.data.name } }),
-    prisma.workspace.update({ where: { id: user.workspaceId }, data: { name: parsed.data.studio } }),
+    // Only an owner renames a workspace (ADR 0079).
+    ...(canManage(user.role) ? [prisma.workspace.update({ where: { id: user.workspaceId }, data: { name: parsed.data.studio } })] : []),
   ]);
   redirect("/account?saved=1");
 }
@@ -175,28 +171,31 @@ export async function deleteAccount(formData: FormData): Promise<void> {
     redirect("/account?error=delete-password#delete");
   }
 
-  const workspaceId = user.workspaceId;
-  const members = await prisma.user.count({ where: { workspaceId } });
-  if (members > 1) {
-    // Someone else still uses this studio: remove only this person.
-    await prisma.user.delete({ where: { id: user.id } });
-  } else {
-    // Collect the files first: the rows that name them go with the workspace.
-    const [media, outputs] = await Promise.all([
-      prisma.mediaAsset.findMany({ where: { workspaceId, shared: false }, select: { id: true, objectKey: true, thumbKey: true, previewKey: true } }),
-      prisma.renderOutput.findMany({ where: { job: { workspaceId } }, select: { objectKey: true } }),
+  // Workspaces that go with the person (ADR 0079): every one where they are the only soul left, home workspace
+  // included. One that anybody else still uses (another sign-in with it as home, or another seat) is kept for them.
+  const seats = await loadSeats(user.id, user.homeWorkspaceId);
+  const goingWith: string[] = [];
+  for (const seat of seats) {
+    const [otherUsers, otherSeats] = await Promise.all([
+      prisma.user.count({ where: { workspaceId: seat.workspaceId, id: { not: user.id } } }),
+      prisma.workspaceMember.count({ where: { workspaceId: seat.workspaceId, userId: { not: user.id } } }),
     ]);
-    // The thumbnails and the checks files sit beside their objects under keys we can compute, so they go whether or
-    // not a row recorded them (four thumbnails of a funnel-audit account survived its deletion on 2026-10-25: ADR 0080).
-    const keys = [
-      ...media.flatMap((asset) => [asset.objectKey, asset.thumbKey, asset.previewKey, renderSourceKeyFor(asset.id), thumbKeyFor(asset.objectKey), frameThumbKeyFor(asset.objectKey)]),
-      ...outputs.flatMap((output) => [output.objectKey, checksKeyFor(output.objectKey), exportAudioKeyFor(output.objectKey)]),
-    ].filter((key): key is string => Boolean(key));
-    // Everything else (users, sessions, reels, media rows, render jobs and
-    // outputs, connected accounts) cascades from the workspace.
-    await prisma.workspace.delete({ where: { id: workspaceId } });
-    await deleteObjects(keys).catch((error) => console.error(`deleteAccount: ${keys.length} objects not deleted for ${workspaceId}`, error));
+    if (otherUsers === 0 && otherSeats === 0) goingWith.push(seat.workspaceId);
   }
+  // Collect the files first: the rows that name them go with the workspace.
+  const [media, outputs] = await Promise.all([
+    prisma.mediaAsset.findMany({ where: { workspaceId: { in: goingWith }, shared: false }, select: { id: true, objectKey: true, thumbKey: true, previewKey: true } }),
+    prisma.renderOutput.findMany({ where: { job: { workspaceId: { in: goingWith } } }, select: { objectKey: true } }),
+  ]);
+  const keys = [
+    ...media.flatMap((asset) => [asset.objectKey, asset.thumbKey, asset.previewKey, renderSourceKeyFor(asset.id), thumbKeyFor(asset.objectKey), frameThumbKeyFor(asset.objectKey)]),
+    ...outputs.flatMap((output) => [output.objectKey, checksKeyFor(output.objectKey), exportAudioKeyFor(output.objectKey)]),
+  ].filter((key): key is string => Boolean(key));
+  // Everything else (sessions, reels, media rows, render jobs and outputs, connected accounts, seats) cascades from
+  // the workspace or the user; the user row goes last, whether or not their home workspace went with them.
+  await prisma.workspace.deleteMany({ where: { id: { in: goingWith } } });
+  await prisma.user.deleteMany({ where: { id: user.id } });
+  await deleteObjects(keys).catch((error) => console.error(`deleteAccount: ${keys.length} objects not deleted for ${goingWith.join(",")}`, error));
   await destroySession();
   redirect("/login?deleted=1");
 }

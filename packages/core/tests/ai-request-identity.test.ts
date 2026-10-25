@@ -4,6 +4,8 @@ import { emptyTimeline } from "../src";
 // ADR 0049 review item 2: one user action is one request id, reused when the
 // start is retried, and the Ask route hands it to the run (durable) or job (in-process).
 const mocks = vi.hoisted(() => ({ durable: true, startRun: vi.fn(), startJob: vi.fn() }));
+// The workspace AI switch has its own tests (apps/web/lib/ai-off.test.ts); here every workspace has AI on.
+vi.mock("@/lib/ai-gate", () => ({ aiOffResponse: async () => null, aiIsOff: async () => false, assertAiOn: async () => undefined, AI_OFF_MESSAGE: "off" }));
 vi.mock("@/lib/auth", () => ({ getSessionUser: async () => ({ id: "u", workspaceId: "w" }) }));
 vi.mock("@reelwalk/db", () => ({ prisma: { reel: { findFirst: async () => ({ id: "reel", title: "Villa", timeline: null }) }, mediaAsset: { count: async () => 0 } } }));
 vi.mock("@/lib/workflows", () => ({ durableAiJobs: () => mocks.durable, startSingleStepRun: mocks.startRun }));

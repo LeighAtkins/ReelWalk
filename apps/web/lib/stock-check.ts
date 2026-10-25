@@ -5,6 +5,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import sharp from "sharp";
 import type { StockChecks } from "@reelwalk/core";
+import { aiIsOff } from "@/lib/ai-gate";
 import { isAiConfigured, structuredAnswer } from "@/lib/openai";
 import type { StockHit } from "@/lib/stock";
 
@@ -46,35 +47,38 @@ const CHECK_SCHEMA = {
   additionalProperties: false,
 };
 
-export function checkStockClip(clip: StockHit): Promise<StockChecks> {
+export async function checkStockClip(workspaceId: string, clip: StockHit): Promise<StockChecks> {
+  // A workspace with AI off asks the model nothing, and its "unchecked" must not be cached for everyone else.
+  if (await aiIsOff(workspaceId)) return UNCHECKED;
   const key = `${clip.source}:${clip.id}`;
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < DAY_MS) return hit.result;
   if (cache.size >= 2000) cache.delete(cache.keys().next().value!);
-  const result = check(clip).catch(() => UNCHECKED);
+  const result = check(workspaceId, clip).catch(() => UNCHECKED);
   cache.set(key, { at: Date.now(), result });
   return result;
 }
 
 /** Checks the first `limit` clips, a few at a time, and returns them with their checks attached. */
-export async function checkStockClips<T extends StockHit>(clips: T[], limit: number, concurrency = 4): Promise<T[]> {
+export async function checkStockClips<T extends StockHit>(workspaceId: string, clips: T[], limit: number, concurrency = 4): Promise<T[]> {
   const out = [...clips];
   let next = 0;
   const upto = Math.min(limit, clips.length);
   await Promise.all(Array.from({ length: Math.min(concurrency, upto) }, async () => {
     while (next < upto) {
       const at = next++;
-      out[at] = { ...out[at], checks: await checkStockClip(out[at]) };
+      out[at] = { ...out[at], checks: await checkStockClip(workspaceId, out[at]) };
     }
   }));
   return out;
 }
 
-async function check(clip: StockHit): Promise<StockChecks> {
+async function check(workspaceId: string, clip: StockHit): Promise<StockChecks> {
   if (!isAiConfigured()) return UNCHECKED;
   const frames = await sampleFrames(clip);
   if (frames.length === 0) return UNCHECKED;
   const { json } = await structuredAnswer({
+    workspaceId,
     instructions: CHECK_INSTRUCTIONS,
     input: `Clip tags: ${clip.tags.join(", ") || "(none)"}. ${frames.length} frame(s) follow.`,
     images: frames,

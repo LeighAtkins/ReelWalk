@@ -45,7 +45,9 @@ async function prepare(post: ScheduledPost): Promise<{ igUserId: string; token: 
 
 /** Tells the studio's owner (its first user) that a post did not go out. */
 async function notifyFailed(post: ScheduledPost): Promise<void> {
-  const owner = await prisma.user.findFirst({ where: { workspaceId: post.workspaceId }, orderBy: { createdAt: "asc" }, select: { email: true, name: true } });
+  // The person who made the post, else the workspace's first owner (ADR 0079: a workspace may belong to someone whose home it is not).
+  const maker = post.createdById ? await prisma.user.findUnique({ where: { id: post.createdById }, select: { email: true, name: true } }) : null;
+  const owner = maker ?? (await prisma.user.findFirst({ where: { OR: [{ workspaceId: post.workspaceId }, { memberships: { some: { workspaceId: post.workspaceId, role: "OWNER" } } }] }, orderBy: { createdAt: "asc" }, select: { email: true, name: true } }));
   if (!owner) return;
   const when = `${post.publishAt.toISOString().slice(0, 16).replace("T", " ")} UTC`;
   const base = process.env.APP_URL?.replace(/\/$/, "") ?? "";

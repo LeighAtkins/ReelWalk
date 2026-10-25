@@ -1,3 +1,4 @@
+import { aiOffResponse } from "@/lib/ai-gate";
 import { z } from "zod";
 import { CHAINED_REFERENCE_MESSAGE, aiClipCredits, directorPlanSchema, isGeneratedAssetId, type AiShot } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
@@ -18,6 +19,7 @@ async function runSpend(workspaceId: string, reelId: string, runId: string): Pro
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const user = await getSessionUser();
   if (!user) return Response.json({ error: "Sign in to approve a generation." }, { status: 401 });
+  { const off = await aiOffResponse(user.workspaceId); if (off) return off; }
   if (request.headers.get("origin") !== new URL(process.env.APP_URL || request.url).origin) return Response.json({ error: "Invalid request origin." }, { status: 403 });
   const body = z.object({
     editId: z.string().min(1).max(64), index: z.number().int().min(0).max(2), quotedCredits: z.number().int().positive(), approved: z.literal(true),

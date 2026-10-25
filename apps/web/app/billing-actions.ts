@@ -6,6 +6,7 @@ import { prisma } from "@reelwalk/db";
 import { appUrl } from "@/lib/app-url";
 import { recordFunnelEvent } from "@/lib/funnel";
 import { isBillingConfigured, priceForPlan, stripe } from "@/lib/stripe";
+import { canManage } from "@/lib/workspace-access";
 import { getCurrentUser } from "@/lib/workspace";
 import { aiTopUpPrice } from "@/lib/billing-ai";
 
@@ -25,6 +26,7 @@ async function customerFor(workspaceId: string, email: string, name: string): Pr
  */
 export async function startCheckout(formData: FormData): Promise<void> {
   const user = await getCurrentUser();
+  if (!canManage(user.role)) redirect("/account?billing=unavailable");
   // Existing subscribers change plans in the portal rather than creating a
   // second subscription with a second monthly charge.
   if (user.workspace.stripeSubscriptionId) return openBillingPortal();
@@ -60,6 +62,8 @@ export async function startCheckout(formData: FormData): Promise<void> {
 /** One-off credits do not expire with a monthly allowance. */
 export async function buyAiCredits(): Promise<void> {
   const user = await getCurrentUser();
+  // Owners pay, and there is nothing to buy credits for in a workspace with AI off (ADR 0079).
+  if (!canManage(user.role) || user.workspace.aiGeneration === "off") redirect("/account?billing=unavailable");
   const price = aiTopUpPrice();
   if (!isBillingConfigured() || !price || user.email === "demo@reelwalk.local") redirect("/account?billing=unavailable");
   const customer = await customerFor(user.workspaceId, user.email, user.workspace.name);
@@ -76,6 +80,7 @@ export async function buyAiCredits(): Promise<void> {
 /** Stripe's own page for changing card, plan or cancelling. */
 export async function openBillingPortal(): Promise<void> {
   const user = await getCurrentUser();
+  if (!canManage(user.role)) redirect("/account?billing=unavailable");
   const workspace = await prisma.workspace.findUniqueOrThrow({ where: { id: user.workspaceId }, select: { stripeCustomerId: true } });
   if (!isBillingConfigured() || !workspace.stripeCustomerId) redirect("/account?billing=unavailable");
   const base = await appUrl();

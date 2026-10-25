@@ -35,7 +35,7 @@ export async function GET(request: Request) {
     // Shape and length first (free), tags next (free), pixels last and only for the clips still in.
     const shaped = hits.filter((clip) => passesStockFilters(clip, { portrait: filters.portrait, minMs: filters.minMs, maxMs: filters.maxMs }));
     const byTags = shaped.filter((clip) => passesStockFilters(clip, { noPeople: filters.noPeople, noText: filters.noText }));
-    const checked = check ? await checkStockClips(byTags, CHECK_LIMIT) : byTags;
+    const checked = check ? await checkStockClips(user.workspaceId, byTags, CHECK_LIMIT) : byTags;
     const kept = checked.filter((clip) => passesStockFilters(clip, filters));
     const clips = kept.map(({ sample: _sample, ...clip }) => { void _sample; return clip; });
     const groups = params.get("group") === "none" ? null : groupStock(clips);

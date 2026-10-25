@@ -2,6 +2,7 @@ import { clipDurationMs, clipStartsMs, placementProblem, type BatchableCommand, 
 import type { LoadedReel } from "@/lib/reel-command";
 import { surfaceDecodeAvailable } from "@/lib/surface-server";
 import { placeOnSurface, searchSurfaces, type SurfaceLook, type VisionReport } from "@/lib/surface-service";
+import { aiIsOff } from "@/lib/ai-gate";
 import { lookForSurfaces, surfaceVisionAvailable } from "@/lib/surface-vision";
 
 /**
@@ -30,10 +31,13 @@ const needsSurface = (command: Command): command is Place => command.type === "p
 /** Whether the command, or a command in its batch, is a `placeOnSurface` that still has to be found. */
 export const hasUnresolvedSurface = (command: Command): boolean => (command.type === "batch" ? command.commands.some(needsSurface) : needsSurface(command));
 
-export async function resolveSurfaceCommands(loaded: LoadedReel, command: Command, options: { dryRun?: boolean; look?: SurfaceLook | null; decodeAvailable?: () => Promise<boolean> } = {}): Promise<SurfaceResolution> {
+export async function resolveSurfaceCommands(loaded: LoadedReel, command: Command, options: { dryRun?: boolean; look?: SurfaceLook | null; decodeAvailable?: () => Promise<boolean>; /** Whose AI switch the vision look is under (ADR 0079); without one, no look is made. */ workspaceId?: string } = {}): Promise<SurfaceResolution> {
   if (!hasUnresolvedSurface(command)) return { ok: true, command, reports: [] };
   if (!(await (options.decodeAvailable ?? surfaceDecodeAvailable)())) return { ok: false, status: 503, message: "This server cannot read video frames (no ffmpeg), so it cannot find a surface. Open the reel in the editor and use Put on a surface, or send placement.corners yourself." };
-  const look = options.look !== undefined ? options.look : surfaceVisionAvailable() ? lookForSurfaces : null;
+  // The vision look is optional (the edge finder works without it); a workspace with AI off gets the edge finder only.
+  const { workspaceId } = options;
+  const visionAllowed = workspaceId !== undefined && surfaceVisionAvailable() && !(await aiIsOff(workspaceId));
+  const look = options.look !== undefined ? options.look : visionAllowed ? (jpeg: Buffer) => lookForSurfaces(workspaceId, jpeg) : null;
   const reports: SurfaceReport[] = [];
   const starts = clipStartsMs(loaded.timeline);
 

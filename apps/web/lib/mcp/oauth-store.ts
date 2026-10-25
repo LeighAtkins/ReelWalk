@@ -1,6 +1,8 @@
 import { prisma } from "@reelwalk/db";
 import { ACCESS_TTL_MS, CODE_TTL_MS, REFRESH_TTL_MS, hashSecret, newClientId, newSecret, resourceFor, verifyPkce } from "./oauth-core";
 import { formatScopes, isScope, type Scope } from "./scopes";
+import { aiSwitchOf } from "../ai-gate";
+import { actingUserFor } from "../workspaces";
 
 /**
  * The connector's OAuth state in Postgres (ADR 0077): registered apps, one
@@ -42,11 +44,15 @@ async function sweep(): Promise<void> {
 
 // ── Consent ──────────────────────────────────────────────────────
 
-/** The person said yes: their grant for this app (new, or widened or narrowed on reconnecting) and a one-use code. */
-export async function approve(input: { userId: string; clientId: string; scopes: Scope[]; redirectUri: string; codeChallenge: string; origin: string }): Promise<string> {
+/**
+ * The person said yes: their grant for this app in one workspace (new, or widened or narrowed on reconnecting) and a
+ * one-use code. A grant is bound to the workspace it was approved for (ADR 0079); connecting the same app to
+ * another workspace is a second grant.
+ */
+export async function approve(input: { userId: string; workspaceId: string; clientId: string; scopes: Scope[]; redirectUri: string; codeChallenge: string; origin: string }): Promise<string> {
   const grant = await prisma.oAuthGrant.upsert({
-    where: { userId_clientId: { userId: input.userId, clientId: input.clientId } },
-    create: { userId: input.userId, clientId: input.clientId, scopes: input.scopes },
+    where: { userId_clientId_workspaceId: { userId: input.userId, clientId: input.clientId, workspaceId: input.workspaceId } },
+    create: { userId: input.userId, workspaceId: input.workspaceId, clientId: input.clientId, scopes: input.scopes },
     update: { scopes: input.scopes, revokedAt: null },
   });
   const code = newSecret("rwc");
@@ -137,10 +143,9 @@ export type AccessContext = {
   clientName: string;
   scopes: Scope[];
   expiresAt: number;
-  user: NonNullable<Awaited<ReturnType<typeof loadUser>>>;
+  /** The person, acting in the workspace the grant is bound to (ADR 0079). */
+  user: NonNullable<Awaited<ReturnType<typeof actingUserFor>>>;
 };
-
-const loadUser = (id: string) => prisma.user.findUnique({ where: { id }, include: { workspace: true } });
 
 const TOUCH_EVERY_MS = 5 * 60_000;
 
@@ -150,13 +155,16 @@ export async function verifyAccessToken(token: string, origin: string): Promise<
   const row = await prisma.oAuthToken.findUnique({ where: { hash: hashSecret(token) }, include: { grant: { include: { client: true } } } });
   if (!row || row.kind !== "ACCESS" || row.expiresAt.getTime() < Date.now() || row.grant.revokedAt) return null;
   if (row.resource !== resourceFor(origin)) return null;
-  const user = await loadUser(row.grant.userId);
+  // The workspace is the grant's, and the seat is checked again on every call: a person who lost their seat loses the connection to it.
+  const user = await actingUserFor(row.grant.userId, row.grant.workspaceId);
   if (!user) return null;
+  // A workspace that has since turned AI off keeps the connection but not the credit-spending scope.
+  const scopes = scopesOf(row.scopes).filter((scope) => scope !== "ai:generate" || aiSwitchOf(user.workspace.aiGeneration) === "on");
   // "Last used" on the account page: written at most every few minutes, not on every call.
   void prisma.oAuthGrant
     .updateMany({ where: { id: row.grantId, OR: [{ lastUsedAt: null }, { lastUsedAt: { lt: new Date(Date.now() - TOUCH_EVERY_MS) } }] }, data: { lastUsedAt: new Date() } })
     .catch(() => undefined);
-  return { token, grantId: row.grantId, clientId: row.grant.clientId, clientName: row.grant.client.name, scopes: scopesOf(row.scopes), expiresAt: row.expiresAt.getTime(), user };
+  return { token, grantId: row.grantId, clientId: row.grant.clientId, clientName: row.grant.client.name, scopes, expiresAt: row.expiresAt.getTime(), user };
 }
 
 // ── Revocation ───────────────────────────────────────────────────
@@ -173,6 +181,6 @@ export async function revokeToken(token: string, clientId: string): Promise<void
 export const revokeGrant = (userId: string, grantId: string): Promise<boolean> => endGrant({ id: grantId, userId });
 
 export async function listGrants(userId: string) {
-  const grants = await prisma.oAuthGrant.findMany({ where: { userId, revokedAt: null }, include: { client: true }, orderBy: { createdAt: "desc" } });
-  return grants.map((grant) => ({ id: grant.id, clientName: grant.client.name, scopes: scopesOf(grant.scopes), createdAt: grant.createdAt, lastUsedAt: grant.lastUsedAt }));
+  const grants = await prisma.oAuthGrant.findMany({ where: { userId, revokedAt: null }, include: { client: true, workspace: { select: { name: true } } }, orderBy: { createdAt: "desc" } });
+  return grants.map((grant) => ({ id: grant.id, clientName: grant.client.name, workspaceId: grant.workspaceId, workspaceName: grant.workspace.name, scopes: scopesOf(grant.scopes), createdAt: grant.createdAt, lastUsedAt: grant.lastUsedAt }));
 }

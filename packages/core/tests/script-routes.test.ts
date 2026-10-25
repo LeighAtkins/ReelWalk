@@ -10,6 +10,8 @@ const mocks = vi.hoisted(() => ({
   findReel: vi.fn(), findGenerations: vi.fn(), countGenerations: vi.fn(), findAssets: vi.fn(), generate: vi.fn(), balance: vi.fn(), wake: vi.fn(),
   video: true, voice: true, lipsync: false,
 }));
+// The workspace AI switch has its own tests (apps/web/lib/ai-off.test.ts); here every workspace has AI on.
+vi.mock("@/lib/ai-gate", () => ({ aiOffResponse: async () => null, aiIsOff: async () => false, assertAiOn: async () => undefined, AI_OFF_MESSAGE: "off" }));
 vi.mock("@/lib/auth", () => ({ getSessionUser: async () => mocks.user }));
 vi.mock("@reelwalk/db", () => ({ prisma: { reel: { findFirst: mocks.findReel }, aiGeneration: { findMany: mocks.findGenerations, count: mocks.countGenerations }, mediaAsset: { findMany: mocks.findAssets } } }));
 vi.mock("@/lib/library", () => ({ toLibraryAssets: async (rows: { id: string }[]) => rows.map(row => ({ id: row.id, kind: "VIDEO", durationMs: 4000 })) }));

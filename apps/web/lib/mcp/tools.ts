@@ -30,6 +30,8 @@ import { applyReelCommand, loadReel } from "../reel-command";
 import { readTimeline } from "../reels";
 import { saveReelFor } from "../save-reel";
 import { mediaScope } from "../media-scope";
+import { AI_OFF_CODE, AI_OFF_MESSAGE, aiIsOff } from "../ai-gate";
+import { listWorkspaces } from "../workspaces";
 import { MINUTE, HOUR } from "./http";
 import { clipForAsset } from "./clips";
 import type { ActingUser } from "./acting-user";
@@ -77,7 +79,7 @@ export const STYLE_HINTS =
   "House style unless the owner says otherwise: no boxed or backgrounded text (use unboxed serif, style 'elegant', with a soft shadow; a workspace with a brand kit, see get_brand_kit, uses the kit's named styles instead, which may have plates and hard shadows); no whoosh sounds (a quiet riser or impact only if clearly under the music); the first cut or visual change inside the first second; a title on screen from frame 0, under seven words, kept above y 0.72 (Instagram's caption zone) and off the centre of the frame.";
 
 export const SERVER_INSTRUCTIONS = [
-  "ReelWalk makes short vertical reels (1080x1920, up to 90 s) for property listings and venues. You drive the signed-in person's own account.",
+  "ReelWalk makes short vertical reels (1080x1920, up to 90 s) for property listings and venues. You drive the signed-in person's own account, in the one workspace this connection was bound to when they connected it (list_workspaces names it; it cannot be switched from here).",
   "Typical flow: list_reels or create_reel -> list_media / search_stock / add_media for footage -> get_reel to read the cut -> apply_commands (dryRun first for anything big) -> export_reel -> get_export until SUCCEEDED -> get_frames and get_checks to look at the result -> adjust and export again.",
   "Always read a reel before changing it and pass its revision to apply_commands; if it answers 409 the person edited it meanwhile, so read it again.",
   STYLE_HINTS,
@@ -86,6 +88,25 @@ export const SERVER_INSTRUCTIONS = [
 ].join(" ");
 
 // ── Reading ──────────────────────────────────────────────────────
+
+const listWorkspacesTool: ToolSpec = {
+  name: "list_workspaces",
+  title: "List workspaces",
+  description:
+    "Which workspace this connection works in, and the person's other workspaces. Every other tool acts in the bound workspace only (its reels, media, brand kit, credits). The connection cannot switch: to work in another workspace the person disconnects the app under Account, Connected apps, and connects it again, choosing that workspace on the consent screen.",
+  scopes: ["reels:read"],
+  readOnly: true,
+  input: {},
+  async run(ctx) {
+    const all = await listWorkspaces(ctx.user, ctx.user.workspaceId);
+    const shape = (workspace: (typeof all)[number]) => ({ id: workspace.id, name: workspace.name, role: workspace.role.toLowerCase(), aiGeneration: workspace.ai });
+    return ok({
+      workspace: shape(all.find((workspace) => workspace.id === ctx.user.workspaceId) ?? { id: ctx.user.workspaceId, name: ctx.user.workspace.name, slug: ctx.user.workspace.slug, role: ctx.user.role, home: false, active: true, ai: ctx.user.workspace.aiGeneration === "off" ? "off" : "on" }),
+      others: all.filter((workspace) => workspace.id !== ctx.user.workspaceId).map(shape),
+      note: "This connection is bound to one workspace. Switching means disconnecting and reconnecting the app (Account, Connected apps) and choosing the other workspace.",
+    });
+  },
+};
 
 const listReels: ToolSpec = {
   name: "list_reels",
@@ -279,7 +300,7 @@ const searchStock: ToolSpec = {
     allowText: z.boolean().default(false),
     perPage: z.number().int().min(10).max(100).default(40),
   },
-  async run(_ctx, args) {
+  async run(ctx, args) {
     const { query, minSeconds, maxSeconds, portrait, allowPeople, allowText, perPage } = args as { query: string; minSeconds?: number; maxSeconds?: number; portrait: boolean; allowPeople: boolean; allowText: boolean; perPage: number };
     const { isStockConfigured, searchStockClips } = await import("../stock");
     if (!isStockConfigured()) return failure("Stock search is not set up on this server.");
@@ -289,7 +310,7 @@ const searchStock: ToolSpec = {
       const hits = await searchStockClips(query, perPage);
       const shaped = hits.filter((clip) => passesStockFilters(clip, { portrait: filters.portrait, minMs: filters.minMs, maxMs: filters.maxMs }));
       const byTags = shaped.filter((clip) => passesStockFilters(clip, { noPeople: filters.noPeople, noText: filters.noText }));
-      const checked = await checkStockClips(byTags, STOCK_CHECK_LIMIT);
+      const checked = await checkStockClips(ctx.user.workspaceId, byTags, STOCK_CHECK_LIMIT);
       const kept = checked.filter((clip) => passesStockFilters(clip, filters)).map(({ sample: _sample, ...clip }) => (void _sample, clip));
       const groups = groupStock(kept);
       return ok({
@@ -668,6 +689,7 @@ const generateAiShot: ToolSpec = {
     const { prompt, referenceAssetId, durationSeconds, confirmCredits, requestId } = args as { prompt: string; referenceAssetId?: string; durationSeconds: 4 | 8; confirmCredits?: number; requestId?: string };
     const { aiVideoConfigured, createAiGeneration, getAiBalance } = await import("../ai-video");
     if (!aiVideoConfigured()) return failure("AI video is not available on this server yet.");
+    if (await aiIsOff(ctx.user.workspaceId)) return failure(AI_OFF_MESSAGE, { code: AI_OFF_CODE });
     const credits = aiClipCredits(durationSeconds);
     const balance = await getAiBalance(ctx.user.workspaceId);
     const quote = { credits, costCents: aiClipCostCents(durationSeconds), remainingCredits: balance.remaining };
@@ -701,7 +723,7 @@ const getAiShot: ToolSpec = {
   },
 };
 
-export const TOOLS: ToolSpec[] = [listReels, getReel, getBrandKit, listMedia, searchStock, createReel, addMedia, applyCommands, getFrames, getChecks, getAudioTrace, exportReel, getExport, generateAiShot, getAiShot];
+export const TOOLS: ToolSpec[] = [listWorkspacesTool, listReels, getReel, getBrandKit, listMedia, searchStock, createReel, addMedia, applyCommands, getFrames, getChecks, getAudioTrace, exportReel, getExport, generateAiShot, getAiShot];
 
 // ── Running one ──────────────────────────────────────────────────
 

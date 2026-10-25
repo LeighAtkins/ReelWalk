@@ -20,8 +20,9 @@ const CHALLENGE = challengeFor("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk");
 
 beforeEach(() => {
   db.reset();
+  db.seedUser("u1");
   vi.stubEnv("APP_URL", ORIGIN);
-  auth.user = { id: "u1", email: "a@example.com", workspaceId: "ws1" };
+  auth.user = { id: "u1", email: "a@example.com", workspaceId: "ws_u1", homeWorkspaceId: "ws_u1" };
 });
 
 async function answer(over: { origin?: string | null; fields?: Record<string, string>; scopes?: string[]; decision?: string } = {}) {
@@ -44,7 +45,7 @@ describe("the consent answer", () => {
     expect(url.origin + url.pathname).toBe(REDIRECT);
     expect(url.searchParams.get("code")).toMatch(/^rwc_/);
     expect(url.searchParams.get("state")).toBe("st");
-    expect(db.tables.oAuthGrant[0]).toMatchObject({ userId: "u1", scopes: ["reels:read", "reels:write"] });
+    expect(db.tables.oAuthGrant[0]).toMatchObject({ userId: "u1", workspaceId: "ws_u1", scopes: ["reels:read", "reels:write"] });
   });
 
   it("gives nothing beyond what was ticked, even if the form is edited to add a scope", async () => {
@@ -70,7 +71,7 @@ describe("the consent answer", () => {
   it("refuses when signed out, and for the shared demo account", async () => {
     auth.user = null;
     expect((await answer()).status).toBe(401);
-    auth.user = { id: "demo", email: "demo@reelwalk.local", workspaceId: "wsd" };
+    auth.user = { id: "demo", email: "demo@reelwalk.local", workspaceId: "wsd", homeWorkspaceId: "wsd" };
     expect((await answer()).status).toBe(403);
     expect(db.tables.oAuthGrant).toHaveLength(0);
   });
@@ -90,4 +91,44 @@ describe("the consent answer", () => {
     expect(html).not.toContain('"><script>x');
     expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
   });
+describe("the consent answer binds the connection to a workspace (ADR 0079)", () => {
+  it("binds the grant to the workspace picked on the form", async () => {
+    db.seedWorkspace("ws_lm", "u1", { name: "Last Mile" });
+    await answer({ fields: { workspace: "ws_lm" } });
+    expect(db.tables.oAuthGrant[0]).toMatchObject({ userId: "u1", workspaceId: "ws_lm" });
+  });
+
+  it("defaults to the active workspace when the form names none", async () => {
+    auth.user = { ...auth.user, workspaceId: "ws_lm" };
+    db.seedWorkspace("ws_lm", "u1");
+    await answer();
+    expect(db.tables.oAuthGrant[0].workspaceId).toBe("ws_lm");
+  });
+
+  it("refuses a workspace the person has no seat in, and grants nothing", async () => {
+    db.seedUser("someone_else");
+    const response = await answer({ fields: { workspace: "ws_someone_else" } });
+    expect(response.status).toBe(403);
+    expect(db.tables.oAuthGrant).toHaveLength(0);
+    expect(db.tables.oAuthCode).toHaveLength(0);
+  });
+
+  it("never grants ai:generate for a workspace with AI off, whatever the form says", async () => {
+    db.seedWorkspace("ws_lm", "u1", { name: "Last Mile", ai: "off" });
+    await answer({ fields: { workspace: "ws_lm" }, scopes: ["reels:read", "ai:generate"] });
+    expect(db.tables.oAuthGrant[0].scopes).toEqual(["reels:read"]);
+  });
+
+  it("grants ai:generate only when it is ticked, in a workspace with AI on", async () => {
+    await answer({ scopes: ["reels:read", "ai:generate"] });
+    expect(db.tables.oAuthGrant[0].scopes).toEqual(["reels:read", "ai:generate"]);
+  });
+
+  it("asking for ai:generate alone in an AI-off workspace is a cancel", async () => {
+    db.seedWorkspace("ws_lm", "u1", { ai: "off" });
+    const url = await target(await answer({ fields: { workspace: "ws_lm" }, scopes: ["ai:generate"] }));
+    expect(url.searchParams.get("error")).toBe("access_denied");
+    expect(db.tables.oAuthGrant).toHaveLength(0);
+  });
+});
 });

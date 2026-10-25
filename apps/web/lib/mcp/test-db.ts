@@ -8,13 +8,17 @@
  */
 type Row = Record<string, any>;
 
-const KEYS: Record<string, string> = { oAuthClient: "id", oAuthGrant: "id", oAuthCode: "codeHash", oAuthToken: "hash", user: "id", workspace: "id" };
+const KEYS: Record<string, string> = { oAuthClient: "id", oAuthGrant: "id", oAuthCode: "codeHash", oAuthToken: "hash", user: "id", workspace: "id", workspaceMember: "id" };
 const RELATIONS: Record<string, Record<string, [table: string, fk: string]>> = {
   oAuthCode: { grant: ["oAuthGrant", "grantId"] },
   oAuthToken: { grant: ["oAuthGrant", "grantId"] },
-  oAuthGrant: { client: ["oAuthClient", "clientId"], user: ["user", "userId"] },
+  oAuthGrant: { client: ["oAuthClient", "clientId"], user: ["user", "userId"], workspace: ["workspace", "workspaceId"] },
+  workspaceMember: { workspace: ["workspace", "workspaceId"], user: ["user", "userId"] },
   user: { workspace: ["workspace", "workspaceId"] },
 };
+
+/** One-to-many relations: name -> [table, foreign key on that table]. */
+const MANY: Record<string, Record<string, [table: string, fk: string]>> = { user: { memberships: ["workspaceMember", "userId"] } };
 
 const time = (value: unknown) => (value instanceof Date ? value.getTime() : value);
 
@@ -35,13 +39,22 @@ function matches(row: Row, where: Row = {}): boolean {
 }
 
 export function createFakeDb() {
-  const tables: Record<string, Row[]> = { oAuthClient: [], oAuthGrant: [], oAuthCode: [], oAuthToken: [], user: [], workspace: [] };
+  const tables: Record<string, Row[]> = { oAuthClient: [], oAuthGrant: [], oAuthCode: [], oAuthToken: [], user: [], workspace: [], workspaceMember: [] };
   let counter = 0;
 
   const withIncludes = (table: string, row: Row | undefined, include?: Row): Row | null => {
     if (!row) return null;
     const out: Row = { ...row };
     for (const [name, spec] of Object.entries(include ?? {})) {
+      const many = MANY[table]?.[name];
+      if (many && spec) {
+        const [target, fk] = many;
+        const where = typeof spec === "object" ? ((spec as Row).where as Row | undefined) : undefined;
+        out[name] = tables[target]
+          .filter((candidate) => candidate[fk] === row[KEYS[table]] && matches(candidate, where))
+          .map((candidate) => withIncludes(target, candidate, typeof spec === "object" ? (spec as Row).include : undefined)!);
+        continue;
+      }
       const relation = RELATIONS[table]?.[name];
       if (!relation || !spec) continue;
       const [target, fk] = relation;
@@ -65,6 +78,7 @@ export function createFakeDb() {
       if (table === "oAuthClient") Object.assign(row, { createdAt: new Date(), clientUri: data.clientUri ?? null });
       if (table === "oAuthCode") Object.assign(row, { usedAt: null });
       if (table === "oAuthToken") Object.assign(row, { usedAt: null, createdAt: new Date() });
+      if (table === "workspaceMember") Object.assign(row, { id: `member_${++counter}`, role: data.role ?? "OWNER", createdAt: new Date() });
       tables[table].push(row);
       return { ...row };
     },
@@ -100,14 +114,22 @@ export function createFakeDb() {
     oAuthToken: delegate("oAuthToken"),
     user: delegate("user"),
     workspace: delegate("workspace"),
+    workspaceMember: delegate("workspaceMember"),
     reset() {
       for (const name of Object.keys(tables)) tables[name] = [];
       counter = 0;
     },
-    /** A person with a workspace, as the token check loads them. */
+    /** A person with a home workspace (and its OWNER seat), as the token check loads them. */
     seedUser(id = "user_1") {
-      tables.workspace.push({ id: `ws_${id}`, name: "Studio" });
+      tables.workspace.push({ id: `ws_${id}`, name: "Studio", slug: `studio-${id}`, aiGeneration: "on" });
       tables.user.push({ id, email: `${id}@example.com`, name: "Test", workspaceId: `ws_${id}`, isAdmin: false });
+      tables.workspaceMember.push({ id: `member_${id}`, userId: id, workspaceId: `ws_${id}`, role: "OWNER", createdAt: new Date() });
+      return id;
+    },
+    /** Another workspace and a seat in it for `userId`. */
+    seedWorkspace(id: string, userId: string, options: { name?: string; ai?: "on" | "off"; role?: "OWNER" | "EDITOR" } = {}) {
+      tables.workspace.push({ id, name: options.name ?? id, slug: id, aiGeneration: options.ai ?? "on" });
+      tables.workspaceMember.push({ id: `member_${id}_${userId}`, userId, workspaceId: id, role: options.role ?? "OWNER", createdAt: new Date() });
       return id;
     },
   };

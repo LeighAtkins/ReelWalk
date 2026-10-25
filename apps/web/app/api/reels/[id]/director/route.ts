@@ -1,3 +1,4 @@
+import { aiOffResponse } from "@/lib/ai-gate";
 import { createHash } from "node:crypto";
 import { prisma } from "@reelwalk/db";
 import { getSessionUser } from "@/lib/auth";
@@ -29,6 +30,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const user = await getSessionUser();
   if (!user) return Response.json({ ok: false, message: "Sign in to direct this reel." }, { status: 401 });
+  { const off = await aiOffResponse(user.workspaceId); if (off) return off; }
   if (request.headers.get("origin") !== new URL(process.env.APP_URL || request.url).origin) return Response.json({ ok: false, message: "Invalid request origin." }, { status: 403 });
   if (aiProvider() !== "anthropic" || !/^claude-opus-/.test(aiModel())) return Response.json({ ok: false, message: "Connect Claude Opus to use the director." }, { status: 409 });
   // Bound streaming bodies even when Content-Length is missing.

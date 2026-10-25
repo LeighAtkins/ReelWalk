@@ -56,7 +56,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const dryRun = body?.dryRun === true;
   // A placeOnSurface with no placement is found from the picture first (ADR 0075): that needs frames, a model and the tracker.
   if (revision !== loaded.revision) return Response.json({ ok: false, message: "The reel changed since you read it. Read it again and send the command against its current revision.", changes: [] }, { status: 409 });
-  const surfaces = await resolveSurfaceCommands(loaded, command, { dryRun });
+  const surfaces = await resolveSurfaceCommands(loaded, command, { dryRun, workspaceId: user.workspaceId });
   if (!surfaces.ok) return Response.json({ ok: false, message: surfaces.message, changes: [] }, { status: surfaces.status });
   if (surfaces.command === null) return Response.json({ ok: true, dryRun, revision: loaded.revision, changes: [], warning: null, opening: loaded.timeline.opening ?? null, timeline: loaded.timeline, surfaces: surfaces.reports });
   command = surfaces.command;

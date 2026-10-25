@@ -14,6 +14,8 @@ const m = vi.hoisted(() => {
       mediaAsset: { findMany: fn() },
       renderJob: { findFirst: fn() },
       aiGeneration: { findFirst: fn() },
+      workspace: { findUnique: fn(), findMany: fn() },
+      workspaceMember: { findMany: fn() },
     },
     loadReel: fn(),
     applyReelCommand: fn(),
@@ -65,6 +67,7 @@ const loaded = (timeline = timelineOf(video), revision = 3) => ({ id: "r1", titl
 
 beforeEach(() => {
   vi.clearAllMocks();
+  m.prisma.workspace.findUnique.mockResolvedValue({ aiGeneration: "on" });
 });
 
 describe("the tool list", () => {
@@ -84,7 +87,8 @@ describe("the tool list", () => {
       expect(spec.description.length, spec.name).toBeGreaterThan(60);
       const schema = z.toJSONSchema(z.object(spec.input)) as { type: string; properties: Record<string, unknown> };
       expect(schema.type).toBe("object");
-      expect(Object.keys(schema.properties).length, spec.name).toBeGreaterThan(0);
+      // list_workspaces takes no arguments.
+      if (spec.name !== "list_workspaces") expect(Object.keys(schema.properties).length, spec.name).toBeGreaterThan(0);
     }
   });
 
@@ -196,7 +200,7 @@ describe("search_stock", () => {
     m.stock.isStockConfigured.mockReturnValue(true);
     const clip = { source: "pixabay", id: "777", creator: "ann", creatorId: "1", url: "https://pixabay.com/videos/777/", poster: "p.jpg", file: { url: "f", width: 1080, height: 1920 }, durationMs: 8000, width: 1080, height: 1920, tags: ["villa", "pool"], sample: "SECRET-BYTES" };
     m.stock.searchStockClips.mockResolvedValue([clip]);
-    m.stock.checkStockClips.mockImplementation(async (clips: any[]) => clips);
+    m.stock.checkStockClips.mockImplementation(async (_workspaceId: string, clips: any[]) => clips);
     const { data } = await run("search_stock", { query: "villa pool" });
     expect(data.groups[0].clips[0]).toMatchObject({ id: "777", durationMs: 8000 });
     expect(JSON.stringify(data)).not.toContain("SECRET-BYTES");
@@ -501,6 +505,15 @@ describe("generate_ai_shot", () => {
     expect((await run("generate_ai_shot", { ...args, confirmCredits: 1 })).data.message).toBe("AI generation is temporarily paused.");
   });
 
+  it("refuses with the AI-off message in a workspace with AI off: no quote, no credits, no generation", async () => {
+    m.prisma.workspace.findUnique.mockResolvedValue({ aiGeneration: "off" });
+    const { data, result } = await run("generate_ai_shot", { ...args, confirmCredits: 1 });
+    expect(result.isError).toBe(true);
+    expect(data).toMatchObject({ ok: false, code: "ai_off", message: expect.stringMatching(/turned off for this workspace/) });
+    expect(m.ai.getAiBalance).not.toHaveBeenCalled();
+    expect(m.ai.createAiGeneration).not.toHaveBeenCalled();
+  });
+
   it("needs the ai:generate permission", async () => {
     const { data } = await run("generate_ai_shot", args, ctxWith(["reels:read", "reels:write", "exports"]));
     expect(data.missingScopes).toEqual(["ai:generate"]);
@@ -513,5 +526,25 @@ describe("generate_ai_shot", () => {
     expect(m.prisma.aiGeneration.findFirst.mock.calls[0][0].where).toEqual({ id: "ai1", workspaceId: "ws1" });
     m.prisma.aiGeneration.findFirst.mockResolvedValue(null);
     expect((await run("get_ai_shot", { aiShotId: "zz" })).result.isError).toBe(true);
+  });
+});
+
+describe("list_workspaces", () => {
+  const home = { id: "ws1", name: "Reel Walk", slug: "reelwalking", aiGeneration: "on" };
+  const lastMile = { id: "ws2", name: "Last Mile", slug: "last-mile", aiGeneration: "off" };
+
+  it("names the bound workspace and the person's others, and says switching means reconnecting", async () => {
+    m.prisma.workspaceMember.findMany.mockResolvedValue([{ workspaceId: "ws1", role: "OWNER" }, { workspaceId: "ws2", role: "OWNER" }]);
+    m.prisma.workspace.findMany.mockResolvedValue([home, lastMile]);
+    const ctx = { ...ctxWith(), user: { id: "u1", workspaceId: "ws2", homeWorkspaceId: "ws1", role: "OWNER", email: "a@example.com", workspace: lastMile } as any };
+    const { data } = await run("list_workspaces", {}, ctx);
+    expect(data.workspace).toEqual({ id: "ws2", name: "Last Mile", role: "owner", aiGeneration: "off" });
+    expect(data.others).toEqual([{ id: "ws1", name: "Reel Walk", role: "owner", aiGeneration: "on" }]);
+    expect(data.note).toMatch(/disconnecting and reconnecting/);
+  });
+
+  it("needs only the read permission and changes nothing", async () => {
+    expect(tool("list_workspaces").readOnly).toBe(true);
+    expect(tool("list_workspaces").scopes).toEqual(["reels:read"]);
   });
 });

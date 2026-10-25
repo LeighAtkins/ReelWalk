@@ -1,3 +1,4 @@
+import { aiOffResponse } from "@/lib/ai-gate";
 import { z } from "zod";
 import { buildScriptShots, ScriptShotError, scriptRequestKey, scriptRequestSchema, SCRIPT_MAX_LINES } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
@@ -54,6 +55,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const user = await getSessionUser();
   if (!user) return Response.json({ error: "Sign in to make presenter takes." }, { status: 401 });
+  { const off = await aiOffResponse(user.workspaceId); if (off) return off; }
   if (request.headers.get("origin") !== new URL(process.env.APP_URL || request.url).origin) return Response.json({ error: "Invalid request origin." }, { status: 403 });
   const body = z.object({ script: scriptRequestSchema, quotedCredits: z.number().int().positive(), approved: z.literal(true) }).safeParse(await request.json().catch(() => null));
   if (!body.success) {

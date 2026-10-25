@@ -7,6 +7,7 @@ import { LinkPending } from "@/components/link-pending";
 import { NewReelPicker } from "@/components/new-reel-picker";
 import { StatusBadge } from "@/components/status-badge";
 import { TabBar } from "@/components/tab-bar";
+import { WorkspaceSwitcher } from "@/components/workspace-switcher";
 import { formatAgo, formatDuration } from "@/lib/format";
 import { getSessionUser } from "@/lib/auth";
 import { coverUrls, durationOf, readTimeline } from "@/lib/reels";
@@ -55,6 +56,7 @@ async function ReelsHome({ searchParams }: { searchParams: Promise<{ welcome?: s
             <BrandMark />
             ReelWalk
           </span>
+          <WorkspaceSwitcher />
         </header>
         <h1 className="home-title">Reels</h1>
         {welcome === "1" ? (

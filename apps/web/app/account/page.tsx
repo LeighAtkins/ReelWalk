@@ -19,6 +19,9 @@ import { aiEditUsage } from "@/lib/ai-edit";
 import { exportsThisMonth, storageUsed, workspacePlan } from "@/lib/plans";
 import { isBillingConfigured } from "@/lib/stripe";
 import { SubmitButton } from "@/components/submit-button";
+import { createWorkspace, setWorkspaceAi, switchWorkspace } from "@/app/workspace-actions";
+import { listWorkspaces } from "@/lib/workspaces";
+import { canManage } from "@/lib/workspace-access";
 import { TabBar } from "@/components/tab-bar";
 import { getCurrentUser, mediaScope } from "@/lib/workspace";
 
@@ -28,11 +31,14 @@ export const metadata: Metadata = { title: "Account · ReelWalk" };
 export default async function AccountPage({
   searchParams,
 }: {
-  searchParams: Promise<{ saved?: string; error?: string; instagram?: string; billing?: string; feedback?: string; message?: string; replies?: string }>;
+  searchParams: Promise<{ workspace?: string; saved?: string; error?: string; instagram?: string; billing?: string; feedback?: string; message?: string; replies?: string }>;
 }) {
-  const { saved, error, instagram: igStatus, billing, feedback, message, replies: repliesStatus } = await searchParams;
+  const { workspace: workspaceNote, saved, error, instagram: igStatus, billing, feedback, message, replies: repliesStatus } = await searchParams;
   const user = await getCurrentUser();
   const aiBalance = await getAiBalance(user.workspaceId);
+  const workspaces = await listWorkspaces(user, user.workspaceId);
+  const aiOff = user.workspace.aiGeneration === "off";
+  const owner = canManage(user.role);
   const [reels, exports, own, shared, sessions, instagram, current, usedThisMonth, usedBytes, aiUsage, triggers, recentReplies, connectedApps] = await Promise.all([
     prisma.reel.count({ where: { workspaceId: user.workspaceId } }),
     prisma.renderJob.count({ where: { workspaceId: user.workspaceId, status: "SUCCEEDED", kind: { not: "PREVIEW" } } }),
@@ -174,15 +180,57 @@ export default async function AccountPage({
           ) : null}
         </section>
 
+        <section className="card" id="workspaces" data-testid="workspaces-card">
+          <h2>Workspaces</h2>
+          <p className="muted small">One sign-in, several workspaces. Each has its own reels, media library, Instagram account, scheduled posts, AI credits and plan.</p>
+          {workspaceNote ? <p className="toast" role="status">{workspaceNote === "denied" ? "That workspace is not one of yours." : workspaceNote === "owner" ? "Only an owner can change that." : workspaceNote}</p> : null}
+          {saved === "ai" ? <p className="toast" role="status">Saved.</p> : null}
+          <ul className="ws-list">
+            {workspaces.map((workspace) => (
+              <li key={workspace.id}>
+                <form action={switchWorkspace}>
+                  <input type="hidden" name="workspaceId" value={workspace.id} />
+                  <button className={workspace.active ? "btn btn-block" : "btn btn-quiet btn-block"} type="submit" disabled={workspace.active} data-testid="workspace-row">
+                    {workspace.name}
+                    {workspace.active ? " · in use" : ""}
+                    {workspace.ai === "off" ? " · AI off" : ""}
+                  </button>
+                </form>
+              </li>
+            ))}
+          </ul>
+          {owner ? (
+            <form action={setWorkspaceAi}>
+              <input type="hidden" name="ai" value={aiOff ? "on" : "off"} />
+              <p className="muted small">AI generation in {user.workspace.name} is <strong>{aiOff ? "off" : "on"}</strong>.{aiOff ? " Nothing here can start an AI video or ask a model, and no credits are spent." : ""}</p>
+              <SubmitButton className="btn btn-quiet btn-block" pendingLabel="Saving…" testId="workspace-ai-toggle">
+                {aiOff ? "Turn AI generation on" : "Turn AI generation off"}
+              </SubmitButton>
+            </form>
+          ) : null}
+          {user.email !== "demo@reelwalk.local" ? (
+            <form action={createWorkspace} style={{ marginTop: 12 }}>
+              <label>
+                Create a workspace
+                <input name="name" required maxLength={60} placeholder="Name, for example Last Mile" autoComplete="off" data-testid="workspace-name" />
+              </label>
+              <SubmitButton className="btn btn-quiet btn-block" pendingLabel="Creating…" testId="workspace-create">
+                Create and switch to it
+              </SubmitButton>
+            </form>
+          ) : null}
+        </section>
+
         <section className="card">
           <h2>AI video</h2>
+          {aiOff ? <p className="muted small" data-testid="ai-off-note">AI generation is turned off for this workspace, so AI video, presenters and the AI editing helpers are unavailable here and no credits are spent. Turn it on under Workspaces above.</p> : null}
           <p><strong>{aiBalance.remaining}</strong> {aiBalance.remaining === 1 ? "credit" : "credits"} available</p>
           <p className="muted small">{aiBalance.monthly} monthly · {aiBalance.trial} trial · {aiBalance.topUp} purchased</p>
           {aiBalance.resetsAt ? <p className="muted small">Monthly allowance resets <LocalTime date={new Date(aiBalance.resetsAt)} />.</p> : null}
           <p className="muted small">One credit creates a 4-second clip; an 8-second clip uses 2. Agent includes 20 a month; Studio includes 60. Monthly credits reset without rollover, including on yearly plans. Purchased credits do not expire.</p>
           {billing === "credits" ? <p className="toast" role="status">Thank you. Your credits appear once payment is confirmed.</p> : null}
-          <Link className="btn btn-block" href="/ai-video">Generate AI video</Link>
-          {billingOn && aiTopUpPrice() ? <form action={buyAiCredits} style={{ marginTop: 12 }}>
+          {aiOff ? null : <Link className="btn btn-block" href="/ai-video">Generate AI video</Link>}
+          {billingOn && aiTopUpPrice() && !aiOff && owner ? <form action={buyAiCredits} style={{ marginTop: 12 }}>
             <SubmitButton className="btn btn-quiet btn-block" pendingLabel="Opening checkout…">10 extra AI credits · $15</SubmitButton>
           </form> : null}
         </section>
@@ -360,7 +408,7 @@ export default async function AccountPage({
             <ul className="plain-list small">
               {connectedApps.map((app) => (
                 <li key={app.id} data-testid="connected-app">
-                  <strong>{app.clientName}</strong>
+                  <strong>{app.clientName}</strong> <span className="muted">in {app.workspaceName}</span>
                   <br />
                   <span className="muted">
                     {app.scopes.map((scope) => SCOPE_LABELS[scope].title).join(" · ")}
@@ -434,8 +482,8 @@ export default async function AccountPage({
         <form action={deleteAccount} className="card card-danger" id="delete">
           <h2>Delete account</h2>
           <p className="muted small">
-            Deletes {user.workspace.name} for good: every reel, upload and export, and any connected Instagram account. It cannot be
-            undone.
+            Deletes your sign-in and {workspaces.length > 1 ? `all ${workspaces.length} of your workspaces (${workspaces.map((workspace) => workspace.name).join(", ")}), except any that someone else also uses` : user.workspace.name} for good: every reel, upload and export, and any connected Instagram account.
+            It cannot be undone.
           </p>
           <label className="field">
             Password

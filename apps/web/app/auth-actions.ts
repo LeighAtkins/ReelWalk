@@ -4,11 +4,13 @@ import { randomBytes } from "node:crypto";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { DEFAULT_USER_EMAIL, hashPassword, prisma, verifyPassword } from "@reelwalk/db";
-import { renderSourceKeyFor } from "@reelwalk/core";
+import { checksKeyFor, exportAudioKeyFor, frameThumbKeyFor, renderSourceKeyFor, thumbKeyFor } from "@reelwalk/core";
+import { pickAttribution, withAttribution } from "@/lib/attribution";
 import { createSession, destroySession } from "@/lib/auth";
 import { slugify } from "@/lib/slug";
 import { loadSeats } from "@/lib/workspaces";
 import { canManage } from "@/lib/workspace-access";
+import { recordFunnelEvent } from "@/lib/funnel";
 import { deleteObjects } from "@/lib/storage";
 import { clearAttempts, clientIp, countAttempt, MINUTE, overLimit, type Limit } from "@/lib/throttle";
 import { getCurrentUser } from "@/lib/workspace";
@@ -70,6 +72,9 @@ const signUpSchema = z.object({
 });
 
 export async function signUp(formData: FormData): Promise<void> {
+  // A refused form comes back with the same utm and click ids, so the next try is still attributed (ADR 0080).
+  const attribution = pickAttribution(formData);
+  const back = (message: string) => withAttribution(`/signup?error=${encodeURIComponent(message)}`, attribution);
   const parsed = signUpSchema.safeParse({
     name: formData.get("name"),
     studio: formData.get("studio") ?? "",
@@ -78,7 +83,7 @@ export async function signUp(formData: FormData): Promise<void> {
   });
   if (!parsed.success) {
     const message = parsed.error.issues[0]?.message ?? "Check the form";
-    redirect(`/signup?error=${encodeURIComponent(message)}`);
+    redirect(back(message));
   }
   const { name, email, password } = parsed.data;
   const studio = parsed.data.studio || `${name.split(/\s+/)[0]}'s studio`;
@@ -86,11 +91,11 @@ export async function signUp(formData: FormData): Promise<void> {
   // Ten new accounts an hour from one address is plenty for an office.
   const signupLimit: Limit[] = [{ key: `signup:ip:${await clientIp()}`, max: 10, windowMs: 60 * MINUTE }];
   if (await overLimit(signupLimit)) {
-    redirect(`/signup?error=${encodeURIComponent("Too many new accounts from this network. Try again in an hour.")}`);
+    redirect(back("Too many new accounts from this network. Try again in an hour."));
   }
 
   if (await prisma.user.findUnique({ where: { email } })) {
-    redirect(`/signup?error=${encodeURIComponent("That email already has an account. Sign in instead.")}`);
+    redirect(back("That email already has an account. Sign in instead."));
   }
 
   const passwordHash = await hashPassword(password);
@@ -98,12 +103,13 @@ export async function signUp(formData: FormData): Promise<void> {
     const workspace = await tx.workspace.create({
       data: { slug: `${slugify(studio) || "studio"}-${randomBytes(3).toString("hex")}`, name: studio },
     });
-    const created = await tx.user.create({ data: { email, name, passwordHash, workspaceId: workspace.id } });
+    const created = await tx.user.create({ data: { email, name, passwordHash, workspaceId: workspace.id, ...(attribution ? { attribution } : {}) } });
     await tx.workspaceMember.create({ data: { userId: created.id, workspaceId: workspace.id, role: "OWNER" } });
     return created;
   });
 
   await countAttempt(signupLimit);
+  await recordFunnelEvent({ name: "signup", userId: user.id, workspaceId: user.workspaceId, key: `signup:${user.id}` });
   await createSession(user.id);
   redirect("/?welcome=1");
 }
@@ -182,8 +188,8 @@ export async function deleteAccount(formData: FormData): Promise<void> {
     prisma.renderOutput.findMany({ where: { job: { workspaceId: { in: goingWith } } }, select: { objectKey: true } }),
   ]);
   const keys = [
-    ...media.flatMap((asset) => [asset.objectKey, asset.thumbKey, asset.previewKey, renderSourceKeyFor(asset.id)]),
-    ...outputs.map((output) => output.objectKey),
+    ...media.flatMap((asset) => [asset.objectKey, asset.thumbKey, asset.previewKey, renderSourceKeyFor(asset.id), thumbKeyFor(asset.objectKey), frameThumbKeyFor(asset.objectKey)]),
+    ...outputs.flatMap((output) => [output.objectKey, checksKeyFor(output.objectKey), exportAudioKeyFor(output.objectKey)]),
   ].filter((key): key is string => Boolean(key));
   // Everything else (sessions, reels, media rows, render jobs and outputs, connected accounts, seats) cascades from
   // the workspace or the user; the user row goes last, whether or not their home workspace went with them.

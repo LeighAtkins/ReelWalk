@@ -30,6 +30,7 @@ const PUBLIC_PATHS = [
   // The landing page's photos and drawn screens.
   /^\/landing\//,
   /^\/robots\.txt$/,
+  /^\/sitemap\.xml$/,
   /^\/manifest\.webmanifest$/,
 ];
 

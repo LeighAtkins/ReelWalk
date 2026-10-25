@@ -4,13 +4,17 @@ import { redirect } from "next/navigation";
 import { signUp } from "@/app/auth-actions";
 import { BrandMark } from "@/components/icons";
 import { SubmitButton } from "@/components/submit-button";
+import { ATTRIBUTION_KEYS, pickAttribution } from "@/lib/attribution";
 import { getSessionUser } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Create your studio · ReelWalk" };
 
-export default async function SignupPage({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
-  const { error } = await searchParams;
+export default async function SignupPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  const params = await searchParams;
+  const error = typeof params.error === "string" ? params.error : undefined;
+  // utm_* and click ids from the link that brought them here ride along in hidden fields and are stored with the new user (ADR 0080).
+  const attribution = pickAttribution(params);
   if (await getSessionUser()) redirect("/");
 
   return (
@@ -25,6 +29,7 @@ export default async function SignupPage({ searchParams }: { searchParams: Promi
       </header>
 
       <form action={signUp} className="auth-card" data-testid="signup-form">
+        {ATTRIBUTION_KEYS.map((key) => (attribution?.[key] ? <input key={key} type="hidden" name={key} value={attribution[key]} /> : null))}
         <label className="field">
           Your name
           <input className="text-input" name="name" autoComplete="name" required autoFocus maxLength={80} />

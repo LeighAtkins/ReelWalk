@@ -1,5 +1,6 @@
 import { buildReelExportPayload, canExport, instagramIssues, parseTimeline, referencedAssetIds, type Issue } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
+import { recordFunnelEvent } from "@/lib/funnel";
 import { workspacePlan } from "@/lib/plans";
 import { exportBlockedReason } from "@/lib/quotas";
 import { ensureWorkerRunning } from "@/lib/render-capacity";
@@ -51,6 +52,8 @@ export async function queueReelExport(user: { id: string; workspaceId: string },
     });
     await queueRenderJob(tx, job);
   });
+  // Once per studio, the key makes later exports a no-op (ADR 0080).
+  await recordFunnelEvent({ name: "first_export", userId: user.id, workspaceId: user.workspaceId, key: `first_export:${user.workspaceId}`, data: { plan: plan.id } });
   await flushOutbox();
   await ensureWorkerRunning();
   return { ok: true };

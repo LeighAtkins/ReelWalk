@@ -24,7 +24,7 @@ export default function DataDeletionPage() {
       </p>
       <p>
         If you can no longer sign in, email{" "}
-        <a href="mailto:leigh.atkins1@gmail.com?subject=Delete%20my%20ReelWalk%20account">leigh.atkins1@gmail.com</a> from the address you
+        <a href="mailto:hello@reelwalking.com?subject=Delete%20my%20ReelWalk%20account">hello@reelwalking.com</a> from the address you
         signed up with, and it is done within 7 days.
       </p>
     </article>

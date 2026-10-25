@@ -3,6 +3,7 @@ import type Stripe from "stripe";
 import { Prisma, prisma } from "@reelwalk/db";
 import { appUrl } from "@/lib/app-url";
 import { sendEmail, SUPPORT_EMAIL } from "@/lib/email";
+import { recordFunnelEvent } from "@/lib/funnel";
 import { customerId, isBillingConfigured, periodEnd, planForSubscription, stripe } from "@/lib/stripe";
 import { applyAiInvoice, applyAiTopUp } from "@/lib/billing-ai";
 
@@ -34,7 +35,21 @@ export async function POST(request: Request): Promise<Response> {
       await applyAiTopUp(session);
       if (typeof session.subscription === "string") {
         const subscription = await stripe().subscriptions.retrieve(session.subscription);
-        await applySubscription(subscription, session.client_reference_id);
+        const workspaceId = await applySubscription(subscription, session.client_reference_id);
+        // The first paid checkout of a subscription, once however often Stripe redelivers (ADR 0080).
+        // Amounts are in cents, as Stripe sends them; the subtotal is before tax, which is what the ad platforms want as "value".
+        await recordFunnelEvent({
+          name: "subscribed",
+          workspaceId,
+          key: `subscribed:${subscription.id}`,
+          data: {
+            plan: planForSubscription(subscription),
+            interval: subscription.items.data[0]?.price.recurring?.interval ?? null,
+            subtotal: session.amount_subtotal ?? null,
+            total: session.amount_total ?? null,
+            currency: session.currency ?? null,
+          },
+        });
       }
       break;
     }
@@ -79,8 +94,8 @@ export async function POST(request: Request): Promise<Response> {
   return NextResponse.json({ ok: true });
 }
 
-/** Writes what a subscription currently means onto its workspace. */
-async function applySubscription(subscription: Stripe.Subscription, workspaceHint: string | null): Promise<void> {
+/** Writes what a subscription currently means onto its workspace; returns the workspace's id, or null when none matches. */
+async function applySubscription(subscription: Stripe.Subscription, workspaceHint: string | null): Promise<string | null> {
   const customer = customerId(subscription.customer);
   const workspace =
     (await prisma.workspace.findFirst({
@@ -90,7 +105,7 @@ async function applySubscription(subscription: Stripe.Subscription, workspaceHin
     (await prisma.workspace.findFirst({ where: { id: subscription.metadata.workspaceId ?? workspaceHint ?? "" }, select: { id: true } }));
   if (!workspace) {
     console.error(`stripe: no workspace for subscription ${subscription.id}`);
-    return;
+    return null;
   }
   const plan = planForSubscription(subscription);
   await prisma.workspace.update({
@@ -103,6 +118,7 @@ async function applySubscription(subscription: Stripe.Subscription, workspaceHin
       planRenewsAt: plan === "FREE" ? null : periodEnd(subscription),
     },
   });
+  return workspace.id;
 }
 
 /** The subscription an invoice bills, if any (the API moved it under `parent`). */

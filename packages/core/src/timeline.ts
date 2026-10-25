@@ -6,6 +6,7 @@ import { speedRampSchema } from "./speed-ramp-params";
 import { rampFootageSchema } from "./motion-kind";
 import { planOverlaySchema, roomTitle, spotSchema, type PlanOverlay } from "./plan";
 import { colorMatchSchema, colorStatsSchema, lookSchema } from "./look";
+import { textTreatmentSchema } from "./brand-fonts";
 
 /**
  * A reel's edit, as a plain JSON document. The browser edits it, Postgres
@@ -185,6 +186,12 @@ export const textSchema = z
     font: z.enum(["auto", "serif", "sans", "editorial"]).optional(),
     shadow: z.enum(["auto", "soft", "strong", "none"]).optional(),
     tracking: z.number().min(-0.04).max(0.24).optional(),
+    /**
+     * A brand kit style applied to this title (ADR 0078): a bundled brand face and weight, a faux slant, a hard offset shadow
+     * and a plate with an edge, copied from the kit so the reel renders the same without it. Absent on every reel saved before
+     * it, which render exactly as before. Where present it replaces the style's own face, shadow and plate.
+     */
+    brand: textTreatmentSchema.optional(),
     /**
      * Set when `path` was tracked on a clip (ADR 0039): the keyframes' t runs over
      * this source window of that asset, so the pin survives trims and reorders.

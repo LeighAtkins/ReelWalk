@@ -61,7 +61,7 @@ import { HOOK_DESCRIPTIONS, HOOK_FONTS, HOOK_LABELS, type Hook, type HookKind,
   type PlanOverlay,
   type TextAnimation,
   type TextOverlay,
-  type TextStyle, orientQuad,
+  type TextStyle, orientQuad, type BrandKit, resolveTextStyle, brandFontFamily,
   intensityOfSpeedRamp, SPEED_RAMP_PRESET_LABELS, SPEED_RAMP_PRESETS, speedRampAtIntensity, speedRampOf, speedRampPresetOf, type TitleOnSurface, type SpeedRampDirection, type SpeedRampParams, type SpeedRampPreset } from "@reelwalk/core";
 import { ClipSourceInfo } from "./clip-source-info";
 import { ELEGANT_FONT_FAMILY, FILTER_CSS, FILTER_LABELS, TEXT_ANIMATION_LABELS, TEXT_STYLE_LABELS, textTreatmentCss } from "@reelwalk/render/reel";
@@ -977,7 +977,7 @@ export function PlanSheet({
 
 // ── Text ────────────────────────────────────────────────────────
 
-export type TextDraft = Pick<TextOverlay, "text" | "style" | "color" | "size" | "animation" | "font" | "tracking" | "path" | "shadow" | "behind" | "depth" | "blend" | "passMs" | "passFadeMs" | "particles" | "shine" | "kinetic" | "callout">;
+export type TextDraft = Pick<TextOverlay, "text" | "style" | "color" | "size" | "animation" | "font" | "tracking" | "path" | "shadow" | "behind" | "depth" | "blend" | "passMs" | "passFadeMs" | "particles" | "shine" | "kinetic" | "callout" | "brand">;
 
 /** Particle density in three thumb-sized steps (ADR 0055). */
 const PARTICLE_DENSITIES = [0.5, 1, 1.8] as const;
@@ -985,8 +985,15 @@ const PARTICLE_DENSITIES = [0.5, 1, 1.8] as const;
 /** The "Elegant" style chip, set in the serif it puts on the reel. */
 const ELEGANT_CHIP: CSSProperties = { fontFamily: ELEGANT_FONT_FAMILY, fontWeight: 500, fontSize: "1.12em", letterSpacing: "0.06em" };
 
+/** The text with kit style `name` applied: the same fields the `applyTextStyle` command writes. Unknown name: unchanged. */
+export function withBrandStyle(draft: TextDraft, kit: BrandKit, name: string): TextDraft {
+  const resolved = resolveTextStyle(kit, name);
+  return resolved.ok ? { ...draft, ...resolved.patch } : draft;
+}
+
 export function TextSheet({
   initial,
+  brandKit = null,
   playheadNow,
   title,
   music,
@@ -995,6 +1002,8 @@ export function TextSheet({
   onClose,
 }: {
   initial: TextDraft | null;
+  /** The workspace's brand kit (ADR 0078): a Brand row lists its styles. Absent or null: no row. */
+  brandKit?: BrandKit | null;
   /** Opened from the title's Particles or Walk-through control (ADR 0064): that part of the sheet is brought into view. */
   focus?: "particles" | "walk-through";
   /** Reads the reel time on screen behind the sheet when called: "Use this frame" sets the crossing there (ADR 0055). */
@@ -1041,10 +1050,24 @@ export function TextSheet({
         label="Style"
         options={TEXT_STYLES}
         value={draft.style}
-        onChange={(style: TextStyle) => setDraft({ ...draft, style, size: fitTextSize(style, draft.size) })}
+        onChange={(style: TextStyle) => setDraft({ ...draft, style, size: fitTextSize(style, draft.size), brand: undefined })}
         format={(style) => TEXT_STYLE_LABELS[style]}
         optionStyle={(style) => (style === "elegant" ? ELEGANT_CHIP : undefined)}
       />
+      {/* The workspace's own styles (ADR 0078): one tap sets font, colour, size, shadow and plate; picking a plain style or typeface takes it off. */}
+      {brandKit ? (
+        <Segmented
+          label="Brand"
+          options={["none", ...brandKit.styles.map((entry) => entry.name)] as const}
+          value={draft.brand?.style ?? "none"}
+          onChange={(name) => setDraft(name === "none" ? { ...draft, brand: undefined } : withBrandStyle(draft, brandKit, name))}
+          format={(name) => (name === "none" ? "No brand style" : brandKit.styles.find((entry) => entry.name === name)?.label ?? name)}
+          optionStyle={(name) => {
+            const found = brandKit.styles.find((entry) => entry.name === name);
+            return found ? { fontFamily: brandFontFamily(found.look.font), fontWeight: found.look.weight } : undefined;
+          }}
+        />
+      ) : null}
       {/* Motion on the type (ADR 0061): one kind at a time, a preset, and when it starts. */}
       <Segmented label="Motion" options={["none", "shine", "kinetic"] as const} value={motionMode(draft)} onChange={mode => setDraft(withMotionMode(draft, mode))}
         format={mode => ({ none: "No motion", shine: "Shine", kinetic: "Kinetic" })[mode]} />
@@ -1079,9 +1102,9 @@ export function TextSheet({
         ))}
       </div>
       <Range label="Size" value={draft.size} min={minTextSize(draft.style)} max={TEXT_SIZE_MAX} step={0.1} display={`${Math.round(draft.size * 100)}%`} onChange={(size) => setDraft({ ...draft, size })} />
-      <Segmented label="Typeface" options={["auto", "serif", "sans", "editorial"] as const} value={draft.font ?? "auto"} onChange={font => setDraft({ ...draft, font })}
+      <Segmented label="Typeface" options={["auto", "serif", "sans", "editorial"] as const} value={draft.font ?? "auto"} onChange={font => setDraft({ ...draft, font, brand: undefined })}
         format={font => ({ auto: "Style default", serif: "Cormorant", sans: "Archivo", editorial: "Bodoni" })[font]} />
-      <Segmented label="Text shadow" options={["auto", "soft", "strong", "none"] as const} value={draft.shadow ?? "auto"} onChange={shadow => setDraft({ ...draft, shadow })} format={shadow => ({ auto: "Auto contrast", soft: "Soft", strong: "Strong", none: "None" })[shadow]} />
+      <Segmented label="Text shadow" options={["auto", "soft", "strong", "none"] as const} value={draft.shadow ?? "auto"} onChange={shadow => setDraft({ ...draft, shadow, brand: undefined })} format={shadow => ({ auto: "Auto contrast", soft: "Soft", strong: "Strong", none: "None" })[shadow]} />
       <p className="muted small">Auto contrast protects small text over bright footage without changing its size or font.</p>
       <Range label="Letter spacing" value={draft.tracking ?? 0.06} min={-0.04} max={0.24} step={0.01} display={`${(draft.tracking ?? 0.06).toFixed(2)}em`} onChange={tracking => setDraft({ ...draft, tracking })} />
       {draft.callout ? null : (<>
@@ -1721,7 +1744,7 @@ export function ExportSheet({
   return (
     <Sheet title={!ready ? "Not ready to export" : toFix ? `${findingCount} ${findingCount === 1 ? "thing" : "things"} to fix` : "Export for Instagram"} onClose={onClose}>
       <p className="muted">
-        {formatDuration(durationMs, true)} reel, rendered as a 1080×1920 MP4 at 30 fps. Usually ready in about {renderMinutes(durationMs)}; you can
+        {formatDuration(durationMs, true)} reel, rendered as an MP4 at 30 fps (the size depends on your plan). Usually ready in about {renderMinutes(durationMs)}; you can
         keep editing while it renders.
       </p>
       {instagramSound ? (

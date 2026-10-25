@@ -2160,11 +2160,18 @@ input[type="range"] {
 
 .export-actions {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  /* minmax(0, ...): a long button label must not widen the page past a 412 px phone (ADR 0080). */
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
 }
 
-.export-actions .btn-signal {
+.export-actions .btn {
+  white-space: normal;
+  text-align: center;
+}
+
+.export-actions .btn-signal,
+.export-actions .export-upsell {
   grid-column: 1 / -1;
 }
 

@@ -49,6 +49,7 @@ import { canExport, fixAllCommand, safeFixes, type CriticFinding, type CriticFix
   pastSongEndMs,
   type Plan,
   type SongMap,
+  type BrandKit,
   type Timeline,
   setClipRoom,
   setCover,
@@ -233,6 +234,8 @@ export type EditorProps = {
   instagramSounds?: InstagramSoundAccess;
   /** This month's AI requests and allowance (null: no AI here), for the "Polish with AI" chip (ADR 0064). */
   aiUsage?: { used: number; allowed: number } | null;
+  /** The workspace's brand kit (ADR 0078): the Brand row of the text sheet and the `applyTextStyle` command. Null: none. */
+  brandKit?: BrandKit | null;
 };
 
 const newId = () => crypto.randomUUID();
@@ -316,7 +319,7 @@ function songFields(asset: LibraryAsset): Pick<MusicChoice, "bpm" | "beatOffsetM
   return { bpm: asset.bpm, beatOffsetMs: asset.beatOffsetMs, ...(asset.songMap ? { downbeats: asset.songMap.downbeats, sections: asset.songMap.sections } : {}) };
 }
 
-export function Editor({ reel, timeline: initialTimeline, library: initialLibrary, openLibrary, tours = {}, instagramSounds = null, askAvailable = false, aiOff = false, briefs: initialBriefs = [], autopilot = false, aiUsage: initialAiUsage = null }: EditorProps) {
+export function Editor({ reel, timeline: initialTimeline, library: initialLibrary, openLibrary, tours = {}, instagramSounds = null, askAvailable = false, aiOff = false, briefs: initialBriefs = [], autopilot = false, aiUsage: initialAiUsage = null, brandKit = null }: EditorProps) {
   const [aiUsage, setAiUsage] = useState(initialAiUsage);
   const [briefs, setBriefs] = useState<Brief[]>(initialBriefs);
   // One entry (ADR 0064): a reel started from the home screen goes straight from the upload to a
@@ -342,9 +345,11 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
   const [library, setLibrary] = useState<Record<string, LibraryAsset>>(() => Object.fromEntries(initialLibrary.map((asset) => [asset.id, asset])));
   const libraryRef = useRef(library);
   libraryRef.current = library;
+  const brandKitRef = useRef(brandKit);
+  brandKitRef.current = brandKit;
   const sourceDurations = useCallback(() => Object.fromEntries(Object.values(libraryRef.current).map((entry) => [entry.id, entry.durationMs])), []);
   // The reel, its undo history and its generation (ADR 0048). Changes to the cut go through runCommand.
-  const { history, generation, dispatch, runCommand: runDocumentCommand, snapshot, endGesture } = useDocument(initialTimeline, sourceDurations);
+  const { history, generation, dispatch, runCommand: runDocumentCommand, snapshot, endGesture } = useDocument(initialTimeline, sourceDurations, () => brandKitRef.current);
   const timeline = history.present;
   const [title, setTitle] = useState(reel.title);
   const [caption, setCaption] = useState(reel.caption);
@@ -1923,9 +1928,9 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         />
       ) : null}
 
-      {sheet === "text-new" ? <TextSheet initial={null} onSave={saveText} onClose={closeSheet} /> : null}
+      {sheet === "text-new" ? <TextSheet initial={null} brandKit={brandKit} onSave={saveText} onClose={closeSheet} /> : null}
       {(sheet === "text-edit" || sheet === "text-particles" || sheet === "text-walk") && selectedText ? (
-        <TextSheet initial={selectedText} playheadNow={clock.get} title={selectedText} music={timeline.music} focus={sheet === "text-particles" ? "particles" : sheet === "text-walk" ? "walk-through" : undefined} onSave={saveText} onClose={closeSheet} />
+        <TextSheet initial={selectedText} brandKit={brandKit} playheadNow={clock.get} title={selectedText} music={timeline.music} focus={sheet === "text-particles" ? "particles" : sheet === "text-walk" ? "walk-through" : undefined} onSave={saveText} onClose={closeSheet} />
       ) : null}
 
       {sheet === "reel" ? (

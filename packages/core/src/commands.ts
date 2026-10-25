@@ -12,6 +12,7 @@
  * what they did in the meantime.
  */
 import { snapCutsToBeats } from "./beats";
+import { resolveTextStyle, type BrandKit } from "./brand-kit";
 import { applyMove, type MoveId } from "./moves";
 import { cameraPreset, CAMERA_PRESETS, type Camera, type CameraPreset } from "./camera";
 import { placeDropOnCut } from "./drop";
@@ -136,6 +137,13 @@ export type Command =
    * without one the command is refused with that explanation.
    */
   | { type: "placeOnSurface"; textId: string; clipId?: string; atMs?: number; pick?: SurfacePick; placement?: TitleOnSurface }
+  /**
+   * A brand kit style applied to a title by name (ADR 0078): the kit's font, weight, slant, hard shadow and plate, with its
+   * colour, size and tracking, written onto the text in one step. Checked against the workspace's kit: no kit, or a name the
+   * kit does not have, is refused with the names it does have. `style: null` takes the kit style off (the text keeps the colour,
+   * size and spacing it has). Use `dryRun` on the route to see the result first.
+   */
+  | { type: "applyTextStyle"; textId: string; style: string | null }
   /** One clip's look (a camera move, zoom, grade, fit, transition; the retention critic's fixes, ADR 0071). Not its timing: `setSpeed` and `trimClip` change the cut. */
   | { type: "updateClip"; clipId: string; patch: Omit<ClipSettings, "speed"> }
   /**
@@ -168,7 +176,7 @@ export type BatchableCommand = Exclude<Command, { type: "applyProposal" } | { ty
 const COMMAND_TYPE_REGISTRY: Record<Command["type"], true> = {
   trimClip: true, moveClip: true, splitClip: true, deleteClip: true, duplicateClip: true, setSpeed: true, setMusic: true, snapToBeat: true, pace: true, setOnBeat: true,
   retime: true, retimeToLength: true, insertPresenterTakes: true, cutaways: true, applyFinish: true, hook: true, applyProposal: true,
-  setRamp: true, setCamera: true, applyMove: true, matchCuts: true, setTransition: true, updateText: true, placeOnSurface: true, updateClip: true, matchLook: true, addText: true,
+  setRamp: true, setCamera: true, applyMove: true, matchCuts: true, setTransition: true, updateText: true, placeOnSurface: true, applyTextStyle: true, updateClip: true, matchLook: true, addText: true,
   autoSfx: true, setSfx: true, dropOnCut: true, batch: true,
 };
 /** The type of every command, in registry order. */
@@ -185,6 +193,8 @@ export type CommandContext = {
    * step, so a title squeezed by the drag comes back when the drag undoes it.
    */
   gestureBase?: Timeline;
+  /** The workspace's brand kit (ADR 0078), for `applyTextStyle`. Absent: the workspace has none. */
+  brandKit?: BrandKit | null;
 };
 
 export type Change = { kind: "clip"; id: string } | { kind: "text"; id: string } | { kind: "music" } | { kind: "other"; key: string };
@@ -383,6 +393,14 @@ function run(timeline: Timeline, command: Command, context: CommandContext): Tim
       const problem = placementProblem(command.placement);
       if (problem) throw new Error(problem);
       return updateText(timeline, command.textId, surfacePatch(command.placement));
+    }
+    case "applyTextStyle": {
+      if (!timeline.texts.some((text) => text.id === command.textId)) throw new Error(`There is no text called ${command.textId} in the reel.`);
+      if (command.style === null) return updateText(timeline, command.textId, { brand: undefined });
+      if (!context.brandKit) throw new Error("This workspace has no brand kit, so there are no named text styles to apply. A kit is added to a workspace by its admin.");
+      const resolved = resolveTextStyle(context.brandKit, command.style);
+      if (!resolved.ok) throw new Error(resolved.message);
+      return updateText(timeline, command.textId, resolved.patch);
     }
     case "updateClip": {
       if (!timeline.clips.some((clip) => clip.id === command.clipId)) throw new Error(`There is no clip called ${command.clipId} in the reel.`);

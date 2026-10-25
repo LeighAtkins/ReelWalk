@@ -223,7 +223,7 @@ test("property details are saved with the reel and can write the caption", async
   await page.getByLabel("Beds").fill("3");
   await page.getByLabel("Baths").fill("2");
   await page.getByLabel("Size").fill("92 m²");
-  await page.getByLabel("Address or area").fill("Kanda, Chiyoda");
+  await page.getByLabel("Address or suburb").fill("Kanda, Chiyoda");
   await page.getByRole("button", { name: "Write the post caption from these details" }).click();
   await page.keyboard.press("Escape");
   await waitForSaved(page);

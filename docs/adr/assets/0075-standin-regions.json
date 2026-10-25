@@ -1,0 +1,35 @@
+{
+  "snow-aerial-lodge": { "horizonY": null, "regions": [
+    { "kind": "ground", "quad": [0.02, 0.62, 0.98, 0.62, 0.98, 0.99, 0.02, 0.99], "confidence": 0.7, "clear": true, "note": "snow-covered forecourt" },
+    { "kind": "wall", "quad": [0.06, 0.40, 0.30, 0.40, 0.30, 0.56, 0.06, 0.56], "confidence": 0.5, "clear": true, "note": "facade of the left wing" }
+  ] },
+  "snow-chalet": { "horizonY": 0.52, "regions": [
+    { "kind": "sky", "quad": [0.02, 0.02, 0.72, 0.02, 0.72, 0.2, 0.02, 0.2], "confidence": 0.9, "clear": true, "note": "clear blue sky" },
+    { "kind": "ground", "quad": [0.0, 0.8, 1.0, 0.8, 1.0, 0.99, 0.0, 0.99], "confidence": 0.7, "clear": true, "note": "snow beside the road" }
+  ] },
+  "snow-red-cabin": { "horizonY": 0.42, "regions": [
+    { "kind": "ground", "quad": [0.05, 0.62, 0.95, 0.62, 0.99, 0.98, 0.01, 0.98], "confidence": 0.9, "clear": true, "note": "deep snow in front of the cabin" },
+    { "kind": "wall", "quad": [0.2, 0.35, 0.7, 0.37, 0.7, 0.56, 0.2, 0.57], "confidence": 0.8, "clear": true, "note": "red plank wall" }
+  ] },
+  "snow-window-view": { "horizonY": 0.45, "regions": [
+    { "kind": "sky", "quad": [0.18, 0.03, 0.92, 0.03, 0.92, 0.36, 0.18, 0.36], "confidence": 0.8, "clear": true, "note": "sky through the window" },
+    { "kind": "window", "quad": [0.1, 0.02, 0.94, 0.02, 0.94, 0.66, 0.1, 0.66], "confidence": 0.6, "clear": true, "note": "window pane with the view" }
+  ] },
+  "villa-1": { "horizonY": null, "regions": [
+    { "kind": "wall", "quad": [0.0, 0.29, 0.86, 0.3, 0.86, 0.57, 0.0, 0.6], "confidence": 0.8, "clear": false, "note": "cream wall behind the sofa" },
+    { "kind": "floor", "quad": [0.0, 0.8, 1.0, 0.8, 1.0, 0.99, 0.0, 0.99], "confidence": 0.7, "clear": true, "note": "pale floor" }
+  ] },
+  "villa-2": { "horizonY": 0.5, "regions": [
+    { "kind": "floor", "quad": [0.02, 0.7, 0.98, 0.7, 0.98, 0.98, 0.02, 0.98], "confidence": 0.8, "clear": true, "note": "marble floor" },
+    { "kind": "ceiling", "quad": [0.12, 0.04, 0.88, 0.04, 0.88, 0.26, 0.12, 0.26], "confidence": 0.8, "clear": true, "note": "white ceiling" }
+  ] },
+  "villa-3": { "horizonY": null, "regions": [
+    { "kind": "wall", "quad": [0.0, 0.16, 0.28, 0.2, 0.28, 0.55, 0.0, 0.6], "confidence": 0.6, "clear": true, "note": "beige wall panel" },
+    { "kind": "floor", "quad": [0.02, 0.84, 0.98, 0.84, 0.98, 0.99, 0.02, 0.99], "confidence": 0.6, "clear": true, "note": "pale floor" }
+  ] },
+  "villa-5": { "horizonY": null, "regions": [
+    { "kind": "wall", "quad": [0.18, 0.3, 0.88, 0.32, 0.88, 0.5, 0.18, 0.5], "confidence": 0.8, "clear": true, "note": "padded wall above the bed" },
+    { "kind": "ceiling", "quad": [0.0, 0.02, 1.0, 0.02, 1.0, 0.2, 0.0, 0.2], "confidence": 0.8, "clear": true, "note": "white ceiling" },
+    { "kind": "floor", "quad": [0.0, 0.84, 1.0, 0.84, 1.0, 0.99, 0.0, 0.99], "confidence": 0.7, "clear": true, "note": "pale floor" }
+  ] }
+}

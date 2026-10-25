@@ -20,28 +20,28 @@ import { RoomPhoto } from "./room-photo";
  * The app's screens, drawn in HTML for the landing page: the media sheet,
  * the editor, the export screen and the share screen, each with real room
  * photos from the starter library in it. They copy the real screens'
- * layout and colors (globals.css) so the page shows what the product
+ * layout and colours (globals.css) so the page shows what the product
  * looks like, not an artist's impression. One listing runs through all four.
  */
 
 const LISTING = {
-  title: "1427 Lakeview Dr",
-  price: "$1,250,000",
-  facts: ["4 bed", "3 bath", "2,900 sq ft"],
-  address: "1427 Lakeview Dr, Austin, TX",
-  contact: "Lakeview Listing Media",
+  title: "14 Banksia Avenue",
+  price: "$1,850,000",
+  facts: ["4 bed", "3 bath", "270 m²"],
+  address: "14 Banksia Avenue, Bronte NSW",
+  contact: "Harbourside Listing Media",
 };
 
 /** Rooms of the one listing, in the order the photographer tapped them. */
 const ROOMS = [
   { file: "lounge-garden", name: "Family room", pano: true },
   { file: "kitchen-view", name: "Kitchen", pano: true },
-  { file: "suite", name: "Primary suite", pano: false },
-  { file: "bathroom", name: "Primary bath", pano: false },
-  { file: "veranda", name: "Covered porch", pano: true },
-  { file: "deck", name: "Back deck", pano: false },
+  { file: "suite", name: "Main bedroom", pano: false },
+  { file: "bathroom", name: "Ensuite", pano: false },
+  { file: "veranda", name: "Verandah", pano: true },
+  { file: "deck", name: "Deck", pano: false },
   { file: "lounge-window", name: "Living room", pano: false },
-  { file: "glasshouse", name: "Guest room", pano: true },
+  { file: "glasshouse", name: "Guest bedroom", pano: true },
   { file: "dining", name: "Dining room", pano: false },
   { file: "bedroom", name: "Bedroom 2", pano: false },
 ] as const;
@@ -302,11 +302,11 @@ export function ShareMock() {
         </div>
         <div className={styles.captionBox}>
           <span className={styles.captionHead}>
-            Post caption <span>131/2200</span>
+            Post caption <span>176/2200</span>
           </span>
           <span className={styles.captionText}>
-            Just listed: {LISTING.address}. 4 bed, 3 bath, 2,900 sq ft. Open house Saturday 11 to 1. Message Lakeview Listing Media for the
-            link. #justlisted #austinrealestate
+            Just listed: {LISTING.address}. 4 bed, 3 bath, 270 m². Open home Saturday 11 to 11:30. Message Harbourside Listing Media for the
+            link. #justlisted #sydneyrealestate
           </span>
         </div>
       </div>

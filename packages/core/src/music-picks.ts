@@ -48,7 +48,7 @@ export const MUSIC_MOODS = [
     id: "upbeat-real-estate",
     label: "Upbeat real estate",
     seed: "upbeat real estate",
-    words: ["just listed", "open house", "new listing", "sold", "for sale", "must see", "don't miss", "starter", "first home", "keys", "move in", "price drop", "bonus room"],
+    words: ["just listed", "open house", "open home", "auction", "new listing", "sold", "for sale", "must see", "don't miss", "starter", "first home", "keys", "move in", "price drop", "bonus room"],
   },
   {
     id: "chill-piano",

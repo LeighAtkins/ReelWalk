@@ -66,7 +66,7 @@ export const VIBES: Vibe[] = [
     rooms: ["living room", "kitchen", "bedroom", "bathroom", "bonus room", "dining room"],
     maxStops: 8,
     dwellMs: 1300,
-    hook: "3 bed · 2 bath\n1,640 sq ft",
+    hook: "3 bed · 2 bath\n152 m²",
     hookStyle: "box",
     roomNames: { "bonus room": "4th bedroom potential" },
     plan: true,

@@ -17,7 +17,7 @@ export default function TermsPage() {
       <h2>Plans and payment</h2>
       <p>
         ReelWalk has a free plan and paid plans (Agent and Studio). A paid plan is a subscription, billed monthly or yearly through
-        Stripe, in US dollars; sales tax or VAT is added at checkout where it applies, and Stripe shows the total before you pay. You can
+        Stripe, in Australian dollars. Prices include GST where it applies, and Stripe shows the total before you pay. You can
         cancel at any time from your Account page: the plan then runs to the end of the period you paid for, and your reels stay yours.
         If a charge looks wrong, write to <a href="mailto:hello@reelwalking.com">hello@reelwalking.com</a> and we will look into it.
       </p>

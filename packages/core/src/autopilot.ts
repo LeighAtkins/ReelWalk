@@ -79,7 +79,7 @@ export const AUTOPILOT_STYLES: Record<string, AutopilotStyle> = {
     maxMs: 24000,
     mood: /popular|real estate|soft house|cheerful|upbeat|sunny|bouncy/,
     filter: "none",
-    hook: (info) => ({ text: info.openHouse ? `Open house\n${info.openHouse}` : "Open house", style: "box", size: 1.1 }),
+    hook: (info) => ({ text: info.openHouse ? `Open home\n${info.openHouse}` : "Open home", style: "box", size: 1.1 }),
     roomLabels: true,
     detailsCard: true,
   },
@@ -108,7 +108,7 @@ function infoLines(info: ListingInfo): string[] {
     clean(info.beds) && `beds: ${clean(info.beds)}`,
     clean(info.baths) && `baths: ${clean(info.baths)}`,
     clean(info.area) && `area: ${clean(info.area)}`,
-    clean(info.openHouse) && `open house: ${clean(info.openHouse)}`,
+    clean(info.openHouse) && `open home: ${clean(info.openHouse)}`,
     clean(info.contact) && `contact: ${clean(info.contact)}`,
   ].filter(Boolean) as string[];
 }
@@ -130,7 +130,7 @@ export function autopilotRequest(styleId: string, info: ListingInfo): string {
  * later request ("add the details card", "write the caption") has them.
  */
 export function detailsFromInfo(info: ListingInfo, style: AutopilotStyle): ListingDetails | null {
-  const contact = clean(info.contact) || (clean(info.openHouse) && style.id === "open-house" ? `Open house ${clean(info.openHouse)}` : "");
+  const contact = clean(info.contact) || (clean(info.openHouse) && style.id === "open-house" ? `Open home ${clean(info.openHouse)}` : "");
   const details = listingDetailsSchema.parse({
     price: clean(info.price).slice(0, 24),
     beds: clean(info.beds).slice(0, 6),
@@ -221,7 +221,7 @@ export function finishAutopilot(
   if (!current.texts.some((text) => !text.id.startsWith("room-"))) {
     const hook = style.hook(info);
     const first = clipDurationMs(current.clips[0]);
-    current = addText(current, { id: newId(), text: hook.text, startMs: 0, endMs: Math.max(first, 1500), x: 0.5, y: 0.42, style: hook.style, color: "#ffffff", size: hook.size });
+    current = addText(current, { id: newId(), text: hook.text, startMs: 0, endMs: Math.max(first, 1500), x: 0.5, y: 0.42, style: hook.style, color: "#ffffff", size: hook.size, byApp: true });
     added.push(`hook "${hook.text.replace(/\n/g, " ")}"`);
   }
 

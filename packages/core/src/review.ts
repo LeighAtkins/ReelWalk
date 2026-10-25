@@ -104,22 +104,22 @@ export function setClipRoom(timeline: Timeline, clipId: string, room: string | n
   return hasRoomLabels(next) ? addRoomLabels(next) : next;
 }
 
-/** "1240000" or "1,240,000" becomes "$1,240,000"; anything already carrying a currency sign or words is left alone. */
+/** "1240000" or "1,240,000" becomes "$1,240,000" (the listing currency is the agent's own; in Australia that is dollars); anything already carrying a currency sign or words is left alone. */
 export function formatPrice(value: string): string {
   const text = value.trim();
   if (!text || /[^\d.,\s]/.test(text)) return text;
   const number = Number(text.replace(/[,\s]/g, ""));
   if (!Number.isFinite(number) || number <= 0) return text;
-  return `$${number.toLocaleString("en-US", { maximumFractionDigits: number < 1000 ? 2 : 0 })}`;
+  return `$${number.toLocaleString("en-AU", { maximumFractionDigits: number < 1000 ? 2 : 0 })}`;
 }
 
-/** "2400" becomes "2,400 sq ft"; anything with units or words already is left alone. */
+/** "240" becomes "240 m²" (Australian listings are in square metres); anything with units or words already is left alone, so a typed "2,400 sq ft" stays as the agent wrote it. */
 export function formatArea(value: string): string {
   const text = value.trim();
   if (!text || /[^\d.,\s]/.test(text)) return text;
   const number = Number(text.replace(/[,\s]/g, ""));
   if (!Number.isFinite(number) || number <= 0) return text;
-  return `${number.toLocaleString("en-US", { maximumFractionDigits: 0 })} sq ft`;
+  return `${number.toLocaleString("en-AU", { maximumFractionDigits: 0 })} m²`;
 }
 
 /** Seconds a clip plays, for the review's short summary. */

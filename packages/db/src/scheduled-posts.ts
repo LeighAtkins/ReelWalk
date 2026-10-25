@@ -281,12 +281,12 @@ export async function advanceScheduledPost(
         });
       } catch (error) {
         const failure = deps.classify(error);
-        // Never posted without the sound the studio picked: a refusal with
-        // one attached fails the post, and says which sound it was.
+        // Never silently remove the chosen sound. A refusal can be caused by
+        // authentication or permissions, so do not diagnose every one as bad audio.
         if (audio && !failure.transient) {
           return fail(
             {
-              message: `Instagram would not create the post with the sound ${scheduledPostAudioName(post)}: ${failure.message} Nothing was posted. Pick another sound or remove it, then schedule again.`,
+              message: `Instagram could not create the post: ${failure.message} Nothing was posted. The selected sound ${scheduledPostAudioName(post)} was kept.`,
               transient: false,
             },
             false,

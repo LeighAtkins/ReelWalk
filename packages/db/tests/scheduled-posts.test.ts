@@ -262,6 +262,7 @@ describe.skipIf(!process.env.DATABASE_URL)("scheduled posts (Postgres)", () => {
     expect(row.status).toBe("FAILED");
     expect(row.error).toContain('"Song · Band"');
     expect(row.error).toContain("The audio is not available.");
+    expect(row.error).not.toContain("Pick another sound");
     expect(deps.createContainer).toHaveBeenCalledTimes(1);
     expect(deps.publish).not.toHaveBeenCalled();
   });

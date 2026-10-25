@@ -16,7 +16,7 @@ export type { PostStep } from "@/lib/posting";
 export async function disconnectInstagram(): Promise<void> {
   const user = await getCurrentUser();
   await prisma.socialAccount.deleteMany({ where: { workspaceId: user.workspaceId, provider: "instagram" } });
-  redirect("/account?instagram=disconnected");
+  redirect("/account?instagram=disconnected#instagram");
 }
 
 /** The checks every immediate post makes, and what it needs; a string is the refusal. */

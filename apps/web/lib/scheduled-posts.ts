@@ -1,6 +1,6 @@
 import { prisma, runScheduledPosts, type ScheduledPost, type ScheduledPostDeps, type TickResult } from "@reelwalk/db";
 import { emailHtml, sendEmail } from "./email";
-import { containerStatus, createReelContainer, createStoryContainer, isFakeInstagram, isInstagramConfigured, isTransientInstagramError, publishContainer } from "./instagram";
+import { containerStatus, createReelContainer, createStoryContainer, instagramErrorMessage, isFakeInstagram, isInstagramConfigured, isTransientInstagramError, publishContainer } from "./instagram";
 import { workspacePlan } from "./plans";
 import { outputUrls } from "./render-jobs";
 
@@ -73,7 +73,7 @@ export const scheduledPostDeps: ScheduledPostDeps = {
   containerStatus: (containerId, token) => containerStatus(containerId, token),
   publish: (igUserId, containerId, token) => publishContainer(igUserId, containerId, token),
   classify: (error) => ({
-    message: error instanceof Error ? error.message : "Instagram did not answer.",
+    message: instagramErrorMessage(error, "Instagram did not answer. Try again in a moment."),
     transient: isTransientInstagramError(error),
   }),
   onFailed: notifyFailed,

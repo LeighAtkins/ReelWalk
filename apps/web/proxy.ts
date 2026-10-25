@@ -17,7 +17,12 @@ const PUBLIC_PATHS = [
   /^\/forgot$/,
   /^\/reset\/[^/]+$/,
   /^\/r\/[^/]+$/,
-  /^\/(privacy|terms|data-deletion|guide)$/,
+  /^\/(privacy|terms|data-deletion|guide|connect)$/,
+  // The MCP connector (ADR 0077): bearer-token endpoints and discovery documents, which are not browser pages.
+  // /oauth/authorize is not listed: it is a page and sends a signed-out person to the login.
+  /^\/mcp$/,
+  /^\/oauth\/(register|token|revoke)$/,
+  /^\/\.well-known\//,
   /^\/api\//,
   /^\/icon\.svg$/,
   // The brand mark, painted through a CSS mask on every page including sign-in.

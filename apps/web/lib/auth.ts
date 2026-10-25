@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { cache } from "react";
 import { cookies, headers } from "next/headers";
 import { prisma } from "@reelwalk/db";
+import { actingUser } from "./mcp/acting-user";
 
 /**
  * Sessions live in Postgres. The browser holds a random token in an httpOnly
@@ -49,6 +50,9 @@ export type SessionUser = NonNullable<Awaited<ReturnType<typeof getSessionUser>>
 
 /** The signed-in user with their workspace, or null. Cached per request. */
 export const getSessionUser = cache(async () => {
+  // A connector request (ADR 0077) acts as the person its bearer token belongs to; it never reads a cookie.
+  const acting = actingUser();
+  if (acting) return acting;
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!token) return null;
   const session = await prisma.session.findUnique({

@@ -7,6 +7,9 @@ import { buyAiCredits, openBillingPortal, startCheckout } from "@/app/billing-ac
 import { getAiBalance } from "@/lib/ai-video";
 import { aiTopUpPrice } from "@/lib/billing-ai";
 import { disconnectInstagram } from "@/app/instagram-actions";
+import { disconnectApp } from "@/app/mcp-actions";
+import { listGrants } from "@/lib/mcp/oauth-store";
+import { SCOPE_LABELS } from "@/lib/mcp/scopes";
 import { deleteCommentTrigger, disconnectCommentReplies, saveCommentTrigger, toggleCommentTrigger } from "@/app/comment-reply-actions";
 import { FeedbackForm } from "@/components/feedback-form";
 import { outputSize, PLANS } from "@reelwalk/core";
@@ -30,7 +33,7 @@ export default async function AccountPage({
   const { saved, error, instagram: igStatus, billing, feedback, message, replies: repliesStatus } = await searchParams;
   const user = await getCurrentUser();
   const aiBalance = await getAiBalance(user.workspaceId);
-  const [reels, exports, own, shared, sessions, instagram, current, usedThisMonth, usedBytes, aiUsage, triggers, recentReplies] = await Promise.all([
+  const [reels, exports, own, shared, sessions, instagram, current, usedThisMonth, usedBytes, aiUsage, triggers, recentReplies, connectedApps] = await Promise.all([
     prisma.reel.count({ where: { workspaceId: user.workspaceId } }),
     prisma.renderJob.count({ where: { workspaceId: user.workspaceId, status: "SUCCEEDED", kind: { not: "PREVIEW" } } }),
     prisma.mediaAsset.count({ where: { workspaceId: user.workspaceId, shared: false } }),
@@ -47,6 +50,7 @@ export default async function AccountPage({
       include: { _count: { select: { replies: { where: { status: "SENT" } } } } },
     }),
     prisma.commentReply.findMany({ where: { trigger: { workspaceId: user.workspaceId } }, orderBy: { createdAt: "desc" }, take: 10, include: { trigger: { select: { keyword: true } } } }),
+    listGrants(user.id),
   ]);
   const { plan } = current;
   const usedGb = usedBytes / 1024 ** 3;
@@ -345,6 +349,37 @@ export default async function AccountPage({
             ) : null}
           </section>
         ) : null}
+
+        <section className="card" id="apps" data-testid="connected-apps">
+          <h2>Connected apps</h2>
+          {connectedApps.length === 0 ? (
+            <p className="muted small">
+              No apps are connected. <Link href="/connect" className="link">Connect Claude or ChatGPT</Link> to edit your reels by chatting.
+            </p>
+          ) : (
+            <ul className="plain-list small">
+              {connectedApps.map((app) => (
+                <li key={app.id} data-testid="connected-app">
+                  <strong>{app.clientName}</strong>
+                  <br />
+                  <span className="muted">
+                    {app.scopes.map((scope) => SCOPE_LABELS[scope].title).join(" · ")}
+                    <br />
+                    Connected <LocalTime date={app.createdAt} />
+                    {app.lastUsedAt ? <> · last used <LocalTime date={app.lastUsedAt} /></> : " · not used yet"}
+                  </span>
+                  <form action={disconnectApp}>
+                    <input type="hidden" name="grantId" value={app.id} />
+                    <SubmitButton className="btn btn-quiet" pendingLabel="Disconnecting…">
+                      Disconnect
+                    </SubmitButton>
+                  </form>
+                </li>
+              ))}
+            </ul>
+          )}
+          {saved === "app" ? <p className="toast" role="status">Disconnected. That app can no longer use your account.</p> : null}
+        </section>
 
         <form action={updateProfile} className="card">
           <h2>Profile</h2>

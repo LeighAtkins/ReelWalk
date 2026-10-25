@@ -314,6 +314,8 @@ resource "aws_apprunner_service" "web" {
           STRIPE_PRICE_OFFICE_MONTHLY = var.stripe_price_office_monthly
           STRIPE_PRICE_OFFICE_YEARLY  = var.stripe_price_office_yearly
           STRIPE_PRICE_AI_TOP_UP      = var.stripe_price_ai_top_up
+          STRIPE_PRODUCT_AGENT        = var.stripe_product_agent
+          STRIPE_PRODUCT_OFFICE       = var.stripe_product_office
           # Finished reels the landing page plays; empty shows a placeholder frame.
           SAMPLE_REEL_URL        = var.sample_reel_urls
           SAMPLE_REEL_POSTER_URL = var.sample_reel_poster_urls

@@ -23,7 +23,7 @@ describe("AI video allowance windows", () => {
   it("prices 4 seconds per credit, so the allowance in seconds is what it was with 8-second credits", () => {
     expect(AI_PLAN_CREDITS).toEqual({ FREE: 2, AGENT: 20, OFFICE: 60 });
     expect(AI_TRIAL_CREDITS * 4).toBe(8);
-    expect(AI_TOP_UP).toEqual({ priceCents: 1500, credits: 10 });
+    expect(AI_TOP_UP).toEqual({ priceCents: 1900, credits: 10, currency: "aud" });
   });
   it("defaults timelapses to 8 seconds and every other move to 4", () => {
     expect(aiDefaultClipSeconds("day-night")).toBe(8);

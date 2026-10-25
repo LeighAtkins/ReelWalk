@@ -30,7 +30,8 @@ export const aiVideoResolution = (model: string) => (model === AI_DRAFT_MODEL ? 
 
 export const AI_TRIAL_CREDITS = 2;
 export const AI_PLAN_CREDITS = { FREE: 2, AGENT: 20, OFFICE: 60 } as const;
-export const AI_TOP_UP = { priceCents: 1500, credits: 10 } as const;
+/** 10 AI credits for A$19, GST included (cents of Australian dollars: the Stripe price must match). */
+export const AI_TOP_UP = { priceCents: 1900, credits: 10, currency: "aud" } as const;
 
 /** Monthly windows stay anchored to the subscription day, including Jan 31. */
 export function aiCreditWindow(anchor: Date, paidThrough: Date, now = new Date()): { start: Date; end: Date } | null {

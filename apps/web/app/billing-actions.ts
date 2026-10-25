@@ -35,6 +35,8 @@ export async function startCheckout(formData: FormData): Promise<void> {
   if (!isBillingConfigured() || !isPlanId(plan) || plan === "FREE" || !isBillingInterval(interval)) redirect("/account?billing=unavailable");
   const price = priceForPlan(plan, interval);
   if (!price) redirect("/account?billing=unavailable");
+  // Where the button was: the message after a first export (ADR 0081) is told apart from the plan buttons in the funnel.
+  const from = formData.get("from") === "first-export" ? "first-export" : null;
   const base = await appUrl();
   const customer = await customerFor(user.workspaceId, user.email, user.workspace.name);
   const session = await stripe().checkout.sessions.create({
@@ -49,13 +51,16 @@ export async function startCheckout(formData: FormData): Promise<void> {
     billing_address_collection: "auto",
     tax_id_collection: { enabled: true },
     customer_update: { name: "auto", address: "auto" },
+    // GST (ADR 0081): Stripe works the tax out from the billing address. The prices are GST-inclusive and
+    // no tax is collected until a registration exists in the Stripe Dashboard, so this is safe to leave on.
+    automatic_tax: { enabled: true },
     // Tags the session in the Dashboard so this flow can be told apart from later ones.
     integration_identifier: "reelwalk_plan_checkout_qmxvtkhe",
     success_url: `${base}/account?billing=welcome`,
     cancel_url: `${base}/account`,
   });
   if (!session.url) redirect("/account?billing=unavailable");
-  await recordFunnelEvent({ name: "checkout_started", userId: user.id, workspaceId: user.workspaceId, data: { plan, interval } });
+  await recordFunnelEvent({ name: "checkout_started", userId: user.id, workspaceId: user.workspaceId, data: { plan, interval, ...(from ? { from } : {}) } });
   redirect(session.url);
 }
 
@@ -71,6 +76,10 @@ export async function buyAiCredits(): Promise<void> {
   const session = await stripe().checkout.sessions.create({
     mode: "payment", customer, line_items: [{ price, quantity: 1 }], client_reference_id: user.workspaceId,
     metadata: { purpose: "ai-top-up", workspaceId: user.workspaceId },
+    // Same as the plans: the address lets Stripe work out GST on the A$19.
+    billing_address_collection: "auto",
+    customer_update: { name: "auto", address: "auto" },
+    automatic_tax: { enabled: true },
     success_url: `${base}/account?billing=credits`, cancel_url: `${base}/account`,
   });
   if (!session.url) redirect("/account?billing=unavailable");

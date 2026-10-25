@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { effectivePlan, isBillingInterval, monthStart, outputSize, PLAN_IDS, planPrice, PLANS, yearlyMonthsFree, yearlyPerMonth } from "../src/plans";
+import { CURRENCY, effectivePlan, formatAud, isBillingInterval, monthStart, outputSize, PLAN_IDS, planPrice, PLANS, PRICE_SMALL_PRINT, yearlyMonthsFree, yearlyPerMonth } from "../src/plans";
 
 const day = (iso: string) => new Date(iso);
 
@@ -54,14 +54,15 @@ describe("plans", () => {
   });
 
   it("a year costs ten months: two free", () => {
-    expect(planPrice(PLANS.AGENT, "month")).toBe(29);
-    expect(planPrice(PLANS.AGENT, "year")).toBe(290);
-    expect(planPrice(PLANS.OFFICE, "year")).toBe(790);
+    expect(planPrice(PLANS.AGENT, "month")).toBe(39);
+    expect(planPrice(PLANS.AGENT, "year")).toBe(390);
+    expect(planPrice(PLANS.OFFICE, "year")).toBe(990);
     expect(planPrice(PLANS.FREE, "year")).toBe(0);
     expect(yearlyMonthsFree(PLANS.AGENT)).toBe(2);
     expect(yearlyMonthsFree(PLANS.OFFICE)).toBe(2);
     expect(yearlyMonthsFree(PLANS.FREE)).toBe(0);
-    expect(yearlyPerMonth(PLANS.AGENT)).toBeCloseTo(24.17, 2);
+    expect(yearlyPerMonth(PLANS.AGENT)).toBe(32.5);
+    expect(yearlyPerMonth(PLANS.OFFICE)).toBe(82.5);
   });
 
   it("knows its billing intervals", () => {
@@ -69,5 +70,23 @@ describe("plans", () => {
     expect(isBillingInterval("year")).toBe(true);
     expect(isBillingInterval("week")).toBe(false);
     expect(isBillingInterval(undefined)).toBe(false);
+  });
+});
+
+describe("Australian dollars (ADR 0081)", () => {
+  it("charges A$39 / A$390 for Agent and A$99 / A$990 for Studio, GST included", () => {
+    expect([PLANS.AGENT.priceAud, PLANS.AGENT.priceAudYearly]).toEqual([39, 390]);
+    expect([PLANS.OFFICE.priceAud, PLANS.OFFICE.priceAudYearly]).toEqual([99, 990]);
+    expect(CURRENCY).toBe("aud");
+    expect(PRICE_SMALL_PRINT).toBe("Prices in Australian dollars. GST included where it applies.");
+  });
+
+  it("writes money with the A$ prefix, with cents only when there are some", () => {
+    expect(formatAud(0)).toBe("A$0");
+    expect(formatAud(39)).toBe("A$39");
+    expect(formatAud(990)).toBe("A$990");
+    expect(formatAud(1234)).toBe("A$1,234");
+    expect(formatAud(yearlyPerMonth(PLANS.AGENT))).toBe("A$32.50");
+    expect(formatAud(yearlyPerMonth(PLANS.OFFICE))).toBe("A$82.50");
   });
 });

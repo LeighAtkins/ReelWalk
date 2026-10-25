@@ -1,7 +1,20 @@
 import type Stripe from "stripe";
-import { AI_TOP_UP } from "@reelwalk/core";
+import { AI_TOP_UP, type PlanId } from "@reelwalk/core";
 import { lockBillingAccount, prisma } from "@reelwalk/db";
 import { customerId, planForPrice, stripe } from "./stripe";
+
+/**
+ * The plan an invoice line bills. The line names its price by id and its product; the lookup key lives
+ * on the price object, which the subscription's own items carry, so a price from before a currency swap
+ * still resolves (ADR 0081).
+ */
+export function invoiceLinePlan(line: Stripe.InvoiceLineItem, subscription: Pick<Stripe.Subscription, "items">): PlanId | null {
+  const details = line.pricing?.price_details;
+  const price = details?.price;
+  const id = typeof price === "string" ? price : price?.id;
+  const full = typeof price === "object" ? price : subscription.items.data.find(item => item.price.id === id)?.price;
+  return planForPrice({ id, lookup_key: full?.lookup_key, product: details?.product ?? full?.product });
+}
 
 /** Only a paid invoice can fund generation, even while export access is past_due. */
 export async function applyAiInvoice(invoice: Stripe.Invoice, subscription: Stripe.Subscription) {
@@ -12,9 +25,8 @@ export async function applyAiInvoice(invoice: Stripe.Invoice, subscription: Stri
   if (!workspace) throw new Error("Stripe invoice arrived before its workspace was linked.");
   // Validate the actual invoiced price. Reading the latest subscription alone
   // could fund a newly upgraded plan with an older, cheaper paid invoice.
-  const priceId = (value: string | Stripe.Price | undefined) => typeof value === "string" ? value : value?.id;
-  const line = invoice.lines.data.find(line => line.amount >= 0 && Boolean(planForPrice(priceId(line.pricing?.price_details?.price))));
-  const plan = planForPrice(priceId(line?.pricing?.price_details?.price));
+  const line = invoice.lines.data.find(line => line.amount >= 0 && Boolean(invoiceLinePlan(line, subscription)));
+  const plan = line ? invoiceLinePlan(line, subscription) : null;
   if (!line || !plan || plan === "FREE") return;
   const start = new Date(line.period.start * 1000);
   const end = new Date(line.period.end * 1000);
@@ -41,6 +53,15 @@ export function aiTopUpPrice(): string | null {
 // Prisma's 2-second default for starting a transaction.
 const BILLING_TX = { maxWait: 10_000, timeout: 15_000 };
 
+/**
+ * The A$19 price is GST-inclusive, so Stripe's total equals the subtotal and the GST is shown inside it;
+ * a price set up tax-exclusive would add the tax on top. Both are the right amount; anything else is not.
+ */
+function topUpTotalMatches(session: Stripe.Checkout.Session): boolean {
+  const tax = session.total_details?.amount_tax ?? 0;
+  return session.amount_total === AI_TOP_UP.priceCents || session.amount_total === AI_TOP_UP.priceCents + tax;
+}
+
 /** Signed Stripe session + exact server-side price + unique source = one grant. */
 export async function applyAiTopUp(session: Stripe.Checkout.Session) {
   if (session.mode !== "payment" || session.payment_status !== "paid" || session.metadata?.purpose !== "ai-top-up") return;
@@ -51,9 +72,8 @@ export async function applyAiTopUp(session: Stripe.Checkout.Session) {
   if (!customer || !workspaceId) throw new Error("Missing top-up customer.");
   const lines = await stripe().checkout.sessions.listLineItems(session.id, { limit: 2 });
   if (lines.data.length !== 1 || lines.data[0]?.price?.id !== price || lines.data[0]?.quantity !== 1 ||
-    session.currency !== "usd" || session.amount_subtotal !== AI_TOP_UP.priceCents ||
-    (session.total_details?.amount_discount ?? 0) !== 0 ||
-    session.amount_total !== AI_TOP_UP.priceCents + (session.total_details?.amount_tax ?? 0)) throw new Error("Unexpected AI top-up purchase.");
+    session.currency !== AI_TOP_UP.currency || session.amount_subtotal !== AI_TOP_UP.priceCents ||
+    (session.total_details?.amount_discount ?? 0) !== 0 || !topUpTotalMatches(session)) throw new Error("Unexpected AI top-up purchase.");
   await prisma.$transaction(async tx => {
     const workspace = await lockBillingAccount(tx, workspaceId);
     if (workspace.stripeCustomerId !== customer) throw new Error("Top-up customer does not match workspace.");

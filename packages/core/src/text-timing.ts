@@ -6,6 +6,19 @@
  */
 import { addRoomLabels, clipDurationMs, clipStartsMs, hasRoomLabels, timelineDurationMs, type TextOverlay, type Timeline } from "./timeline";
 
+/** A title that starts before this is an opening title: it is on the first frames of the reel, whatever the first clip's window does. */
+export const OPENING_TITLE_MS = 500;
+/** An opening title stays up at least this long when a change would cut it shorter (the house rule: readable from frame 0). */
+export const OPENING_TITLE_MIN_MS = 1500;
+/** No title is made shorter than this by a change to the cut, unless it was shorter when the user set it. */
+export const MIN_TITLE_MS = 1200;
+
+/** The shortest a change to the cut may leave `text`: its floor, or its own length when the user set it shorter. */
+function titleFloorMs(text: TextOverlay, was: TextOverlay | undefined): number {
+  const length = (was ?? text).endMs - (was ?? text).startMs;
+  return Math.min(text.startMs < OPENING_TITLE_MS ? OPENING_TITLE_MIN_MS : MIN_TITLE_MS, length);
+}
+
 // ── Keeping the rest of the reel in step ────────────────────────
 
 /**
@@ -79,9 +92,9 @@ export function reflowTexts(timeline: Timeline, anchors: TextAnchor[], original:
     if (clip.kind === "VIDEO" && clip.id === anchor.clipId && anchor.sourceMs !== null && anchor.sourceLengthMs !== null) {
       offsetMs = Math.round((anchor.sourceMs - clip.sourceStartMs) / clip.speed);
       durationMs = Math.round(anchor.sourceLengthMs / clip.speed);
-      // Trimmed away from the start: the text shows from the clip's first frame.
+      // Trimmed away from the start: the text shows from the clip's first frame, for no less than it is allowed to (never the old 100 ms sliver).
       if (offsetMs < 0) {
-        durationMs = Math.max(100, durationMs + offsetMs);
+        durationMs = Math.max(Math.min(anchor.durationMs, MIN_TITLE_MS), durationMs + offsetMs);
         offsetMs = 0;
       }
     }
@@ -139,6 +152,8 @@ export function textAttachment(timeline: Timeline, text: TextOverlay): TextAttac
   if (index === -1) return { kind: "reel" };
   const clip = timeline.clips[index];
   if (text.pin && clip.assetId === text.pin.assetId) return { kind: "clip", clipId: clip.id };
+  // An opening title belongs to the reel's first frames, not to whatever moment of the first clip it happened to cover.
+  if (text.startMs < OPENING_TITLE_MS) return { kind: "reel" };
   return text.endMs <= clipRunEndMs(timeline, index, starts) ? { kind: "clip", clipId: clip.id } : { kind: "reel" };
 }
 
@@ -220,16 +235,23 @@ export function retimeTexts(before: Timeline, after: Timeline, options: TextReti
   );
   const present = new Set(current.texts.map((text) => text.id));
   const texts = [...current.texts, ...[...relative.values()].filter((text) => !present.has(text.id))].map((text) => {
-    const index = owner.get(text.id);
-    if (index !== undefined) {
-      // Its clip's end, or the end of the pieces continuing it when this change was a split.
-      const end = clipRunEndMs(current, index, starts);
-      return text.endMs > end && end > text.startMs ? { ...text, endMs: end } : text;
-    }
-    const was = relative.get(text.id);
-    // Only cut short (same start, earlier end): the original end comes back.
-    if (was && text.startMs === was.startMs && text.endMs <= was.endMs) return { ...text, endMs: was.endMs };
-    return text;
+    const moved = (): TextOverlay => {
+      const index = owner.get(text.id);
+      if (index !== undefined) {
+        // Its clip's end, or the end of the pieces continuing it when this change was a split.
+        const end = clipRunEndMs(current, index, starts);
+        return text.endMs > end && end > text.startMs ? { ...text, endMs: end } : text;
+      }
+      const was = relative.get(text.id);
+      // Only cut short (same start, earlier end): the original end comes back.
+      if (was && text.startMs === was.startMs && text.endMs <= was.endMs) return { ...text, endMs: was.endMs };
+      return text;
+    };
+    const next = moved();
+    if (except.has(text.id) || text.id.startsWith("room-")) return next;
+    // Whatever the change did, a title is not left a sliver (an opening title stays readable from frame 0).
+    const floor = titleFloorMs(next, before.texts.find((entry) => entry.id === text.id));
+    return next.endMs - next.startMs < floor ? { ...next, endMs: next.startMs + floor } : next;
   });
   const total = timelineDurationMs(current);
   current = { ...current, texts: texts.filter((text) => text.startMs < total).map((text) => (text.endMs > total ? { ...text, endMs: total } : text)) };

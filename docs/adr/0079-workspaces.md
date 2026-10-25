@@ -211,11 +211,37 @@ app, so any second grant must be deleted first).
 
 - No invite or "remove a member" flow; no UI to rename or delete a non-home workspace
   (renaming works on the active one from the profile form for owners).
-- Not clicked through in a browser or against a real phone (see Verified).
+- Not clicked through in a browser or on a phone: the switcher, the Workspaces card, the consent picker and the editor with AI off are type-checked, built and covered by server-rendered markup tests, but not seen.
+- `prisma migrate diff` (schema against migrations) was not run; the migration was applied to a real Postgres and exercised, and the Prisma client built from the schema passes the database tests.
 - `scripts/mcp-smoke.mts` was not re-run against `next dev` (it needs a signed-in
   cookie and a stack); the consent form it submits now carries one extra `workspace`
   field.
 
 ## Verified
 
-See the pull request for the exact commands and their output.
+- `eslint .` clean; `pnpm -r typecheck` clean in all 8 projects.
+- Unit tests: core 1240 passed; web 345 passed; worker 200; render 107; db 12. New: `workspace-access`
+  (seats, cookie signing and tampering, fallbacks), `mcp/consent` and `components/oauth-consent-fields`
+  (ai:generate unticked by default, not offered for a workspace with AI off), the decision route (workspace
+  picked, a workspace that is not yours refused, ai:generate stripped), `mcp/oauth-store` (grant bound to a
+  workspace, two grants for one app, seat re-checked per call, ai:generate dropped when AI goes off),
+  `list_workspaces`, `admin-workspace` (arguments, idempotence, dry run, refusals), and `ai-off` (every door:
+  `structuredAnswer`, `createAiGeneration`, `aiEditBlockedReason`, and a source audit that every route importing
+  an AI module is guarded or exempt for a stated reason).
+- **Against a real Postgres** (PGlite served over a socket, the `20261025030000_workspaces` migration applied
+  after the 32 before it): `workspaces.db.test.ts`, 26 tests, run with `DATABASE_URL=... DATABASE_POOL_MAX=1
+  pnpm -C apps/web exec vitest run lib/workspaces.db.test.ts` (skipped without a database). It drives the real
+  `getSessionUser` with a cookie jar, the real `switchWorkspace`/`createWorkspace` actions, and then checks
+  isolation in both directions: reels (`loadReel`, `saveReelFor`), media (a reel cannot use another workspace's
+  or a stranger's media), exports (`/api/renders/:id/checks` 404), scheduled posts (`cancelScheduled` does
+  nothing), AI generations (list, `get_ai_shot`), and the connector tools bound to Last Mile
+  (`list_reels`, `get_reel`, `get_export`, `get_ai_shot`, `list_workspaces`). Also: a signed cookie for a
+  workspace the person has no seat in falls back to home, one signed for another session is ignored, a removed
+  seat cuts a connector token, AI off refuses AI video with the credit grant and generation count unchanged,
+  refuses model calls with no provider request, and `generate_ai_shot` answers `ai_off` without quoting.
+- **Migration backfill**, by a throwaway script (not in the repo): 32 earlier migrations applied, three users and
+  two grants inserted the old way, then the new migration: one OWNER seat per user for its home workspace, grants
+  on their person's home workspace, every workspace `aiGeneration = 'on'`; the unique indexes refuse a second seat
+  and a second grant for the same app, person and workspace, allow the same app on another workspace, and
+  workspace/user deletes cascade to seats and grants.
+- `pnpm --filter @reelwalk/web build` passes; the worker entry import check prints `OK`.

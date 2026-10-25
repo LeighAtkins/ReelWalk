@@ -190,7 +190,8 @@ describe.skipIf(!enabled)("workspaces against a real database", () => {
         it("media: a reel here cannot use media of the other workspace or a stranger's", async () => {
           const { saveReelFor } = await import("./save-reel");
           const user = (await sessionUser())!;
-          const clip = (assetId: string) => addClips(emptyTimeline(), [{ id: `c-${assetId}`, assetId, kind: "IMAGE", startMs: 0, endMs: 3000 } as any]);
+          const { clipForAsset } = await import("./mcp/clips");
+          const clip = (assetId: string) => addClips(emptyTimeline(), [clipForAsset({ id: assetId, kind: "IMAGE", durationMs: null, isPano: false, spot: null, room: null }, () => `c-${assetId}`)]);
           for (const foreign of [ids[`media${other}`], ids.mediaC]) {
             expect(await saveReelFor(user, { id: ids[`reel${here}`], revision: 0, timeline: clip(foreign) })).toMatchObject({ ok: false, reason: "invalid", message: expect.stringMatching(/another workspace/) });
           }
@@ -303,7 +304,7 @@ describe.skipIf(!enabled)("workspaces against a real database", () => {
       await prisma.workspace.update({ where: { id: ids.B }, data: { aiGeneration: "on" } });
     });
 
-    it("refuses AI video and spends no credit, while the same request in a workspace with AI on is not refused for this reason", async () => {
+    it("refuses AI video and spends no credit, while the same request in a workspace with AI on goes through", async () => {
       vi.stubEnv("AI_VIDEO_ENABLED", "true");
       vi.stubEnv("GOOGLE_CLOUD_PROJECT", "test-project");
       const { createAiGeneration } = await import("./ai-video");
@@ -314,7 +315,8 @@ describe.skipIf(!enabled)("workspaces against a real database", () => {
       await expect(createAiGeneration({ id: ids.U, workspaceId: ids.B, email: "x@example.com" }, input)).rejects.toThrow(/turned off for this workspace/);
       await expect(createAiGeneration({ id: ids.U, workspaceId: ids.B, email: "x@example.com" }, { ...input, quality: "draft" })).rejects.toThrow(/turned off/);
       expect({ credits: await credits(), shots: await shots() }).toEqual(before);
-      await expect(createAiGeneration({ id: ids.U, workspaceId: ids.A, email: "x@example.com" }, { ...input, requestId: crypto.randomUUID() })).rejects.not.toThrow(/turned off/);
+      // The same request in a workspace with AI on goes through (and reserves its credit there, not in Last Mile).
+      await expect(createAiGeneration({ id: ids.U, workspaceId: ids.A, email: "x@example.com" }, { ...input, requestId: crypto.randomUUID() })).resolves.toMatchObject({ status: "QUEUED", workspaceId: ids.A });
     });
 
     it("refuses every model call and never contacts a provider", async () => {

@@ -61,7 +61,7 @@ import { canExport, fixAllCommand, safeFixes, type CriticFinding, type CriticFix
   hookTextRequest,
 } from "@reelwalk/core";
 import { ELEGANT_FADE_S, sfxAssets, type ReelAsset } from "@reelwalk/render/reel";
-import { musicFieldsFromAnalysis, musicWithGrid, parseAudioAnalysis, type AudioAnalysis as TrackAnalysis, type MoveId } from "@reelwalk/core";
+import { surfacePatch, musicFieldsFromAnalysis, musicWithGrid, parseAudioAnalysis, type AudioAnalysis as TrackAnalysis, type MoveId } from "@reelwalk/core";
 import { SoundControl } from "./sound-control";
 import { deleteReel, exportReel, readyPreviews, saveCaption } from "@/app/actions";
 import { deleteBrief, saveBrief } from "@/app/ai-actions";
@@ -1974,6 +1974,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         return <PinSheet text={selectedText} clip={clip} asset={clip ? library[clip.assetId] : undefined} clipStartMs={at ? selectedText.startMs - at.offsetMs : 0}
           placementVersionNow={() => placementVersion(timelineNow.current, selectedText.id)}
           onPath={(pinned, patch) => apply((current) => updateText(current, selectedText.id, { path: pinned?.path, pin: pinned?.pin, ...(patch ?? {}) }), `pin-${selectedText.id}`)}
+          onPlaceOnSurface={(placement) => apply((current) => updateText(current, selectedText.id, surfacePatch(placement)), `surface-place-${selectedText.id}`)}
           onSurface={(surface) => apply((current) => updateText(current, selectedText.id, { surface, path: undefined, pin: undefined, ...(surface ? {} : { bars: undefined, cutouts: undefined, occluders: undefined }) }), `surface-${selectedText.id}`)}
           onBars={(bars) => apply((current) => updateText(current, selectedText.id, { bars: bars.length ? bars : undefined }), `bars-${selectedText.id}`)}
           onCheck={openCheck} onPlaceCorners={() => openCorners("corners")} onDrawCutout={() => openCorners("cutouts")} onClose={closeSheet} />;

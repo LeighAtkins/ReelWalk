@@ -62,7 +62,7 @@ import { HOOK_DESCRIPTIONS, HOOK_FONTS, HOOK_LABELS, type Hook, type HookKind,
   type TextAnimation,
   type TextOverlay,
   type TextStyle, orientQuad,
-  intensityOfSpeedRamp, SPEED_RAMP_PRESET_LABELS, SPEED_RAMP_PRESETS, speedRampAtIntensity, speedRampOf, speedRampPresetOf, type SpeedRampDirection, type SpeedRampParams, type SpeedRampPreset } from "@reelwalk/core";
+  intensityOfSpeedRamp, SPEED_RAMP_PRESET_LABELS, SPEED_RAMP_PRESETS, speedRampAtIntensity, speedRampOf, speedRampPresetOf, type TitleOnSurface, type SpeedRampDirection, type SpeedRampParams, type SpeedRampPreset } from "@reelwalk/core";
 import { ClipSourceInfo } from "./clip-source-info";
 import { ELEGANT_FONT_FAMILY, FILTER_CSS, FILTER_LABELS, TEXT_ANIMATION_LABELS, TEXT_STYLE_LABELS, textTreatmentCss } from "@reelwalk/render/reel";
 import { StockPicker } from "./stock-picker";
@@ -75,6 +75,7 @@ import { AlertIcon, CloseIcon, InstagramIcon, PlusIcon } from "../icons";
 import { InstagramSoundBrowser } from "../instagram-sound-picker";
 import { PopularSounds } from "../popular-sounds";
 import { detectSurface, findMatchingCut, trackTextPathDetailed } from "./frame-analysis";
+import { SurfacePicker } from "./surface-picker";
 import { planarShift } from "./title-metrics";
 import { crossingNow } from "./pass-crossing";
 import { asCallout, beatForMotion, motionMode, motionStartMs, withMotionMode, withMotionStartAt } from "./type-motion-draft";
@@ -1221,11 +1222,13 @@ export async function pinTitle({ text, clip, asset, clipStartMs, wholeShot, lean
   };
 }
 
-export function PinSheet({ text, clip, asset, clipStartMs, placementVersionNow, onPath, onSurface, onBars, onCheck, onPlaceCorners, onDrawCutout, onClose }: {
+export function PinSheet({ text, clip, asset, clipStartMs, placementVersionNow, onPath, onPlaceOnSurface, onSurface, onBars, onCheck, onPlaceCorners, onDrawCutout, onClose }: {
   text: TextOverlay; clip: Clip | null; asset: LibraryAsset | undefined; clipStartMs: number;
   /** The title's placement version in the current timeline (core `placementVersion`), read when a track starts and when it ends. */
   placementVersionNow?(): string;
   onPath(pinned: { path: TextOverlay["path"]; pin: TextOverlay["pin"] } | undefined, patch?: { startMs?: number; endMs?: number; x?: number }): void;
+  /** "Put on a surface" (ADR 0075): the title was laid on a surface the app found, with its track when it could be followed: one edit. */
+  onPlaceOnSurface?(placement: TitleOnSurface): void;
   /** The surface the title is painted on was set, found or cleared (also drops any pin, which must be redone on the new plane). */
   onSurface?(surface: number[] | undefined): void;
   /** The posts in front of the surface changed (ADR 0044). */
@@ -1285,7 +1288,8 @@ export function PinSheet({ text, clip, asset, clipStartMs, placementVersionNow, 
   }
   return (
     <Sheet title="Pin to the picture" onClose={onClose}>
-      <p className="muted small">The title is painted on a flat surface and follows it as the camera moves. The playhead is on the first frame of the shot: set the surface here, then pin.</p>
+      {onPlaceOnSurface ? <SurfacePicker text={text} clip={clip} asset={asset} clipStartMs={clipStartMs} placementVersionNow={placementVersionNow} onPlace={onPlaceOnSurface} /> : null}
+      <p className="muted small">{onPlaceOnSurface ? "Or set the surface yourself. " : ""}The title is painted on a flat surface and follows it as the camera moves. The playhead is on the first frame of the shot: set the surface here, then pin.</p>
       <h3 className="small" style={{ margin: "8px 0 4px" }}>1. The surface</h3>
       <div className="row" style={{ display: "flex", gap: 8 }}>
         {text.surface ? null : (

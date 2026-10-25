@@ -2,6 +2,7 @@ import type { Command } from "@reelwalk/core";
 import { getSessionUser } from "@/lib/auth";
 import { COMMAND_SHAPE as SHAPE, MAX_COMMANDS, inBatch, isCommand } from "@/lib/command-types";
 import { applyReelCommand, loadReel } from "@/lib/reel-command";
+import { resolveSurfaceCommands } from "@/lib/surface-command";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +21,13 @@ export const dynamic = "force-dynamic";
  * 400 with the reason and nothing is saved. `dryRun: true` returns the result
  * without saving, so `matchCuts` can be asked for its suggestion first.
  * Returns the new revision, what changed and the reel as saved.
+ *
+ * `placeOnSurface { textId, clipId?, atMs?, pick? }` (ADR 0075) finds a surface in the picture at `atMs` (a wall, floor,
+ * ceiling, sky band, snow or table, ranked), lays the title on it in the house serif with an ink chosen from the
+ * surface, and tracks it through the shot when it has detail to follow; otherwise it is placed fixed and the answer
+ * says so. `surfaces` in the answer lists what was found; with `dryRun: true` it is all that is done (nothing is
+ * tracked or saved). `pick` is "auto" (the default), "wall", "floor", "ceiling", "sky", "tabletop", "ground" or
+ * "window". Sending `placement.corners` yourself skips the search.
  */
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const site = request.headers.get("sec-fetch-site");
@@ -46,8 +54,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (!loaded) return Response.json({ ok: false, message: "This reel was deleted." }, { status: 404 });
   const revision = typeof body?.revision === "number" ? body.revision : loaded.revision;
   const dryRun = body?.dryRun === true;
+  // A placeOnSurface with no placement is found from the picture first (ADR 0075): that needs frames, a model and the tracker.
+  if (revision !== loaded.revision) return Response.json({ ok: false, message: "The reel changed since you read it. Read it again and send the command against its current revision.", changes: [] }, { status: 409 });
+  const surfaces = await resolveSurfaceCommands(loaded, command, { dryRun });
+  if (!surfaces.ok) return Response.json({ ok: false, message: surfaces.message, changes: [] }, { status: surfaces.status });
+  if (surfaces.command === null) return Response.json({ ok: true, dryRun, revision: loaded.revision, changes: [], warning: null, opening: loaded.timeline.opening ?? null, timeline: loaded.timeline, surfaces: surfaces.reports });
+  command = surfaces.command;
   const outcome = await applyReelCommand(user, loaded, command, revision, { dryRun });
   if (!outcome.ok) return Response.json({ ok: false, message: outcome.message, changes: outcome.result?.changes ?? [] }, { status: outcome.status });
   const { timeline, changes, warning } = outcome.result;
-  return Response.json({ ok: true, dryRun, revision: outcome.revision, changes, warning: warning ?? null, opening: timeline.opening ?? null, timeline });
+  return Response.json({ ok: true, dryRun, revision: outcome.revision, changes, warning: warning ?? null, opening: timeline.opening ?? null, timeline, ...(surfaces.reports.length ? { surfaces: surfaces.reports } : {}) });
 }

@@ -1,4 +1,4 @@
-import { clipMomentAtSource, defaultTolerance, findSurfaceQuad, leanQuad, pickMatchingFrame, smoothTrack, trackPath, trackSurfaceAsync, type Clip, type Gray, type Quad, type TextOverlay, type TrackFailure } from "@reelwalk/core";
+import { clipMomentAtSource, findSurfaceQuad, pickMatchingFrame, trackSampling, trackTitleFromFrames, TRACK_HEIGHT, TRACK_WIDTH, type Clip, type Gray, type TextOverlay, type TrackFailure, type TrackQuality, type TrackTarget, type TrackedTitle } from "@reelwalk/core";
 import type { LibraryAsset } from "@/lib/library";
 import { drawPresented, frameService, loadVideo, luminance, releaseVideo, seekVideo } from "./frame-service";
 
@@ -37,35 +37,10 @@ async function load(asset: LibraryAsset, clip?: Clip): Promise<HTMLVideoElement>
   return video;
 }
 
-// A third of 1080×1920: fine enough that a sub-pixel match is under two output pixels.
-export const TRACK_WIDTH = 360;
-export const TRACK_HEIGHT = 640;
+// The tracker's size and the quality read-out live in core (surface-track.ts), shared with the commands route (ADR 0075).
+export { TRACK_HEIGHT, TRACK_WIDTH, type TrackQuality };
 
-/** How well a pin followed its surface: what the Pin sheet shows before the user trusts it. */
-export type TrackQuality = {
-  /** Points with detail found on the surface at the start. */
-  points: number;
-  /** Mean points agreeing with the plane per measured step. */
-  inliers: number;
-  /** Steps refused by the gates (held instead of jumping). */
-  held: number;
-  /** Steps taken. */
-  steps: number;
-  /** "good" is attached throughout; "weak" held often or had low confidence somewhere; "lost" faded before the end. */
-  grade: "good" | "weak" | "lost";
-  /** Mean per-frame confidence 0–1 that the plane is on its surface (ADR 0052): coverage of the quad by agreeing points and reprojection error. */
-  confidence?: number;
-  /** Why the surface was lost, in words, when it was. */
-  reason?: string;
-};
-
-type TrackTarget = Pick<TextOverlay, "x" | "y" | "startMs" | "endMs"> & {
-  surface?: readonly number[];
-  /** Author corrections: the right corners (frame fractions, the surface's corner order) at a composition time; the track re-runs outward from each (ADR 0052). */
-  corrections?: readonly { atMs: number; quad: readonly number[] }[];
-};
-
-type TrackedPath = { path: NonNullable<TextOverlay["path"]>; pin: NonNullable<TextOverlay["pin"]>; lostAtMs: number | null; quality: TrackQuality; confidence: number[] };
+type TrackedPath = TrackedTitle;
 
 /**
  * Pin a text to the picture (ADR 0039, 0052): follow the surface under it
@@ -98,58 +73,21 @@ export async function trackTextPathDetailed(
   onProgress?: (fraction: number) => void,
   lean: { yaw: number; pitch: number } = { yaw: 0, pitch: 0 },
 ): Promise<TrackedPath | { error: string; reason?: TrackFailure }> {
-  const speed = clip.speed || 1;
-  const lifeMs = text.endMs - text.startMs;
-  const firstSource = clip.sourceStartMs + Math.max(0, text.startMs - clipStartMs) * speed;
-  const lastSource = Math.min(clip.sourceEndMs, clip.sourceStartMs + Math.max(0, text.endMs - clipStartMs) * speed);
-  if (lastSource - firstSource < 200 || lifeMs <= 0) return { error: "This title is on screen too briefly to track." };
-  const stepMs = Math.max(100, (lastSource - firstSource) / 60);
-  const toPx = (q: readonly number[]) => q.map((v, i) => (i % 2 === 0 ? v * TRACK_WIDTH : v * TRACK_HEIGHT)) as Quad;
-  const toFraction = (q: readonly number[]) => q.map((v, i) => (i % 2 === 0 ? v / TRACK_WIDTH : v / TRACK_HEIGHT)) as Quad;
-  // The plane is the surface the author chose (its own perspective), or a box around the text turned and tilted like the wall.
-  const surface = text.surface && text.surface.length === 8 ? toPx(text.surface) : null;
-  const margin = Math.round(TRACK_WIDTH * 0.03) + 1;
-  const hw = TRACK_WIDTH * 0.2, hh = TRACK_HEIGHT * 0.075;
-  const cx = Math.max(margin + hw, Math.min(TRACK_WIDTH - 1 - margin - hw, text.x * TRACK_WIDTH)), cy = Math.max(margin + hh, Math.min(TRACK_HEIGHT - 1 - margin - hh, text.y * TRACK_HEIGHT));
-  const flat: Quad = [cx - hw, cy - hh, cx + hw, cy - hh, cx + hw, cy + hh, cx - hw, cy + hh];
-  const quad0: Quad = surface ?? toPx(leanQuad(toFraction(flat), lean.yaw, lean.pitch));
+  const sampling = trackSampling(clip, clipStartMs, text);
+  if ("error" in sampling) return sampling;
   let video: HTMLVideoElement | null = null;
   try {
     video = await load(asset, clip);
     // Sample the shot evenly from its first to its true last frame (at most 63 samples, at most stepMs apart),
     // so keyframe t lines up with the pin's interval; then track. Reading frames is the slow part.
-    const fromMs = Math.round(firstSource), toMs = Math.round(lastSource);
-    const count = Math.min(63, Math.max(2, Math.ceil((toMs - fromMs) / stepMs) + 1));
-    const times = Array.from({ length: count }, (_, i) => fromMs + ((toMs - fromMs) * i) / (count - 1));
+    const { times } = sampling;
     const frames: Gray[] = [];
     for (const at of times) {
       await seek(video, at);
       frames.push(grayFrame(video, TRACK_WIDTH, TRACK_HEIGHT));
       onProgress?.((0.7 * frames.length) / times.length);
     }
-    const nearest = (sourceMs: number) => times.reduce((best, t, i) => (Math.abs(t - sourceMs) < Math.abs(times[best] - sourceMs) ? i : best), 0);
-    const anchors = [{ index: 0, quad: quad0 }, ...(text.corrections ?? []).filter((c) => c.quad.length === 8).map((c) => ({ index: nearest(clip.sourceStartMs + (c.atMs - clipStartMs) * speed), quad: toPx(c.quad) }))];
-    // Hands the thread back between frame steps so progress paints and the editor stays responsive; same result as trackSurface.
-    const result = await trackSurfaceAsync(frames, anchors, { onProgress: (f) => onProgress?.(0.7 + 0.3 * f) });
-    if (!result.ok) return { error: result.message, reason: result.reason };
-    // Smoothed within measured runs, each frame moved at most max(5 × its uncertainty, the inlier tolerance); anchors stay exact.
-    // Lost frames are hidden (o = 0) and carry the nearest measured corners, so nothing stale fades in (ADR 0052).
-    const { path, confidence: perKeyframe } = trackPath(smoothTrack(result.frames, { floorPx: defaultTolerance(TRACK_WIDTH) }), times, { fromMs, toMs }, text, { width: TRACK_WIDTH, height: TRACK_HEIGHT });
-    const measured = result.frames.filter((f) => !f.anchor && !f.lost);
-    const confidence = measured.length ? measured.reduce((sum, f) => sum + f.confidence, 0) / measured.length : 0;
-    const lostAtMs = result.lostAt !== null ? Math.round(times[result.lostAt]) : null;
-    const quality: TrackQuality = {
-      points: result.stats.points, inliers: Math.round(result.stats.meanInliers), held: result.stats.held, steps: result.stats.steps,
-      grade: lostAtMs !== null ? "lost" : result.stats.held > result.stats.steps * 0.15 || confidence < 0.5 || measured.some((f) => f.confidence < 0.25) ? "weak" : "good",
-      confidence: Number(confidence.toFixed(2)),
-      ...(result.message ? { reason: result.message } : {}),
-    };
-    return {
-      path,
-      pin: { assetId: asset.id, fromMs, toMs, quad: toFraction(quad0).map((v) => Number(v.toFixed(4))), ...(!surface && (lean.yaw || lean.pitch) ? { lean } : {}) },
-      lostAtMs, quality,
-      confidence: perKeyframe,
-    };
+    return await trackTitleFromFrames({ frames, times, assetId: asset.id, clip, clipStartMs, text, lean, onProgress });
   } catch {
     return { error: "The video could not be read." };
   } finally {

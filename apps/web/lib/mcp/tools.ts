@@ -7,6 +7,7 @@ import {
   aiClipCredits,
   COMMAND_TYPES,
   canExport,
+  describeBrandKit,
   clipStartsMs,
   clipDurationMs,
   emptyTimeline,
@@ -24,6 +25,7 @@ import {
 import { prisma } from "@reelwalk/db";
 import { MAX_COMMANDS, inBatch, isCommand } from "../command-types";
 import { toLibraryAssets } from "../library";
+import { workspaceBrandKit } from "../brand-kit";
 import { applyReelCommand, loadReel } from "../reel-command";
 import { readTimeline } from "../reels";
 import { saveReelFor } from "../save-reel";
@@ -72,13 +74,14 @@ const NO_REEL = "No reel with that id in this account. Call list_reels for the i
 
 /** House style, repeated in the tools where it matters, so an agent that never reads the server instructions still sees it. */
 export const STYLE_HINTS =
-  "House style unless the owner says otherwise: no boxed or backgrounded text (use unboxed serif, style 'elegant', with a soft shadow); no whoosh sounds (a quiet riser or impact only if clearly under the music); the first cut or visual change inside the first second; a title on screen from frame 0, under seven words, kept above y 0.72 (Instagram's caption zone) and off the centre of the frame.";
+  "House style unless the owner says otherwise: no boxed or backgrounded text (use unboxed serif, style 'elegant', with a soft shadow; a workspace with a brand kit, see get_brand_kit, uses the kit's named styles instead, which may have plates and hard shadows); no whoosh sounds (a quiet riser or impact only if clearly under the music); the first cut or visual change inside the first second; a title on screen from frame 0, under seven words, kept above y 0.72 (Instagram's caption zone) and off the centre of the frame.";
 
 export const SERVER_INSTRUCTIONS = [
   "ReelWalk makes short vertical reels (1080x1920, up to 90 s) for property listings and venues. You drive the signed-in person's own account.",
   "Typical flow: list_reels or create_reel -> list_media / search_stock / add_media for footage -> get_reel to read the cut -> apply_commands (dryRun first for anything big) -> export_reel -> get_export until SUCCEEDED -> get_frames and get_checks to look at the result -> adjust and export again.",
   "Always read a reel before changing it and pass its revision to apply_commands; if it answers 409 the person edited it meanwhile, so read it again.",
   STYLE_HINTS,
+  "If get_reel shows a brandKit, read it with get_brand_kit and style titles with the applyTextStyle command rather than hand-setting fonts and colours.",
   "You cannot post to Instagram or schedule posts from here; tell the person to do that in the app. AI video costs the person's credits: generate_ai_shot quotes first and spends only after confirmCredits matches.",
 ].join(" ");
 
@@ -146,7 +149,7 @@ function summarise(timeline: Timeline, library: Record<string, { fileName: strin
       filter: clip.filter,
       motion: clip.motion,
     })),
-    texts: timeline.texts.map((text) => ({ id: text.id, text: text.text, startMs: text.startMs, endMs: text.endMs, x: text.x, y: text.y, style: text.style, size: text.size, font: text.font ?? null })),
+    texts: timeline.texts.map((text) => ({ id: text.id, text: text.text, startMs: text.startMs, endMs: text.endMs, x: text.x, y: text.y, style: text.style, size: text.size, font: text.font ?? null, brandStyle: text.brand?.style ?? null })),
     music: timeline.music ? { assetId: timeline.music.assetId, fileName: library[timeline.music.assetId]?.fileName ?? null, volume: timeline.music.volume, bpm: timeline.music.bpm ?? null, onBeat: timeline.music.onBeat ?? false } : null,
     sfxCount: timeline.sfx?.length ?? 0,
     hook: timeline.hook ? timeline.hook.kind : null,
@@ -184,9 +187,32 @@ const getReel: ToolSpec = {
       media: Object.values(loaded.library).map((asset) => ({ id: asset.id, kind: asset.kind, fileName: asset.fileName, durationMs: asset.durationMs, width: asset.width, height: asset.height, hasSpeech: asset.kind === "VIDEO" && hasSpeech(asset.transcript), credit: asset.credit })),
       canExport: canExport(issues),
       issues,
+      brandKit: loaded.brandKit ? { id: loaded.brandKit.id, name: loaded.brandKit.name, styles: loaded.brandKit.styles.map((style) => style.name), hint: "get_brand_kit has the palette and what each style looks like; apply one with applyTextStyle." } : null,
       lastExport: lastExport ? { exportId: lastExport.id, status: lastExport.status, progress: lastExport.progress, createdAt: lastExport.createdAt.toISOString() } : null,
       ...(full ? { timeline: loaded.timeline } : {}),
     });
+  },
+};
+
+const getBrandKit: ToolSpec = {
+  name: "get_brand_kit",
+  title: "Read the workspace's brand kit",
+  description:
+    "Read this workspace's brand kit: its named text styles (what each is for and exactly how it looks: font, weight, slant, hard shadow, plate), its fonts and its palette. Apply a style to a title with the apply_commands command applyTextStyle { textId, style: '<name>' } (style null takes it off). Answers { brandKit: null } when the workspace has no kit; then use the house style instead.",
+  scopes: ["reels:read"],
+  readOnly: true,
+  input: {
+    style: z.string().trim().max(40).optional().describe("Only this style (its name), to check one look without the whole kit."),
+  },
+  async run(ctx, args) {
+    const { style } = args as { style?: string };
+    const kit = await workspaceBrandKit(ctx.user.workspaceId);
+    if (!kit) return ok({ brandKit: null, message: "This workspace has no brand kit. Use the house style." });
+    const described = describeBrandKit(kit);
+    if (!style) return ok({ brandKit: described });
+    const found = described.styles.filter((entry) => entry.name === style);
+    if (found.length === 0) return failure(`The ${kit.name} kit has no style called ${style}. Its styles are: ${kit.styles.map((entry) => entry.name).join(", ")}.`);
+    return ok({ brandKit: { ...described, styles: found } });
   },
 };
 
@@ -416,6 +442,7 @@ const COMMAND_SHEET = [
   "hook{pattern:voice-in|motion-in|text-punch|pattern-interrupt|question|null}",
   "addText{text:{id,text,startMs,endMs?,x,y,style,size,font,shadow,color}}",
   "updateText{textId,patch}",
+  "applyTextStyle{textId,style:<kit style name>|null}",
   "setRamp{clipId,ramp}",
   "setCamera{clipId,camera}",
   "cutaways{everyMs|null}",
@@ -674,7 +701,7 @@ const getAiShot: ToolSpec = {
   },
 };
 
-export const TOOLS: ToolSpec[] = [listReels, getReel, listMedia, searchStock, createReel, addMedia, applyCommands, getFrames, getChecks, getAudioTrace, exportReel, getExport, generateAiShot, getAiShot];
+export const TOOLS: ToolSpec[] = [listReels, getReel, getBrandKit, listMedia, searchStock, createReel, addMedia, applyCommands, getFrames, getChecks, getAudioTrace, exportReel, getExport, generateAiShot, getAiShot];
 
 // ── Running one ──────────────────────────────────────────────────
 

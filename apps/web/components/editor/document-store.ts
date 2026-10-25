@@ -1,4 +1,4 @@
-import { applyCommand, type Command, type CommandResult, type Timeline } from "@reelwalk/core";
+import { applyCommand, type BrandKit, type Command, type CommandResult, type Timeline } from "@reelwalk/core";
 import { COALESCE_MS, historyReducer, initHistory, type History, type HistoryAction } from "./history";
 
 /** What the editor shows when an async proposal arrives for a reel that changed meanwhile. */
@@ -30,7 +30,7 @@ type Gesture = { key: string; base: Timeline; last: Timeline };
  * merge window). Undo, redo and reset end it, and so does `endGesture`
  * (a sheet closing).
  */
-export function createDocumentStore(initial: Timeline, sourceDurationsMs: () => Record<string, number | null | undefined> = () => ({})) {
+export function createDocumentStore(initial: Timeline, sourceDurationsMs: () => Record<string, number | null | undefined> = () => ({}), brandKit: () => BrandKit | null = () => null) {
   let state: DocumentState = { history: initHistory(initial), generation: 0 };
   let gesture: Gesture | null = null;
   const listeners = new Set<() => void>();
@@ -60,7 +60,7 @@ export function createDocumentStore(initial: Timeline, sourceDurationsMs: () => 
       type: "apply",
       key,
       update: (timeline) => {
-        result = applyCommand(timeline, command, { generation: state.generation, sourceDurationsMs: sourceDurationsMs(), gestureBase: base });
+        result = applyCommand(timeline, command, { generation: state.generation, sourceDurationsMs: sourceDurationsMs(), gestureBase: base, brandKit: brandKit() });
         return result.timeline;
       },
     });

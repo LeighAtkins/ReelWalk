@@ -1,5 +1,6 @@
-import { applyCommand, hasSpeech, referencedAssetIds, timelineWithGrid, type Command, type CommandResult, type HookInputs, type Timeline } from "@reelwalk/core";
+import { applyCommand, hasSpeech, referencedAssetIds, timelineWithGrid, type BrandKit, type Command, type CommandResult, type HookInputs, type Timeline } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
+import { workspaceBrandKit } from "./brand-kit";
 import { toLibraryAssets, type LibraryAsset } from "./library";
 import { readTimeline } from "./reels";
 import { saveReelFor } from "./save-reel";
@@ -14,7 +15,7 @@ import { mediaScope } from "./workspace";
  * saved in between wins and the agent is told to read the reel again.
  */
 
-export type LoadedReel = { id: string; title: string; revision: number; timeline: Timeline; library: Record<string, LibraryAsset> };
+export type LoadedReel = { id: string; title: string; revision: number; timeline: Timeline; library: Record<string, LibraryAsset>; /** The workspace's brand kit (ADR 0078), for `applyTextStyle`; null when it has none. */ brandKit: BrandKit | null };
 
 /** The reel and the library entries its clips and music use, in this workspace. */
 export async function loadReel(user: { workspaceId: string }, id: string): Promise<LoadedReel | null> {
@@ -24,7 +25,7 @@ export async function loadReel(user: { workspaceId: string }, id: string): Promi
   const ids = referencedAssetIds(timeline);
   const rows = ids.length ? await prisma.mediaAsset.findMany({ where: { id: { in: ids }, ...mediaScope(user.workspaceId) } }) : [];
   const library = Object.fromEntries((await toLibraryAssets(rows)).map((asset) => [asset.id, asset]));
-  return { id: reel.id, title: reel.title, revision: reel.revision, timeline: onSongGrid(timeline, library), library };
+  return { id: reel.id, title: reel.title, revision: reel.revision, timeline: onSongGrid(timeline, library), library, brandKit: await workspaceBrandKit(user.workspaceId) };
 }
 
 /**
@@ -67,7 +68,7 @@ export type ApplyOutcome =
 export async function applyReelCommand(user: { workspaceId: string }, loaded: LoadedReel, command: Command, revision = loaded.revision, options: { dryRun?: boolean } = {}): Promise<ApplyOutcome> {
   if (revision !== loaded.revision) return { ok: false, status: 409, message: "The reel changed since you read it. Read it again and send the command against its current revision." };
   const full = withLibraryInputs(command, loaded.library);
-  const result = applyCommand(loaded.timeline, full, { generation: loaded.revision, sourceDurationsMs: hookInputsFromLibrary(loaded.library).sourceDurationsMs });
+  const result = applyCommand(loaded.timeline, full, { generation: loaded.revision, sourceDurationsMs: hookInputsFromLibrary(loaded.library).sourceDurationsMs, brandKit: loaded.brandKit });
   if (result.rejected) return { ok: false, status: 400, message: result.rejected, result };
   if (result.stale) return { ok: false, status: 409, message: "The proposal was made against an older revision of the reel.", result };
   if (options.dryRun || result.changes.length === 0) return { ok: true, revision: loaded.revision, result };

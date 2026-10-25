@@ -20,6 +20,8 @@ vi.mock("./google-federation", () => ({
   federatedGoogleAuth: (...args: unknown[]) => { auth.federated(...args); return { kind: "federated" }; },
   defaultGoogleAuth: async () => { auth.adc(); return { kind: "adc" }; },
 }));
+// The workspace AI switch has its own tests (ai-off.test.ts); here every workspace has AI on.
+vi.mock("./ai-gate", () => ({ assertAiOn: async () => undefined }));
 vi.mock("./storage", () => ({ awsCredentials: () => async () => ({ accessKeyId: "AKIA-test", secretAccessKey: "test", sessionToken: "t" }) }));
 
 import { aiModel, aiProvider, isAiConfigured, structuredAnswer, usageCostUsd, vertexConfig, vertexError, vertexPriceFactor } from "./openai";
@@ -37,7 +39,7 @@ function configure(extra: Record<string, string | undefined> = {}) {
   });
   for (const [key, value] of Object.entries(extra)) if (value === undefined) delete process.env[key];
 }
-const options = { instructions: "Edit this reel safely.", input: "Keep natural speed.", schemaName: "reel_edit_plan", schema: AI_EDIT_PLAN_JSON_SCHEMA as unknown as Record<string, unknown> };
+const options = { workspaceId: "ws1", instructions: "Edit this reel safely.", input: "Keep natural speed.", schemaName: "reel_edit_plan", schema: AI_EDIT_PLAN_JSON_SCHEMA as unknown as Record<string, unknown> };
 const blank = Object.fromEntries(AI_EDIT_PLAN_JSON_SCHEMA.properties.ops.items.required.map((key) => [key, null]));
 const plan = { ops: [{ ...blank, op: "speed", clip: 1, speed: 1 }], note: "Natural speed preserved.", questions: [], caption: null };
 const message = (overrides: Record<string, unknown> = {}) => ({

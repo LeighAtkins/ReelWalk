@@ -44,6 +44,7 @@ export async function labelRooms(workspaceId: string, assetIds: string[], limit 
   if (seen.length === 0) return {};
   try {
     const answer = await structuredAnswer({
+      workspaceId,
       instructions: INSTRUCTIONS,
       input: `${seen.length} pictures. Name the room in each.`,
       images: seen.map((still) => still.url),

@@ -1,3 +1,4 @@
+import { aiOffResponse } from "@/lib/ai-gate";
 import { getSessionUser } from "@/lib/auth";
 import { aiVideoConfigured, createAiGeneration, generationInput, getAiBalance } from "@/lib/ai-video";
 import { ensureWorkerRunning } from "@/lib/render-capacity";
@@ -56,6 +57,7 @@ function gateSummary(checks: unknown): { faceHeightPx: number | null; framing: P
 export async function POST(request: Request) {
   const user = await getSessionUser();
   if (!user) return Response.json({ error: "Sign in to use AI video." }, { status: 401 });
+  { const off = await aiOffResponse(user.workspaceId); if (off) return off; }
   const origin = request.headers.get("origin");
   if (!origin || origin !== new URL(process.env.APP_URL || request.url).origin) return Response.json({ error: "Invalid request origin." }, { status: 403 });
   const input = generationInput.safeParse(await request.json().catch(() => null));

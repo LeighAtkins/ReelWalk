@@ -49,7 +49,8 @@ export default async function EditReelPage({
   // this deployment cannot reach Instagram; otherwise offered, or explained.
   const instagramSounds = isInstagramConfigured() || isFakeInstagram() ? { problem: await instagramSoundProblem(user.workspaceId) } : null;
   // Ways of cutting a whole reel: the built-in briefs, then the studio's own.
-  const briefs = isAiAvailable()
+  const aiOff = user.workspace.aiGeneration === "off";
+  const briefs = isAiAvailable() && !aiOff
     ? [...AI_BRIEFS.map((brief) => ({ ...brief, own: false })), ...(await prisma.reelBrief.findMany({ where: { workspaceId: user.workspaceId }, orderBy: { createdAt: "asc" }, select: { id: true, name: true, text: true } })).map((brief) => ({ ...brief, own: true }))]
     : [];
 
@@ -62,7 +63,8 @@ export default async function EditReelPage({
       library={library}
       tours={tours}
       instagramSounds={instagramSounds}
-      askAvailable={isAiAvailable()}
+      askAvailable={isAiAvailable() && !aiOff}
+      aiOff={aiOff}
       briefs={briefs}
       autopilot={auto === "1"}
       aiUsage={await aiEditUsage(user.workspaceId)}

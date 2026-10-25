@@ -61,6 +61,7 @@ export async function directReel(user: { id: string; workspaceId: string }, reel
   }, select: { id: true } });
   // Deliberately one provider request. Unknown or failed submissions are never automatically repeated.
   const answer = await structuredAnswer({
+    workspaceId: user.workspaceId,
     instructions: `${AI_EDIT_SYSTEM_PROMPT}\n\n${DIRECTOR_INSTRUCTIONS}`,
     input: `${describeReel({ title: reel.title, timeline, ...available })}\n\nUser brief: ${input.request}\n\nConfirmed AI-generated asset IDs: ${JSON.stringify(aiSources.map(a => a.assetId))}\nReview candidates: ${JSON.stringify(input.candidates)}\nSource frame sheets in order: ${JSON.stringify(evidence.map(e => ({ assetId: e.assetId, timesMs: e.timesMs })))}\nNo source sheets supplied for other shots: do not claim those were visually reviewed.${evidence.filter(e => e.motion?.length).map(e => `\nMeasured motion for ${available.assets[e.assetId]?.title ?? e.assetId} (dominant image shift between consecutive sampled frames, pixels at 48×85; dy > 0 is the picture moving down the frame; CHANGE marks an abrupt new picture): ${describeMotion(e.motion!)}`).join("")}`,
     images: evidence.map(e => e.image), imageDetail: "high", schemaName: "opus_director", schema: DIRECTOR_PLAN_JSON_SCHEMA as unknown as Record<string, unknown>, // A full direction (caption moves, trims, volume, shots) plus Opus's thinking ran past 10k tokens.

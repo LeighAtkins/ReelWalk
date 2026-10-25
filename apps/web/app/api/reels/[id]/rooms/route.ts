@@ -1,3 +1,4 @@
+import { aiOffResponse } from "@/lib/ai-gate";
 import { prisma } from "@reelwalk/db";
 import { getSessionUser } from "@/lib/auth";
 import { labelRooms } from "@/lib/room-labels";
@@ -14,6 +15,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (site && site !== "same-origin") return Response.json({ ok: false }, { status: 403 });
   const user = await getSessionUser();
   if (!user) return Response.json({ ok: false }, { status: 401 });
+  { const off = await aiOffResponse(user.workspaceId); if (off) return off; }
   const { id } = await params;
   const reel = await prisma.reel.findFirst({ where: { id, workspaceId: user.workspaceId }, select: { id: true } });
   if (!reel) return Response.json({ ok: false }, { status: 404 });

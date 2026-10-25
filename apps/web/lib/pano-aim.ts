@@ -59,6 +59,7 @@ export async function aimPano(workspaceId: string, assetId: string, target: stri
   try {
     const image = await gridded(object.bytes);
     const answer = await structuredAnswer({
+      workspaceId,
       instructions: INSTRUCTIONS,
       input: `Where is: ${target.slice(0, 60)}`,
       images: [`data:image/jpeg;base64,${image.toString("base64")}`],

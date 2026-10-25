@@ -1,3 +1,4 @@
+import { aiOffResponse } from "@/lib/ai-gate";
 import { z } from "zod";
 import { getSessionUser } from "@/lib/auth";
 import { AiError, isAiAvailable } from "@/lib/openai";
@@ -17,6 +18,7 @@ const input = z.object({ frame: z.string().startsWith("data:image/jpeg;base64,")
 export async function POST(request: Request) {
   const user = await getSessionUser();
   if (!user) return Response.json({ error: "Sign in to look for surfaces." }, { status: 401 });
+  { const off = await aiOffResponse(user.workspaceId); if (off) return off; }
   if (request.headers.get("origin") !== new URL(process.env.APP_URL || request.url).origin) return Response.json({ error: "Invalid request origin." }, { status: 403 });
   if (!isAiAvailable()) return Response.json({ error: "Naming surfaces is not set up on this deployment." }, { status: 409 });
   const parsed = input.safeParse(await request.json().catch(() => null));
@@ -27,7 +29,7 @@ export async function POST(request: Request) {
   await countAttempt(limits);
   try {
     const bytes = Buffer.from(parsed.data.frame.slice("data:image/jpeg;base64,".length), "base64");
-    const look = await lookForSurfaces(bytes);
+    const look = await lookForSurfaces(user.workspaceId, bytes);
     return Response.json({ regions: look.hints.regions ?? [], horizonY: look.hints.horizonY ?? null, model: look.model, costUsd: look.costUsd, ms: look.ms }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) {
     return Response.json({ error: error instanceof AiError ? error.message : "The surfaces could not be named." }, { status: 502 });

@@ -3,6 +3,8 @@ import { emptyTimeline } from "../src";
 
 // ADR 0049 review item 1: the real askForChange, run inside the worker's
 // provider gate, must not send a second paid request after one got no answer.
+// The workspace AI switch has its own tests (apps/web/lib/ai-off.test.ts); here every workspace has AI on.
+vi.mock("@/lib/ai-gate", () => ({ aiOffResponse: async () => null, aiIsOff: async () => false, assertAiOn: async () => undefined, AI_OFF_MESSAGE: "off" }));
 vi.mock("@reelwalk/db", () => ({ prisma: {
   aiEdit: { count: async () => 0, create: async () => ({ id: "edit" }) },
   mediaAsset: { findMany: async () => [], count: async () => 0 },

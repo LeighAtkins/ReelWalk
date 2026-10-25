@@ -1,3 +1,4 @@
+import { aiOffResponse } from "@/lib/ai-gate";
 import { z } from "zod";
 import { getSessionUser } from "@/lib/auth";
 import { advanceRun, endRun, findDirectorRun, noteRun, publicRun } from "@/lib/workflows";
@@ -26,6 +27,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
 export async function POST(request: Request, { params }: { params: Promise<{ id: string; runId: string }> }) {
   const user = await getSessionUser();
   if (!user) return Response.json({ ok: false, message: "Sign in to direct this reel." }, { status: 401 });
+  { const off = await aiOffResponse(user.workspaceId); if (off) return off; }
   if (request.headers.get("origin") !== new URL(process.env.APP_URL || request.url).origin) return Response.json({ ok: false, message: "Invalid request origin." }, { status: 403 });
   const parsed = action.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return Response.json({ ok: false, message: "Could not read the request." }, { status: 400 });

@@ -1,3 +1,4 @@
+import { aiOffResponse } from "@/lib/ai-gate";
 import { parseTimeline, referencedAssetIds } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
 import { startAiJob } from "@/lib/ai-jobs";
@@ -21,6 +22,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (site && site !== "same-origin") return Response.json({ ok: false, message: "Cross-site request refused." }, { status: 403 });
   const user = await getSessionUser();
   if (!user) return Response.json({ ok: false, message: "You were signed out. Sign in again." }, { status: 401 });
+  { const off = await aiOffResponse(user.workspaceId); if (off) return off; }
 
   let body: { request?: unknown; timeline?: unknown; answers?: unknown; requestId?: unknown };
   try {

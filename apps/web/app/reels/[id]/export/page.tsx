@@ -191,7 +191,7 @@ export default async function ExportPage({
             </p>
           )}
   
-          {urls && isAiAvailable() ? <AskForChange reelId={reel.id} usage={aiUsage} /> : null}
+          {urls && isAiAvailable() && user.workspace.aiGeneration !== "off" ? <AskForChange reelId={reel.id} usage={aiUsage} /> : null}
 
           <CaptionEditor reelId={reel.id} initial={reel.caption} />
 

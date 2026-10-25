@@ -33,6 +33,7 @@ export async function planShoot(user: { id: string; workspaceId: string }, reque
 
   const ask = () =>
     structuredAnswer({
+      workspaceId: user.workspaceId,
       instructions: SHOT_LIST_SYSTEM_PROMPT,
       input: describeShootRequest(request),
       schemaName: "shot_list",

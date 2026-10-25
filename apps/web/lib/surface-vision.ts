@@ -28,10 +28,11 @@ export async function griddedFrame(jpeg: Buffer, width = 576): Promise<string> {
 export const surfaceVisionAvailable = (): boolean => isAiAvailable();
 
 /** Asks the model for the surfaces in a frame (a JPEG of the composition, any size). Throws `AiError` when the model cannot answer. */
-export async function lookForSurfaces(jpeg: Buffer, signal?: AbortSignal): Promise<SurfaceLookResult> {
+export async function lookForSurfaces(workspaceId: string, jpeg: Buffer, signal?: AbortSignal): Promise<SurfaceLookResult> {
   const started = Date.now();
   const image = await griddedFrame(jpeg);
   const answer = await structuredAnswer({
+    workspaceId,
     instructions: SURFACE_REGIONS_INSTRUCTIONS,
     input: "Mark the flat surfaces in this picture where a title could be painted.",
     images: [image],

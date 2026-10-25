@@ -6,6 +6,7 @@
 // only the worker's dependencies. The Vertex SDK is loaded on first use, inside `vertexClient`.
 import type { AnthropicVertex } from "@anthropic-ai/vertex-sdk";
 import type { AuthClient } from "google-auth-library";
+import { assertAiOn } from "./ai-gate";
 import { defaultGoogleAuth, federatedGoogleAuth } from "./google-federation";
 import { beforeProviderRequest, providerAnswered, providerSignal } from "./provider-gate";
 
@@ -116,6 +117,8 @@ type ResponsesOutput = {
  * can cache it across calls; `input` is what changes.
  */
 export async function structuredAnswer(options: {
+  /** Whose AI switch and allowance this request is under (ADR 0079). Required, so no caller can forget the gate. */
+  workspaceId: string;
   instructions: string;
   input: string;
   /** Pictures for the model to look at, as data: URLs, sent at low detail. */
@@ -127,6 +130,8 @@ export async function structuredAnswer(options: {
   maxOutputTokens?: number;
   signal?: AbortSignal;
 }): Promise<{ json: unknown; usage: AiUsage; model: string }> {
+  // A workspace with AI generation off never reaches a provider: this is the one door every model call goes through.
+  await assertAiOn(options.workspaceId);
   const provider = aiProvider();
   if (provider === "anthropic") return claudeAnswer(options);
   if (provider === "vertex") return vertexAnswer(options);

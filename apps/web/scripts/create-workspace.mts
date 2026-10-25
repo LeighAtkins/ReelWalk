@@ -21,7 +21,7 @@ if (!parsed.ok) {
 }
 
 // ADR 0078 adds Workspace.brandKit and BUNDLED_BRAND_KITS. This build may not have them yet.
-const column = Prisma.dmmf.datamodel.models.find((model) => model.name === "Workspace")?.fields.some((field) => field.name === "brandKit") ?? false;
+const column = Object.hasOwn(Prisma.WorkspaceScalarFieldEnum, "brandKit");
 const kits = (core as unknown as { BUNDLED_BRAND_KITS?: Record<string, unknown> }).BUNDLED_BRAND_KITS;
 const brandKits: BrandKitSupport = { available: column && Boolean(kits), kits: kits ?? {} };
 

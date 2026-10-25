@@ -21,12 +21,12 @@
  */
 import type { AiSong } from "./ai-edit";
 import type { MusicChoice } from "./commands";
-import { heldByPace, paceTimeline, putOnTheBeat } from "./pacing";
+import { REPACE_FLOOR_MS, heldByPace, paceTimeline, putOnTheBeat } from "./pacing";
 import type { SongMap } from "./song";
 import { snapCutsToBeats } from "./beats";
 import { retime, setLook } from "./review";
 import { retimeTexts } from "./text-timing";
-import { fitTextSize, setMusic, type Clip, type Filter, type TextOverlay, type TextStyle, type Timeline } from "./timeline";
+import { fitTextSize, setMusic, timelineDurationMs, type Clip, type Filter, type TextOverlay, type TextStyle, type Timeline } from "./timeline";
 
 export const FINISH_IDS = ["pop", "premium"] as const;
 export type FinishId = (typeof FINISH_IDS)[number];
@@ -146,6 +146,17 @@ function paceExceptHeld(timeline: Timeline, shotMs: number, durations: Record<st
   return retimeTexts(timeline, { ...paced, clips }, { keepInsideClip: false });
 }
 
+/**
+ * `paceExceptHeld`, lengthened when it would leave the reel short: a finish changes the feel, not the length, so the
+ * reel keeps 15 s or what it was, whichever is smaller (shots a little longer, as far as their sources allow).
+ */
+function paceKeepingLength(timeline: Timeline, shotMs: number, durations: Record<string, number | null | undefined>, speechAssetIds: readonly string[]): Timeline {
+  const floor = Math.min(REPACE_FLOOR_MS, timelineDurationMs(timeline));
+  let paced = paceExceptHeld(timeline, shotMs, durations, speechAssetIds);
+  for (let longer = shotMs + 500; timelineDurationMs(paced) < floor && longer <= 12_000; longer += 500) paced = paceExceptHeld(timeline, longer, durations, speechAssetIds);
+  return paced;
+}
+
 export type FinishOptions = {
   /** The song to switch to (chosen and fetched by the caller, see `pickFinishSong`); without it the reel keeps its song. */
   music?: MusicChoice | null;
@@ -176,7 +187,7 @@ export function applyFinish(timeline: Timeline, id: FinishId, options: FinishOpt
     const map = options.songMap && !current.music.downbeats?.length ? { downbeats: options.songMap.downbeats, sections: options.songMap.sections } : {};
     current = paceTimeline({ ...current, music: { ...current.music, ...map, energy: finish.energy } }, { energy: finish.energy, clipEnergy: options.clipEnergy, speechAssetIds: speech, sourceDurationsMs: durations });
   } else {
-    current = paceExceptHeld(current, finish.shotMs, durations, speech);
+    current = paceKeepingLength(current, finish.shotMs, durations, speech);
   }
   return restyleTexts(current, finish);
 }

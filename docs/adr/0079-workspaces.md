@@ -245,3 +245,7 @@ app, so any second grant must be deleted first).
   and a second grant for the same app, person and workspace, allow the same app on another workspace, and
   workspace/user deletes cascade to seats and grants.
 - `pnpm --filter @reelwalk/web build` passes; the worker entry import check prints `OK`.
+- Clean-checkout CI needs Prisma generation before the core suite's web-helper imports are typechecked.
+  Core's `typecheck` and `test` tasks explicitly depend on `@reelwalk/db#db:generate` without adding a
+  circular package dependency. Verified both edges with Turbo's dry-run graph, then moved generated
+  Prisma files aside and ran the forced core typecheck: generation ran first and typechecking passed.

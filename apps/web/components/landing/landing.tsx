@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { PLANS } from "@reelwalk/core";
 import { BrandMark, InstagramIcon } from "@/components/icons";
+import { withAttribution, type Attribution } from "@/lib/attribution";
 import type { SampleReel } from "@/lib/sample-reels";
 import { EditorMock, ExportMock, MediaSheetMock, ReelStill, ShareMock } from "./mocks";
 import { PricingSection } from "./pricing";
@@ -17,11 +18,13 @@ export const INSTAGRAM_URL = "https://www.instagram.com/reelwalking";
  * app's own visual system (globals.css): the same navy, type and controls,
  * so the drawn screens (mocks.tsx) sit in it rather than on it.
  */
-export function Landing({ samples }: { samples: SampleReel[] }) {
+export function Landing({ samples, attribution = null }: { samples: SampleReel[]; attribution?: Attribution | null }) {
   const paid = PLANS.AGENT;
+  // utm_* and click ids from the ad link travel on to sign-up in the URL (ADR 0080).
+  const signup = withAttribution("/signup", attribution);
   return (
     <div className={styles.page}>
-      <SiteHeader />
+      <SiteHeader attribution={attribution} />
 
       <main className={styles.main}>
         <section className={styles.hero} aria-labelledby="hero-title">
@@ -36,7 +39,7 @@ export function Landing({ samples }: { samples: SampleReel[] }) {
                 it is ready to post before the next door.
               </p>
               <div className={styles.ctas}>
-                <Link href="/signup" className="btn" data-testid="hero-cta">
+                <Link href={signup} className="btn" data-testid="hero-cta">
                   Start free, no card
                 </Link>
                 <a href="#sample" className="btn btn-quiet" data-testid="see-sample">
@@ -172,7 +175,7 @@ export function Landing({ samples }: { samples: SampleReel[] }) {
           </ul>
         </section>
 
-        <PricingSection viewer={{ signedIn: false }} />
+        <PricingSection viewer={{ signedIn: false, signupHref: signup }} />
 
         <section className={styles.faq} aria-labelledby="faq-title">
           <h2 id="faq-title">Questions</h2>
@@ -215,7 +218,7 @@ export function Landing({ samples }: { samples: SampleReel[] }) {
           <p className={styles.lede}>
             Make a reel from a shoot you have already done. If it earns its keep, the Agent plan is ${paid.priceUsd} a month.
           </p>
-          <Link href="/signup" className="btn">
+          <Link href={signup} className="btn">
             Start free, no card
           </Link>
         </section>
@@ -227,7 +230,7 @@ export function Landing({ samples }: { samples: SampleReel[] }) {
 }
 
 /** The marketing pages' top bar: brand, plans, sign in, start. Shared by / and /pricing. */
-export function SiteHeader({ plansHref = "#pricing" }: { plansHref?: string }) {
+export function SiteHeader({ plansHref = "#pricing", attribution = null }: { plansHref?: string; attribution?: Attribution | null }) {
   return (
     <header className={styles.top}>
       <div className={styles.topInner}>
@@ -238,7 +241,7 @@ export function SiteHeader({ plansHref = "#pricing" }: { plansHref?: string }) {
         <nav className={styles.topNav} aria-label="Site">
           <a href={plansHref}>Plans</a>
           <Link href="/login">Sign in</Link>
-          <Link href="/signup" className="btn" data-testid="top-cta">
+          <Link href={withAttribution("/signup", attribution)} className="btn" data-testid="top-cta">
             Start free
           </Link>
         </nav>

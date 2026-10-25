@@ -55,7 +55,7 @@ describe("exportProgressText", () => {
       detail: "2 min so far",
     });
     expect(exportProgressText({ status: "RUNNING", progress: 50, createdAt: start, startedAt: start }, at(600))).toEqual({
-      phase: "Rendering 1080×1920",
+      phase: "Rendering your reel",
       detail: "About 10 min left",
     });
     expect(exportProgressText({ status: "RUNNING", progress: 95, createdAt: start, startedAt: start }, at(600)).detail).toBe("Under a minute left");

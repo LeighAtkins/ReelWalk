@@ -61,7 +61,7 @@ export function exportProgressText(
   if (job.status !== "RUNNING") return { phase: "", detail: null };
   const elapsed = now.getTime() - (job.startedAt ?? job.createdAt).getTime();
   // The worker reports the first fifth while it prepares the clips.
-  const phase = job.progress < 20 ? "Preparing your clips" : "Rendering 1080×1920";
+  const phase = job.progress < 20 ? "Preparing your clips" : "Rendering your reel";
   if (job.progress < 25 || elapsed < 30_000) return { phase, detail: elapsed >= 60_000 ? `${minutes(elapsed)} min so far` : null };
   const left = (elapsed * (100 - job.progress)) / job.progress;
   return { phase, detail: left < 60_000 ? "Under a minute left" : `About ${minutes(left)} min left` };

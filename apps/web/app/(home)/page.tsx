@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@reelwalk/db";
+import { pickAttribution } from "@/lib/attribution";
 import { BrandMark } from "@/components/icons";
 import { Landing } from "@/components/landing/landing";
 import { LinkPending } from "@/components/link-pending";
@@ -18,8 +19,8 @@ export const dynamic = "force-dynamic";
  * The front door. Signed out it is the marketing page; signed in, the studio's
  * reels. The proxy lets / through without a session cookie for this reason.
  */
-export default async function HomePage({ searchParams }: { searchParams: Promise<{ welcome?: string }> }) {
-  if (!(await getSessionUser())) return <Landing samples={sampleReels()} />;
+export default async function HomePage({ searchParams }: { searchParams: Promise<{ welcome?: string } & Record<string, string | string[] | undefined>> }) {
+  if (!(await getSessionUser())) return <Landing samples={sampleReels()} attribution={pickAttribution(await searchParams)} />;
   return <ReelsHome searchParams={searchParams} />;
 }
 

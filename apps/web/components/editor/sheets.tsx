@@ -1721,7 +1721,7 @@ export function ExportSheet({
   return (
     <Sheet title={!ready ? "Not ready to export" : toFix ? `${findingCount} ${findingCount === 1 ? "thing" : "things"} to fix` : "Export for Instagram"} onClose={onClose}>
       <p className="muted">
-        {formatDuration(durationMs, true)} reel, rendered as a 1080×1920 MP4 at 30 fps. Usually ready in about {renderMinutes(durationMs)}; you can
+        {formatDuration(durationMs, true)} reel, rendered as an MP4 at 30 fps (the size depends on your plan). Usually ready in about {renderMinutes(durationMs)}; you can
         keep editing while it renders.
       </p>
       {instagramSound ? (

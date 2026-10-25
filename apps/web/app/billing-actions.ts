@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { isBillingInterval, isPlanId } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
 import { appUrl } from "@/lib/app-url";
+import { recordFunnelEvent } from "@/lib/funnel";
 import { isBillingConfigured, priceForPlan, stripe } from "@/lib/stripe";
 import { getCurrentUser } from "@/lib/workspace";
 import { aiTopUpPrice } from "@/lib/billing-ai";
@@ -52,6 +53,7 @@ export async function startCheckout(formData: FormData): Promise<void> {
     cancel_url: `${base}/account`,
   });
   if (!session.url) redirect("/account?billing=unavailable");
+  await recordFunnelEvent({ name: "checkout_started", userId: user.id, workspaceId: user.workspaceId, data: { plan, interval } });
   redirect(session.url);
 }
 

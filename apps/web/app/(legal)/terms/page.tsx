@@ -6,12 +6,20 @@ export default function TermsPage() {
   return (
     <article className="prose">
       <h1>Terms of service</h1>
-      <p className="muted small">Last updated 7 October 2026</p>
+      <p className="muted small">Last updated 25 October 2026</p>
 
       <h2>The service</h2>
       <p>
         ReelWalk lets you edit and render short vertical videos from media you provide, and optionally publish them to an Instagram
         account you control. It is offered as is, while in active development, and may change or pause without notice.
+      </p>
+
+      <h2>Plans and payment</h2>
+      <p>
+        ReelWalk has a free plan and paid plans (Agent and Studio). A paid plan is a subscription, billed monthly or yearly through
+        Stripe, in US dollars; sales tax or VAT is added at checkout where it applies, and Stripe shows the total before you pay. You can
+        cancel at any time from your Account page: the plan then runs to the end of the period you paid for, and your reels stay yours.
+        If a charge looks wrong, write to <a href="mailto:hello@reelwalking.com">hello@reelwalking.com</a> and we will look into it.
       </p>
 
       <h2>Your content</h2>
@@ -38,7 +46,7 @@ export default function TermsPage() {
 
       <h2>Contact</h2>
       <p>
-        <a href="mailto:leigh.atkins1@gmail.com">leigh.atkins1@gmail.com</a>
+        <a href="mailto:hello@reelwalking.com">hello@reelwalking.com</a>
       </p>
     </article>
   );

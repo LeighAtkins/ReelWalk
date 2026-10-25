@@ -10,10 +10,17 @@ import "@fontsource-variable/cormorant-garamond/wght.css";
 import "./globals.css";
 import type { Metadata, Viewport } from "next";
 import { WheelScroll } from "@/components/wheel-scroll";
+import { SITE_URL } from "@/lib/site";
+
+const DESCRIPTION = "Turn the photos and clips on your phone into a vertical listing reel in minutes, with the music cut to the beat. Free to start, no card.";
 
 export const metadata: Metadata = {
+  metadataBase: new URL(SITE_URL),
   title: "ReelWalk",
-  description: "Edit Instagram Reels for your listings, on your phone.",
+  description: DESCRIPTION,
+  // What a shared link or an ad preview shows (no image yet: the owner picks one).
+  openGraph: { type: "website", siteName: "ReelWalk", title: "ReelWalk: listing reels, made between shoots", description: DESCRIPTION, url: "/" },
+  twitter: { card: "summary", title: "ReelWalk: listing reels, made between shoots", description: DESCRIPTION },
   appleWebApp: { capable: true, title: "ReelWalk", statusBarStyle: "black-translucent" },
 };
 

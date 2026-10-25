@@ -14,7 +14,7 @@ import styles from "./landing.module.css";
  * studio is on says so.
  */
 export type PricingViewer =
-  | { signedIn: false }
+  | { signedIn: false; /** Sign-up link carrying the visitor's utm and click ids (ADR 0080). */ signupHref?: string }
   | { signedIn: true; currentPlan: PlanId; billingOn: boolean; yearlyOn: boolean };
 
 export function PricingSection({ viewer, id = "pricing" }: { viewer: PricingViewer; id?: string }) {
@@ -90,7 +90,7 @@ function PlanAction({ plan, viewer, yearlyOn }: { plan: PlanDef; viewer: Pricing
   const paid = plan.priceUsd > 0;
   if (!viewer.signedIn) {
     return (
-      <Link href="/signup" className={`btn btn-block ${plan.id === "AGENT" ? "" : "btn-quiet"}`} data-testid={`cta-${plan.id.toLowerCase()}`}>
+      <Link href={viewer.signupHref ?? "/signup"} className={`btn btn-block ${plan.id === "AGENT" ? "" : "btn-quiet"}`} data-testid={`cta-${plan.id.toLowerCase()}`}>
         {paid ? `Start free, then ${plan.name}` : "Start free, no card"}
       </Link>
     );

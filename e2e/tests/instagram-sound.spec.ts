@@ -71,7 +71,11 @@ test("a studio can edit to an Instagram sound, snap to its beat, and export with
   // Native video Play now previews the chosen mix, not a different silent/export-only track.
   const playWithSound = page.getByTestId("play-with-sound");
   await expect(playWithSound).toHaveAttribute("data-state", "idle");
-  await page.getByTestId("export-video").evaluate((element: HTMLVideoElement) => element.play());
+  await page.getByTestId("export-video").evaluate((element: HTMLVideoElement) => {
+    // The transport deliberately pauses while loading music, which can abort this first play promise.
+    // The assertions below require actual playback of both tracks after loading.
+    void element.play().catch(() => undefined);
+  });
   await expect(page.getByTestId("play-with-sound-audio")).toHaveAttribute("src", /instagram-audio\/fake-music-1\.wav/, { timeout: 30_000 });
   await expect(playWithSound).toHaveAttribute("data-state", /playing|paused/);
   await expect.poll(() => page.getByTestId("play-with-sound-audio").evaluate((element: HTMLAudioElement) => element.paused)).toBe(false);

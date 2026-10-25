@@ -15,7 +15,7 @@ import {
 // WebCodecs-based video, used when the worker renders: about twice as fast as
 // OffthreadVideo here, and it falls back to it for files it cannot decode.
 import { Video as RenderVideo } from "@remotion/media";
-import { behindInPlane, calloutGeometry, calloutSvg, cameraAt, colorMatchFilterId, colorMatrixValues, countUpText, duckGain, evaluateTitle, flareCss, framePlan, hasSpeedRamps, hasSpeech, mediaWindow, glintLetter, glintSvg, INSTAGRAM, isInstagramMusic, kineticProgress, matrix3d, particleField, particleSvg, personLayerOpacity, REEL_FORMAT, sceneLayers, SFX_DUCK, SFX_SOUNDS, sfxAssetKey, sfxEndMs, sfxGainAt, shineAt, shineBandCss, shineSpec, slideFromBehind, planSpeedRamps, speechWindows, speedPlanOf, speedRampMediaWindow, TITLE_LEADING, timelineDurationMs, walkInto, withSpeedPlans, wordReveal, type Clip, type Logo, type ParticleField, type PersonPass, type Plan, type SfxClip, type ShineFlare, type ShineGlint, type TextOverlay, type Timeline } from "@reelwalk/core";
+import { behindInPlane, BRAND_FONTS, calloutGeometry, calloutSvg, cameraAt, colorMatchFilterId, colorMatrixValues, countUpText, duckGain, evaluateTitle, flareCss, framePlan, hasSpeedRamps, hasSpeech, mediaWindow, glintLetter, glintSvg, INSTAGRAM, isInstagramMusic, kineticProgress, matrix3d, particleField, particleSvg, personLayerOpacity, REEL_FORMAT, sceneLayers, SFX_DUCK, SFX_SOUNDS, sfxAssetKey, sfxEndMs, sfxGainAt, shineAt, shineBandCss, shineSpec, slideFromBehind, planSpeedRamps, speechWindows, speedPlanOf, speedRampMediaWindow, TITLE_LEADING, timelineDurationMs, walkInto, withSpeedPlans, wordReveal, type Clip, type Logo, type ParticleField, type PersonPass, type Plan, type SfxClip, type ShineFlare, type ShineGlint, type TextOverlay, type Timeline } from "@reelwalk/core";
 import { domMeasure } from "./measure";
 import { textExit, titleFont } from "./title-motion";
 import { whipGeometry } from "./whip";
@@ -420,7 +420,7 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
   // A count-up draws tabular figures (ADR 0061): measured the same way, so its fit leaves room for the widest number.
   const font = titleFont(text, css);
   // Hooks first: a pinned title on another clip returns nothing, but only after every hook has run (React 300 otherwise).
-  useFontsFor(text.text, Number(css.fontWeight ?? 600));
+  useFontsFor(text.text, Number(css.fontWeight ?? 600), text.brand ? [BRAND_FONTS[text.brand.font].family] : undefined);
   // Word-by-word and from-behind type bring the words in themselves but keep the way out (an elegant fade) (ADR 0061);
   // a callout has its own reveal and exit; a count replaces the typewriter.
   const arrives = text.callout || (text.kinetic?.preset === "count" && text.animation === "type") ? { ...text, animation: "none" as const } : text;
@@ -430,6 +430,8 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
   // Where the title is on this frame comes from one place (ADR 0046): the scene evaluator in core.
   const placement = evaluateTitle({ text, timeline, frame, from, durationInFrames, fps, width, height, font, measure: domMeasure });
   if (placement.kind === "hidden") return null;
+  // A kit style's forward lean (ADR 0078) is a skewX on the face; the placements below set a transform of their own, so they append it.
+  const lean = typeof css.transform === "string" ? ` ${css.transform}` : "";
   const face = { ...css, ...(text.depth === "extruded" ? { textShadow: extrudedShadow(text.color, font.fontSize), WebkitTextStroke: `${Math.max(0.5, font.fontSize * 0.01)}px rgba(0,0,0,0.35)` } : {}) };
   const visible = opacity * placement.opacity;
   // The typewriter keeps the full text in place, invisible, so the box never changes size while it writes.
@@ -476,7 +478,7 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
         {/* Painted on a chosen surface, the text exists only on that surface: anything in front of the surface's edge (a wall, a railing) hides it. */}
         <div style={{ position: "absolute", left: rect.left, top: rect.top, width: w, height: h, display: "flex", alignItems: "center", justifyContent: "center", transformOrigin: "0 0", transform: placed ? matrix3d(placed) : undefined, opacity: visible, whiteSpace: "nowrap", textAlign: "center", overflow: clipToPlane ? "hidden" : "visible", ...mask, ...meet, ...(slide ? { clipPath: slide.clipPath } : {}) }}>
           {/* The plane's box is only its frame: the words sit on one line (or the lines the author typed), scaled to fill or fit it, warped with it. */}
-          <span style={{ ...(moving ? motionFace : face), position: "relative", whiteSpace: text.text.includes("\n") ? "pre" : "nowrap", overflowWrap: "normal", wordBreak: "keep-all", transform: `${slide ? `translateX(${slide.dx.toFixed(2)}px) ` : ""}scale(${scale * fitScale})` }}>
+          <span style={{ ...(moving ? motionFace : face), position: "relative", whiteSpace: text.text.includes("\n") ? "pre" : "nowrap", overflowWrap: "normal", wordBreak: "keep-all", transform: `${slide ? `translateX(${slide.dx.toFixed(2)}px) ` : ""}scale(${scale * fitScale})${lean}` }}>
             {moving ? letters(h / Math.max(1, w)) : chars === null ? text.text : (<>
               {/* The typewriter on a plane: the full text holds the size, the written part sits over it. */}
               <span style={{ visibility: "hidden" }}>{text.text}</span>
@@ -550,7 +552,7 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
         }}
       >
         {moving ? (
-          <span style={{ ...motionFace, ...(slide ? { transform: `translateX(${slide.dx.toFixed(2)}px)` } : {}) }}>{letters(0.25)}</span>
+          <span style={{ ...motionFace, ...(slide ? { transform: `translateX(${slide.dx.toFixed(2)}px)${lean}` } : {}) }}>{letters(0.25)}</span>
         ) : chars === null ? (
           <span style={face}>{text.text}</span>
         ) : (

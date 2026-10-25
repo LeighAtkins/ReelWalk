@@ -61,7 +61,7 @@ import { calloutAnchorAt } from "./callout";
 
 /** A title's resolved font, as the renderer styles it. `fontSize` in composition px. */
 /** `fontVariantNumeric` is set when the figures are drawn tabular (a count-up, ADR 0061), so the measure matches what is drawn. */
-export type TitleFont = { fontFamily?: string; fontWeight?: string | number; fontSize: number; letterSpacing?: number; fontStretch?: string; fontVariantNumeric?: string };
+export type TitleFont = { fontFamily?: string; fontWeight?: string | number; fontSize: number; letterSpacing?: number; fontStretch?: string; fontVariantNumeric?: string; /** "uppercase" when the style sets the words in capitals (ADR 0078), so the measure sees the width that is drawn. */ textTransform?: string };
 
 /** Measures one line of text, unwrapped, in composition px. */
 export type Measure = (line: string, font: TitleFont) => { width: number; height: number };

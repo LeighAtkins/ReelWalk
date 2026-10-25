@@ -77,6 +77,10 @@ model Workspace {
   aiPaidPlan           Plan @default(FREE)
   aiPaidPeriodStart    DateTime?
   aiLastInvoiceCreated Int @default(0)
+
+  // The workspace's brand kit (ADR 0078): bundled fonts, palette and named text styles, validated by
+  // brandKitSchema in @reelwalk/core. Null for every workspace until an admin assigns one.
+  brandKit             Json?
 }
 
 model AiCreditGrant {

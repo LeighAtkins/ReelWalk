@@ -247,7 +247,7 @@ export function buildVenueReel(input: {
   const total = timelineDurationMs(timeline);
   const hookEnd = Math.min(HOOK_MS, Math.floor(total / 3));
   const texts: TextOverlay[] = [
-    textSchema.parse({ id: "hook", text: fill(vibe.hook, details), startMs: 200, endMs: hookEnd, x: 0.5, y: 0.42, style: vibe.hookStyle, color: vibe.hookColor, size: 1.15 }),
+    textSchema.parse({ id: "hook", text: fill(vibe.hook, details), startMs: 200, endMs: hookEnd, x: 0.5, y: 0.42, style: vibe.hookStyle, color: vibe.hookColor, size: 1.15, byApp: true }),
   ];
   // Labels stop before the closing card, unless the reel is so short that the card would swallow them all.
   const cardStart = total >= 10_000 ? Math.max(hookEnd, total - DETAILS_CARD_MS) : total;

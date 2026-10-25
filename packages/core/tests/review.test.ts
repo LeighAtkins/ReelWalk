@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { currentLook, currentPace, formatArea, formatPrice, retime, retimeToLength, setClipRoom, setLook } from "../src/review";
-import { clipDurationMs, parseTimeline, timelineDurationMs } from "../src/timeline";
+import { clipDurationMs, parseTimeline, placedByApp, ROOM_LABEL_AT, timelineDurationMs } from "../src/timeline";
 
 function reel() {
   return parseTimeline({
@@ -51,15 +51,26 @@ describe("look and rooms", () => {
     expect(next.clips[1].room).toBe("dining room");
     expect(next.texts.find((text) => text.id === "room-c2")?.text).toBe("Dining room");
   });
+
+  it("room labels are drawn by the app, above Instagram's caption zone", () => {
+    const labelled = parseTimeline({ ...reel(), texts: [{ id: "room-c2", text: "Kitchen", startMs: 2200, endMs: 4000 }] });
+    const label = setClipRoom(labelled, "c2", "dining room").texts.find((text) => text.id === "room-c2");
+    expect(label).toMatchObject({ x: ROOM_LABEL_AT.x, y: ROOM_LABEL_AT.y, byApp: true });
+    expect(label && placedByApp(label)).toBe(true);
+    expect(ROOM_LABEL_AT.y).toBeLessThan(0.74);
+  });
 });
 
 describe("formatting the facts", () => {
-  it("adds $ and sq ft to bare numbers, and leaves typed ones alone", () => {
+  it("adds $ and m² to bare numbers, and leaves typed ones alone", () => {
     expect(formatPrice("1240000")).toBe("$1,240,000");
     expect(formatPrice("1,240,000")).toBe("$1,240,000");
     expect(formatPrice("$1.2M")).toBe("$1.2M");
     expect(formatPrice("Offers over 1M")).toBe("Offers over 1M");
-    expect(formatArea("2400")).toBe("2,400 sq ft");
+    expect(formatArea("240")).toBe("240 m²");
+    expect(formatArea("1,240")).toBe("1,240 m²");
+    expect(formatArea("2,400 sq ft")).toBe("2,400 sq ft");
+    expect(formatArea("92 m²")).toBe("92 m²");
     expect(formatArea("2,400 sqft")).toBe("2,400 sqft");
     expect(formatArea("")).toBe("");
   });

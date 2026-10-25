@@ -235,7 +235,7 @@ export default async function AccountPage({
           </form> : null}
         </section>
 
-        <section className="card">
+        <section className="card" id="instagram">
           <h2>Instagram</h2>
           {instagram ? (
             <>

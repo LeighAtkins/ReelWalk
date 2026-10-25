@@ -249,3 +249,6 @@ app, so any second grant must be deleted first).
   Core's `typecheck` and `test` tasks explicitly depend on `@reelwalk/db#db:generate` without adding a
   circular package dependency. Verified both edges with Turbo's dry-run graph, then moved generated
   Prisma files aside and ran the forced core typecheck: generation ran first and typechecking passed.
+- Core's test pool is capped at two workers: its CPU-heavy tracking fixtures otherwise compete with
+  the other concurrently running workspace suites and exceeded the unchanged five-second timeout in CI.
+  The tracking assertions and timeout remain unchanged.

@@ -2,6 +2,7 @@ import React from "react";
 import { AbsoluteFill, Sequence, interpolate, useCurrentFrame, useVideoConfig } from "remotion";
 import type { Timeline } from "@reelwalk/core";
 import { useFontsFor } from "./fonts";
+import { fittedSize } from "./measure";
 import { ELEGANT_FONT_FAMILY } from "./look";
 
 /** The plate's ink and paper: near-black lacquer, the ivory of the facts card. */
@@ -12,7 +13,9 @@ const ENTER_FRAMES = 10;
 const Plate: React.FC<{ text: string }> = ({ text }) => {
   const frame = useCurrentFrame();
   const { width } = useVideoConfig();
-  useFontsFor(text, 600);
+  const ready = useFontsFor(text, 600);
+  // Its longest word fits the line (ADR 0083): the line wraps between words, never inside one.
+  const fontSize = fittedSize({ text, unit: "word", fontFamily: ELEGANT_FONT_FAMILY, fontWeight: 600, letterSpacing: "0.08em", maxSize: 60, withinWidth: width * 0.8, ready });
   const shown = interpolate(frame, [0, ENTER_FRAMES], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
   const rise = interpolate(frame, [0, ENTER_FRAMES + 6], [12, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
   return (
@@ -23,7 +26,7 @@ const Plate: React.FC<{ text: string }> = ({ text }) => {
           textAlign: "center",
           fontFamily: ELEGANT_FONT_FAMILY,
           fontWeight: 600,
-          fontSize: 60,
+          fontSize,
           lineHeight: 1.25,
           letterSpacing: "0.08em",
           color: COLORS.paper,

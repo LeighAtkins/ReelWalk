@@ -983,7 +983,7 @@ export type TextDraft = Pick<TextOverlay, "text" | "style" | "color" | "size" | 
 const PARTICLE_DENSITIES = [0.5, 1, 1.8] as const;
 
 /** The "Elegant" style chip, set in the serif it puts on the reel. */
-const ELEGANT_CHIP: CSSProperties = { fontFamily: ELEGANT_FONT_FAMILY, fontWeight: 500, fontSize: "1.12em", letterSpacing: "0.06em" };
+const ELEGANT_CHIP: CSSProperties = { fontFamily: ELEGANT_FONT_FAMILY, fontWeight: 500, fontSize: "1.12em", letterSpacing: "0.01em" };
 
 /** The text with kit style `name` applied: the same fields the `applyTextStyle` command writes. Unknown name: unchanged. */
 export function withBrandStyle(draft: TextDraft, kit: BrandKit, name: string): TextDraft {
@@ -1191,7 +1191,7 @@ export function HookSheet({ hook, hasPerson, studio, onChange, onWords, onClose 
             <div className="swatches" role="group" aria-label="Colour">{TEXT_COLORS.filter((c) => c !== "#ffffff").map((color) => <button key={color} type="button" className="swatch" aria-label={color} aria-pressed={draft.color === color} style={{ background: color }} onClick={() => update({ color })} />)}</div>
             {!hasPerson ? <p className="small">Needs a person in the first shot, ideally a medium shot; the colour sits behind them.</p> : null}
           </> : null}
-          <Segmented label="Type" options={HOOK_FONTS} value={draft.font} onChange={(font) => update({ font })} format={(f) => ({ sans: "Archivo", serif: "Cormorant" })[f]} />
+          <Segmented label="Type" options={HOOK_FONTS} value={draft.font} onChange={(font) => update({ font })} format={(f) => ({ sans: "Archivo", serif: "Playfair" })[f]} />
           <Range label="Holds for" value={draft.durationMs} min={800} max={4000} step={100} display={formatDuration(draft.durationMs, true)} onChange={(durationMs) => update({ durationMs })} />
           <button type="button" className="btn btn-signal btn-block" data-testid="hook-apply" onClick={() => { onChange({ ...draft, kind }); onClose(); }}>{hook ? "Update the hook" : "Add the hook"}</button>
           {hook ? <button type="button" className="btn btn-quiet btn-block" onClick={() => { onChange(null); onClose(); }}>Remove the hook</button> : null}

@@ -1,5 +1,5 @@
 /**
- * The Remotion-primitives comparison reel (ADR 0081): one shot into each transition kind the schema has, an elegant
+ * The Remotion-primitives comparison reel (ADR 0083): one shot into each transition kind the schema has, an elegant
  * serif title, a single long word that used to run off the frame, a long sentence that wraps, and the price card
  * with a 24-character price (the schema's most). Pure, so the render package's tests can check it without a renderer.
  */
@@ -29,7 +29,7 @@ export function primitivesTimeline(): Timeline {
     clips,
     texts: [
       // The opening hook (owner, 2026-10-26): twelve words in sentence case with the price and the suburb, white, unboxed, a
-      // soft shadow, in the top 30 % of the frame; the elegant style, which is Playfair Display from ADR 0081.
+      // soft shadow, in the top 30 % of the frame; the elegant style, which is Playfair Display from ADR 0083.
       { id: "hook", text: HOOK, startMs: 0, endMs: 3600, x: 0.5, y: 0.17, style: "elegant", size: 1.25, color: "#ffffff", shadow: "soft", animation: "auto" },
       // One word, so it never wraps: 1.4 × the frame's width was its limit, so it ran off both edges.
       { id: "long", text: "Extraordinarily-Magnificent", startMs: 4000, endMs: 7600, x: 0.5, y: 0.42, style: "headline", size: 1.5, animation: "none" },

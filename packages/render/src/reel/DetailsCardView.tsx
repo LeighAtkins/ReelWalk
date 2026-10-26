@@ -2,9 +2,14 @@ import React from "react";
 import { interpolate, spring, useCurrentFrame, useVideoConfig } from "remotion";
 import { DETAILS_CARD_MS, detailFacts, hasDetails, INSTAGRAM, showsDetailsCard, type ListingDetails, type Timeline } from "@reelwalk/core";
 import { useFontsFor } from "./fonts";
+import { fittedSize } from "./measure";
 import { REEL_FONT_FAMILY } from "./look";
 
 const COLORS = { card: "rgba(21, 20, 18, 0.9)", paper: "#f3ede2", muted: "#a89f93", signal: "#c1272d" };
+
+/** The card's side padding and its lacquer edge (px): the price is fitted inside the box they leave (the card is border-box). */
+const CARD_PAD_X = 48;
+const CARD_EDGE = 10;
 
 /** Frames the card takes to arrive and to leave. */
 const ENTER_FRAMES = 12;
@@ -13,11 +18,13 @@ const EXIT_FRAMES = 8;
 const Card: React.FC<{ details: ListingDetails; local: number; length: number; leaves: boolean }> = ({ details, local, length, leaves }) => {
   const { fps, width, height } = useVideoConfig();
   const facts = detailFacts(details);
-  useFontsFor([details.price, details.address, details.contact, ...facts].join(" "), 800);
+  const ready = useFontsFor([details.price, details.address, details.contact, ...facts].join(" "), 800);
+  const safe = INSTAGRAM.safeZonePx;
+  // The price is one line, fitted to the card by measurement (ADR 0083): a 24-character price used to wrap to three.
+  const priceSize = fittedSize({ text: details.price, unit: "line", fontFamily: REEL_FONT_FAMILY, fontWeight: 850, letterSpacing: "-0.01em", fontStretch: "110%", maxSize: 96, withinWidth: (width - safe.left - safe.right - 2 * CARD_PAD_X - CARD_EDGE) * 0.98, ready });
 
   const enter = spring({ frame: local, fps, config: { damping: 16, stiffness: 140 }, durationInFrames: ENTER_FRAMES });
   const exit = leaves ? interpolate(local, [length - EXIT_FRAMES, length], [1, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" }) : 1;
-  const safe = INSTAGRAM.safeZonePx;
 
   return (
     <div
@@ -27,10 +34,10 @@ const Card: React.FC<{ details: ListingDetails; local: number; length: number; l
         width: width - safe.left - safe.right,
         // Sits just above the area Instagram covers with its caption.
         bottom: safe.bottom + 30,
-        padding: "44px 48px",
+        padding: `44px ${CARD_PAD_X}px`,
         borderRadius: 30,
         backgroundColor: COLORS.card,
-        borderLeft: `10px solid ${COLORS.signal}`,
+        borderLeft: `${CARD_EDGE}px solid ${COLORS.signal}`,
         color: COLORS.paper,
         fontFamily: REEL_FONT_FAMILY,
         opacity: Math.min(enter, exit),
@@ -40,7 +47,7 @@ const Card: React.FC<{ details: ListingDetails; local: number; length: number; l
       }}
     >
       {details.price ? (
-        <div style={{ fontSize: 96, lineHeight: 1, fontWeight: 850, fontStretch: "110%", letterSpacing: "-0.01em" }}>{details.price}</div>
+        <div style={{ fontSize: priceSize, lineHeight: 1, fontWeight: 850, fontStretch: "110%", letterSpacing: "-0.01em", whiteSpace: "nowrap" }}>{details.price}</div>
       ) : null}
       {facts.length > 0 ? (
         <div style={{ display: "flex", flexWrap: "wrap", gap: "8px 28px", fontSize: 52, fontWeight: 700, fontStretch: "80%" }}>

@@ -1,6 +1,8 @@
 import React from "react";
 import { AbsoluteFill, interpolate, useCurrentFrame, useVideoConfig } from "remotion";
 import { clipDurationMs, HOOK_FONT_FAMILIES, type Clip, type Hook, type Timeline } from "@reelwalk/core";
+import { useFontsFor } from "./fonts";
+import { fittedSize } from "./measure";
 import { PersonMatteView } from "./PersonMatte";
 import type { ReelAsset } from "./types";
 
@@ -20,6 +22,8 @@ const ease = (t: number) => 1 - Math.pow(1 - Math.max(0, Math.min(1, t)), 3);
 export const HookView: React.FC<{ timeline: Timeline; hook: Hook; firstClip: Clip | undefined; asset: ReelAsset | undefined }> = ({ hook, firstClip, asset }) => {
   const frame = useCurrentFrame();
   const { fps, width, height } = useVideoConfig();
+  // The hook's face is held for like a title's (it drew in a fallback before ADR 0083), and its words fitted by measurement.
+  const ready = useFontsFor([hook.title, hook.body, hook.action].filter(Boolean).join(" "), 800);
   const total = Math.round((hook.durationMs * fps) / 1000);
   if (frame >= total) return null;
   const t = frame / total;
@@ -27,6 +31,7 @@ export const HookView: React.FC<{ timeline: Timeline; hook: Hook; firstClip: Cli
   const entering = ease(frame / inFrames);
   const leaving = ease((total - frame) / outFrames);
   const font = HOOK_FONT_FAMILIES[hook.font];
+  const fit = (maxSize: number, withinWidth: number, fontWeight: number, letterSpacing?: string) => fittedSize({ text: hook.title ?? "", unit: "word", fontFamily: font, fontWeight, letterSpacing, maxSize, withinWidth, ready });
 
   if (hook.kind === "alert") {
     const pop = interpolate(entering, [0, 1], [0.86, 1]);
@@ -39,7 +44,7 @@ export const HookView: React.FC<{ timeline: Timeline; hook: Hook; firstClip: Cli
           boxShadow: "0 30px 80px rgba(0,0,0,0.35)",
         }}>
           <div style={{ padding: `${width * 0.05}px ${width * 0.05}px ${width * 0.04}px` }}>
-            <div style={{ fontSize: width * 0.046, fontWeight: 700, letterSpacing: "-0.01em" }}>{hook.title || "New listing"}</div>
+            <div style={{ fontSize: fit(width * 0.046, width * 0.58, 700, "-0.01em"), fontWeight: 700, letterSpacing: "-0.01em" }}>{hook.title || "New listing"}</div>
             {hook.body ? <div style={{ fontSize: width * 0.034, marginTop: width * 0.012, lineHeight: 1.3, color: "#333" }}>{hook.body}</div> : null}
           </div>
           <div style={{ display: "flex", borderTop: "1px solid rgba(0,0,0,0.14)" }}>
@@ -61,7 +66,7 @@ export const HookView: React.FC<{ timeline: Timeline; hook: Hook; firstClip: Cli
           <div style={{ position: "absolute", inset: 0, background: `radial-gradient(ellipse at 50% 45%, rgba(255,255,255,0.18), rgba(0,0,0,0.25) 70%)` }} />
           {firstClip && asset && asset.kind === "VIDEO" ? <PersonMatteView clip={firstClip} asset={asset} durationInFrames={Math.max(1, Math.round((clipDurationMs(firstClip) * fps) / 1000))} /> : null}
           {hook.title ? (
-            <div style={{ position: "absolute", left: 0, right: 0, top: height * 0.12, textAlign: "center", fontFamily: font, fontWeight: 800, fontSize: width * 0.13, lineHeight: 0.95, color: "#fff", letterSpacing: "-0.02em", textShadow: "0 8px 40px rgba(0,0,0,0.35)", opacity: entering, transform: `translateY(${(1 - entering) * 30}px)`, padding: `0 ${width * 0.06}px`, whiteSpace: "pre-line" }}>{hook.title}</div>
+            <div style={{ position: "absolute", left: 0, right: 0, top: height * 0.12, textAlign: "center", fontFamily: font, fontWeight: 800, fontSize: fit(width * 0.13, width * 0.88, 800, "-0.02em"), lineHeight: 0.95, color: "#fff", letterSpacing: "-0.02em", textShadow: "0 8px 40px rgba(0,0,0,0.35)", opacity: entering, transform: `translateY(${(1 - entering) * 30}px)`, padding: `0 ${width * 0.06}px`, whiteSpace: "pre-line" }}>{hook.title}</div>
           ) : null}
         </div>
       </AbsoluteFill>
@@ -85,7 +90,7 @@ export const HookView: React.FC<{ timeline: Timeline; hook: Hook; firstClip: Cli
         {bezel > 0.5 ? <div style={{ position: "absolute", top: screenH * 0.012, left: "50%", transform: "translateX(-50%)", width: screenW * 0.3, height: screenH * 0.028, borderRadius: 999, background: "#0b0b0b" }} /> : null}
       </div>
       {hook.title ? (
-        <div style={{ position: "absolute", left: 0, right: 0, bottom: height * 0.1, textAlign: "center", fontFamily: font, fontWeight: 700, fontSize: width * 0.05, color: "#fff", opacity: Math.min(entering, 1 - grow), padding: `0 ${width * 0.08}px` }}>{hook.title}</div>
+        <div style={{ position: "absolute", left: 0, right: 0, bottom: height * 0.1, textAlign: "center", fontFamily: font, fontWeight: 700, fontSize: fit(width * 0.05, width * 0.84, 700), color: "#fff", opacity: Math.min(entering, 1 - grow), padding: `0 ${width * 0.08}px` }}>{hook.title}</div>
       ) : null}
     </AbsoluteFill>
   );

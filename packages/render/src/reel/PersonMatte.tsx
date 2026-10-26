@@ -127,12 +127,12 @@ export const MatteWarning: React.FC<{ text: string }> = ({ text }) => (
 );
 
 export const PersonMatteView: React.FC<{
-  clip: Clip; asset: ReelAsset; durationInFrames: number; fadeOut?: boolean; whipOut?: Clip["whipDirection"] | null;
+  clip: Clip; asset: ReelAsset; durationInFrames: number;
   /** False on frames where the layer is drawn at opacity 0 (a passing title before its crossing, ADR 0055): no seek, no segmentation. */
   active?: boolean;
   /** The reel's opening shot (ADR 0067): the same camera phase as the footage. */
   opening?: boolean;
-}> = ({ clip, asset, durationInFrames, fadeOut = false, whipOut = null, active = true, opening = false }) => {
+}> = ({ clip, asset, durationInFrames, active = true, opening = false }) => {
   const frame = useCurrentFrame();
   const { fps, width, height } = useVideoConfig();
   const { isRendering } = useRemotionEnvironment();
@@ -208,11 +208,12 @@ export const PersonMatteView: React.FC<{
 
   if (asset.kind !== "VIDEO") return null;
   if (warning) return isRendering ? null : <AbsoluteFill style={{ pointerEvents: "none" }}><MatteWarning text={warning} /></AbsoluteFill>;
-  // The same fade, whip and motion as the footage underneath, so the person stays on their own body.
-  const shown = clipPresentation(clip, frame, fps, durationInFrames, fadeOut, whipOut, opening);
+  // The same motion and ramp blur as the footage underneath, so the person stays on their own body (a transition's
+  // slide or crossfade is the composition's AtCuts around this layer, ADR 0083).
+  const shown = clipPresentation(clip, frame, fps, durationInFrames, opening);
   return (
     <AbsoluteFill style={{ pointerEvents: "none", opacity: shown.opacity, overflow: "hidden" }}>
-      <AbsoluteFill style={shown.whip}>
+      <AbsoluteFill style={shown.blur}>
         <canvas ref={canvas} width={width} height={height} data-matte-version={MATTE_VERSION} style={{ width: "100%", height: "100%", transform: shown.transform, filter: clipFilterCss(clip) }} />
       </AbsoluteFill>
     </AbsoluteFill>

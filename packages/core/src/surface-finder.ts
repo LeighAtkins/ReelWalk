@@ -114,11 +114,11 @@ const angleGap = (a: number, b: number) => { const d = Math.abs(((a - b) % Math.
 
 /**
  * Width over height of a title set in the house serif (the "elegant" style,
- * Cormorant Garamond, 0.06 em of letter spacing): the widest line over the
+ * Playfair Display Medium, 0.01 em of letter spacing; ADR 0083): the widest line over the
  * stack of lines, from the renderer's measured advances. A planar title fills
  * the quad it is given, so the quad must have this shape to be the size meant.
  */
-export function titleAspect(text: string, { tracking = 0.06, fontFamily = "Cormorant Garamond Variable", fontWeight = 600 }: { tracking?: number; fontFamily?: string; fontWeight?: number } = {}): number {
+export function titleAspect(text: string, { tracking = 0.01, fontFamily = "Playfair Display Variable", fontWeight = 500 }: { tracking?: number; fontFamily?: string; fontWeight?: number } = {}): number {
   const lines = (text || " ").split("\n");
   const size = 100;
   const widest = Math.max(...lines.map((line) => estimateLineWidth(line || " ", { fontFamily, fontWeight, fontSize: size, letterSpacing: tracking })));

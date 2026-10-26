@@ -1,5 +1,5 @@
 /**
- * Before/after sheets for the Remotion-primitives change (ADR 0081).
+ * Before/after sheets for the Remotion-primitives change (ADR 0083).
  *
  *   FFMPEG=<ffmpeg with libx264 and tile> MEDIA=<dir with s1.mp4 … s6.mp4> pnpm --filter @reelwalk/render exec tsx scripts/primitives-compare.ts <outDir> [--export]
  *

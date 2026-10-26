@@ -16,9 +16,14 @@ export const HOOK_DESCRIPTIONS: Record<HookKind | "words-behind", string> = {
   device: "The reel starts inside a phone on a dark field and the phone grows until its screen is the whole frame.",
   "words-behind": "Three big words appear one by one behind the person in the first shot, who walks in front of them.",
 };
+/**
+ * The hook's faces: the families the composition bundles (fontsource's "… Variable" names). Before ADR 0083 these named
+ * 'Archivo' and 'Cormorant Garamond', which nothing declares, so hooks drew in Arial and Georgia; the serif hook is
+ * now Playfair Display, the owner's choice for the opening.
+ */
 export const HOOK_FONT_FAMILIES: Record<Hook["font"], string> = {
-  sans: "'Archivo', 'Helvetica Neue', Arial, 'Noto Color Emoji', sans-serif",
-  serif: "'Cormorant Garamond', 'Cormorant', Georgia, 'Noto Color Emoji', serif",
+  sans: "'Archivo Variable', 'Helvetica Neue', Arial, 'Noto Color Emoji', sans-serif",
+  serif: "'Playfair Display Variable', Georgia, 'Noto Color Emoji', serif",
 };
 
 export function setHook(timeline: Timeline, hook: Hook | null): Timeline {

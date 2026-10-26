@@ -48,7 +48,7 @@ describe("speed-ramp fixture", () => {
     const cut = frames.clips[0].from + frames.clips[0].durationInFrames;
     const shown = (frame: number) => {
       const entry = frames.clips.find((candidate) => frame >= candidate.from && frame < candidate.from + candidate.durationInFrames)!;
-      return clipPresentation(entry.clip, frame - entry.from, FPS, entry.durationInFrames, false, null);
+      return clipPresentation(entry.clip, frame - entry.from, FPS, entry.durationInFrames);
     };
     const before = shown(cut - 1), after = shown(cut), far = shown(cut - 12);
     expect(before.speedBlur).not.toBeNull();
@@ -56,9 +56,9 @@ describe("speed-ramp fixture", () => {
     expect(before.speedBlur!.y).toBe(0);
     expect(before.transform).toMatch(/^scale\(1\.1\)/);
     expect(after.speedBlur!.x).toBeCloseTo(before.speedBlur!.x, 9);
-    expect(before.whip).toEqual({ filter: `url(#${before.speedBlur!.id})` });
+    expect(before.blur).toEqual({ filter: `url(#${before.speedBlur!.id})` });
     expect(far.speedBlur).toBeNull();
-    expect(far.whip).toBeUndefined();
+    expect(far.blur).toBeUndefined();
     // Ramping eases off: three frames away the blur is a fraction of the peak's.
     expect(shown(cut + 4).speedBlur?.x ?? 0).toBeLessThan(before.speedBlur!.x * 0.4);
   });
@@ -68,8 +68,8 @@ describe("speed-ramp fixture", () => {
     expect(hasSpeedRamps(plain)).toBe(false);
     expect(withSpeedPlans(plain, null)).toBe(plain);
     const entry = framePlan(plain, FPS).clips[0];
-    const shown = clipPresentation(entry.clip, entry.durationInFrames - 1, FPS, entry.durationInFrames, false, null);
+    const shown = clipPresentation(entry.clip, entry.durationInFrames - 1, FPS, entry.durationInFrames);
     expect(shown.speedBlur).toBeNull();
-    expect(shown.whip).toBeUndefined();
+    expect(shown.blur).toBeUndefined();
   });
 });

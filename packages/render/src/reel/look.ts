@@ -154,6 +154,7 @@ export const TEXT_ANIMATION_LABELS: Record<TextAnimation, string> = {
   maskUp: "Mask up",
   trackIn: "Track in",
   blurIn: "Blur in",
+  blurQuick: "Quick blur",
 };
 
 /** Lacquer, the brand's one accent, for the status sticker. */
@@ -209,7 +210,7 @@ export function brandCss(brand: TextTreatment, fontSize: number): CSSProperties 
   };
 }
 
-export function textTreatmentCss(text: Pick<TextOverlay, "style" | "color" | "size" | "font" | "tracking" | "shadow" | "brand">): CSSProperties {
+export function textTreatmentCss(text: Pick<TextOverlay, "style" | "color" | "size" | "font" | "tracking" | "shadow" | "brand"> & Partial<Pick<TextOverlay, "italic" | "weight">>): CSSProperties {
   const fonts = { auto: undefined, serif: CORMORANT_FONT_FAMILY, sans: REEL_FONT_FAMILY, editorial: BODONI_FONT_FAMILY };
   // The elegant style set in Cormorant by name keeps Cormorant's own size, weight and tracking (its look before ADR 0083).
   const cormorant = text.style === "elegant" && text.font === "serif"
@@ -218,6 +219,9 @@ export function textTreatmentCss(text: Pick<TextOverlay, "style" | "color" | "si
     ...(text.font && text.font !== "auto" ? { fontFamily: fonts[text.font] } : {}),
     ...cormorant,
     ...(text.tracking !== undefined ? { letterSpacing: `${text.tracking}em` } : {}),
+    // A lockup's keyword weight and its caption words' italic (ADR 0089); absent on every title saved before.
+    ...(text.weight !== undefined ? { fontWeight: text.weight } : {}),
+    ...(text.italic ? { fontStyle: "italic" as const } : {}),
     ...textContrastCss(text),
   };
   // A kit style replaces the style's own face, shadow and plate; reels saved before it have no `brand` and are untouched.
@@ -304,4 +308,31 @@ export function textCss(style: TextStyle, color: string, size: number): CSSPrope
         textShadow: "0 3px 14px rgba(0, 0, 0, 0.55), 0 1px 2px rgba(0, 0, 0, 0.5)",
       };
   }
+}
+
+/**
+ * A keyword's gradient or picture fill (ADR 0089) as CSS on its letters: the fill is the span's background clipped to
+ * the glyphs (`background-clip: text`, which Chrome draws the same in the Player and the export). A text shadow would
+ * paint over a clipped background, so the soft shadow becomes a drop shadow on the letters' outline instead. `src` is
+ * the picture's URL for an image fill; without it the letters stay in their colour. Null: no fill.
+ */
+export function textFillCss(fill: TextOverlay["fill"], src?: string): CSSProperties | null {
+  if (!fill) return null;
+  let image: string;
+  if (fill.kind === "gradient") image = `linear-gradient(${fill.angle ?? 180}deg, ${fill.colors.join(", ")})`;
+  else if (src) image = `url("${src.replace(/"/g, "%22")}")`;
+  else return null;
+  return {
+    backgroundImage: image,
+    backgroundSize: "cover",
+    backgroundPosition: "center",
+    backgroundClip: "text",
+    WebkitBackgroundClip: "text",
+    color: "transparent",
+    WebkitTextFillColor: "transparent",
+    textShadow: "none",
+    WebkitTextStroke: "0px",
+    // One light shadow: a dark fill under a doubled soft shadow reads as a smudge (seen on the 2026-10-26 proof).
+    filter: "drop-shadow(0 2px 6px rgba(0, 0, 0, 0.28))",
+  };
 }

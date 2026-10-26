@@ -74,17 +74,26 @@ export const TEXT_STYLES = ["plain", "box", "outline", "headline", "elegant", "t
  * letter, "rise" drifts up as it fades in, "none" is simply there.
  * The quiet reveals of the Remotion toolbox (ADR 0082): "fadeQuick" a 200 ms fade in and out, "maskUp" the line rises
  * through a hard edge over 6 frames, "trackIn" the letter-spacing closes as it fades up, "blurIn" it resolves out of
- * a soft blur.
+ * a soft blur. "blurQuick" (ADR 0089) is the keyword arrival measured in the owner's reference reel: out of an 8 px
+ * blur in 200 ms, no drift, gone in 150 ms.
  */
-export const TEXT_ANIMATIONS = ["auto", "pop", "fade", "rise", "type", "none", "fadeQuick", "maskUp", "trackIn", "blurIn"] as const;
+export const TEXT_ANIMATIONS = ["auto", "pop", "fade", "rise", "type", "none", "fadeQuick", "maskUp", "trackIn", "blurIn", "blurQuick"] as const;
 /** Particle kinds a title can carry (ADR 0055). */
 export const PARTICLE_KINDS = ["snow", "embers", "dust"] as const;
 export type ParticleKind = (typeof PARTICLE_KINDS)[number];
 /** Light on the letters (ADR 0061): a soft sweep, glints on the letter edges, or a warm golden-hour pass with a lens flare. */
 export const SHINE_PRESETS = ["sweep", "glint", "golden"] as const;
 export type ShinePreset = (typeof SHINE_PRESETS)[number];
-/** Kinetic type (ADR 0061): word by word, sliding out from behind something in front of the surface, or a number counting up. */
-export const KINETIC_PRESETS = ["words", "behind", "count"] as const;
+/**
+ * Kinetic type (ADR 0061): word by word, sliding out from behind something in front of the surface, or a number counting up.
+ * "caption" (ADR 0089): one word at a time, each replacing the one before on its onset (`wordsMs`), the single-word
+ * caption track of a keyword lockup.
+ */
+export const KINETIC_PRESETS = ["words", "behind", "count", "caption"] as const;
+/** The roles of a keyword lockup's titles (ADR 0089): the big hero word, and the small one-word caption track around it. */
+export const LOCKUP_ROLES = ["keyword", "captions"] as const;
+/** Largest `size` of a lockup's keyword (ADR 0089): the elegant serif's capitals at about 14 % of the frame's height. */
+export const KEYWORD_SIZE_MAX = 7.2;
 export type KineticPreset = (typeof KINETIC_PRESETS)[number];
 /** The latest a shine or kinetic move may start, ms after its title appears (the schema's bound; ADR 0061). */
 export const TYPE_MOTION_START_MAX_MS = 60_000;
@@ -229,7 +238,7 @@ export const textSchema = z
     style: z.enum(TEXT_STYLES).default("plain"),
     color: z.string().regex(/^#[0-9a-f]{6}$/i).default("#ffffff"),
     /** Scale relative to the default size. */
-    size: z.number().min(minTextSize("elegant")).max(TEXT_SIZE_MAX).default(1),
+    size: z.number().min(minTextSize("elegant")).max(KEYWORD_SIZE_MAX).default(1),
     /**
      * Placed by the app itself (the room labels, the opening line of a quick cut), not by a person (ADR 0081).
      * The export check only warns about text a person placed or moved; `updateText` drops this when a
@@ -290,7 +299,30 @@ export const textSchema = z
        * words land as a speaker says them (`syncTextToSpeech`). Absent, or not one per word: evenly over `durationMs`.
        */
       wordsMs: z.array(z.number().int().min(0).max(TYPE_MOTION_START_MAX_MS)).max(60).optional(),
+      /**
+       * "caption" only (ADR 0089): when each word goes, ms after the title appears, one per word. Absent (or a word's
+       * entry past the next word's arrival): a word stays until the next one replaces it, the last one to the end.
+       */
+      wordsOffMs: z.array(z.number().int().min(0).max(TYPE_MOTION_START_MAX_MS)).max(60).optional(),
     }).optional(),
+    /**
+     * The letters filled with a gradient or a picture instead of `color` (ADR 0089): a lockup's hero word only. Drawn with
+     * `background-clip: text`, the same in the editor and the export. Absent: the solid colour, as every saved reel.
+     */
+    fill: z.discriminatedUnion("kind", [
+      z.object({ kind: z.literal("gradient"), colors: z.array(z.string().regex(/^#[0-9a-f]{6}$/i)).min(2).max(4), /** Degrees, CSS convention (180: top to bottom). */ angle: z.number().min(0).max(360).optional() }),
+      z.object({ kind: z.literal("image"), assetId: z.string().min(1) }),
+    ]).optional(),
+    /** Set in italic (ADR 0089, the reference's caption words). Absent: upright. */
+    italic: z.boolean().optional(),
+    /** The face's weight, overriding the style's own (ADR 0089: the lockup keyword is Playfair 600). Absent: the style's. */
+    weight: z.number().int().min(300).max(900).optional(),
+    /**
+     * Part of a keyword lockup (ADR 0089) made by `composeKeywordLockup`: the lockup's id (one per spoken phrase), and
+     * whether this is its keyword or its caption track. Composing again replaces the titles carrying it. Absent: an
+     * ordinary title.
+     */
+    lockup: z.object({ id: z.string().min(1).max(80), role: z.enum(LOCKUP_ROLES) }).optional(),
     /**
      * A pinned callout (ADR 0061): the feature the label points at, frame fractions on the title's first frame. The label
      * sits at x/y and keeps its size and angle; a leader line runs from the label to this point. When pinned, the point
@@ -324,7 +356,13 @@ export const textSchema = z
       .min(2).max(64).refine(points => points[0].t === 0 && points.at(-1)!.t === 1 && points.every((p, i) => i === 0 || p.t > points[i - 1].t), "Motion path must run in order from 0 to 1").optional(),
   })
   .refine((text) => text.endMs > text.startMs, { message: "Text must be on screen for a positive time" })
-  .refine((text) => text.size >= minTextSize(text.style), { message: "Text is too small for this style", path: ["size"] });
+  .refine((text) => text.size >= minTextSize(text.style), { message: "Text is too small for this style", path: ["size"] })
+  .refine((text) => text.size <= maxTextSize(text), { message: `Text is too large: only a lockup's keyword may pass size ${TEXT_SIZE_MAX}`, path: ["size"] });
+
+/** Largest `size` a title may have: a keyword lockup's hero word may be far bigger than an ordinary title (ADR 0089). */
+export function maxTextSize(text: { lockup?: { role: string } | undefined }): number {
+  return text.lockup?.role === "keyword" ? KEYWORD_SIZE_MAX : TEXT_SIZE_MAX;
+}
 
 /** A song's sections (ADR 0059), found by `analyseSong`. */
 export const SECTION_KINDS = ["intro", "build", "drop", "outro"] as const;
@@ -799,8 +837,9 @@ export function updateClip(timeline: Timeline, id: string, settings: ClipSetting
 // ── Text and music ──────────────────────────────────────────────
 
 /** Clamps a text size into the range its style allows. */
-export function fitTextSize(style: TextStyle, size: number): number {
-  return Math.max(minTextSize(style), Math.min(TEXT_SIZE_MAX, size));
+/** `size` within its style's range; `max` is TEXT_SIZE_MAX unless the title may be larger (`maxTextSize`, a lockup's keyword). */
+export function fitTextSize(style: TextStyle, size: number, max: number = TEXT_SIZE_MAX): number {
+  return Math.max(minTextSize(style), Math.min(max, size));
 }
 
 export function addText(timeline: Timeline, text: Omit<TextOverlay, "endMs" | "animation"> & { endMs?: number; animation?: TextAnimation }): Timeline {
@@ -825,7 +864,7 @@ export function updateText(timeline: Timeline, id: string, patch: Partial<Omit<T
       next.startMs = Math.max(0, Math.min(Math.round(next.startMs), total - 100));
       next.endMs = Math.max(next.startMs + 100, Math.min(Math.round(next.endMs), total));
       // A small elegant text switched to a bolder style grows to that style's minimum.
-      next.size = fitTextSize(next.style, next.size);
+      next.size = fitTextSize(next.style, next.size, maxTextSize(next));
       return textSchema.parse(next);
     }),
   };

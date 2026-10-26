@@ -31,7 +31,7 @@ import { HOOK_DESCRIPTIONS, HOOK_FONTS, HOOK_LABELS, type Hook, type HookKind,
   SPEEDS,
   TEXT_ANIMATIONS,
   TEXT_COLORS,
-  TEXT_SIZE_MAX,
+  maxTextSize,
   TEXT_STYLES,
   ZOOM_MAX,
   AI_DRAFT_CREDITS,
@@ -930,7 +930,7 @@ export function PlanSheet({
 
 // ── Text ────────────────────────────────────────────────────────
 
-export type TextDraft = Pick<TextOverlay, "text" | "style" | "color" | "size" | "animation" | "font" | "tracking" | "path" | "shadow" | "behind" | "depth" | "blend" | "passMs" | "passFadeMs" | "particles" | "shine" | "kinetic" | "callout" | "brand">;
+export type TextDraft = Pick<TextOverlay, "text" | "style" | "color" | "size" | "animation" | "font" | "tracking" | "path" | "shadow" | "behind" | "depth" | "blend" | "passMs" | "passFadeMs" | "particles" | "shine" | "kinetic" | "callout" | "brand" | "lockup">;
 
 /** Particle density in three thumb-sized steps (ADR 0055). */
 const PARTICLE_DENSITIES = [0.5, 1, 1.8] as const;
@@ -1054,7 +1054,7 @@ export function TextSheet({
           />
         ))}
       </div>
-      <Range label="Size" value={draft.size} min={minTextSize(draft.style)} max={TEXT_SIZE_MAX} step={0.1} display={`${Math.round(draft.size * 100)}%`} onChange={(size) => setDraft({ ...draft, size })} />
+      <Range label="Size" value={draft.size} min={minTextSize(draft.style)} max={maxTextSize(draft)} step={0.1} display={`${Math.round(draft.size * 100)}%`} onChange={(size) => setDraft({ ...draft, size })} />
       <Segmented label="Typeface" options={["auto", "serif", "sans", "editorial"] as const} value={draft.font ?? "auto"} onChange={font => setDraft({ ...draft, font, brand: undefined })}
         format={font => ({ auto: "Style default", serif: "Cormorant", sans: "Archivo", editorial: "Bodoni" })[font]} />
       <Segmented label="Text shadow" options={["auto", "soft", "strong", "none"] as const} value={draft.shadow ?? "auto"} onChange={shadow => setDraft({ ...draft, shadow, brand: undefined })} format={shadow => ({ auto: "Auto contrast", soft: "Soft", strong: "Strong", none: "None" })[shadow]} />

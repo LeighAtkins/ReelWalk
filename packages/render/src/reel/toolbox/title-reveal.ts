@@ -11,12 +11,14 @@ import { Easing, interpolate } from "remotion";
  *              MIT, with its overdamped spring replaced by an ease-out so it never overshoots).
  *   blurIn     the whole line resolves out of an 8 px blur while it fades up and settles 12 px (onda's BlurReveal and
  *              remocn's soft-blur-in, MIT; one line, not per letter, so the serif never dances).
+ *   blurQuick  a keyword lockup's arrival (ADR 0089), measured on the owner's reference reel 3: out of an 8 px blur in
+ *              200 ms with no drift, gone in 150 ms.
  *
  * Each returns the multipliers TextView applies on top of the title's style: opacity, a vertical offset in px at the
  * 1080-wide frame, extra letter-spacing in em, a CSS blur in px, and a clip-path inset for the mask. Exits are the
  * entrance reversed but quicker, so a title is gone on the cut it is held to.
  */
-export const TITLE_REVEALS = ["fadeQuick", "maskUp", "trackIn", "blurIn"] as const;
+export const TITLE_REVEALS = ["fadeQuick", "maskUp", "trackIn", "blurIn", "blurQuick"] as const;
 export type TitleReveal = (typeof TITLE_REVEALS)[number];
 
 export type RevealStyle = {
@@ -44,6 +46,7 @@ export function revealFrames(reveal: TitleReveal, fps: number, durationInFrames:
     maskUp: [6 / 30, 5 / 30],
     trackIn: [0.8, 0.25],
     blurIn: [0.6, 0.25],
+    blurQuick: [0.2, 0.15],
   };
   const [enter, exit] = seconds[reveal];
   const cap = Math.max(1, Math.floor(durationInFrames / 3));
@@ -77,6 +80,8 @@ export function revealStyle(reveal: TitleReveal, frame: number, fps: number, dur
       return { ...REST, opacity: a, trackingEm: (from.trackingEm ?? 0.18) * (1 - a) };
     case "blurIn":
       return { ...REST, opacity: a, blurPx: (from.blurPx ?? 8) * (1 - a), offsetY: (from.risePx ?? 12) * (1 - a) };
+    case "blurQuick":
+      return { ...REST, opacity: a, blurPx: (from.blurPx ?? 8) * (1 - a) };
   }
 }
 

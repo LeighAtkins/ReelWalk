@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { continueRender, delayRender } from "remotion";
 import "@fontsource-variable/archivo/wdth.css";
+// Archivo italic (SIL OFL 1.1): a keyword lockup's caption words (ADR 0089).
+import "@fontsource-variable/archivo/wdth-italic.css";
 import "@fontsource-variable/noto-sans-jp/wght.css";
 // Playfair Display (SIL Open Font Licence 1.1): the "elegant" style and the serif hook since ADR 0083 (the owner's choice).
 import "@fontsource-variable/playfair-display/wght.css";
@@ -22,7 +24,7 @@ import "./brand-fonts/brand-fonts.css";
  * a fallback font, so rendering is held until the glyphs of this text are loaded.
  * In the Player this simply resolves quickly and has no visible effect.
  */
-export function useFontsFor(text: string, weight: number, brandFamilies: readonly string[] = []): boolean {
+export function useFontsFor(text: string, weight: number, brandFamilies: readonly string[] = [], italic = false): boolean {
   const [handle] = useState(() => delayRender(`Loading fonts for "${text.slice(0, 20)}"`));
   const [ready, setReady] = useState(false);
 
@@ -36,6 +38,7 @@ export function useFontsFor(text: string, weight: number, brandFamilies: readonl
       document.fonts.load(`${weight} 64px "Cormorant Garamond Variable"`, sample),
       document.fonts.load(`${weight} 64px "Bodoni Moda Variable"`, sample),
       ...brandFamilies.map((family) => document.fonts.load(`${weight} 64px "${family}"`, sample)),
+      ...(italic ? [document.fonts.load(`italic ${weight} 64px "Archivo Variable"`, sample)] : []),
     ])
       .catch(() => undefined)
       .finally(() => {
@@ -48,7 +51,7 @@ export function useFontsFor(text: string, weight: number, brandFamilies: readonl
       cancelled = true;
       continueRender(handle);
     };
-  }, [handle, text, weight, brandFamilies.join("|")]);
+  }, [handle, text, weight, brandFamilies.join("|"), italic]);
 
   useEffect(() => {
     if (ready) continueRender(handle);

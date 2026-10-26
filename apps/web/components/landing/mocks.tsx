@@ -18,8 +18,9 @@ import { RoomPhoto } from "./room-photo";
 
 /**
  * The app's screens, drawn in HTML for the landing page: the media sheet,
- * the editor, the export screen and the share screen, each with real room
- * photos from the starter library in it. They copy the real screens'
+ * the editor, the export screen and the share screen, each with frames of
+ * one coastal house from the Northern Beaches sample reel in it (Pexels clips
+ * by Alef Morais, Pexels License; docs/licences/sample-reels.md, ADR 0085). They copy the real screens'
  * layout and colours (globals.css) so the page shows what the product
  * looks like, not an artist's impression. One listing runs through all four.
  */
@@ -34,16 +35,16 @@ const LISTING = {
 
 /** Rooms of the one listing, in the order the photographer tapped them. */
 const ROOMS = [
-  { file: "lounge-garden", name: "Family room", pano: true },
-  { file: "kitchen-view", name: "Kitchen", pano: true },
-  { file: "suite", name: "Main bedroom", pano: false },
-  { file: "bathroom", name: "Ensuite", pano: false },
-  { file: "veranda", name: "Verandah", pano: true },
+  { file: "pool", name: "Pool", pano: false },
+  { file: "living", name: "Living room", pano: false },
+  { file: "bedroom", name: "Main bedroom", pano: false },
+  { file: "dining", name: "Dining", pano: false },
+  { file: "alfresco", name: "Alfresco", pano: false },
   { file: "deck", name: "Deck", pano: false },
-  { file: "lounge-window", name: "Living room", pano: false },
-  { file: "glasshouse", name: "Guest bedroom", pano: true },
-  { file: "dining", name: "Dining room", pano: false },
-  { file: "bedroom", name: "Bedroom 2", pano: false },
+  { file: "aerial", name: "From above", pano: false },
+  { file: "lounge", name: "Lounge", pano: false },
+  { file: "dining-room", name: "Dining room", pano: false },
+  { file: "lap-pool", name: "Lap pool", pano: false },
 ] as const;
 
 type Room = (typeof ROOMS)[number];

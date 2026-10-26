@@ -1,8 +1,9 @@
 /*
  * ReelWalk: a reels editor for property listings, designed for a phone held
  * in one hand. The look is the brand mark's (docs/design/brand.md): ivory on
- * noir, Bodoni for display, warm greys for every surface; the one colour is
- * lacquer red, used only for the playhead, the current selection and Export.
+ * noir, Playfair Display for display (ADR 0085), warm greys for every
+ * surface; the one colour is lacquer red, used only for the playhead, the
+ * current selection and Export.
  * The token names are kept from the blueprint era so the 2,500 lines below
  * still read: --ink is the ground, --paper the text.
  */
@@ -24,7 +25,7 @@
   --line-strong: rgb(243 237 226 / 0.28);
 
   --font: "Archivo Variable", "Noto Sans JP Variable", system-ui, sans-serif;
-  --display: "Bodoni Moda Variable", "Bodoni 72", Didot, "Times New Roman", serif;
+  --display: "Playfair Display Variable", Georgia, "Times New Roman", serif;
 
   --radius-s: 6px;
   --radius-m: 12px;
@@ -100,27 +101,24 @@ a {
 
 /* ── Type ─────────────────────────────────────────────────────── */
 
-/* Display is Bodoni. Its optical-size axis must track the pixel size: at
-   display sizes the hairlines can be fine, but at 20–32px they need the
-   smaller optical sizes, which draw them thicker, or the letters vanish on
-   black. Weight 650 for the same reason. h3 is a UI heading in the sans. */
+/* Display is Playfair Display at 600 (ADR 0085): Bodoni's hairlines vanished
+   on a phone, Playfair's stay solid at heading sizes. A display heading is
+   never below 22px; h3 is a UI heading in the sans. */
 h1,
 h2 {
   margin: 0;
   font-family: var(--display);
-  font-weight: 650;
-  line-height: 1.05;
+  font-weight: 600;
+  line-height: 1.1;
   letter-spacing: 0;
 }
 
 h1 {
   font-size: 32px;
-  font-variation-settings: "opsz" 32;
 }
 
 h2 {
   font-size: 23px;
-  font-variation-settings: "opsz" 22;
 }
 
 h3 {
@@ -139,7 +137,7 @@ p {
 }
 
 .small {
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .timecode {
@@ -231,8 +229,7 @@ p {
   align-items: center;
   gap: 9px;
   font-family: var(--display);
-  font-weight: 650;
-  font-variation-settings: "opsz" 22;
+  font-weight: 600;
   font-size: 22px;
   letter-spacing: 0.005em;
   text-decoration: none;
@@ -461,7 +458,7 @@ p {
 .home-empty {
   padding: 18px 2px;
   color: var(--muted);
-  font-size: 14px;
+  font-size: 16px;
   line-height: 1.5;
 }
 
@@ -2486,7 +2483,7 @@ input[type="range"] {
 }
 
 .card h2 {
-  font-size: 17px;
+  font-size: 22px;
   margin: 0;
 }
 
@@ -2665,8 +2662,8 @@ form + .card {
   border-radius: var(--radius-m);
   background: var(--ink-deep);
   color: var(--paper);
-  font-size: 14px;
-  line-height: 1.45;
+  font-size: 16px;
+  line-height: 1.5;
 }
 
 /* Account deletion: set apart from the everyday settings. */
@@ -4472,7 +4469,8 @@ input.inspect-scrub {
 .export-nudge-message {
   margin: 0;
   font-family: var(--display);
-  font-size: 19px;
+  font-weight: 500;
+  font-size: 22px;
   line-height: 1.3;
 }
 
@@ -4481,4 +4479,38 @@ input.inspect-scrub {
   flex-wrap: wrap;
   gap: 10px;
   margin-top: 6px;
+}
+
+/* ── Reading pages (ADR 0085) ─────────────────────────────────────
+   Sign-up, sign-in and account are read, not tapped through at speed: body
+   and labels at 16px, small print at 15px, paragraphs at 1.5. The editor
+   keeps its denser sizes. tests: lib/readability.test.ts. */
+.auth,
+.readable {
+  line-height: 1.5;
+}
+
+.auth .small,
+.readable .small {
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.auth .field,
+.readable .field {
+  font-size: 16px;
+}
+
+.readable .usage dt {
+  font-size: 15px;
+}
+
+.readable .usage dd {
+  font-size: 16px;
+}
+
+/* Prices follow the visitor's currency (ADR 0085): both are written, the scope shows one. */
+[data-currency="aud"] [data-cur="usd"],
+[data-currency="usd"] [data-cur="aud"] {
+  display: none;
 }

@@ -48,7 +48,7 @@ export default async function PricingPage({ searchParams }: { searchParams: Prom
   return (
     <>
       <CurrencyScope resolution={resolution} offered={offered}>
-      <main className="shell">
+      <main className="shell readable">
         <p className="muted small" style={{ marginBottom: 0 }}>
           <Link href="/account">Back to Account</Link>
         </p>

@@ -1,8 +1,8 @@
 // Fonts ship as npm packages, so builds never fetch them from a font CDN.
-// Bodoni Moda is the display face (wordmark, headings, prices), its optical
-// size axis keeping the hairlines fine; Archivo does body and UI, its width
-// axis used only to narrow timecodes.
-import "@fontsource-variable/bodoni-moda/opsz.css";
+// Playfair Display is the display face (wordmark, headings, prices) at 500-600:
+// it replaced Bodoni Moda, whose hairlines vanished on a phone (ADR 0085).
+// Archivo does body and UI, its width axis used only to narrow timecodes.
+import "@fontsource-variable/playfair-display/index.css";
 import "@fontsource-variable/archivo/wdth.css";
 import "@fontsource-variable/noto-sans-jp/wght.css";
 // The serif of the "elegant" reel text style, also shown on its style chip.

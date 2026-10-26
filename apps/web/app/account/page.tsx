@@ -70,7 +70,7 @@ export default async function AccountPage({
 
   return (
     <>
-      <main className="shell">
+      <main className="shell readable">
         <h1 style={{ marginBottom: 4 }}>{user.workspace.name}</h1>
         <p className="muted small" style={{ marginBottom: 20 }}>
           Studio since <LocalTime date={user.workspace.createdAt} />

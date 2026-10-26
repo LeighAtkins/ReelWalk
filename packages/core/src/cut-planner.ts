@@ -21,7 +21,7 @@ import { customCamera, type Camera } from "./camera";
 import { CUT_GRAMMAR, cutGrammarReport, SURPRISING, type CutGrammarReport } from "./cut-grammar";
 import type { CutIn, CutTechnique, WipeSide } from "./cut-schema";
 import {
-  attentionAt, directionsAgree, eyeTraceDistance, meanFlow, spanQuality, windowsNear,
+  attentionAt, directionsAgree, eyeTraceDistance, reelFlow, spanQuality, windowsNear,
   type FlowDirection, type PlannerAnalysis,
 } from "./shot-facts";
 import { MIN_CLIP_MS, type Clip, type Timeline, type Transition } from "./timeline";
@@ -126,10 +126,22 @@ const r3 = (value: number) => Math.round(value * 1000) / 1000;
 const clamp = (value: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, value));
 
 function exitFlow(source: PlanSource, outMs: number) {
-  return source.analysis ? meanFlow(source.analysis.samples, outMs - 500, outMs) : null;
+  return source.analysis ? reelFlow(source.analysis, outMs - 500, outMs) : null;
 }
 function entryFlow(source: PlanSource, inMs: number) {
-  return source.analysis ? meanFlow(source.analysis.samples, inMs, inMs + 500) : null;
+  return source.analysis ? reelFlow(source.analysis, inMs, inMs + 500) : null;
+}
+
+/**
+ * A shot change that is a pattern break by what it shows, whatever technique carries it: the first step inside, the
+ * first sight of the view, and stepping back outside at the end.
+ */
+export function contentReveal(from: WalkStage, to: WalkStage, seen: ReadonlySet<WalkStage>): string | null {
+  const inside = (stage: WalkStage) => stage !== "arrival" && stage !== "view" && stage !== "leaving";
+  if (from === "arrival" && inside(to)) return "reveal: inside";
+  if (to === "view" && !seen.has("view") && from !== "view") return "reveal: the view";
+  if (to === "leaving" && from !== "arrival") return "reveal: back outside";
+  return null;
 }
 
 /** Real source px across the reel frame's width when the picture fills it (a cover crop). */
@@ -515,6 +527,35 @@ export function chooseTechnique(candidates: Candidate[], previous: CutTechnique 
 }
 const CUT_ORDER: CutTechnique[] = ["graphicCarry", "scaleJump", "occlusionWipe", "zoomThrough", "eyeTrace", "cutOnAction", "matchDirection", "rackFocus", "shapeMatch", "beatCut", "lightLeak", "dissolve"];
 
+/**
+ * The incoming shot's in-point nudged (up to 0.75 s either way, the same length) so the cut works better: the eye
+ * lands where it already was, the movement carries on, or the shot starts on a movement peak. A shot a close-up
+ * continues, the closer and photos keep theirs; a nudge never runs into another window of the same clip.
+ */
+function bestInPoint(slots: readonly Slot[], i: number): number {
+  const slot = slots[i], a = slots[i - 1];
+  const start = slot.startMs ?? 0;
+  const B = slot.source.analysis, A = a.source.analysis;
+  if (!B || !A || slot.source.kind !== "VIDEO" || slot.closeUpOf !== undefined || slot.role === "closer" || slots.some((other) => other.closeUpOf === i)) return start;
+  const outMs = (a.startMs ?? 0) + a.lengthMs;
+  const from = attentionAt(A, outMs), exit = exitFlow(a.source, outMs);
+  const others = slots.filter((other, k) => k !== i && other.source === slot.source).map((other) => [other.startMs ?? 0, (other.startMs ?? 0) + other.lengthMs] as [number, number]);
+  let best = { start, score: -Infinity };
+  for (const offset of [0, -250, 250, -500, 500, -750, 750]) {
+    const s = start + offset;
+    if (s < GUARD_MS || s + slot.lengthMs > slot.source.durationMs - GUARD_MS) continue;
+    if (others.some((span) => overlaps([s, s + slot.lengthMs], span, 300))) continue;
+    const to = attentionAt(B, s), entry = entryFlow(slot.source, s);
+    const eye = from && to ? eyeTraceDistance(from, to) : null;
+    let score = spanQuality(B, s, s + slot.lengthMs) * 0.5 - Math.abs(offset) / 2000;
+    if (eye !== null && eye <= CUT_GRAMMAR.eyeTraceMax) score += 2 - eye;
+    if (exit && entry && directionsAgree(exit.direction, entry.direction)) score += 1;
+    if (B.flowPeaks.some((peak) => Math.abs(peak.t - s) <= 120)) score += 0.8;
+    if (score > best.score) best = { start: s, score };
+  }
+  return best.start;
+}
+
 // ── The plan ────────────────────────────────────────────────────
 
 export function planCut(input: PlanInput): CutPlan {
@@ -555,10 +596,12 @@ export function planCut(input: PlanInput): CutPlan {
   let previous: CutTechnique | null = null;
   let lastSurprise = 0;
   let carryUntilMs: number | null = null;
+  const seen = new Set<WalkStage>();
   for (const [i, slot] of slots.entries()) {
+    if (i > 0) slot.startMs = bestInPoint(slots, i);
     const start = slot.startMs ?? 0;
     const analysis = slot.source.analysis;
-    const flow = analysis ? meanFlow(analysis.samples, start, start + slot.lengthMs) : null;
+    const flow = analysis ? reelFlow(analysis, start, start + slot.lengthMs) : null;
     const moving = Boolean(flow && flow.direction !== "static");
     let camera: Camera | null = null;
     let motion: "real" | "virtual" = moving ? "real" : "virtual";
@@ -573,12 +616,14 @@ export function planCut(input: PlanInput): CutPlan {
     let transitionIn: Transition = "cut";
     if (i > 0) {
       const a = slots[i - 1];
-      const ctx: CutContext = { a, b: slot, index: i, atMs: starts[i], outMs: (a.startMs ?? 0) + a.lengthMs, inMs: start, beats: downbeats, feel, carry: i === 1 && input.carry !== false, reveal: reveal?.index === i, sinceSurpriseMs: starts[i] - lastSurprise,
-        mustSurprise: (starts[i + 1] ?? totalMs) - lastSurprise > CUT_GRAMMAR.surpriseGapMaxMs - 500 };
+      // A cut that is a reveal by what it shows needs no surprising technique on top: those are kept for later.
+      const shown = contentReveal(a.stage, slot.stage, seen);
+      const ctx: CutContext = { a, b: slot, index: i, atMs: starts[i], outMs: (a.startMs ?? 0) + a.lengthMs, inMs: start, beats: downbeats, feel, carry: i === 1 && input.carry !== false, reveal: reveal?.index === i && !shown,
+        sinceSurpriseMs: shown ? 0 : starts[i] - lastSurprise, mustSurprise: !shown && (starts[i + 1] ?? totalMs) - lastSurprise > CUT_GRAMMAR.surpriseGapMaxMs - 500 };
       const choice = chooseTechnique(cutCandidates(ctx), previous, uses, ctx);
       uses[choice.technique] = (uses[choice.technique] ?? 0) + 1;
       previous = choice.technique;
-      const surprise = choice.surprise ?? (SURPRISING.has(choice.technique) ? choice.technique : undefined) ?? (reveal?.index === i ? "reveal" : undefined);
+      const surprise = choice.surprise ?? (SURPRISING.has(choice.technique) ? choice.technique : undefined) ?? shown ?? (reveal?.index === i ? "reveal" : undefined);
       if (surprise) lastSurprise = starts[i];
       transitionIn = choice.transition;
       cut = { technique: choice.technique, reason: choice.reason, ...(choice.extra ?? {}), ...(surprise ? { surprise } : {}), motion };
@@ -589,6 +634,7 @@ export function planCut(input: PlanInput): CutPlan {
       if (choice.technique === "graphicCarry") carryUntilMs = Math.min(starts[i] + 700, starts[i] + Math.floor(slot.lengthMs / 2));
     }
     if (motion === "virtual" && !camera) camera = virtualMove(i > 0 ? exitFlow(slots[i - 1].source, (slots[i - 1].startMs ?? 0) + slots[i - 1].lengthMs)?.direction ?? null : null);
+    seen.add(slot.stage);
     const why = slot.why ?? "";
     shots.push({ sourceClipId: slot.source.clipId, assetId: slot.source.assetId, kind: slot.source.kind, sourceStartMs: start, sourceEndMs: start + slot.lengthMs, stage: slot.stage, role: slot.role, camera, motion, transitionIn, cut: cut ? { ...cut, motion } : null, why });
   }

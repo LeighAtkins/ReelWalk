@@ -54,13 +54,23 @@ export function flowDirection(flow: { dx: number; dy: number; zoom: number }, st
   return flow.dy > 0 ? "down" : "up";
 }
 
+/**
+ * How much larger motion looks in the reel than in the source: a landscape source shown as a 9:16 cover crop is seen
+ * through a crop a third of its width wide, so a slow glide of 0.015 source widths a second crosses 5 % of the reel's
+ * frame a second. The planner judges "still" in the reel's frame.
+ */
+export function reelMotionScale(analysis: Pick<PlannerAnalysis, "width" | "height">): number {
+  const aspect = analysis.width / analysis.height;
+  return aspect > REEL_ASPECT ? aspect / REEL_ASPECT : 1;
+}
+
 /** Mean content flow over [startMs, endMs) and its direction and edge speed; static with no samples. */
-export function meanFlow(samples: readonly PlannerSample[], startMs: number, endMs: number): { dx: number; dy: number; zoom: number; direction: FlowDirection; magnitude: number } {
+export function meanFlow(samples: readonly PlannerSample[], startMs: number, endMs: number, still = STATIC_FW_PER_S): { dx: number; dy: number; zoom: number; direction: FlowDirection; magnitude: number } {
   const inside = samples.filter((s) => s.t >= startMs && s.t < endMs);
   if (!inside.length) return { dx: 0, dy: 0, zoom: 0, direction: "static", magnitude: 0 };
   const mean = (pick: (s: PlannerSample) => number) => inside.reduce((sum, s) => sum + pick(s), 0) / inside.length;
   const dx = mean((s) => s.flow.dx), dy = mean((s) => s.flow.dy), zoom = mean((s) => s.flow.zoom);
-  return { dx, dy, zoom, direction: flowDirection({ dx, dy, zoom }), magnitude: Math.max(Math.hypot(dx, dy), Math.abs(zoom) * 0.5) };
+  return { dx, dy, zoom, direction: flowDirection({ dx, dy, zoom }, still), magnitude: Math.max(Math.hypot(dx, dy), Math.abs(zoom) * 0.5) };
 }
 
 export function sampleAt(samples: readonly PlannerSample[], t: number): PlannerSample | null {
@@ -122,4 +132,9 @@ export function spanQuality(analysis: PlannerAnalysis, startMs: number, endMs: n
   const inside = analysis.samples.filter((s) => s.t >= startMs && s.t < endMs);
   if (!inside.length) return 0.5;
   return inside.reduce((sum, s) => sum + 0.6 * s.sharpness + 0.4 * s.steady, 0) / inside.length;
+}
+
+/** The mean flow of a span with "still" judged as the reel shows it (see `reelMotionScale`). */
+export function reelFlow(analysis: PlannerAnalysis, startMs: number, endMs: number) {
+  return meanFlow(analysis.samples, startMs, endMs, STATIC_FW_PER_S / reelMotionScale(analysis));
 }

@@ -73,7 +73,7 @@ describe("placeKeyword", () => {
 });
 
 describe("composeKeywordLockups", () => {
-  const composed = composeKeywordLockups(reel(), { speech: SPEECH, faces: FACES, keywords: ["listing", "beat"] });
+  const composed = composeKeywordLockups(reel(), { speech: SPEECH, faces: FACES, keywords: ["listing", "beat"], interlock: false });
   const lockups = describeLockups(composed);
 
   it("makes one lockup per phrase, a keyword and a caption track, and keeps other titles", () => {
@@ -151,8 +151,8 @@ describe("the composeKeywordLockup command", () => {
   });
 
   it("sets a brand kit style on the keywords at the same pixel size, and refuses one without a kit", () => {
-    const plain = applyCommand(reel(), { type: "composeKeywordLockup", speech: SPEECH, faces: FACES }, { generation: 0 }).timeline;
-    const styled = applyCommand(reel(), { type: "composeKeywordLockup", speech: SPEECH, faces: FACES, brandStyle: "lastmile-title" }, { generation: 0, brandKit: LAST_MILE_KIT });
+    const plain = applyCommand(reel(), { type: "composeKeywordLockup", speech: SPEECH, faces: FACES, interlock: false }, { generation: 0 }).timeline;
+    const styled = applyCommand(reel(), { type: "composeKeywordLockup", speech: SPEECH, faces: FACES, interlock: false, brandStyle: "lastmile-title" }, { generation: 0, brandKit: LAST_MILE_KIT });
     expect(styled.rejected).toBeUndefined();
     const before = plain.texts.find((t) => t.id === "kw-clip-one-1")!, after = styled.timeline.texts.find((t) => t.id === "kw-clip-one-1")!;
     expect(after).toMatchObject({ style: "plain", brand: { style: "lastmile-title" }, x: before.x, y: before.y, startMs: before.startMs });

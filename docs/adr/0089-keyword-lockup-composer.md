@@ -150,3 +150,85 @@ and both answer `lockups` (`describeLockups`: each phrase's keyword, its place a
 - Placement in a calm area by saliency waits for shot analysis (ADR 0086, PR #249).
 - A brand kit style on the keyword (`brandStyle`) is unit-tested through the command path only, not rendered.
 - Picture fills are unit-tested and drawn with the same CSS as gradients, but no picture-filled keyword was rendered.
+
+## Addendum (2026-10-26, round 2): interlocked lockups
+
+### Context
+
+The owner's verdict on the first proof, shared by the orchestrator: "closer than anything before, but bolted on rather
+than designed". One of the four causes was the type itself: a keyword up top plus a caption on her chest reads as title
+plus subtitles. Reel 3 interlocks them instead: small italic companions tucked into the big word ("you hire" under
+"Before", "ask" over "yourself", "Do I" over "trust"). The other causes (a tight close-up that chops short words, a flat
+wall, one spot for 13 s) are about footage and were addressed in the proof below, not in code.
+
+### Decision
+
+- **A phrase of four words or fewer (`INTERLOCK_MAX_WORDS`, keyword included) interlocks** by default: its other words
+  become companions instead of the caption track. Longer phrases keep the one-word caption track, which is what reel 3
+  does with its long sentences. `interlock: false` turns it off.
+- **Placement, measured on reel 3's "Before / you hire"** (720×1280 still): companion capitals a third of the
+  keyword's (`COMPANION_CAP_RATIO` 0.33; 2.4 % under 7.4 %). The words after the keyword form one line under its right
+  half, right-aligned 2 % of the keyword's width in from its right edge, with their capitals' top 0.16 of the keyword's
+  capitals above its baseline (`COMPANION_OVERLAP`). The words before it form one line over its top-left,
+  left-aligned, sitting on the keyword's cap line (`COMPANION_OVER_OVERLAP` 0). Reaching down into the capitals put
+  "Try it" on the f of "free" and it stopped reading; the ascenders still rise beside it, so the two stay locked
+  together.
+- **A block or nothing.** If a companion line is wider than 1.6 keyword widths (min 0.18 of the frame), or would leave
+  the safe area (under the header, above y 0.72, left of the button column), the phrase falls back to the caption
+  track (`placeCompanions` returns null).
+- **Look and timing.** Archivo italic at weight 500, white, soft shadow. Each line is one title with kinetic `words`
+  and `wordsMs` from the speech, so each word fades up out of a small blur on its onset (−40 ms) and the line builds.
+  It leaves with the keyword (`blurQuick` exit). Companions are drawn **in front of** the presenter while the keyword
+  stays behind her: reel 3 loses the "y" of "you hire" behind her hair, and a small word cannot afford that.
+- **The closer.** `cta.caption` of three words or fewer is tucked under the closing keyword the same way
+  ("ReelWalk / reelwalking.com").
+- **Schema:** additive. `LOCKUP_ROLES` gains `"companion"`; companion titles have ids `kp-over-<lockup>` and
+  `kp-under-<lockup>`. Composing again replaces them with the rest of the lockup. `describeLockups` answers
+  `layout: "interlock" | "captions"` and `companions` (text, place, cap height), so a dry run shows the choice.
+  Saved reels parse and render unchanged. Player and export share the composition. No renderer change was needed:
+  companions use the existing `words` kinetic, italic and weight.
+
+### What was verified (round 2)
+
+- `packages/core/tests/keyword-interlock.test.ts` covers placement against the measured geometry, the fallbacks (too
+  wide, out of the safe area, more than four words, `interlock: false`), timing, the role, the closer, and
+  re-composing. The round-1 tests that check the caption track now pass `interlock: false`.
+- **Proof on new wide takes.** Two Maya takes were generated from the presenter kit's portrait, not from a prior
+  output. Each was composed `wide` (no close crop) onto a free Pexels photo used as the plate: a Queensland pier with
+  rainforest hills (Pexels 36782071) and a Townsville park gazebo with palms (36792910). Both are `mode: "static"`
+  with `voice: "veo"`. She came out about half the frame's height, against reel 3's 45 %, with forest or palms behind
+  her head where the keyword sits. The production reel `cmvp8by39000301ad2t1e2ctd` uses the reel-3 cut: an opening
+  1.15 → 1 scale-out, a 1.12 punch-in that also cuts out Veo's garbled words, and a hard cut to the second spot. One
+  `composeKeywordLockup { keywords: [Before, yourself, stop, free], cta: { keyword: ReelWalk, caption: reelwalking.com } }`
+  call, with `speech` and `faces` passed in (see below). Exported as `cmvp8dwwq000401adtj7jobgs`: the gate is not
+  blocked, and the only warning is the loop seam. Production does not have the addendum yet, so that export shows the
+  caption layout.
+- **Local render with the interlock** (`renderReel` at 720p, person matte on): "Before / you list",
+  "Ask / yourself / one thing", "Try it / free" and "ReelWalk / reelwalking.com" interlock. "Will your reel stop the
+  scroll?" (six words) keeps the caption track. Files:
+  `https://dh5xvp6apljoh.cloudfront.net/samples/recipes-2026-10-26/one-question-maya-720-v2.mp4`, `…-side-by-side-v2.jpg`
+  and `.mp4` (seven moments matched with reel 3), `…-frame-sheet-v2.jpg`, and `…-production-v2.mp4`.
+- The first local render put the over-line inside the keyword's capitals: "Try it" sat on the f of "free" and stopped
+  reading. Now it sits on the cap line. It still touches a tall ascender (the f), which is the remaining rough edge.
+- Two inputs had to be passed by hand on these takes. The identity gate's stored face boxes were about twice the real
+  face, which pushed every keyword up to the top of the safe area; the boxes were measured with OpenCV instead. The
+  stored whisper-small transcript put "Before" a second late; faster-whisper medium word times were used instead. Both
+  are fields the command already accepts.
+
+### Review fixes (sol-loop round 1 on PR #254)
+
+- **No word dropped.** A companion line that would be on for under 200 ms (a quick last word before the clip ends) used
+  to be skipped while the caption track was also suppressed, so the word vanished. Now every companion is shown or the
+  whole phrase keeps the caption track.
+- **Ink never touches ink.** The over-line on the cap line still hit tall letters ("Try" over "free": the y's tail on
+  the f). Every glyph's top and bottom was measured from the bundled fonts with fontTools at the drawn weights
+  (Playfair Display 600, Archivo italic 500) into a per-character table (Latin letters, figures, common punctuation);
+  a keyword or companion with a character not in it (an accented capital such as É reaches 0.94 em) keeps the caption
+  track rather than guess. Round 2 of the review found why a table and not letter classes: Playfair's figures are
+  old-style (3 4 5 7 9 hang to −0.15 em) and its $ rises to 0.84 em, past the ascenders (0.783). `placeCompanions`
+  takes the keyword's text, finds the keyword's glyphs under each line's span, and moves the line clear by a quarter
+  of its capitals: the over-line up past the tallest glyph and its own tails, the under-line down only when a keyword
+  glyph hangs below the line in its way (its tuck into the capitals is reel 3's look and stays). A line that then
+  leaves the safe area falls back to the caption track as before.
+- **Brand kit keywords keep the caption track.** `brandStyle` replaces the keyword's face, tracking and case after
+  composing, so the measured fit no longer holds; a branded lockup is composed with `interlock: false`.

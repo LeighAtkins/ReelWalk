@@ -184,7 +184,8 @@ export type Command =
   | { type: "applyTextStyle"; textId: string; style: string | null }
   /**
    * Keyword lockups from the clips' speech (ADR 0089): per spoken phrase one huge keyword behind the presenter's head
-   * and the other words in a one-word caption track, timed to the words. `keywords` names the words to use (a phrase
+   * and the other words in a one-word caption track, timed to the words; a phrase of four words or fewer tucks its other
+   * words into the keyword as small italic companions instead (`interlock: false` keeps the caption track). `keywords` names the words to use (a phrase
    * that says none gets the default pick, or none with `keywordsOnly`); `capHeight` 0.05–0.14 (default 0.085); `fill`
    * a gradient or picture for the keyword; `cta` a closing keyword after the last phrase; `brandStyle` a brand kit
    * style for the keyword's face. Composing again replaces the lockups on those clips; `remove: true` takes every
@@ -471,7 +472,9 @@ function run(timeline: Timeline, command: Command, context: CommandContext): Tim
     case "composeKeywordLockup": {
       if (command.remove) return { ...timeline, texts: timeline.texts.filter((text) => !text.lockup) };
       if (!command.speech) throw new Error("composeKeywordLockup needs the clips' transcripts: send it to POST /api/reels/:id/commands, which reads them from the library, or pass speech yourself.");
-      const composed = composeKeywordLockups(timeline, { ...command, speech: command.speech });
+      // A kit style replaces the keyword's face, tracking and case, which the companions' fit is measured against: a
+      // branded lockup keeps the caption track (round-1 review).
+      const composed = composeKeywordLockups(timeline, { ...command, speech: command.speech, ...(command.brandStyle ? { interlock: false } : {}) });
       if (!command.brandStyle) return composed;
       // A kit style (ADR 0078) gives the keyword its face, colour and shadow; the lockup keeps its own size and place.
       if (!context.brandKit) throw new Error("This workspace has no brand kit, so there are no named text styles to apply. A kit is added to a workspace by its admin.");

@@ -1,4 +1,4 @@
-import { applyCommand, hasSpeech, referencedAssetIds, timelineWithGrid, type BrandKit, type Command, type CommandResult, type HookInputs, type Timeline } from "@reelwalk/core";
+import { applyCommand, hasSpeech, referencedAssetIds, timelineWithGrid, type BrandKit, type Command, type FaceInput, type CommandResult, type HookInputs, type Timeline } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
 import { workspaceBrandKit } from "./brand-kit";
 import { toLibraryAssets, type LibraryAsset } from "./library";
@@ -50,12 +50,29 @@ export function hookInputsFromLibrary(library: Record<string, LibraryAsset>): Pi
   };
 }
 
+/**
+ * The presenter's face on each take the identity gate checked (ADR 0056), in source fractions with the take's size,
+ * for the keyword lockup's placement (ADR 0089). Takes without a stored box are left out: the lockup then uses the
+ * reference's place.
+ */
+export function facesFromLibrary(library: Record<string, LibraryAsset>): Record<string, FaceInput> {
+  return Object.fromEntries(Object.values(library).flatMap((asset) => {
+    const box = asset.face?.box;
+    return box && asset.width && asset.height ? [[asset.id, { ...box, width: asset.width, height: asset.height }]] : [];
+  }));
+}
+
+/** Commands that read the clips' speech from the library when an agent does not send it. */
+const SPEECH_COMMANDS = new Set(["syncTextToSpeech", "composeKeywordLockup"]);
+
 /** A hook command sent without measurements gets the library's: an agent need not read transcripts itself. */
 export function withLibraryInputs(command: Command, library: Record<string, LibraryAsset>): Command {
   // A title timed to speech (ADR 0084) gets the same transcripts, alone or inside a batch.
   if (command.type === "syncTextToSpeech") return { ...command, speech: command.speech ?? hookInputsFromLibrary(library).speech };
-  if (command.type === "batch" && command.commands.some((item) => item.type === "syncTextToSpeech")) {
-    return { ...command, commands: command.commands.map((item) => (item.type === "syncTextToSpeech" ? withLibraryInputs(item, library) as typeof item : item)) };
+  // A keyword lockup (ADR 0089) also gets where the presenter's face is.
+  if (command.type === "composeKeywordLockup") return { ...command, speech: command.speech ?? hookInputsFromLibrary(library).speech, faces: command.faces ?? facesFromLibrary(library) };
+  if (command.type === "batch" && command.commands.some((item) => SPEECH_COMMANDS.has(item.type))) {
+    return { ...command, commands: command.commands.map((item) => (SPEECH_COMMANDS.has(item.type) ? withLibraryInputs(item, library) as typeof item : item)) };
   }
   if (command.type !== "hook") return command;
   const known = hookInputsFromLibrary(library);

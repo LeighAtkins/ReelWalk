@@ -2,6 +2,8 @@ import React from "react";
 import {
   AbsoluteFill,
   Audio,
+  continueRender,
+  delayRender,
   Freeze,
   Html5Video,
   Img,
@@ -17,7 +19,7 @@ import {
 // OffthreadVideo here, and it falls back to it for files it cannot decode.
 import { Video as RenderVideo } from "@remotion/media";
 import { TransitionSeries } from "@remotion/transitions";
-import { behindInPlane, BRAND_FONTS, calloutGeometry, calloutSvg, cameraAt, colorMatchFilterId, colorMatrixValues, countUpText, duckGain, evaluateTitle, flareCss, framePlan, mediaWindow, glintLetter, glintSvg, INSTAGRAM, isInstagramMusic, kineticProgress, matrix3d, particleField, particleSvg, personLayerOpacity, REEL_FORMAT, sceneLayers, SFX_DUCK, SFX_SOUNDS, sfxAssetKey, sfxEndMs, sfxGainAt, shineAt, shineBandCss, shineSpec, slideFromBehind, speechWindows, TITLE_LEADING, timelineDurationMs, titleArrival, walkInto, wrapTitleLines, wordReveal, type Clip, type Logo, type ParticleField, type PersonPass, type Plan, type SfxClip, type ShineFlare, type ShineGlint, type TextOverlay, type Timeline } from "@reelwalk/core";
+import { behindInPlane, BRAND_FONTS, calloutGeometry, calloutSvg, cameraAt, captionWordAt, colorMatchFilterId, colorMatrixValues, countUpText, duckGain, evaluateTitle, flareCss, framePlan, mediaWindow, glintLetter, glintSvg, INSTAGRAM, isInstagramMusic, kineticProgress, matrix3d, particleField, particleSvg, personLayerOpacity, REEL_FORMAT, sceneLayers, SFX_DUCK, SFX_SOUNDS, sfxAssetKey, sfxEndMs, sfxGainAt, shineAt, shineBandCss, shineSpec, slideFromBehind, speechWindows, TITLE_LEADING, timelineDurationMs, titleArrival, walkInto, wrapTitleLines, wordReveal, type Clip, type Logo, type ParticleField, type PersonPass, type Plan, type SfxClip, type ShineFlare, type ShineGlint, type TextOverlay, type Timeline } from "@reelwalk/core";
 import { layoutMeasure } from "./measure";
 import { textExit, titleFont } from "./title-motion";
 import { revealStyle } from "./toolbox/title-reveal";
@@ -29,7 +31,7 @@ import { clipPresentation } from "./presentation";
 import { clipSpans, mediaHandles, planCuts, type CutPlan } from "./transition-plan";
 import { AtCuts, presentationOf, timingOf } from "./transitions";
 import { useFontsFor } from "./fonts";
-import { clipFilterCss, ELEGANT_FADE_S, FILTER_GRADES, textTreatmentCss, whiteBalanceId, whiteBalanceValues } from "./look";
+import { clipFilterCss, ELEGANT_FADE_S, FILTER_GRADES, textFillCss, textTreatmentCss, whiteBalanceId, whiteBalanceValues } from "./look";
 import { DetailsCardView } from "./DetailsCardView";
 import { EndCardView } from "./EndCardView";
 import { PanoView } from "./PanoView";
@@ -246,7 +248,8 @@ function textMotion(text: TextOverlay, frame: number, fps: number, durationInFra
     case "fadeQuick":
     case "maskUp":
     case "trackIn":
-    case "blurIn": {
+    case "blurIn":
+    case "blurQuick": {
       // The toolbox's quiet reveals (ADR 0082): the fade and the settle here; tracking, blur and the mask on the face (RevealFace).
       const reveal = revealStyle(animation, frame, fps, durationInFrames);
       return { ...still, opacity: reveal.opacity, rise: reveal.offsetY / 40 };
@@ -345,6 +348,8 @@ function glinted(str: string, offset: number, glints: Map<number, ShineGlint>, c
  */
 const MotionLetters: React.FC<{ text: TextOverlay; titleMs: number; face: React.CSSProperties; written: string | null; aspect: number }> = ({ text, titleMs, face, written, aspect }) => {
   const kinetic = text.kinetic;
+  // A caption track (ADR 0089): only the word being said, centred where the title is; nothing between words.
+  if (kinetic?.preset === "caption") return <>{captionWordAt(text.text, kinetic, titleMs) ?? ""}</>;
   const progress = kinetic ? kineticProgress(kinetic, titleMs) : 1;
   // A string drawn over a hidden copy of the whole text: the count, or the typewriter's written part.
   const replaced = kinetic?.preset === "count" ? countUpText(text.text, progress) : kinetic?.preset === "words" ? null : written;
@@ -418,14 +423,36 @@ const PassFade: React.FC<{ pass: PersonPass; from: number; children: (active: bo
   return <AbsoluteFill style={{ pointerEvents: "none", opacity }}>{children(opacity > 0)}</AbsoluteFill>;
 };
 
-const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline: Timeline; from: number }> = ({ text, durationInFrames, timeline, from }) => {
+/**
+ * Holds the frame until a keyword's picture fill (ADR 0089) has loaded, so the export never captures letters with an
+ * empty fill. In the Player it resolves as soon as the picture is in.
+ */
+function useFillImage(src: string | undefined): void {
+  const [handle] = React.useState(() => (src ? delayRender(`Loading the fill of a title: ${src.slice(0, 60)}`) : null));
+  React.useEffect(() => {
+    if (!src || handle === null) return;
+    const image = new Image();
+    let released = false;
+    const done = () => { if (!released) { released = true; continueRender(handle); } };
+    image.onload = done;
+    image.onerror = done;
+    image.src = src;
+    return done;
+  }, [src, handle]);
+}
+
+const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline: Timeline; from: number; assets: Record<string, ReelAsset> }> = ({ text, durationInFrames, timeline, from, assets }) => {
   const frame = useCurrentFrame();
   const { fps, width, height } = useVideoConfig();
   const css = textTreatmentCss(text);
   // A count-up draws tabular figures (ADR 0061): measured the same way, so its fit leaves room for the widest number.
   const font = titleFont(text, css);
   // Hooks first: a pinned title on another clip returns nothing, but only after every hook has run (React 300 otherwise).
-  const fontsReady = useFontsFor(text.text, Number(css.fontWeight ?? 600), text.brand ? [BRAND_FONTS[text.brand.font].family] : undefined);
+  const fontsReady = useFontsFor(text.text, Number(css.fontWeight ?? 600), text.brand ? [BRAND_FONTS[text.brand.font].family] : undefined, Boolean(text.italic));
+  // A picture fill (ADR 0089) comes from the library like any other picture; the frame waits for it.
+  const fillAsset = text.fill?.kind === "image" ? assets[text.fill.assetId] : undefined;
+  const fillSrc = fillAsset?.kind === "IMAGE" ? resolveSrc(fillAsset.src) : undefined;
+  useFillImage(fillSrc);
   // Measured with Remotion's measureText once the faces are in (ADR 0083); the frame is held until then.
   const measure = layoutMeasure(fontsReady);
   // Word-by-word and from-behind type bring the words in themselves but keep the way out (an elegant fade) (ADR 0061);
@@ -441,7 +468,7 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
   if (placement.kind === "hidden") return null;
   // A kit style's forward lean (ADR 0078) is a skewX on the face; the placements below set a transform of their own, so they append it.
   const lean = typeof css.transform === "string" ? ` ${css.transform}` : "";
-  const face = { ...css, ...(text.depth === "extruded" ? { textShadow: extrudedShadow(text.color, font.fontSize), WebkitTextStroke: `${Math.max(0.5, font.fontSize * 0.01)}px rgba(0,0,0,0.35)` } : {}) };
+  const face = { ...css, ...(text.depth === "extruded" ? { textShadow: extrudedShadow(text.color, font.fontSize), WebkitTextStroke: `${Math.max(0.5, font.fontSize * 0.01)}px rgba(0,0,0,0.35)` } : {}), ...textFillCss(text.fill, fillSrc) };
   const visible = opacity * placement.opacity;
   // The typewriter keeps the full text in place, invisible, so the box never changes size while it writes.
   const written = chars === null ? text.text : text.text.slice(0, chars);
@@ -743,7 +770,7 @@ export const ReelComposition: React.FC<ReelProps> = ({ timeline, assets, waterma
           const { text, from, durationInFrames } = layer;
           return (
             <Sequence key={text.id} from={from} durationInFrames={durationInFrames} name={`text ${text.text.slice(0, 12)}`}>
-              {text.style === "location" ? <LocationLowerThird text={text} /> : <TextView text={text} durationInFrames={durationInFrames} timeline={timeline} from={from} />}
+              {text.style === "location" ? <LocationLowerThird text={text} /> : <TextView text={text} durationInFrames={durationInFrames} timeline={timeline} from={from} assets={assets} />}
             </Sequence>
           );
         }

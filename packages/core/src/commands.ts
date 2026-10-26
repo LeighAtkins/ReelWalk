@@ -31,6 +31,7 @@ import { matchLook, type ColorStats } from "./look";
 import { attachedAnchors, retimeTexts } from "./text-timing";
 import { placementProblem, surfacePatch, type SurfacePick, type TitleOnSurface } from "./surface-place";
 import { speechSync } from "./wall-text";
+import { composeKeywordLockups, type LockupOptions } from "./keyword-lockup";
 import type { TranscriptWord } from "./transcript";
 import {
   clipDurationMs,
@@ -160,6 +161,15 @@ export type Command =
    * size and spacing it has). Use `dryRun` on the route to see the result first.
    */
   | { type: "applyTextStyle"; textId: string; style: string | null }
+  /**
+   * Keyword lockups from the clips' speech (ADR 0089): per spoken phrase one huge keyword behind the presenter's head
+   * and the other words in a one-word caption track, timed to the words. `keywords` names the words to use (a phrase
+   * that says none gets the default pick, or none with `keywordsOnly`); `capHeight` 0.05–0.14 (default 0.085); `fill`
+   * a gradient or picture for the keyword; `cta` a closing keyword after the last phrase; `brandStyle` a brand kit
+   * style for the keyword's face. Composing again replaces the lockups on those clips; `remove: true` takes every
+   * lockup off. The HTTP commands route fills in `speech` and `faces`; send it with `dryRun` to see the picks first.
+   */
+  | ({ type: "composeKeywordLockup"; brandStyle?: string; remove?: boolean } & Omit<LockupOptions, "speech"> & { speech?: LockupOptions["speech"] })
   /** One clip's look (a camera move, zoom, grade, fit, transition; the retention critic's fixes, ADR 0071). Not its timing: `setSpeed` and `trimClip` change the cut. */
   | { type: "updateClip"; clipId: string; patch: Omit<ClipSettings, "speed"> }
   /**
@@ -197,7 +207,7 @@ export type BatchableCommand = Exclude<Command, { type: "applyProposal" } | { ty
 const COMMAND_TYPE_REGISTRY: Record<Command["type"], true> = {
   trimClip: true, moveClip: true, splitClip: true, deleteClip: true, duplicateClip: true, setSpeed: true, setMusic: true, snapToBeat: true, pace: true, setOnBeat: true,
   retime: true, retimeToLength: true, insertPresenterTakes: true, cutaways: true, applyFinish: true, hook: true, applyProposal: true,
-  setRamp: true, setCamera: true, applyMove: true, matchCuts: true, setTransition: true, updateText: true, placeOnSurface: true, syncTextToSpeech: true, applyTextStyle: true, updateClip: true, matchLook: true, addText: true,
+  setRamp: true, setCamera: true, applyMove: true, matchCuts: true, setTransition: true, updateText: true, placeOnSurface: true, syncTextToSpeech: true, applyTextStyle: true, composeKeywordLockup: true, updateClip: true, matchLook: true, addText: true,
   autoSfx: true, setSfx: true, dropOnCut: true, setEndCard: true, batch: true,
 };
 /** The type of every command, in registry order. */
@@ -416,6 +426,19 @@ function run(timeline: Timeline, command: Command, context: CommandContext): Tim
       const resolved = resolveTextStyle(context.brandKit, command.style);
       if (!resolved.ok) throw new Error(resolved.message);
       return updateText(timeline, command.textId, resolved.patch);
+    }
+    case "composeKeywordLockup": {
+      if (command.remove) return { ...timeline, texts: timeline.texts.filter((text) => !text.lockup) };
+      if (!command.speech) throw new Error("composeKeywordLockup needs the clips' transcripts: send it to POST /api/reels/:id/commands, which reads them from the library, or pass speech yourself.");
+      const composed = composeKeywordLockups(timeline, { ...command, speech: command.speech });
+      if (!command.brandStyle) return composed;
+      // A kit style (ADR 0078) gives the keyword its face, colour and shadow; the lockup keeps its own size and place.
+      if (!context.brandKit) throw new Error("This workspace has no brand kit, so there are no named text styles to apply. A kit is added to a workspace by its admin.");
+      const resolved = resolveTextStyle(context.brandKit, command.brandStyle);
+      if (!resolved.ok) throw new Error(resolved.message);
+      // A kit style is set on the plain style, whose base size is the elegant serif's ÷ 0.7 (look.ts): the same px.
+      const restyle = (text: TextOverlay) => ({ ...resolved.patch, size: text.size * 0.7, weight: undefined });
+      return composed.texts.reduce((current, text) => (text.lockup?.role === "keyword" && !timeline.texts.includes(text) ? updateText(current, text.id, restyle(text)) : current), composed);
     }
     case "updateClip": {
       if (!timeline.clips.some((clip) => clip.id === command.clipId)) throw new Error(`There is no clip called ${command.clipId} in the reel.`);

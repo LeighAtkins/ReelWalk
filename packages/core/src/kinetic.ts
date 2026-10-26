@@ -52,9 +52,31 @@ export const KINETIC_PRESET: Record<KineticPreset, { startMs: number; durationMs
   words: { startMs: 0, durationMs: 900 },
   behind: { startMs: 0, durationMs: 900 },
   count: { startMs: 150, durationMs: 1200 },
+  caption: { startMs: 0, durationMs: 1500 },
 };
 
-export const KINETIC_LABELS: Record<KineticPreset, string> = { words: "Word by word", behind: "From behind", count: "Count up" };
+export const KINETIC_LABELS: Record<KineticPreset, string> = { words: "Word by word", behind: "From behind", count: "Count up", caption: "One word at a time" };
+
+/**
+ * "caption" (ADR 0089): the one word on screen on this frame, or null between words. Each word is cut on at its
+ * arrival (`wordsMs`, else evenly over `durationMs`) and replaces the word before; it goes at its `wordsOffMs` when it
+ * has one, else when the next word arrives; the last word stays to the title's end. Hard cuts, no fade: the caption
+ * words of the owner's reference reel 3 (measured 2026-10-26) cut on and off.
+ */
+export function captionWordAt(text: string, spec: KineticSpec, titleMs: number): string | null {
+  const words = text.split(/\s+/).filter(Boolean);
+  if (!words.length) return null;
+  const { startMs, durationMs } = kineticTiming(spec);
+  const timed = spec.wordsMs && spec.wordsMs.length === words.length ? spec.wordsMs : null;
+  const step = words.length > 1 ? durationMs / words.length : 0;
+  const on = (i: number) => (timed ? timed[i] : startMs + i * step);
+  let index = -1;
+  for (let i = 0; i < words.length; i++) if (titleMs >= on(i)) index = i;
+  if (index < 0) return null;
+  const off = spec.wordsOffMs && spec.wordsOffMs.length === words.length ? spec.wordsOffMs[index] : undefined;
+  if (off !== undefined && off > on(index) && titleMs >= off) return null;
+  return words[index];
+}
 
 /** How long one word takes to arrive in "words". */
 export const WORD_ARRIVE_MS = 420;

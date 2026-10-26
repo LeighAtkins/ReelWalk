@@ -1,4 +1,4 @@
-import type { Command } from "@reelwalk/core";
+import { describeLockups, type Command } from "@reelwalk/core";
 import { getSessionUser } from "@/lib/auth";
 import { COMMAND_SHAPE as SHAPE, MAX_COMMANDS, inBatch, isCommand } from "@/lib/command-types";
 import { applyReelCommand, loadReel } from "@/lib/reel-command";
@@ -33,6 +33,11 @@ export const dynamic = "force-dynamic";
  * `syncTextToSpeech { textId, clipId?, holdMs?, leadMs? }` (ADR 0084) times a title to the words it repeats in the clip
  * under it: it appears with the first word, each word arrives as it is said, and it fades `holdMs` after the last.
  * The transcripts are read from the library here.
+ *
+ * `composeKeywordLockup { clipIds?, keywords?, keywordsOnly?, capHeight?, fill?, cta?, brandStyle?, remove? }` (ADR 0089)
+ * turns the clips' speech into keyword lockups: per phrase a huge serif keyword behind the presenter's head and the
+ * other words in a one-word caption track. The transcripts and the presenter's face boxes are read from the library
+ * here; the answer carries `lockups` (each phrase's keyword, place and caption words), with `dryRun` too.
  */
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const site = request.headers.get("sec-fetch-site");
@@ -68,5 +73,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const outcome = await applyReelCommand(user, loaded, command, revision, { dryRun });
   if (!outcome.ok) return Response.json({ ok: false, message: outcome.message, changes: outcome.result?.changes ?? [] }, { status: outcome.status });
   const { timeline, changes, warning } = outcome.result;
-  return Response.json({ ok: true, dryRun, revision: outcome.revision, changes, warning: warning ?? null, opening: timeline.opening ?? null, timeline, ...(surfaces.reports.length ? { surfaces: surfaces.reports } : {}) });
+  const lockups = command.type === "composeKeywordLockup" || (command.type === "batch" && command.commands.some((item) => item.type === "composeKeywordLockup"));
+  return Response.json({ ok: true, dryRun, revision: outcome.revision, changes, warning: warning ?? null, opening: timeline.opening ?? null, timeline, ...(surfaces.reports.length ? { surfaces: surfaces.reports } : {}), ...(lockups ? { lockups: describeLockups(timeline) } : {}) });
 }

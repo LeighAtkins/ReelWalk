@@ -6,6 +6,7 @@ import {
   aiClipCostCents,
   aiClipCredits,
   COMMAND_TYPES,
+  describeLockups,
   canExport,
   describeBrandKit,
   clipStartsMs,
@@ -466,6 +467,7 @@ const COMMAND_SHEET = [
   "setEndCard{endCard:{text,durationMs 1000-5000,reveal:cut|leak}|null}",
   "applyTextStyle{textId,style:<kit style name>|null}",
   "syncTextToSpeech{textId,clipId?,holdMs?} (the title appears with the first word it repeats from the clip's speech, each word as it is said, and fades after the last)",
+  "composeKeywordLockup{clipIds?,keywords?:[word],keywordsOnly?,capHeight? 0.05-0.14,fill?:{kind:gradient,colors:[#hex x2-4],angle?}|{kind:image,assetId},cta?:{keyword,caption?},brandStyle?,remove?} (talking-head type from the clips' speech, ADR 0089: per phrase one huge white serif keyword behind the presenter's head, the other words a one-word-at-a-time caption under her chin, each on its spoken onset, and a dryRun answers `lockups` with the picks and places)",
   "setRamp{clipId,ramp}",
   "setCamera{clipId,camera}",
   "cutaways{everyMs|null}",
@@ -516,6 +518,8 @@ const applyCommands: ToolSpec = {
       durationMs: timelineDurationMs(timeline),
       clipCount: timeline.clips.length,
       opening: timeline.opening ?? null,
+      // A keyword lockup (ADR 0089) answers with its picks and places, so a dry run shows them without the whole timeline.
+      ...(accepted.some((item) => (item as Command).type === "composeKeywordLockup") ? { lockups: describeLockups(timeline) } : {}),
       ...(returnTimeline ? { timeline } : {}),
     });
   },

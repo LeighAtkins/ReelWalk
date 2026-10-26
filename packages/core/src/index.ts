@@ -69,6 +69,7 @@ export * from "./surface-finder";
 export * from "./surface-regions";
 export * from "./surface-place";
 export * from "./wall-text";
+export * from "./keyword-lockup";
 export * from "./surface-track";
 export * from "./view";
 export * from "./ducking";

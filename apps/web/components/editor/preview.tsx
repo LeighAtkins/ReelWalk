@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Player, type PlayerRef } from "@remotion/player";
 import { prefetch } from "remotion";
-import { calloutAnchorAt, compositionScale, emptyTimeline, INSTAGRAM, mapPoints, minTextSize, onScreenAt, pinnedProgress, PLANAR_MAX_WIDTH, planeFrame, planeMotion, REEL_FORMAT, stageRect, stackTitles, STILL_PLANE, storedFraction, TEXT_SIZE_MAX, textsAt, textPositionAt, textQuadAt, tapSourceMs, viewportToComposition, type PlaneMotion, type TextOverlay, type Timeline, type ViewportRect, type XY } from "@reelwalk/core";
+import { calloutAnchorAt, compositionScale, emptyTimeline, INSTAGRAM, mapPoints, minTextSize, onScreenAt, pinnedProgress, PLANAR_MAX_WIDTH, planeFrame, planeMotion, REEL_FORMAT, stageRect, stackTitles, STILL_PLANE, storedFraction, maxTextSize, textsAt, textPositionAt, textQuadAt, tapSourceMs, viewportToComposition, type PlaneMotion, type TextOverlay, type Timeline, type ViewportRect, type XY } from "@reelwalk/core";
 import { ReelComposition, reelDurationInFrames, textTreatmentCss, type ReelAsset } from "@reelwalk/render/reel";
 import { timelineFrames } from "./frame-service";
 import { pinnedLineFit } from "./title-metrics";
@@ -497,7 +497,7 @@ function TextHandle({
         };
         if (event.key === "+" || event.key === "=" || event.key === "-") {
           event.preventDefault();
-          onResize(clamp(Math.round((text.size + (event.key === "-" ? -0.1 : 0.1)) * 20) / 20, minTextSize(text.style), TEXT_SIZE_MAX), `size-${text.id}`);
+          onResize(clamp(Math.round((text.size + (event.key === "-" ? -0.1 : 0.1)) * 20) / 20, minTextSize(text.style), maxTextSize(text)), `size-${text.id}`);
           return;
         }
         const move = moves[event.key];
@@ -520,7 +520,7 @@ function TextHandle({
           const size = text.size;
           const gesture = `drag:size-${text.id}:${Date.now()}`;
           const move = (e: PointerEvent) =>
-            onResize(clamp(Math.round(((size * Math.hypot(e.clientX - cx, e.clientY - cy)) / from) * 20) / 20, minTextSize(text.style), TEXT_SIZE_MAX), gesture);
+            onResize(clamp(Math.round(((size * Math.hypot(e.clientX - cx, e.clientY - cy)) / from) * 20) / 20, minTextSize(text.style), maxTextSize(text)), gesture);
           const end = () => {
             window.removeEventListener("pointermove", move);
             window.removeEventListener("pointerup", end);

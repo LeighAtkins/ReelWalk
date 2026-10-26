@@ -301,8 +301,13 @@ export function wrapTitleLines(text: string, font: TitleFont, measure: Measure, 
  * box is the whole column however short the lines. Lines times the leading
  * plus the padding for the height.
  */
-export function screenTitleExtent(text: Pick<TextOverlay, "text" | "style">, font: TitleFont, measure: Measure, wrap: ScreenPlacement["wrap"]): { width: number; height: number; lines: string[]; column: boolean } {
+export function screenTitleExtent(text: Pick<TextOverlay, "text" | "style"> & { kinetic?: TextOverlay["kinetic"] }, font: TitleFont, measure: Measure, wrap: ScreenPlacement["wrap"]): { width: number; height: number; lines: string[]; column: boolean } {
   const pad = titlePaddingPx(text, font);
+  // A caption track (ADR 0089) shows one word at a time: its box is its widest word on one line.
+  if (text.kinetic?.preset === "caption") {
+    const words = text.text.split(/\s+/).filter(Boolean);
+    return { width: Math.max(...words.map((word) => measure(word, font).width)) + 2 * pad.x, height: font.fontSize * TITLE_LEADING + 2 * pad.y, lines: words, column: false };
+  }
   const typed = text.text.split("\n");
   const widestTyped = Math.max(...typed.map((line) => measure(line || " ", font).width));
   const wraps = wrap.mode === "wrap" && widestTyped + 2 * pad.x > wrap.width;
@@ -328,9 +333,11 @@ export const TITLE_WRAP_WIDTH = 0.86;
  *     fits; and its centre moves in just far enough to keep the box inside the frame. A title that already fits is
  *     returned unchanged, so saved reels that drew correctly draw the same.
  */
-export function fitScreenTitle(text: Pick<TextOverlay, "text" | "style">, font: TitleFont, measure: Measure, center: ScenePoint, scale: number, width: number): { wrap: ScreenPlacement["wrap"]; scale: number; center: ScenePoint } {
+export function fitScreenTitle(text: Pick<TextOverlay, "text" | "style"> & { kinetic?: TextOverlay["kinetic"] }, font: TitleFont, measure: Measure, center: ScenePoint, scale: number, width: number): { wrap: ScreenPlacement["wrap"]; scale: number; center: ScenePoint } {
   const pad = titlePaddingPx(text, font);
-  const sentence = /\s/.test(text.text);
+  // A caption track (ADR 0089) is one word at a time: fitted as its widest word, never as the phrase.
+  const caption = text.kinetic?.preset === "caption";
+  const sentence = /\s/.test(text.text) && !caption;
   let wrap: ScreenPlacement["wrap"];
   let box: number;
   if (sentence) {
@@ -339,7 +346,7 @@ export function fitScreenTitle(text: Pick<TextOverlay, "text" | "style">, font: 
     box = screenTitleExtent(text, font, measure, wrap).width;
   } else {
     wrap = { mode: "line", maxWidth: width * 1.4 };
-    box = Math.max(...text.text.split("\n").map((line) => measure(line || " ", font).width)) + 2 * pad.x;
+    box = Math.max(...(caption ? text.text.split(/\s+/).filter(Boolean) : text.text.split("\n")).map((line) => measure(line || " ", font).width)) + 2 * pad.x;
   }
   const room = width * TITLE_MAX_WIDTH;
   const fitted = box * scale > room ? room / box : scale;

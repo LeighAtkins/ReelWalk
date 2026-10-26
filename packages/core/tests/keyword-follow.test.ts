@@ -57,6 +57,12 @@ describe("followPaths", () => {
     expect(b![0].x).toBeGreaterThan(0.01);
   });
 
+  it("never writes an offset outside the path schema's ±0.5, however far the face goes (round-1 review)", () => {
+    const wide = { dx0: -0.9, dx1: 0.9, dy0: -0.9, dy1: 0.9 };
+    const [path] = followPaths(times, times.map((_, i) => ({ x: i * 0.02, y: -i * 0.02 })), [{ startMs: 0, endMs: 2000, room: wide }]);
+    for (const p of path!) { expect(Math.abs(p.x)).toBeLessThanOrEqual(0.5); expect(Math.abs(p.y)).toBeLessThanOrEqual(0.5); }
+  });
+
   it("leaves a group that hardly moves without a path", () => {
     expect(followPaths(times, times.map(() => ({ x: 0.0005, y: 0 })), [{ startMs: 0, endMs: 2000, room }])).toEqual([undefined]);
   });

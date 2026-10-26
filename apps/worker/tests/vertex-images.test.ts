@@ -99,6 +99,18 @@ describe("presenter kit compose (ADR 0056)", () => {
     expect(images[1].data).toBe("face");
     expect(execute.mock.calls[0][1].join(" ")).toContain("crop=422:422:275:432,scale=768:768");
   });
+  it("keeps the verdict and the first box when the second look finds no face, and skips it for a different person", async () => {
+    png();
+    const fetcher = vi.fn().mockResolvedValueOnce(answer({ box_2d: [300, 400, 400, 500] })).mockResolvedValueOnce(answer(match)).mockResolvedValueOnce(answer({ box_2d: null }));
+    vi.stubGlobal("fetch", fetcher);
+    const verdict = await new VertexImages("test-project").checkIdentity(composite, face);
+    expect(verdict.samePerson).toBe(true);
+    expect(verdict.locate![0].refined).toBeUndefined();
+    const other = vi.fn().mockResolvedValueOnce(answer({ box_2d: [300, 400, 400, 500] })).mockResolvedValueOnce(answer({ ...match, samePerson: false, confidence: 0.1 }));
+    vi.stubGlobal("fetch", other);
+    await new VertexImages("test-project").checkIdentity(composite, face);
+    expect(other).toHaveBeenCalledTimes(2);
+  });
   it("a crop that shows no face is a missed locate, not a different person: it locates again in pixels", async () => {
     png();
     // cmvi32byk: a box that is face-shaped but lands on her coat (pixels read as the grid), then the pixel answer.

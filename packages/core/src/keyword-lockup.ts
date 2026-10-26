@@ -379,8 +379,9 @@ export type FollowMember = { startMs: number; endMs: number; room: Room };
  */
 export function followPaths(times: readonly number[], targets: readonly { x: number; y: number }[], members: readonly FollowMember[]): (NonNullable<TextOverlay["path"]> | undefined)[] {
   if (times.length < 2 || !members.length) return members.map(() => undefined);
-  const dx0 = Math.min(0, Math.max(...members.map((m) => m.room.dx0))), dx1 = Math.max(0, Math.min(...members.map((m) => m.room.dx1)));
-  const dy0 = Math.min(0, Math.max(...members.map((m) => m.room.dy0))), dy1 = Math.max(0, Math.min(...members.map((m) => m.room.dy1)));
+  // Inside every member's room, and inside the path schema's ±0.5 offsets.
+  const dx0 = Math.max(-0.5, Math.min(0, Math.max(...members.map((m) => m.room.dx0)))), dx1 = Math.min(0.5, Math.max(0, Math.min(...members.map((m) => m.room.dx1))));
+  const dy0 = Math.max(-0.5, Math.min(0, Math.max(...members.map((m) => m.room.dy0)))), dy1 = Math.min(0.5, Math.max(0, Math.min(...members.map((m) => m.room.dy1))));
   const step = times.length > 1 ? times[1] - times[0] : FOLLOW_STEP_MS;
   const xs = criticallyDamped(targets.map((t) => clamp(t.x, dx0, dx1)), step).map((x) => clamp(x, dx0, dx1));
   const ys = criticallyDamped(targets.map((t) => clamp(t.y, dy0, dy1)), step).map((y) => clamp(y, dy0, dy1));

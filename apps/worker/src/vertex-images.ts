@@ -5,7 +5,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { FACE_CROP_PX, feetInFrame, framingInstruction, type PresenterFraming } from "@reelwalk/core";
 import { VertexError, vertexAuth, type AwsCredentials } from "./vertex-video";
-import { FIND_FACE_PROMPT, IDENTITY_PROMPT, boxFromCrop, refineCropRect, IDENTITY_RESPONSE_SCHEMA, MIN_GATE_FACE_PX, compareVerdictSchema, cropFacePng, faceCropRect, findFacePixelsPrompt, plausibleFace, readLocate, type IdentityVerdict, type LocateAttempt, type Located } from "./identity";
+import { FIND_FACE_PROMPT, IDENTITY_MIN_CONFIDENCE, IDENTITY_PROMPT, boxFromCrop, refineCropRect, IDENTITY_RESPONSE_SCHEMA, MIN_GATE_FACE_PX, compareVerdictSchema, cropFacePng, faceCropRect, findFacePixelsPrompt, plausibleFace, readLocate, type IdentityVerdict, type LocateAttempt, type Located } from "./identity";
 
 const run = promisify(execFile);
 
@@ -178,7 +178,7 @@ export class VertexImages {
       // A crop with no face means the box missed her, not that she is someone else: never score it as identity.
       if (!verdict.faceVisible) { attempt.rejected = "face-not-in-crop"; continue; }
       // Where the face really is, for placing type on the take (ADR 0089 round 3); best effort, never part of the verdict.
-      const refined = await this.refineFace(bytes, located.box, size, model).catch(() => null);
+      const refined = verdict.samePerson && verdict.confidence >= IDENTITY_MIN_CONFIDENCE ? await this.refineFace(bytes, located.box, size, model).catch(() => null) : null;
       if (refined) attempt.refined = refined;
       return { samePerson: verdict.samePerson, confidence: verdict.confidence, eyesAndMouthRendered: verdict.eyesAndMouthRendered, faceHeightPx: rect.faceHeightPx, locate };
     }

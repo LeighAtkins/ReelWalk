@@ -105,6 +105,16 @@ describe("type sizes on the landing and pricing pages", () => {
 });
 
 describe("the app's shared type", () => {
+  it("globals.css closes every block (a missing brace once nested 400 lines of rules inside one selector)", () => {
+    let depth = 0;
+    for (const ch of globals.replace(/\/\*[\s\S]*?\*\//g, "")) {
+      if (ch === "{") depth++;
+      if (ch === "}") depth--;
+      expect(depth).toBeGreaterThanOrEqual(0);
+    }
+    expect(depth).toBe(0);
+  });
+
   it("the display face is Playfair Display, not the hairline Bodoni", () => {
     expect(globals).toMatch(/--display:\s*"Playfair Display Variable"/);
     expect(globals).not.toMatch(/Bodoni Moda/);

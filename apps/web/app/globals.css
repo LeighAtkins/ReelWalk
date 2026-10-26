@@ -4112,6 +4112,7 @@ input.inspect-scrub {
   min-height: 44px;
   display: flex;
   align-items: center;
+}
 
 /* ── Render checks and the Judge view (ADR 0071) ───────────────── */
 
@@ -4130,7 +4131,7 @@ input.inspect-scrub {
 .verify-title h2,
 .judge-head h2 {
   margin: 0;
-  font-size: 17px;
+  font-size: 22px;
 }
 
 .verify-list {

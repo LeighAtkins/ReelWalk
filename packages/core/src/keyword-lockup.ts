@@ -136,23 +136,25 @@ const STOPWORDS = new Set(("a an the to of on in at by for from with into onto o
 STOPWORDS.delete("done");
 const NUMBER_WORDS = new Set(["one", "once", "two", "twice", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "first", "hundred", "thousand", "million", "billion", "half", "double", "zero", "every"]);
 
+/** The keyword stays this long or more in the reference (reel 3: 0.7–2.6 s from its onset to the cut); shorter reads as a flash. */
+const KEYWORD_HOLD_GOAL_MS = 1500;
+
 /**
  * The default keyword of a phrase: the content word that carries it. A number or a number word first (reel 2's
- * "16,000", "3x"), then the phrase's last content word (English puts the stress there: "listing", "walls"), longer
- * and more drawn-out words ahead of short quick ones. Null when every word is a function word.
+ * "16,000", "3x"), then a word said early enough to hold the screen while the rest of the phrase runs in the captions
+ * (reel 3's keywords are first, second or mid-phrase and hold 0.7–2.6 s; a last word would flash on and off with the
+ * cut), longer and more drawn-out words ahead of short quick ones. Null when every word is a function word.
  */
 export function pickKeyword(phrase: Phrase): number | null {
   const durations = phrase.words.map((word) => Math.max(1, word.endMs - word.startMs) / Math.max(1, normaliseWord(word.text).length));
   const meanPace = durations.reduce((a, b) => a + b, 0) / Math.max(1, durations.length);
-  let lastContent = -1;
-  phrase.words.forEach((word, i) => { if (!STOPWORDS.has(normaliseWord(word.text))) lastContent = i; });
   let best: { index: number; score: number } | null = null;
   phrase.words.forEach((word, i) => {
     const norm = normaliseWord(word.text);
     if (!norm || STOPWORDS.has(norm)) return;
     let score = Math.min(1.2, norm.length * 0.15);
     if (/\d/.test(word.text) || NUMBER_WORDS.has(norm)) score += 1.5;
-    if (i === lastContent) score += 0.8;
+    score += 0.8 * Math.min(1, (phrase.endMs + KEYWORD_HOLD_MS - word.startMs) / KEYWORD_HOLD_GOAL_MS);
     // Drawn out (said more slowly than the phrase's average): emphasis.
     score += Math.max(0, Math.min(1, durations[i] / meanPace - 1));
     // A proper noun mid-sentence ("Utah", "Flinders").
@@ -300,9 +302,9 @@ export function composeKeywordLockups(timeline: Timeline, options: LockupOptions
   const close = lastClip as { index: number; endMs: number; face: Box | null; lastEnd: number } | null;
   if (options.cta && close) {
     const id = `${lockupIdFor(timeline.clips[close.index].id, 99)}`;
-    // The closer takes over from the last phrase's keyword: it starts when that one ends.
-    const previous = added.filter((text) => text.lockup?.role === "keyword").at(-1);
-    const startMs = Math.max(previous ? previous.endMs : close.lastEnd, close.endMs - 4000);
+    // The closer takes over when the last phrase's lockup (its keyword and its captions) has gone.
+    const shown = added.filter((text) => text.endMs <= close.endMs).map((text) => text.endMs);
+    const startMs = Math.max(shown.length ? Math.max(...shown) : close.lastEnd, close.endMs - 4000);
     if (close.endMs - startMs < 500) throw new Error("There is no time after the last phrase for a closing keyword: the last clip ends as she finishes speaking.");
     const word = options.cta.keyword.trim();
     const placed = placeKeyword(word, capHeight, close.face, placements.get(normaliseWord(word)));

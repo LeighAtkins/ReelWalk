@@ -38,8 +38,8 @@ describe("pickKeyword", () => {
     const index = pickKeyword(phrase);
     return index === null ? null : phrase.words[index].text;
   };
-  it("prefers numbers, then the last content word, never a function word", () => {
-    expect(pick("Your words on the walls")).toBe("walls");
+  it("prefers numbers, then a content word said early enough to hold, never a function word", () => {
+    expect(pick("Your words on the walls")).toBe("words");
     expect(pick("filmed once")).toBe("once");
     expect(pick("it costs 16,000 dollars")).toBe("16,000");
     expect(pick("and so it is")).toBeNull();
@@ -76,7 +76,7 @@ describe("composeKeywordLockups", () => {
   const lockups = describeLockups(composed);
 
   it("makes one lockup per phrase, a keyword and a caption track, and keeps other titles", () => {
-    expect(lockups.map((l) => l.keyword)).toEqual(["listing", "once", "beat", "walls", "home"]);
+    expect(lockups.map((l) => l.keyword)).toEqual(["listing", "once", "beat", "words", "done"]);
     expect(lockups[2].captions).toEqual(["One", "reel", "cut", "to", "the"]);
     expect(composed.texts.some((t) => t.id === "mine")).toBe(true);
     expect(composed.texts.every((t) => textSchema.safeParse(t).success)).toBe(true);
@@ -105,6 +105,9 @@ describe("composeKeywordLockups", () => {
     const close = describeLockups(again).at(-1)!;
     expect(close.keyword).toBe("Try it");
     expect(close.endMs).toBe(6250 + 7900);
+    // It starts once the last phrase's keyword and captions are gone: nothing of two lockups shows at once.
+    const last = describeLockups(again).at(-2)!;
+    expect(close.startMs).toBeGreaterThanOrEqual(last.endMs);
   });
 
   it("refuses clips with no speech, and unknown clips", () => {

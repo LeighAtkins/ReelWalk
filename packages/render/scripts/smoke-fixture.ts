@@ -74,8 +74,10 @@ export function smokeTimeline(): Timeline {
     version: 1,
     clips: [
       { id: "c1", assetId: "walk", kind: "VIDEO", sourceStartMs: 0, sourceEndMs: 2500, transitionIn: "cut" },
-      { id: "c2", assetId: "room", kind: "VIDEO", sourceStartMs: 200, sourceEndMs: 2600, transitionIn: "softDissolve", filter: "golden" },
-      { id: "c3", assetId: "photo", kind: "IMAGE", sourceStartMs: 0, sourceEndMs: 2000, motion: "zoom-in", transitionIn: "cut" },
+      { id: "c2", assetId: "room", kind: "VIDEO", sourceStartMs: 200, sourceEndMs: 2600, transitionIn: "cut", filter: "golden" },
+      // A soft dissolve (ADR 0082) into the photo: off the cut where the pinned titles above end, whose on-plane check diffs
+      // stills with and without the title and would read a crossfading video pre-roll as glyphs (see ADR 0082's gaps).
+      { id: "c3", assetId: "photo", kind: "IMAGE", sourceStartMs: 0, sourceEndMs: 2000, motion: "zoom-in", transitionIn: "softDissolve" },
       // The light leak over a hard cut (ADR 0082): WebGL2 in the worker's Chrome.
       { id: "c4", assetId: "walk", kind: "VIDEO", sourceStartMs: 1000, sourceEndMs: 3000, speed: 1.5, zoom: 1.2, transitionIn: "lightLeak" },
       // A 360 photo with its sweep.

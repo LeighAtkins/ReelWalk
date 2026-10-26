@@ -127,8 +127,8 @@ list exactly the offered kinds, and the ask-for-a-change prompt offers no whip, 
 
 **CI.** `packages/render/scripts/qa/render-qa.sh` runs after the worker smoke, report only (job summary): remotion-qa
 `check` on `smoke-out/*.mp4`, and audio-bed-check `bed` on the four ambience beds looped to 20 s (`--min-period 3`).
-The smoke fixture now crosses into its second shot on a soft dissolve and into its fourth on a light leak, so CI
-draws both in the Linux worker's Chrome.
+The smoke fixture now crosses into its third shot (the photo) on a soft dissolve and into its fourth on a light leak,
+so CI draws both in the Linux worker's Chrome (the light leak drew there: WebGL2 works in the worker).
 
 ## Consequences
 
@@ -152,3 +152,10 @@ CI's worker smoke with the dissolve and the glint.
 - remotion-qa's safe-zone check skips any band holding footage (64 of 68 on the owner's reel), so it mostly reports
   "not judged" on full-bleed property video; our own caption-zone rule (ADR 0071) stays the gate.
 - The glint was tuned by eye on two cuts of one reel.
+- A crossfade into a **video** shot that borrows pre-roll from its source: with the soft dissolve on the smoke's second
+  cut, the acceptance harness's on-plane check for the pinned title ending on that cut failed in CI (20,313 of 23,553
+  "glyph" pixels off the plane at frame 74, one frame before the cut). That check diffs a still with the title against
+  one without, so the incoming clip's pre-roll frame apparently differed between two still renders. Preview against
+  export at the same frame matched (SSIM 0.993), so the export itself was consistent; whether a still of a handle frame
+  is deterministic was not settled. ADR 0083's crossfade ("fade") uses the same handles. The fixture now puts the
+  dissolve into the photo shot, which the check passes locally and in CI.

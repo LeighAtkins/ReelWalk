@@ -1,4 +1,4 @@
-# 0082 - The Remotion toolbox: open-source transitions, title reveals and end cards, judged on our footage
+# 0082 - The Remotion toolbox: transitions, title reveals, end cards and a lower third, judged on our footage
 
 Date: 2026-10-26
 
@@ -8,99 +8,147 @@ The owner, 2026-10-26: "before anything we should implement and test more remoti
 simplest way to improve quality before any big pipeline changes." Our render layer was hand-rolled: a dip to black
 for "fade", an SVG-blurred translate for "whip", a 0.6 s fade or a spring pop for titles, one end-card reveal. The
 open-source Remotion ecosystem has grown a lot of this since (Remotion's own `@remotion/transitions` and
-`@remotion/effects`, shadcn-style registries such as onda and remocn, template packs, QA tools).
+`@remotion/effects`, shadcn-style registries such as onda and remocn, template packs, Remotion Elements, QA tools).
 
 The measured house spec (`output/research/reel-editing-2026-10-26.md` §8 in the hybrid checkout) bounds what is
-worth adopting: hard cuts in the best reels, one serif hook sentence on the opening shot that cuts in and out with
-it, a logo end card, no labels, no animated text, no whooshes. So the defaults do not move; new kinds are for the
-"Lively" look and the close, where the owner or an agent asks for them.
+worth adopting: hard cuts in the best reels, one serif hook sentence on the opening shot, a logo end card, no labels,
+no whooshes. So the cut stays the default; the rest is for the "Lively" look and the close.
 
 This ADR builds on the primitives work (ADR 0083: `@remotion/transitions` under every cut, Playfair Display as the
-elegant face, layout-utils text fitting), which turns "fade" into a crossfade and draws the whip as its own presentation in the series.
+elegant face, layout-utils text fitting), which turned "fade" into a crossfade.
 
 ## What was evaluated, and how
 
 Every candidate was drawn on the owner's reel `cmvo10ubf000001ad160ggov8` (Reel 91): its seven source clips, fetched
 from the media bucket, at the reel's own source windows, 1080×1920 (720×1280 proxies, at least one 1080 per group),
-next to what we ship today. The gallery is `output/research/remotion-toolbox/gallery.html` in the hybrid checkout
-(the clips beside it; the harness is `packages/render/scripts/toolbox-gallery/`, kept out of the repo because one
-reference in it is Remotion-License code, see below). Licences were read from each repository's LICENSE file and
-`package.json`.
+next to what we shipped. The gallery is `output/research/remotion-toolbox/gallery.html` in the hybrid checkout (the
+clips beside it; the harness, `packages/render/scripts/toolbox-gallery/`, is kept out of the repo). Licences were
+read from each repository's LICENSE file and `package.json`. The owner then judged the gallery (below).
+
+## The owner's decisions (2026-10-26)
+
+- **Transitions: offer only** the cut (the default; it is "no transition", not a kind), Remotion's crossfade
+  ("fade"), `softDissolve`, `focusPull` and `lightLeak`, the leak toned down to "a glint, not a yellow wash".
+  **Drop** from everything the editor, the asks and the MCP connector offer: our whip, the speed ramp as a transition,
+  the push, the GL linear blur and crosswarp (film burn was never offered).
+- **Title reveals:** keep `fadeQuick`, `maskUp`, `trackIn`, `blurIn`, and make **track-in the elegant style's own
+  arrival** ("track-in title is way better").
+- **End cards:** keep **cut** (now the default) and **leak**; drop the fade (ADR 0065's) and "over the last shot".
+- **Lower third:** replace ours with Remotion Elements' **Location Lower Third**, restyled to the house serif and
+  colours with no plate; delete our old one.
 
 ## Verdicts
 
 | Candidate | Licence | Verdict | Why (one line) |
 |---|---|---|---|
-| `@remotion/transitions` `fade()` (crossfade) | Remotion licence (installed) | adopt (via 0083) | Is ADR 0083's new "fade"; no new kind. |
-| `@remotion/transitions` `slide()` (push) | Remotion licence | no | ADR 0083 measured it as a sharp seam with no blur and kept our whip as its own presentation; no new kind. |
-| onda `morph` → **softDissolve** | MIT (degueba/onda) | adopt | Crossfade with a 3 % breath of scale: the quietest transition that still reads as chosen; CSS, so the phone preview matches. |
+| `@remotion/transitions` `fade()` (crossfade) | Remotion License (installed) | adopt (via 0083) | ADR 0083's "fade"; offered as "Dissolve". |
+| onda `morph` → **softDissolve** | MIT (degueba/onda) | adopt | Crossfade with a 3 % breath of scale; CSS, so the phone preview matches. |
 | remocn `focus-pull` → **focusPull** | MIT (kapishdima/remocn) | adopt | Rack focus through a 12 px blur and a small lift; reads as a lens, not an effect. |
-| `@remotion/effects` `lightLeak()` → **lightLeak** | Remotion licence | adopt | Warm light over a hard cut that stays on its frame; the luxury close and Lively. Needs WebGL2. |
-| `@remotion/transitions` linearBlur, crosswarp, filmBurn (gl-transitions shaders, MIT) | MIT shaders | later / no | HTML-in-canvas: phone Players fall back to a hard cut (preview ≠ export), and on our footage the shader pass re-frames the cover crop; crosswarp and filmBurn are loud. |
-| `@gl-transitions/remotion` 0.1.0 | MIT | later | Same HTML-in-canvas path as above, 0.1.0 vs an unpublished 1.0 that renames every shader; Remotion now ships the ones we would use. |
-| remotion-dev/remotion-gl-transitions | UNLICENSED, no LICENSE | no | 2024 WebGL1 demo on Remotion 4.0.150, superseded by the above. |
-| onda TrackingIn → **trackIn** | MIT | adopt | Letter-spacing closes as it fades up; its spring replaced by an ease-out so it never overshoots. |
-| onda BlurReveal / remocn soft-blur-in → **blurIn** | MIT | adopt | Whole-line blur resolve (not per letter: a dancing serif is off-style). |
-| onda MaskReveal (idea) → **maskUp** | MIT | adopt | The line rises 6 frames through a hard edge, no fade: the editorial reveal. |
-| our own → **fadeQuick** | — | adopt | 200 ms fade: nearly the spec's cut-in, without a hard cut's pop on bright sky. |
-| remocn `mask-reveal-up`, `per-word-crossfade` | MIT | no | Not actually masked (`mask-reveal-up` has no clip); per-word motion is animated text. |
-| reactvideoeditor/remotion-templates (Cinematic, Transition, Intro & Outro, Text) | "MIT" in README only, no LICENSE file | no | Springs at damping 12–15 overshoot; the quiet ones (cross-dissolve, chapter-title) we already have in better form. |
-| av/remotion-bits | MIT in package.json/README, no LICENSE file | no | The npm package hard-depends on three.js; nothing we lack. |
-| ClippKit | MIT | no | Bouncy (sliding/popping text, toasts); nothing restrained. |
-| remotion-dev/light-leak-example | UNLICENSED | no | Superseded by `@remotion/effects` lightLeak (adopted). |
-| remotion-dev/morph-text | UNLICENSED | no | Gooey word morph: novelty. |
-| remotion-dev/typewriter | "component: MIT" | no | We already have `type`; the spec says no animated text. |
-| End card **cut** (hard plate, tracked caps) | our own | adopt | The measured luxury close (5 of 14 end on a logo card, no move). |
-| End card **over** (no plate, blur in over the last wide) | our own, onda EndCard idea | adopt | For a final wide that is the ending; a soft scrim under the line, not a box. |
-| End card **leak** (light leak into the plate) | our own + `@remotion/effects` | adopt | The luxury reveal: the plate is under the light at its peak. |
-| Remotion Elements "Location Lower Third" | Remotion License (repo), not MIT | no | Quiet and well made, but labels are off the measured spec, and the code is not ours to copy as MIT; drawn in the gallery from its curves only. |
-| Remotion Elements "Social Safe Zones" | Remotion License | later | A PNG of the Instagram UI over the frame: a preview aid for the editor, not a gate. |
-| GroMarketing/remotion-qa 0.1.3 | MIT | adopt (CI, report only) | Pace and Reels safe-zone checks on the smoke's MP4; its safe-zone check skips bands over footage, so it cannot block. |
-| oo-pibe/audio-bed-check 0.1.0 | MIT | adopt (CI, report only) | Found that every bundled ambience bed is an exact 4 s loop; flags music as "looping" too, so beds only. |
+| `@remotion/effects` `lightLeak()` → **lightLeak** | Remotion License | adopt, toned | A 40 % amber glint over a hard cut that stays on its frame; never opened to a full-frame wash. Needs WebGL2. |
+| Our whip pan (ADR 0028/0083) | ours | retired | The owner dropped it. |
+| Speed ramp as a transition (ADR 0073/0074) | ours | retired | The owner dropped it; its in-clip speed plan had no other way in, so it went too. |
+| `@remotion/transitions` `slide()` (push) | Remotion License | no | Dropped by the owner (and ADR 0083 measured it as a sharp seam). |
+| `@remotion/transitions` linearBlur, crosswarp, filmBurn (gl-transitions shaders) | MIT shaders | no | Dropped; also HTML-in-canvas (phone Players fall back to a cut) and they re-frame the cover crop. |
+| `@gl-transitions/remotion` 0.1.0 | MIT | no | Same HTML-in-canvas path; the owner kept no shader transition. |
+| remotion-dev/remotion-gl-transitions | UNLICENSED | no | 2024 WebGL1 demo, superseded. |
+| onda TrackingIn → **trackIn** | MIT | adopt, default for elegant | Letter-spacing closes as it fades up, eased out (no overshoot). |
+| onda BlurReveal / remocn soft-blur-in → **blurIn** | MIT | adopt | Whole-line blur resolve. |
+| onda MaskReveal (idea) → **maskUp** | MIT | adopt | Rises 6 frames through a hard edge, no fade. |
+| our own → **fadeQuick** | — | adopt | 200 ms fade. |
+| remocn `mask-reveal-up`, `per-word-crossfade` | MIT | no | Not actually masked; per-word motion is animated text. |
+| reactvideoeditor/remotion-templates | "MIT" in README only, no LICENSE file | no | Springs overshoot; nothing quieter than what we have. |
+| av/remotion-bits | MIT in package.json, no LICENSE file | no | Hard dependency on three.js; nothing we lack. |
+| ClippKit | MIT | no | Bouncy. |
+| remotion-dev/light-leak-example, morph-text, typewriter | UNLICENSED / UNLICENSED / "MIT" | no | Superseded / novelty / we have "type". |
+| End card **cut** | ours | adopt, default | The measured luxury close. |
+| End card **leak** | ours + `lightLeak()` | adopt | The glint peaks on the plate's first frame and is gone 6 frames in. |
+| End card fade (ADR 0065), "over" | ours | retired | Dropped by the owner; saved ones read as "cut". |
+| Remotion Elements **Location Lower Third** | Remotion License | adopt | New title style `location`, restyled; see the licence note. |
+| Remotion Elements Social Safe Zones | Remotion License | later | A PNG of the Instagram UI: an editor preview aid, not a gate. |
+| GroMarketing/remotion-qa 0.1.3 | MIT | adopt (CI, report only) | Pace and Reels safe-zone checks on the smoke's MP4. |
+| oo-pibe/audio-bed-check 0.1.0 | MIT | adopt (CI, report only) | Loop and level-step checks on the ambience beds. |
+
+**Licence note (Remotion Elements).** Elements are published in the Remotion repository under the Remotion License,
+not MIT. Its free tier covers "a for-profit organization with up to 3 employees", for creating videos, commercially
+too, and allows modifying the code for that use; it disallows selling a derivative of Remotion itself. ReelWalk is a
+one-person company, so the owner holds the free licence, as for Remotion itself. The adapted component
+(`packages/render/src/reel/toolbox/LocationLowerThird.tsx`) says where it came from. If the company grows past three
+people, a Remotion company licence covers this file along with the rest of Remotion.
 
 ## Decision
 
-New values of the existing kinds. Nothing saved changes meaning; every default stays (cut, the style's own title
-arrival, the plate fade).
+**Transitions** (`TRANSITIONS`): `cut` (default), `fade`, `walk` (360 photos only, unchanged), `softDissolve`,
+`focusPull`, `lightLeak`.
+- `softDissolve` and `focusPull` are CSS presentations (`toolbox/presentations.tsx`) in ADR 0083's TransitionSeries
+  (`transition-plan.ts` `OverlapKind`), 12 frames centred on the saved cut, so no cut, title or beat moves; the mattes
+  above the titles follow them through `AtCuts`.
+- `lightLeak` is an overlay, not a transition: `lightLeak()` on a full-frame `Solid`, screened over the footage for 18
+  frames centred on the cut (`toolbox/cut-overlays.ts`). The look (`LIGHT_LEAK_LOOK`, chosen from rendered variants on
+  the owner's footage): 40 % strength, the effect opened only to 0.375 of its sweep and closed again (`leakProgress`),
+  its hue turned 12° to amber (the effect's hue moves fast: +30° is rust, a negative turn is green), saturation 0.85.
+- **Retired: `whip` and `speedRamp`.** `RETIRED_TRANSITIONS` in core; the clip schema reads either as `cut`
+  (`migrateTransition`, a `z.preprocess` on `transitionIn`), so every saved reel still loads and renders, as a cut;
+  `setTransition` refuses them ("retired") so nothing new stores one. With them went: the whip presentation and
+  `whip.ts`; the speed-ramp planner (`speed-ramp.ts`, `speed-ramp-params.ts`), its zoom blur (`zoom-blur.ts`) and the
+  composition's speed plan; pacing's "Speed-ramp the strong cuts" and whip-on-the-bar; `matchCuts`' whip directions and
+  footage readings (it still reorders); the moves' speed-ramp cuts (crash zoom and push-through keep their camera and
+  in-clip ramp; the two whip-pan moves are AI-only now); auto whooshes on whips; the Transition sheet's whip, speed-ramp
+  and match-footage controls and the Beat control's speed-ramp switch. The in-clip speed ramp (ADR 0067, `setRamp`,
+  "Ramp into cuts") is a different feature and stays. `whipDirection` and `music.speedRamps` stay in the schema,
+  unread, so saved documents round-trip.
 
-- `Clip.transitionIn` (`TRANSITIONS`): `softDissolve`, `focusPull`, `lightLeak`.
-  - `softDissolve` and `focusPull` are CSS `TransitionPresentation`s (`packages/render/src/reel/toolbox/presentations.tsx`)
-    in ADR 0083's TransitionSeries (`transition-plan.ts` `OverlapKind`), 12 frames centred on the saved cut like its fade and whip, so no cut, title or beat moves; the mattes above the titles follow them through `AtCuts`.
-  - `lightLeak` is an overlay, not a transition: `@remotion/effects` `lightLeak()` on a full-frame `Solid`, screened over the
-    footage for 24 frames centred on the cut (`toolbox/cut-overlays.ts`); the cut stays hard on its frame.
-- `TextOverlay.animation` (`TEXT_ANIMATIONS`): `fadeQuick`, `maskUp`, `trackIn`, `blurIn` (`toolbox/title-reveal.ts`, pure). The
-  fade and settle go through `textMotion`; the tracking, blur and mask are drawn on the face (`toolbox/RevealFace.tsx`). A
-  wrapped title's lines are held while the tracking is open (`wrapTitleLines`), so no word re-breaks mid-reveal. On a
-  surface title or a moving (shine, kinetic) one only the fade applies.
-- `EndCard.reveal` (`END_CARD_REVEALS`, optional): `fade` (absent; ADR 0065's), `cut`, `over`, `leak` (`toolbox/EndCards.tsx`).
+**Title reveals** (`TEXT_ANIMATIONS`): `fadeQuick`, `maskUp`, `trackIn`, `blurIn` (`toolbox/title-reveal.ts`, pure).
+`titleArrival` in core reads "auto" as the style's own way in: **the elegant serif tracks in** (it was a 0.6 s fade; a
+"fade" asked for by name is unchanged); a location title has its own reveal; everything else pops. One resolver for the
+composition, the exit of kinetic titles, the hook-legibility rules (track-in is readable by 250 ms) and the retention
+critic. The fade and settle go through `textMotion`; tracking, blur and mask are drawn on the face (`RevealFace`), a
+wrapped title held on its resting lines while the tracking is open.
 
-**How an agent or the editor reaches them.** No new UI: the transition sheet keeps its list, the text sheet's "Arrives"
-control lists the four reveals (it reads `TEXT_ANIMATIONS`). Commands over HTTP and the MCP connector already take them:
-`{ "type": "setTransition", "clipId": "…", "transition": "lightLeak" }`, `{ "type": "updateText", "textId": "…", "patch": { "animation": "maskUp" } }` and the new
-`{ "type": "setEndCard", "endCard": { "text": "…", "durationMs": 2000, "reveal": "leak" } }` (null removes it; `diffTimelines` now notices the end card, which it missed). The ask-for-a-change prompt (ai-edit) takes them from the same arrays and has a line on each, "only when asked".
+**End cards** (`END_CARD_REVEALS`): `cut` (default, and absent) and `leak`. `migrateEndCardReveal` reads a saved
+"fade" or "over" as "cut". The line is small tracked capitals, fitted with ADR 0083's `fittedSize` (measured in
+capitals, as drawn).
+
+**Lower third**: a new title style, `location` (`toolbox/LocationLowerThird.tsx`): the Element's curves as written (the
+pin drops and scales in while its outline draws and fills, the dot grows, the line is revealed from the left with an
+overdamped spring, all of it leaves in reverse), in the elegant serif, white with a soft shadow, an ivory pin, no plate;
+its `cropRight` is a CSS clip-path. Shorter titles than the Element's 72 frames play its timings faster in proportion.
+
+**How an agent or the editor reaches them.** The Transition sheet offers Cut, Dissolve, Soft dissolve, Focus pull,
+Light leak (and Walk there between 360 photos), with "Play the cut" to judge one. The text sheet lists the reveals and
+the Location style (they read `TEXT_ANIMATIONS` / `TEXT_STYLES`). Over HTTP and the MCP connector:
+`{ "type": "setTransition", "clipId": "…", "transition": "focusPull" }`,
+`{ "type": "updateText", "textId": "…", "patch": { "animation": "maskUp" } }`,
+`{ "type": "addText", "text": { …, "style": "location" } }` and
+`{ "type": "setEndCard", "endCard": { "text": "…", "durationMs": 2000, "reveal": "leak" } }` (null removes it). The
+registry (`COMMAND_TYPES`) gained `setEndCard`; `setTransition` lost its speed-ramp and whip-direction parameters and
+`matchCuts` its `whips`/`ramps`/`cuts`; `pace` lost `speedRamps`. The MCP tool's command sheet and house-style hints
+list exactly the offered kinds, and the ask-for-a-change prompt offers no whip, swipe, whoosh or speed-ramp transition
+(it says they are not offered). `GET /api/moves` no longer lists zoom-blur cuts on moves.
 
 **CI.** `packages/render/scripts/qa/render-qa.sh` runs after the worker smoke, report only (job summary): remotion-qa
 `check` on `smoke-out/*.mp4`, and audio-bed-check `bed` on the four ambience beds looped to 20 s (`--min-period 3`).
+The smoke fixture now crosses into its second shot on a soft dissolve and into its fourth on a light leak, so CI
+draws both in the Linux worker's Chrome.
 
 ## Consequences
 
-- The Lively look and the close get four quiet transitions and three closes without anything louder entering the
-  defaults. Hard cuts and the hard hook remain the one-shot default (the spec).
-- `lightLeak` and the `leak` card need WebGL2 in the renderer. Local renders (Windows, `--gl=angle`) draw it; the
-  Linux worker's default GL is unverified here (see below). Where WebGL2 is missing the effect draws nothing and the cut
-  is a plain cut.
-- The GL shader transitions stay out until phone Players can draw HTML-in-canvas; adopting them would break "preview
-  matches export".
-- The ambience beds loop audibly every 4 s (audio-bed-check, 1.00 on all four); new, longer beds are follow-up work.
+- Saved reels with a whip or a speed-ramp cut now render those cuts as hard cuts, saved story cards arrive on the cut
+  instead of fading up, and saved elegant titles left on "auto" track in instead of fading. All three are the owner's
+  choice; titles that named "fade" are unchanged.
+- Fewer, quieter tools: four transitions and two closes, none loud; the defaults are the measured luxury ones.
+- `lightLeak` and the `leak` card need WebGL2; where it is missing the effect draws nothing and the cut is plain.
+- About 2,000 lines of speed-ramp and whip code and their tests are gone.
+- The ambience beds loop audibly every 4 s (audio-bed-check, 1.00 on all four); longer beds are follow-up work.
 
 ## What was verified
 
-See the PR for commands and output. In short: the gallery renders (every clip, timings in `clips/timings.json`); the
-adopted kinds through the real `ReelComposition` at 1080; vitest for the new pure modules (`tests/toolbox.test.ts`);
-both QA tools installed and run locally on the owner's export and on the beds; `pnpm check` and the web build.
+See the PR for commands and output: vitest for the new and changed pure modules (core: the migration, `titleArrival`,
+the commands; render: reveals, presentations, the glint, the plan, the lower third's curves); the gallery's affected
+clips re-rendered through the shipped `ReelComposition` and looked at frame by frame; `pnpm check` and the web build;
+CI's worker smoke with the dissolve and the glint.
 
 ## Not verified / gaps
 
-- `lightLeak` on the Linux worker (CI's smoke does not use it).
 - remotion-qa's safe-zone check skips any band holding footage (64 of 68 on the owner's reel), so it mostly reports
-  "not judged" on full-bleed property video; our own caption-zone rule (ADR 0071 checks) stays the gate.
+  "not judged" on full-bleed property video; our own caption-zone rule (ADR 0071) stays the gate.
+- The glint was tuned by eye on two cuts of one reel.

@@ -144,7 +144,7 @@ const ClipView: React.FC<{
    */
   lead?: number;
   tail?: number;
-  /** The clip after this one: a motion cut into it blurs this clip's last frames along this clip's own motion (ADR 0089). */
+  /** The clip after this one: a motion cut into it blurs this clip's last frames along this clip's own motion (ADR 0090). */
   next?: Clip;
 }> = ({ clip, asset, durationInFrames, previous, plan, opening = false, lead = 0, tail = 0, next }) => {
   const sequenceFrame = useCurrentFrame();
@@ -195,7 +195,7 @@ const ClipView: React.FC<{
     </Freeze>
   );
 
-  // A motion-hidden cut (ADR 0089): the blur of the cut into this clip on its first frames, or of the cut out of it on its last.
+  // A motion-hidden cut (ADR 0090): the blur of the cut into this clip on its first frames, or of the cut out of it on its last.
   const blurIn = clip.transitionIn === "motionCut" && clip.motionCut ? cutBlurAt(clip.motionCut, "in", frame, fps, width) : null;
   const blurOut = next?.transitionIn === "motionCut" && next.motionCut ? cutBlurAt(next.motionCut, "out", durationInFrames - 1 - frame, fps, width) : null;
 

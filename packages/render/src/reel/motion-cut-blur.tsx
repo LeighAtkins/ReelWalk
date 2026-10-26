@@ -4,7 +4,7 @@ import type { CutBlur } from "@reelwalk/core";
 import { zoomBlurStageCount, zoomFilterSpec, zoomStageId } from "./zoom-blur";
 
 /**
- * The blur of a motion-hidden cut (ADR 0089) on one frame of one clip: core's `cutBlurAt` says how much and which way;
+ * The blur of a motion-hidden cut (ADR 0090) on one frame of one clip: core's `cutBlurAt` says how much and which way;
  * this draws it with SVG filters through CSS `filter: url(#…)`, which the phone Player and the worker's Chrome both
  * draw the same (no WebGL, no HTML-in-canvas). The layers are always mounted the same way and only their styles change,
  * so the footage under them is never remounted as the blur starts or stops.

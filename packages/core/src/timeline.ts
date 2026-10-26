@@ -54,7 +54,7 @@ export const MOTIONS = ["none", "zoom-in", "zoom-out", "pan", "snap-in", "snap-o
  */
 export const TRANSITIONS = ["cut", "fade", "walk", "softDissolve", "focusPull", "lightLeak"] as const;
 /**
- * Kinds a clip may be saved with but nobody picks from a menu, because each needs measurements to exist (ADR 0089):
+ * Kinds a clip may be saved with but nobody picks from a menu, because each needs measurements to exist (ADR 0090):
  * "motionCut" is a hard cut hidden inside real fast camera motion, made only by the `setMotionCut` command (or a planner)
  * from the clips' measured flow, which writes `clip.motionCut`. Without that record it draws as a plain cut.
  */
@@ -227,7 +227,7 @@ export const clipSchema = z
     /** A speed ramp (ADR 0067): playback shaped inside the window, slow to fast or back; the mean stays `speed`. Absent or null: constant speed. */
     ramp: rampSchema.nullable().optional(),
     /**
-     * A motion-hidden cut into this clip (ADR 0089): the measured motion either side, the ease-out of this clip's start,
+     * A motion-hidden cut into this clip (ADR 0090): the measured motion either side, the ease-out of this clip's start,
      * and the clip as it was before (speed, window, ramp), so taking the cut off restores it. Read only when
      * `transitionIn` is "motionCut"; absent on every reel saved before it.
      */
@@ -765,7 +765,7 @@ export function duplicateClip(timeline: Timeline, id: string, newId: string): Ti
   return addClips(timeline, [{ ...withoutCutRecord(timeline.clips[index]), id: newId, transitionIn: "cut" }], index + 1);
 }
 
-/** A clip entering by a plain cut keeps no motion-cut record (ADR 0089): a copy or a second piece is not joined by one. */
+/** A clip entering by a plain cut keeps no motion-cut record (ADR 0090): a copy or a second piece is not joined by one. */
 function withoutCutRecord(clip: Clip): Clip {
   if (!clip.motionCut) return clip;
   const rest = { ...clip };

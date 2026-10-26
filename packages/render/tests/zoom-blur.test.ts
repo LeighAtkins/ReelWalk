@@ -4,7 +4,7 @@ import { cutBlurFilter } from "../src/reel/motion-cut-blur";
 import { encodePng, roundFocus, zoomBlurCopies, zoomBlurMeanScale, zoomBlurStageCount, zoomBlurStages, zoomFilterSpec, zoomMapPixels, zoomMapRamps, zoomStageId } from "../src/reel/zoom-blur";
 
 /**
- * The zoom blur (ADR 0074, brought back for ADR 0089's motion cut on a push or pull): the plan of its filter and the
+ * The zoom blur (ADR 0074, brought back for ADR 0090's motion cut on a push or pull): the plan of its filter and the
  * displacement map it reads.
  */
 describe("the stack of copies", () => {
@@ -105,7 +105,7 @@ describe("the filter's plan", () => {
     expect(spec.stages.every((stage) => stage.scale < 0)).toBe(true);
   });
 
-  it("is chained in the CSS filter, one reference per stage, and one reference for an axis blur (ADR 0089's motion cut)", () => {
+  it("is chained in the CSS filter, one reference per stage, and one reference for an axis blur (ADR 0090's motion cut)", () => {
     expect(cutBlurFilter({ kind: "axis", sx: 4, sy: 0 }, "mcut-c1")).toBe("url(#mcut-c1)");
     expect(cutBlurFilter({ kind: "zoom", spread: 0.1 }, "mcut-c1")).toBe(`url(#${zoomStageId("mcut-c1", 0)}) url(#${zoomStageId("mcut-c1", 1)}) url(#${zoomStageId("mcut-c1", 2)})`);
     expect(cutBlurFilter({ kind: "zoom", spread: 0.02 }, "mcut-c1")).toBe(`url(#${zoomStageId("mcut-c1", 0)})`);

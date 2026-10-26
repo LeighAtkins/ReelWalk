@@ -26,7 +26,7 @@ const video = (id: string, start: number, end: number): Clip => parseTimeline({ 
 const reel = (clips: Clip[]): Timeline => parseTimeline({ ...emptyTimeline(), clips, texts: [] });
 const durations = { "a-a": 20_000, "a-b": 20_000 };
 
-describe("judging a motion cut (ADR 0089)", () => {
+describe("judging a motion cut (ADR 0090)", () => {
   it("offers it only when both sides move fast in a direction the eye can follow", () => {
     expect(judgeMotionCut({ dx: 0, dy: 1.6, zoom: 0 }, { dx: 0.1, dy: 1.9, zoom: 0 }).ok).toBe(true);
     expect(judgeMotionCut({ dx: 0, dy: 0, zoom: -0.9 }, { dx: 0, dy: 0, zoom: -1.2 }).ok).toBe(true);

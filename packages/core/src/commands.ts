@@ -134,7 +134,7 @@ export type Command =
    */
   | { type: "setTransition"; clipId: string; transition: Timeline["clips"][number]["transitionIn"] }
   /**
-   * A motion-hidden cut into a clip (ADR 0089): the hard cut kept on its frame, buried in the real fast motion either
+   * A motion-hidden cut into a clip (ADR 0090): the hard cut kept on its frame, buried in the real fast motion either
    * side, the clip easing from about 2.5× to 1× over its first frames, a blur along the measured motion. Made only from
    * measured motion: `motion` in reel frame widths a second (dx, dy) and scale growth a second (zoom), or `analyses`
    * (the ADR 0086 shot-analysis samples by asset id, with the source size) read at the cut. Refused with the reason when
@@ -144,7 +144,7 @@ export type Command =
   | { type: "setMotionCut"; clipId: string; on?: boolean; motion?: { out: CutMotion; in: CutMotion };
     analyses?: Record<string, { samples: MotionSampleLike[]; width?: number; height?: number }>; rampFrom?: number; rampFrames?: number }
   /**
-   * Recipe 5, "a day at" (ADR 0089): the reel recut as the music-only cinematic film of the owner's reference reel 5,
+   * Recipe 5, "a day at" (ADR 0090): the reel recut as the music-only cinematic film of the owner's reference reel 5,
    * every cut on the beat, wides and textures alternating, morning to dusk, the reveal on the song's return after its
    * break, two tiny centred lines. `shots` names the reel's clips with what the planner cannot see (wide or detail; time
    * of day, else guessed from the clip's colour statistics; the reveal; an empty sky for the break); `music` is the song
@@ -395,7 +395,7 @@ function run(timeline: Timeline, command: Command, context: CommandContext): Tim
       requireClip(timeline, command.clipId);
       const name = command.transition as string;
       if ((RETIRED_TRANSITIONS as readonly string[]).includes(name)) throw new Error(`The ${name} transition was retired (ADR 0082). Use one of: ${TRANSITIONS.join(", ")}.`);
-      if (name === "motionCut") throw new Error("A motion cut is made from measured motion: use setMotionCut (ADR 0089).");
+      if (name === "motionCut") throw new Error("A motion cut is made from measured motion: use setMotionCut (ADR 0090).");
       if (!(TRANSITIONS as readonly string[]).includes(name)) throw new Error(`There is no transition called ${name}. Use one of: ${TRANSITIONS.join(", ")}.`);
       // Another way in takes a motion cut off first, so its speed-up does not outlive it.
       const leaving = replaceClip(timeline, command.clipId, (clip) => withoutMotionCut(clip, command.transition));
@@ -485,7 +485,7 @@ function run(timeline: Timeline, command: Command, context: CommandContext): Tim
       // Speed is a cut change (it retimes everything after the clip), so it is not a setting this command may touch.
       const patch: ClipSettings = { ...(command.patch as ClipSettings) };
       delete patch.speed;
-      if (patch.transitionIn === "motionCut") throw new Error("A motion cut is made from measured motion: use setMotionCut (ADR 0089).");
+      if (patch.transitionIn === "motionCut") throw new Error("A motion cut is made from measured motion: use setMotionCut (ADR 0090).");
       // Another way in takes a motion cut off first, so its speed-up does not outlive it.
       const leaving = patch.transitionIn ? replaceClip(timeline, command.clipId, (clip) => withoutMotionCut(clip, patch.transitionIn)) : timeline;
       return updateClip(leaving, command.clipId, patch);
@@ -524,7 +524,7 @@ function replaceClip(timeline: Timeline, clipId: string, change: (clip: Timeline
   return { ...timeline, clips: timeline.clips.map((clip) => (clip.id === clipId ? change(clip) : clip)) };
 }
 
-/** setMotionCut (ADR 0089): judged from measured motion, refused with the reason; the cut stays on its frame and the reel's length does not change. */
+/** setMotionCut (ADR 0090): judged from measured motion, refused with the reason; the cut stays on its frame and the reel's length does not change. */
 function setMotionCut(timeline: Timeline, command: Extract<Command, { type: "setMotionCut" }>, durations: Record<string, number | null | undefined>): Timeline {
   const index = timeline.clips.findIndex((clip) => clip.id === command.clipId);
   if (index === -1) throw new Error(`There is no clip called ${command.clipId} in the reel.`);

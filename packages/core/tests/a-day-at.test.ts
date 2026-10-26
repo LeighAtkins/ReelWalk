@@ -24,12 +24,28 @@ let n = 0;
 const newId = () => `t${++n}`;
 
 describe("the song's return (gap #6)", () => {
-  it("finds a real stop and puts the cut a little way into the rise", () => {
+  it("finds a real stop after loud music and puts the cut on the return", () => {
     const breaks = findBreaks(song(60, 30).energy.values, 100);
     expect(breaks).toHaveLength(1);
-    expect(breaks[0]).toMatchObject({ kind: "break", breakFromMs: 30_000, quietMs: 2000 });
-    expect(breaks[0].atMs).toBeGreaterThanOrEqual(32_000);
-    expect(breaks[0].atMs).toBeLessThan(32_400);
+    expect(breaks[0].kind).toBe("break");
+    // Found on a one-second average, so its edges move by up to half a second.
+    expect(Math.abs(breaks[0].breakFromMs! - 30_000)).toBeLessThanOrEqual(600);
+    expect(breaks[0].quietMs).toBeGreaterThanOrEqual(1500);
+    // The return is the steepest rise, where the music comes back.
+    expect(breaks[0].atMs).toBeGreaterThanOrEqual(31_800);
+    expect(breaks[0].atMs).toBeLessThanOrEqual(32_400);
+  });
+
+  it("sees through a breakdown's sparse stabs (a one-second average), but not ordinary dynamics", () => {
+    const values = song(60).energy.values.map((v, i) => {
+      const t = i / 10;
+      if (t >= 30 && t < 36) return Math.floor(t * 10) % 15 === 0 ? 0.85 : 0.55;
+      return v;
+    });
+    const breaks = findBreaks(values, 100);
+    expect(breaks).toHaveLength(1);
+    expect(Math.abs(breaks[0].atMs - 36_000)).toBeLessThanOrEqual(500);
+    expect(findBreaks(song(60).energy.values.map((v, i) => v - (i % 40 < 6 ? 0.08 : 0)), 100)).toEqual([]);
   });
 
   it("falls back to the biggest section change, then to the drop, and to nothing", () => {

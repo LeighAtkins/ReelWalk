@@ -1,5 +1,5 @@
 /**
- * The motion-hidden cut (ADR 0089): a hard cut buried inside real, fast camera motion, the way the owner's reference
+ * The motion-hidden cut (ADR 0090): a hard cut buried inside real, fast camera motion, the way the owner's reference
  * reels join shots (37 of 88 changes in reels 1, 2 and 4; output/references/report.md).
  *
  * What the references do, measured, and what this module therefore does:
@@ -57,8 +57,8 @@ export const motionCutSchema = z.object({
 export type MotionCut = z.infer<typeof motionCutSchema>;
 
 export const MOTION_CUT = {
-  /** Both sides must move at least this fast at the cut, reel frame widths a second (zoom counts half its rate). */
-  minSpeed: 0.25,
+  /** Both sides must move at least this fast at the cut, reel frame widths a second (zoom counts half its rate): the references measured 0.3 at the slowest after a blur-masked join. */
+  minSpeed: 0.3,
   /** The incoming side, at its ramped first-frame speed, must reach this: the references run 0.3–2.4 after the join. */
   minEntrySpeed: 0.6,
   /** Pans or tilts either side may differ by at most this angle. */
@@ -123,6 +123,8 @@ export type MotionCutVerdict =
   | { ok: false; reason: string };
 
 const round3 = (value: number) => Math.round(value * 1000) / 1000;
+/** A measured speed for a message, rounded down so a refusal never reads as "0.25, needs 0.25". */
+const shown = (value: number) => (Math.floor(value * 100) / 100).toFixed(2);
 const roundVector = (v: CutMotion): CutMotion => ({ dx: round3(v.dx), dy: round3(v.dy), zoom: round3(v.zoom) });
 
 function describe(v: CutMotion): string {
@@ -144,9 +146,9 @@ export function judgeMotionCut(out: CutMotion | null, incoming: CutMotion | null
   const rampFrom = options.rampFrom ?? MOTION_CUT.rampFrom;
   const so = vectorSpeed(out), si = vectorSpeed(incoming);
   if (Math.abs(options.rotateOut ?? 0) > 0.5 || Math.abs(options.rotateIn ?? 0) > 0.5) return { ok: false, reason: "One side turns (an orbit or a roll): a motion cut needs one direction. Keep the hard cut." };
-  if (so < MOTION_CUT.minSpeed) return { ok: false, reason: `The outgoing shot barely moves at the cut (${so.toFixed(2)} frame widths/s; a motion cut needs ${MOTION_CUT.minSpeed}). Keep the hard cut on the beat.` };
-  if (si < MOTION_CUT.minSpeed) return { ok: false, reason: `The incoming shot barely moves at its start (${si.toFixed(2)} frame widths/s; a motion cut needs ${MOTION_CUT.minSpeed}). Keep the hard cut on the beat.` };
-  if (si * rampFrom < MOTION_CUT.minEntrySpeed) return { ok: false, reason: `The incoming shot is too slow even ramped (${(si * rampFrom).toFixed(2)} frame widths/s at ${rampFrom}×; it needs ${MOTION_CUT.minEntrySpeed}). Keep the hard cut on the beat.` };
+  if (so < MOTION_CUT.minSpeed) return { ok: false, reason: `The outgoing shot barely moves at the cut (${shown(so)} frame widths/s; a motion cut needs ${MOTION_CUT.minSpeed}). Keep the hard cut on the beat.` };
+  if (si < MOTION_CUT.minSpeed) return { ok: false, reason: `The incoming shot barely moves at its start (${shown(si)} frame widths/s; a motion cut needs ${MOTION_CUT.minSpeed}). Keep the hard cut on the beat.` };
+  if (si * rampFrom < MOTION_CUT.minEntrySpeed) return { ok: false, reason: `The incoming shot is too slow even ramped (${shown(si * rampFrom)} frame widths/s at ${rampFrom}×; it needs ${MOTION_CUT.minEntrySpeed}). Keep the hard cut on the beat.` };
   const ko = vectorKind(out), ki = vectorKind(incoming);
   const ok = { ok: true as const, out: roundVector(out), in: roundVector(incoming), how: `${describe(out)} into ${describe(incoming)}` };
   if (ko === "lateral" && ki === "lateral") {
@@ -240,7 +242,7 @@ export type CutBlur = { kind: "directional"; angleDeg: number; sigmaPx: number }
  *
  * Sized from the picture's real speed: a frame moves `speed × width / fps` px, a 180° shutter blurs half of that, and a
  * Gaussian of sigma L/2.5 has about that length. The incoming side adds what the ramp's extra speed would have smeared
- * (the footage already carries its native 1× blur), plus one native blur on its first two frames, where the cut must hide;
+ * (the footage already carries its native 1× blur), plus one native blur at the join fading over four frames, where the cut must hide;
  * the outgoing side adds half then one native blur on its last two frames.
  */
 export function cutBlurAt(cut: Pick<MotionCut, "out" | "in" | "rampFrom" | "rampFrames">, side: "out" | "in", frame: number, fps: number, width: number): CutBlur | null {
@@ -251,7 +253,8 @@ export function cutBlurAt(cut: Pick<MotionCut, "out" | "in" | "rampFrom" | "ramp
     extra = frame === 0 ? 1 : 0.5;
   } else {
     if (frame < 0 || frame >= cut.rampFrames) return null;
-    extra = entrySpeedAt(frame, cut.rampFrom, cut.rampFrames) - 1 + (frame < 2 ? 1 : 0);
+    // One native blur at the join, fading over four frames, so the blur eases off with the ramp instead of stepping.
+    extra = entrySpeedAt(frame, cut.rampFrom, cut.rampFrames) - 1 + Math.max(0, 1 - frame / 4);
   }
   if (extra <= 0.02) return null;
   const kind = vectorKind(v);

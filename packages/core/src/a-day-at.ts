@@ -1,5 +1,5 @@
 /**
- * Recipe 5, "a day at" (ADR 0089): the music-only cinematic cut of the owner's reference reel 5 (DZThJZ5Sa3Z, ac_media_
+ * Recipe 5, "a day at" (ADR 0090): the music-only cinematic cut of the owner's reference reel 5 (DZThJZ5Sa3Z, ac_media_
  * for Marshall White), as a planner preset. Measured there (output/references/report.md, recipes.json "a-day-at"):
  *
  * - every picture change on the music's beat (71 % within ±70 ms; shots of whole beats), median shot 1.64 s, a few
@@ -59,6 +59,8 @@ export type DayReport = {
   /** The beat the cuts sit on (the song's, halved or doubled into 600–1000 ms), ms. */
   cutBeatMs: number;
   reentry: Reentry | null;
+  /** The beat phase the cuts follow, song ms (the stored one, or moved half a beat to the return). */
+  gridOffsetMs: number;
   /** Where the song starts and where the reveal lands, song and reel ms. */
   songStartMs: number;
   revealReelMs: number | null;
@@ -181,16 +183,23 @@ export function planDayAt(base: Timeline, shots: readonly DayShot[], music: DayM
   // The break plays under the empty sky: its length runs from the stop to the return.
   if (sky) {
     const quiet = reentry?.kind === "break" && reentry.breakFromMs != null ? reentry.atMs - reentry.breakFromMs : 2 * beat;
-    plan.push({ shot: sky, beats: fits(sky, Math.max(2, Math.round(quiet / beat))), slot: "break" });
+    // At most four beats: a long breakdown plays on under the golden-hour shots before it (reel 5's empty sky: 1.24 s).
+    plan.push({ shot: sky, beats: fits(sky, Math.min(4, Math.max(2, Math.round(quiet / beat)))), slot: "break" });
   }
   plan.push({ shot: reveal, beats: fits(reveal, Math.round(DAY_AT.revealHoldMs / beat)), slot: "reveal" });
-  post.forEach((shot, i) => plan.push({ shot, beats: fits(shot, i === post.length - 1 && shot === last ? Math.round(DAY_AT.lastHoldMs / beat) : DAY_AT.pattern[k++ % DAY_AT.pattern.length]), slot: "dusk" }));
+  // The last shot is held, a wide when there is one to end on.
+  post.forEach((shot, i) => plan.push({ shot, beats: fits(shot, i === post.length - 1 ? Math.round(DAY_AT.lastHoldMs / beat) : DAY_AT.pattern[k++ % DAY_AT.pattern.length]), slot: "dusk" }));
 
   const revealReelMs = plan.slice(0, revealIndex()).reduce((sum, entry) => sum + entry.beats * beat, 0);
   let songStartMs: number;
+  let gridOffsetMs = music.beatOffsetMs;
   if (reentry) {
-    // The return snapped onto the song's own beat grid, then the song started that many cut beats earlier.
-    const back = music.beatOffsetMs + Math.round((reentry.atMs - music.beatOffsetMs) / songBeat) * songBeat;
+    // The return snapped to the nearest half beat of the stored grid: a hard return is the song's clearest beat, and a
+    // stored phase can sit half a beat off (it did on the proof track, ADR 0090). The cuts follow the return's phase.
+    const half = songBeat / 2;
+    const back = music.beatOffsetMs + Math.round((reentry.atMs - music.beatOffsetMs) / half) * half;
+    gridOffsetMs = ((back % songBeat) + songBeat) % songBeat;
+    if (Math.abs(gridOffsetMs - (music.beatOffsetMs % songBeat)) > 1) notes.push(`The beat phase was moved half a beat to the song's return (${music.beatOffsetMs} → ${Math.round(gridOffsetMs)} ms).`);
     songStartMs = back - revealReelMs;
     if (songStartMs < 0) {
       notes.push(`The song's return (${(reentry.atMs / 1000).toFixed(1)} s) comes before the reveal can (${(revealReelMs / 1000).toFixed(1)} s in): started at 0 and the reveal is not on it.`);
@@ -200,6 +209,7 @@ export function planDayAt(base: Timeline, shots: readonly DayShot[], music: DayM
     notes.push("The song has no break, section change or drop to put the reveal on: cut on the beat only.");
     songStartMs = music.beatOffsetMs;
   }
+  gridOffsetMs = Math.round(gridOffsetMs);
   songStartMs = Math.round(songStartMs);
   const totalMs = plan.reduce((sum, entry) => sum + entry.beats * beat, 0);
   if (songStartMs + totalMs > music.durationMs) notes.push("The song ends before the reel does.");
@@ -238,7 +248,7 @@ export function planDayAt(base: Timeline, shots: readonly DayShot[], music: DayM
     ...base,
     clips,
     texts,
-    music: { assetId: music.assetId, sourceStartMs: songStartMs, volume: music.volume ?? 0.9, bpm: music.bpm, beatOffsetMs: music.beatOffsetMs, onBeat: false } as Timeline["music"],
+    music: { assetId: music.assetId, sourceStartMs: songStartMs, volume: music.volume ?? 0.9, bpm: music.bpm, beatOffsetMs: gridOffsetMs, onBeat: false } as Timeline["music"],
   };
 
   // The plan's own beat check: each change against the song's beats (it should be all of them, to the frame).
@@ -247,7 +257,7 @@ export function planDayAt(base: Timeline, shots: readonly DayShot[], music: DayM
     t += plan[i].beats * beat;
     const frameMs = (Math.round((t * fps) / 1000) * 1000) / fps;
     const song = songStartMs + frameMs;
-    const off = song - (music.beatOffsetMs + Math.round((song - music.beatOffsetMs) / songBeat) * songBeat);
+    const off = song - (gridOffsetMs + Math.round((song - gridOffsetMs) / songBeat) * songBeat);
     cuts++;
     if (Math.abs(off) <= DAY_AT.onBeatToleranceMs) hits++;
   }
@@ -256,6 +266,7 @@ export function planDayAt(base: Timeline, shots: readonly DayShot[], music: DayM
   const report: DayReport = {
     variant,
     cutBeatMs: Math.round(beat * 10) / 10,
+    gridOffsetMs,
     reentry,
     songStartMs,
     revealReelMs: reentry ? Math.round(revealReelMs) : null,

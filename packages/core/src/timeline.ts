@@ -46,8 +46,13 @@ export const SPEEDS = [0.5, 1, 1.5, 2, 3] as const;
 /** "golden" is late-afternoon light, "dusk" a twilight cast, "crisp" the bright, clean look of listing photography. */
 export const FILTERS = ["none", "warm", "cool", "vivid", "mono", "fade", "golden", "dusk", "crisp"] as const;
 export const MOTIONS = ["none", "zoom-in", "zoom-out", "pan", "snap-in", "snap-out"] as const;
-/** "walk" moves the camera between two 360 photos of the same home (see walk.ts). */
-export const TRANSITIONS = ["cut", "fade", "whip", "walk", "speedRamp"] as const;
+/**
+ * "walk" moves the camera between two 360 photos of the same home (see walk.ts). The Remotion toolbox (ADR 0082) adds
+ * three for the lively look and the close, never a default: "softDissolve" (a crossfade with a 3 % breath of scale),
+ * "focusPull" (a rack focus through a soft blur) and "lightLeak" (a warm leak of light over a hard cut, which keeps
+ * the cut on its frame).
+ */
+export const TRANSITIONS = ["cut", "fade", "whip", "walk", "speedRamp", "softDissolve", "focusPull", "lightLeak"] as const;
 /**
  * "elegant" is a thin white serif that fades in, for luxury reels where the
  * imagery leads. "tag" is a small lacquer sticker for a status (JUST LISTED,
@@ -58,8 +63,11 @@ export const TEXT_STYLES = ["plain", "box", "outline", "headline", "elegant", "t
  * How a text arrives: "auto" is the style's own way in (a pop for the bold
  * styles, a slow fade for the elegant serif), "type" writes it out letter by
  * letter, "rise" drifts up as it fades in, "none" is simply there.
+ * The quiet reveals of the Remotion toolbox (ADR 0082): "fadeQuick" a 200 ms fade in and out, "maskUp" the line rises
+ * through a hard edge over 6 frames, "trackIn" the letter-spacing closes as it fades up, "blurIn" it resolves out of
+ * a soft blur.
  */
-export const TEXT_ANIMATIONS = ["auto", "pop", "fade", "rise", "type", "none"] as const;
+export const TEXT_ANIMATIONS = ["auto", "pop", "fade", "rise", "type", "none", "fadeQuick", "maskUp", "trackIn", "blurIn"] as const;
 /** Particle kinds a title can carry (ADR 0055). */
 export const PARTICLE_KINDS = ["snow", "embers", "dust"] as const;
 export type ParticleKind = (typeof PARTICLE_KINDS)[number];
@@ -76,6 +84,9 @@ export const CORNERS = ["top-left", "top-right", "bottom-left", "bottom-right"] 
 /** Where the status tag sits: the top of the safe area, above the hook. */
 export const TAG_Y = 0.3;
 export const TEXT_COLORS = ["#ffffff", "#111111", "#ffd23f", "#ff5a5f", "#3ddc97", "#4da3ff"] as const;
+
+/** How an end card arrives (ADR 0082). */
+export const END_CARD_REVEALS = ["fade", "cut", "over", "leak"] as const;
 
 export type Filter = (typeof FILTERS)[number];
 export type Motion = (typeof MOTIONS)[number];
@@ -464,8 +475,16 @@ export type Opening = z.infer<typeof openingSchema>;
 export const endCardSchema = z.object({
   text: z.string().trim().min(1).max(80),
   durationMs: z.number().int().min(MIN_CLIP_MS).max(5000),
+  /**
+   * How the card arrives (ADR 0082): "fade" the plate fades up and the line rises (every card saved before it, and
+   * absent); "cut" the plate is there on the cut, the line in small tracked capitals; "over" no plate, the line
+   * resolves over the last shot; "leak" a warm light leak hides the cut to the plate.
+   */
+  reveal: z.enum(END_CARD_REVEALS).optional(),
 });
 export type EndCard = z.infer<typeof endCardSchema>;
+/** How an end card arrives (ADR 0082); absent is "fade". */
+export type EndCardReveal = (typeof END_CARD_REVEALS)[number];
 
 /**
  * Sound design (ADR 0066): short bundled sounds on an additive `sfx` track.

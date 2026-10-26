@@ -45,6 +45,8 @@ import {
   addText,
   updateText,
   timelineSchema,
+  endCardSchema,
+  type EndCard,
   type ClipSettings,
   type HookPattern,
   type Music,
@@ -160,6 +162,11 @@ export type Command =
   | { type: "setSfx"; sfx: SfxClip[] }
   /** The song's drop put on cut `cut` (1 = the start of the second clip): your own song is moved, an Instagram sound's cut is (ADR 0066). */
   | { type: "dropOnCut"; cut: number; dropSongMs: number }
+  /**
+   * The closing card (ADR 0065) and how it arrives (ADR 0082: "fade", "cut", "over", "leak"); null takes it off. It is
+   * drawn over the last `durationMs` of the reel, so nothing is retimed.
+   */
+  | { type: "setEndCard"; endCard: EndCard | null }
   /** Several commands as one step and one undo ("Fix all", ADR 0062): all of them land, or none. */
   | { type: "batch"; commands: BatchableCommand[] };
 
@@ -177,7 +184,7 @@ const COMMAND_TYPE_REGISTRY: Record<Command["type"], true> = {
   trimClip: true, moveClip: true, splitClip: true, deleteClip: true, duplicateClip: true, setSpeed: true, setMusic: true, snapToBeat: true, pace: true, setOnBeat: true,
   retime: true, retimeToLength: true, insertPresenterTakes: true, cutaways: true, applyFinish: true, hook: true, applyProposal: true,
   setRamp: true, setCamera: true, applyMove: true, matchCuts: true, setTransition: true, updateText: true, placeOnSurface: true, applyTextStyle: true, updateClip: true, matchLook: true, addText: true,
-  autoSfx: true, setSfx: true, dropOnCut: true, batch: true,
+  autoSfx: true, setSfx: true, dropOnCut: true, setEndCard: true, batch: true,
 };
 /** The type of every command, in registry order. */
 export const COMMAND_TYPES = Object.keys(COMMAND_TYPE_REGISTRY) as Command["type"][];
@@ -384,6 +391,15 @@ function run(timeline: Timeline, command: Command, context: CommandContext): Tim
       return next;
     }
     // Both throw rather than quietly changing nothing, so a batch holding them is all or nothing.
+    case "setEndCard": {
+      if (command.endCard === null) {
+        const { endCard: _gone, ...rest } = timeline;
+        return rest as Timeline;
+      }
+      const parsed = endCardSchema.safeParse(command.endCard);
+      if (!parsed.success) throw new Error(`That end card is not valid: ${parsed.error.issues.map((issue) => issue.message).join("; ")}.`);
+      return { ...timeline, endCard: parsed.data };
+    }
     case "updateText":
       if (!timeline.texts.some((text) => text.id === command.textId)) throw new Error(`There is no text called ${command.textId} in the reel.`);
       return updateText(timeline, command.textId, command.patch);
@@ -471,7 +487,7 @@ export function diffTimelines(before: Timeline, after: Timeline): Change[] {
     if (!a || !b || !same(a, b)) changes.push({ kind: "text", id });
   }
   if (!same(before.music, after.music)) changes.push({ kind: "music" });
-  for (const key of ["plan", "details", "logo", "cover", "hook", "opening", "look", "sfx"] as const) {
+  for (const key of ["plan", "details", "logo", "cover", "hook", "opening", "look", "sfx", "endCard"] as const) {
     if (!same(before[key], after[key])) changes.push({ kind: "other", key });
   }
   return changes;

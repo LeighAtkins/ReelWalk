@@ -9,6 +9,9 @@ import type { Clip, Transition } from "@reelwalk/core";
  *   fade       fade()   a crossfade (was a dip to black of 8 frames out and 8 in)
  *   whip       whipPan  ours (transitions.tsx): the outgoing shot streaks away the way the camera panned and the next streaks in
  *   walk       none     the 360 walk is drawn inside the incoming clip (PanoView)
+ *   softDissolve  softDissolve()  a crossfade with a 3 % breath of scale (ADR 0082, toolbox/presentations.tsx)
+ *   focusPull     focusPull()     a rack focus through a soft blur (ADR 0082)
+ *   lightLeak     none     a hard cut with a light leak drawn over it (ADR 0082, toolbox/cut-overlays.ts)
  *   speedRamp  none     the ramp's push and blur follow the speed plan inside both clips (ADR 0073/0074)
  *
  * Timing is unchanged. A Remotion transition overlaps the two clips and shortens the timeline, which would move every
@@ -27,7 +30,7 @@ export type SlideFrom = "from-left" | "from-right" | "from-top" | "from-bottom";
 export type CutPlan =
   | { kind: "none" }
   | {
-      kind: "fade" | "whip";
+      kind: OverlapKind;
       /** The transition's length (frames): `before + after`. */
       frames: number;
       /** Frames of the transition before the saved cut (the incoming clip's early start). */
@@ -38,13 +41,16 @@ export type CutPlan =
       direction?: SlideFrom;
     };
 
+/** The kinds drawn as an overlap of the two clips. */
+export type OverlapKind = "fade" | "whip" | "softDissolve" | "focusPull";
+
 /** Remotion's transitions guidance: about a third of a second, never more than 12 frames at 30 fps. */
-export const TRANSITION_SECONDS: Record<"fade" | "whip", number> = { fade: 10 / 30, whip: 8 / 30 };
+export const TRANSITION_SECONDS: Record<OverlapKind, number> = { fade: 10 / 30, whip: 8 / 30, softDissolve: 12 / 30, focusPull: 12 / 30 };
 export const MAX_TRANSITION_FRAMES_30 = 12;
 
 /** The presentation a saved kind maps to. */
-export function presentationFor(kind: Transition): "none" | "fade" | "whip" {
-  return kind === "fade" ? "fade" : kind === "whip" ? "whip" : "none";
+export function presentationFor(kind: Transition): "none" | OverlapKind {
+  return kind === "fade" || kind === "whip" || kind === "softDissolve" || kind === "focusPull" ? kind : "none";
 }
 
 /**
@@ -61,7 +67,7 @@ export function slideFrom(direction: Clip["whipDirection"]): SlideFrom {
 }
 
 /** A transition's length in frames at `fps` for a kind: rounded, at least 2, and capped at 12 frames' worth at 30 fps. */
-export function transitionFrames(kind: "fade" | "whip", fps: number): number {
+export function transitionFrames(kind: OverlapKind, fps: number): number {
   const cap = Math.round((MAX_TRANSITION_FRAMES_30 * fps) / 30);
   return Math.max(2, Math.min(cap, Math.round(TRANSITION_SECONDS[kind] * fps)));
 }

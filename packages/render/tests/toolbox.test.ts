@@ -146,3 +146,18 @@ describe("end card reveals", () => {
     expect(plateOpacity("over", 30)).toBe(0);
   });
 });
+
+describe("the toolbox's overlaps in the TransitionSeries (ADR 0083's join)", () => {
+  it("centres softDissolve and focusPull on the saved cut, 12 frames each; lightLeak stays a cut with an overlay", async () => {
+    const { planCuts } = await import("../src/reel/transition-plan");
+    const { presentationOf } = await import("../src/reel/transitions");
+    const { focusPull, softDissolve } = await import("../src/reel/toolbox/presentations");
+    const entry = (transitionIn: string) => ({ clip: { transitionIn: transitionIn as never }, durationInFrames: 60 });
+    const cuts = planCuts([entry("cut"), entry("softDissolve"), entry("focusPull"), entry("lightLeak")], FPS);
+    expect(cuts[1]).toEqual({ kind: "softDissolve", frames: 12, before: 6, after: 6 });
+    expect(cuts[2]).toEqual({ kind: "focusPull", frames: 12, before: 6, after: 6 });
+    expect(cuts[3]).toEqual({ kind: "none" });
+    expect(presentationOf(cuts[1] as never).component).toBe(softDissolve().component);
+    expect(presentationOf(cuts[2] as never).component).toBe(focusPull().component);
+  });
+});

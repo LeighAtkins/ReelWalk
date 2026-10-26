@@ -7,7 +7,7 @@ const entry = (transitionIn: Clip["transitionIn"], durationInFrames = 60, whipDi
 describe("the schema's transition kinds as Remotion presentations (ADR 0083)", () => {
   it("maps every kind the schema has", () => {
     const mapped = Object.fromEntries(TRANSITIONS.map((kind) => [kind, presentationFor(kind)]));
-    expect(mapped).toEqual({ cut: "none", fade: "fade", whip: "whip", walk: "none", speedRamp: "none" });
+    expect(mapped).toEqual({ cut: "none", fade: "fade", whip: "whip", walk: "none", speedRamp: "none", softDissolve: "softDissolve", focusPull: "focusPull", lightLeak: "none" });
   });
 
   it("enters a whip from the side the camera pans towards", () => {

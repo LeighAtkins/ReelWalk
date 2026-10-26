@@ -5,6 +5,7 @@ import { fade } from "@remotion/transitions/fade";
 import type { Clip } from "@reelwalk/core";
 import { whipAmountAt, type CutPlan, type SlideFrom } from "./transition-plan";
 import { whipGeometry } from "./whip";
+import { focusPull, softDissolve } from "./toolbox/presentations";
 
 /**
  * The Remotion presentation and timing of each cut kind (ADR 0083; the mapping is in transition-plan.ts).
@@ -18,7 +19,7 @@ import { whipGeometry } from "./whip";
 type AnyPresentation = TransitionPresentation<Record<string, unknown>>;
 
 /** The fade eases in and out (a linear crossfade dips in the middle on bright footage); the whip is fast through its middle. */
-const EASING = { fade: Easing.inOut(Easing.quad), whip: Easing.inOut(Easing.cubic) } as const;
+const EASING = { fade: Easing.inOut(Easing.quad), whip: Easing.inOut(Easing.cubic), softDissolve: Easing.inOut(Easing.quad), focusPull: Easing.linear } as const;
 
 /** The camera pan a whip's slide direction came from (transition-plan's slideFrom, inverted). */
 const PAN: Record<SlideFrom, NonNullable<Clip["whipDirection"]>> = { "from-right": "right", "from-left": "left", "from-top": "up", "from-bottom": "down" };
@@ -54,6 +55,9 @@ export function whipPan(pan: NonNullable<Clip["whipDirection"]>): TransitionPres
 
 export function presentationOf(cut: Exclude<CutPlan, { kind: "none" }>): AnyPresentation {
   if (cut.kind === "whip") return whipPan(PAN[cut.direction ?? "from-right"]) as unknown as AnyPresentation;
+  // The toolbox's two (ADR 0082): CSS, so the phone Player draws them too.
+  if (cut.kind === "softDissolve") return softDissolve();
+  if (cut.kind === "focusPull") return focusPull();
   return fade() as AnyPresentation;
 }
 

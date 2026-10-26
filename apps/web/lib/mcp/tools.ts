@@ -76,7 +76,7 @@ const NO_REEL = "No reel with that id in this account. Call list_reels for the i
 
 /** House style, repeated in the tools where it matters, so an agent that never reads the server instructions still sees it. */
 export const STYLE_HINTS =
-  "House style unless the owner says otherwise: no boxed or backgrounded text (use unboxed serif, style 'elegant', with a soft shadow; a workspace with a brand kit, see get_brand_kit, uses the kit's named styles instead, which may have plates and hard shadows); no whoosh sounds (a quiet riser or impact only if clearly under the music); the first cut or visual change inside the first second; a title on screen from frame 0, under seven words, kept above y 0.72 (Instagram's caption zone) and off the centre of the frame.";
+  "House style unless the owner says otherwise: no boxed or backgrounded text (use unboxed serif, style 'elegant', with a soft shadow; a workspace with a brand kit, see get_brand_kit, uses the kit's named styles instead, which may have plates and hard shadows); no whoosh sounds (a quiet riser or impact only if clearly under the music); the first cut or visual change inside the first second; hard cuts by default (a dissolve, soft dissolve, focus pull or light leak only when asked, on two cuts at most); a title on screen from frame 0, under seven words, kept above y 0.72 (Instagram's caption zone) and off the centre of the frame.";
 
 export const SERVER_INSTRUCTIONS = [
   "ReelWalk makes short vertical reels (1080x1920, up to 90 s) for property listings and venues. You drive the signed-in person's own account, in the one workspace this connection was bound to when they connected it (list_workspaces names it; it cannot be switched from here).",
@@ -452,7 +452,7 @@ const COMMAND_SHEET = [
   "deleteClip{clipId}",
   "duplicateClip{clipId,newId}",
   "setSpeed{clipId,speed 0.25-4}",
-  "setTransition{clipId,transition:cut|fade|whip|walk|speedRamp}",
+  "setTransition{clipId,transition:cut|fade|softDissolve|focusPull|lightLeak|walk} (cut is the default, whip and speedRamp are retired)",
   "updateClip{clipId,patch:{filter,motion,zoom 1-2,fit,volume,...}}",
   "setMusic{music:{assetId,sourceStartMs,volume 0-1}|null,snap?}",
   "snapToBeat{}",
@@ -462,7 +462,8 @@ const COMMAND_SHEET = [
   "retimeToLength{totalMs}",
   "hook{pattern:voice-in|motion-in|text-punch|pattern-interrupt|question|null}",
   "addText{text:{id,text,startMs,endMs?,x,y,style,size,font,shadow,color}}",
-  "updateText{textId,patch}",
+  "updateText{textId,patch} (patch.animation auto|fadeQuick|maskUp|trackIn|blurIn, auto on style elegant tracks in, style location is a location lower third)",
+  "setEndCard{endCard:{text,durationMs 1000-5000,reveal:cut|leak}|null}",
   "applyTextStyle{textId,style:<kit style name>|null}",
   "setRamp{clipId,ramp}",
   "setCamera{clipId,camera}",

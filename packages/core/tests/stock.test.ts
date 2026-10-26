@@ -123,7 +123,7 @@ describe("transformScore", () => {
     const titled = transformScore(timeline.clips[0], { texts: timeline.texts, clipStartMs: 0, sourceDurationMs: 8000 });
     expect(titled.signals.text).toBe(1);
     expect(titled.untouched).toBe(false);
-    const everything = transformScore({ ...timeline.clips[0], sourceEndMs: 2000, speed: 1.5, filter: "golden", zoom: 1.5, motion: "zoom-in", transitionIn: "whip", lensSoftness: 0.3 }, { texts: timeline.texts, clipStartMs: 0, sourceDurationMs: 8000 });
+    const everything = transformScore({ ...timeline.clips[0], sourceEndMs: 2000, speed: 1.5, filter: "golden", zoom: 1.5, motion: "zoom-in", transitionIn: "softDissolve", lensSoftness: 0.3 }, { texts: timeline.texts, clipStartMs: 0, sourceDurationMs: 8000 });
     expect(everything.score).toBe(1);
     // A title over the next clip does not count for this one.
     expect(transformScore(timeline.clips[1], { texts: timeline.texts, clipStartMs: 8000, sourceDurationMs: 8000 }).signals.text).toBe(0);

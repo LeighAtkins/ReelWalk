@@ -3,22 +3,19 @@ import { ambienceFor, applyCommand, autoPlaceSfx, clipSchema, emptyTimeline, inf
 
 const clip = (id: string, ms: number, extra: Record<string, unknown> = {}) => clipSchema.parse({ id, assetId: id, kind: "VIDEO", sourceStartMs: 0, sourceEndMs: ms, ...extra });
 
-/** 2 s, whip into 2 s, 4 s hold, cut into 2 s: cuts at 2000, 4000, 8000. */
+/** 2 s, a saved whip (a cut since ADR 0082) into 2 s, 4 s hold, cut into 2 s: cuts at 2000, 4000, 8000. */
 const reel = (): Timeline => parseTimeline({ ...emptyTimeline(), clips: [clip("a", 2000), clip("b", 2000, { transitionIn: "whip" }), clip("c", 4000, { room: "fireplace lounge" }), clip("d", 2000)] });
 
 describe("autoPlaceSfx", () => {
-  it("puts a whoosh under the whip, peaking on the cut, and a riser and impact into the longest hold", () => {
+  it("puts no whoosh on a retired whip, and a riser and impact into the longest hold", () => {
     const sfx = autoPlaceSfx(reel());
-    const whoosh = sfx.find((clip) => clip.sound.startsWith("whoosh"))!;
-    expect(whoosh.atMs + SFX_SOUNDS[whoosh.sound].peakMs).toBe(2000);
-    expect(whoosh.auto).toBe(true);
     // The longest hold after the opening starts at 4 s: the riser ends there, the impact lands there.
     const riser = sfx.find((clip) => clip.sound === "riser")!;
     expect(sfxEndMs(riser)).toBe(4000);
     expect(riser.atMs).toBe(1000);
     expect(sfx.find((clip) => clip.sound === "impact-soft")!.atMs).toBe(4000);
-    // No whoosh on the plain cuts.
-    expect(sfx.filter((clip) => clip.sound.startsWith("whoosh"))).toHaveLength(1);
+    // No whoosh on the plain cuts either.
+    expect(sfx.filter((clip) => clip.sound.startsWith("whoosh"))).toHaveLength(0);
   });
 
   it("infers fire ambience from the room name and spans the clip, faded", () => {

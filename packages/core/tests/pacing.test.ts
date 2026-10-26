@@ -195,7 +195,7 @@ describe("On the beat", () => {
         { id: "far", text: "Garden", startMs: 21200, endMs: 23000, behind: true, passMs: 22900 },
       ],
     });
-    const after = putOnTheBeat(timeline, durations);
+    const after = putOnTheBeat(timeline);
     const of = (id: string) => after.texts.find((text) => text.id === id)!;
     expect(of("kitchen")).toMatchObject({ startMs: 12000, endMs: 14000, particles: { kind: "snow", burstMs: 14000 } });
     // The pass is where she really crosses the words: it never moves.
@@ -211,15 +211,6 @@ describe("On the beat", () => {
     const after = putOnTheBeat(timeline);
     expect(after.texts[0]).toMatchObject({ startMs: 4000, endMs: 4400 });
     expect(textAttachment(after, after.texts[0])).toEqual({ kind: "clip", clipId: "c1" });
-  });
-
-  it("moves a whip's cut onto the bar", () => {
-    const timeline = parseTimeline({ ...reel({ onBeat: true }), clips: reel().clips.map((clip, i) => (i === 2 ? { ...clip, transitionIn: "whip" } : clip)), texts: [] });
-    // c2 starts at 6 s: already on a bar. Move c1 so the whip falls off the bar, then put it back on.
-    const off = parseTimeline({ ...timeline, clips: timeline.clips.map((clip, i) => (i === 1 ? { ...clip, sourceEndMs: clip.sourceEndMs - 700 } : clip)) });
-    expect(clipStartsMs(off)[2]).toBe(5300);
-    const after = putOnTheBeat(off, durations);
-    expect(clipStartsMs(after)[2]).toBe(6000);
   });
 
   it("is off on reels saved before it: pacing them moves no entrance", () => {
@@ -278,7 +269,7 @@ describe("review fixes (PR #212)", () => {
         { id: "later", text: "Pool", startMs: 1400, endMs: 2600 },
       ],
     });
-    const after = putOnTheBeat(timeline, durations);
+    const after = putOnTheBeat(timeline);
     const of = (id: string) => after.texts.find((text) => text.id === id)!;
     expect(of("hook")).toMatchObject({ startMs: 300, endMs: 2500 });
     expect(of("hook-word-1")).toMatchObject({ startMs: 900, endMs: 2000 });
@@ -304,7 +295,7 @@ describe("review fixes (PR #212)", () => {
         { id: "two", text: "bedrooms", startMs: 6800, endMs: 8000 },
       ],
     });
-    const after = putOnTheBeat(timeline, durations);
+    const after = putOnTheBeat(timeline);
     const [one, two] = after.texts;
     expect(one.startMs).toBe(6000);
     expect(two.startMs).toBe(6800);
@@ -314,10 +305,10 @@ describe("review fixes (PR #212)", () => {
   it("does not leave a title under 800 ms at its clip's end", () => {
     // c2 (a photo) plays 6–9 s. 7.7 s goes to the 8 s bar and keeps 1 s before the clip ends.
     const timeline = parseTimeline({ ...reel({ onBeat: true }), texts: [{ id: "t", text: "Garden", startMs: 7700, endMs: 8900 }] });
-    expect(putOnTheBeat(timeline, durations).texts[0]).toMatchObject({ startMs: 8000, endMs: 9000 });
+    expect(putOnTheBeat(timeline).texts[0]).toMatchObject({ startMs: 8000, endMs: 9000 });
     // Wherever it starts, a moved title keeps at least 800 ms before its clip ends.
     for (const startMs of [7100, 7600, 8150]) {
-      const after = putOnTheBeat(parseTimeline({ ...reel({ onBeat: true }), texts: [{ id: "t", text: "Garden", startMs, endMs: Math.min(9000, startMs + 1500) }] }), durations).texts[0];
+      const after = putOnTheBeat(parseTimeline({ ...reel({ onBeat: true }), texts: [{ id: "t", text: "Garden", startMs, endMs: Math.min(9000, startMs + 1500) }] })).texts[0];
       expect(after.endMs - after.startMs).toBeGreaterThanOrEqual(800);
     }
   });
@@ -347,19 +338,6 @@ describe("review fixes (PR #212)", () => {
     );
   });
 
-  it("keeps a whip's clip before it whole when it is a held clip or a 360 photo", () => {
-    const base = reel({ onBeat: true });
-    const whip = (before: Partial<Timeline["clips"][number]>) =>
-      parseTimeline({ ...base, texts: [], clips: base.clips.map((clip, i) => (i === 1 ? { ...clip, ...before } : i === 2 ? { ...clip, transitionIn: "whip" } : clip)) });
-    // c1 is 3–5.3 s; the whip into c2 at 5.3 s would move to 6 s by lengthening c1.
-    const voiced = whip({ sourceEndMs: 6300, volume: 1 });
-    expect(clipStartsMs(putOnTheBeat(voiced, durations, ["v-c1"]))[2]).toBe(5300);
-    // A 360 photo of 3.7 s (3–6.7 s) would have to shrink to 3 s for the whip to land on the 6 s bar: under its 3.5 s sweep, so it stays.
-    const pano = whip({ kind: "IMAGE", assetId: "pano", sourceStartMs: 0, sourceEndMs: 3700, pano: { yawStart: -45, yawEnd: 45, pitch: 0, fov: 90 } });
-    expect(clipStartsMs(pano)[2]).toBe(6700);
-    expect(clipStartsMs(putOnTheBeat(pano, durations))[2]).toBe(6700);
-  });
-
   it("an Energy change in a later gesture plans from the same origin, so going back gives back the cut", () => {
     const original = reel();
     const hype = applyCommand(original, { type: "pace", energy: 1, clipEnergy }, ctxOf()).timeline;
@@ -385,7 +363,7 @@ describe("review fixes (PR #212)", () => {
         { id: "hook", text: "Just listed", startMs: 300, endMs: 2800, shine: { preset: "sweep", startMs: 1300 } },
       ],
     });
-    const after = putOnTheBeat(timeline, durations);
+    const after = putOnTheBeat(timeline);
     const price = after.texts.find((text) => text.id === "price")!;
     expect(typeMotionCues(price).map((cue) => cue.reelMs)).toEqual([8000, 6000]);
     expect(after.texts.find((text) => text.id === "hook")).toEqual(timeline.texts[1]);

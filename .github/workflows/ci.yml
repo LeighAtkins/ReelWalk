@@ -160,6 +160,14 @@ jobs:
         run: |
           mkdir -p smoke-out && chmod 777 smoke-out
           docker run --rm -w /workspace/apps/worker -e SMOKE_COMPARE -e SMOKE_BASELINE=report -v "$PWD/smoke-out:/out" "$IMAGE" node_modules/.bin/tsx ../../packages/render/scripts/render-smoke.ts /out
+      # Render QA (ADR 0082), report only: remotion-qa's pace and Reels safe-zone checks on the smoke's MP4, and
+      # audio-bed-check's loop and level-step checks on the bundled ambience beds. Its findings go to the job summary;
+      # it does not fail the build (the beds are known 4 s loops, and the safe-zone check skips bands over footage).
+      - name: Render QA (report only)
+        if: always() && matrix.app == 'worker'
+        continue-on-error: true
+        timeout-minutes: 6
+        run: bash packages/render/scripts/qa/render-qa.sh smoke-out
       # The stills, the MP4 and the contact sheets, to look at (and to take new baseline references from).
       - name: Keep the smoke's frames
         if: always() && matrix.app == 'worker'

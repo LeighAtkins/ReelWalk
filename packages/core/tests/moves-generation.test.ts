@@ -56,7 +56,7 @@ describe("a camera move on a generation request", () => {
     expect(body.moves).toHaveLength(MOVES.length);
     const byId = Object.fromEntries(body.moves.map((m: { id: string }) => [m.id, m]));
     expect(byId["dolly-zoom"]).toMatchObject({ aiOnly: true, real: null });
-    expect(byId["crash-zoom"]).toMatchObject({ aiOnly: false, real: { speedRamp: "hit", zoomBlurIntoClip: { direction: "zoom" } } });
+    expect(byId["crash-zoom"]).toMatchObject({ aiOnly: false, real: { speedRamp: "hit" } });
     expect(byId["crash-zoom"].ai.prompt).toBe(movePrompt("crash-zoom"));
     expect(body.draft).toMatchObject({ model: AI_DRAFT_MODEL, credits: 1 });
   });

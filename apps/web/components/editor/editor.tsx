@@ -9,8 +9,6 @@ import { canExport, fixAllCommand, safeFixes, type CriticFinding, type CriticFix
   addClips,
   cutsWellAfter,
   DEFAULT_ENERGY,
-  whipDirectionFor,
-  describeMotionKind,
   type ClipMotion,
   insertAiShot,
   luxuryFinish,
@@ -44,8 +42,6 @@ import { canExport, fixAllCommand, safeFixes, type CriticFinding, type CriticFix
   type Issue,
   type MusicChoice,
   hasSpeech,
-  framePlan,
-  planSpeedRamps,
   pastSongEndMs,
   type Plan,
   type SongMap,
@@ -810,7 +806,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
   }, [sheet, candidateMotion, measureMotion, snapshot]);
   useEffect(() => setMotionNote(null), [sheet]);
 
-  // ── The speed-ramp cut, looped on the stage while its sheet is open (ADR 0073) ──
+  // ── The cut, looped on the stage while its Transition sheet is open, to judge a dissolve or a glint ──
   const [cutLoop, setCutLoop] = useState<{ fromMs: number; toMs: number } | null>(null);
   useEffect(() => {
     if (sheet !== "transition" && cutLoop) {
@@ -826,12 +822,6 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
     player.addEventListener("frameupdate", onFrame);
     return () => player.removeEventListener("frameupdate", onFrame);
   }, [player, cutLoop]);
-  // What the speed ramp did for the selected cut: the peak it ran and how the source was found (or why it stayed a plain cut).
-  const speedRampNote = useMemo(() => {
-    if (sheet !== "transition" || selectedClip?.transitionIn !== "speedRamp") return null;
-    const frames = framePlan(timeline).clips.map(({ clip, durationInFrames }) => ({ clip, durationInFrames, sourceDurationMs: library[clip.assetId]?.durationMs ?? null, speech: hasSpeech(library[clip.assetId]?.transcript) }));
-    return planSpeedRamps(frames).cuts.find((cut) => cut.clipId === selectedClip.id)?.note ?? null;
-  }, [sheet, selectedClip, timeline, library]);
 
   /** Add media's chip for a library video: "after 3" when its opening carries on the motion of shot 3 (ADR 0067). */
   const suggestAfter = useCallback((asset: LibraryAsset): string | null => {
@@ -1873,14 +1863,6 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
           clip={selectedClip}
           canWalkHere={canWalk(timeline.clips[timeline.clips.indexOf(selectedClip) - 1], selectedClip)}
           onChange={(transitionIn) => apply((current) => updateClip(current, selectedClip.id, { transitionIn }))}
-          onDirection={whipDirection => apply(current => updateClip(current, selectedClip.id, { whipDirection }))}
-          // The speed-ramp transition (ADR 0073) is a command, so an agent sends exactly what the sheet does; a slider drag is one undo step.
-          onSpeedRamp={(params, gesture) => {
-            const { auto: _auto, ...rest } = params;
-            void _auto;
-            runCommand({ type: "setTransition", clipId: selectedClip.id, transition: { kind: "speedRamp", ...rest } }, gesture);
-          }}
-          speedRampNote={speedRampNote}
           looping={cutLoop !== null}
           onPlayCut={() => {
             if (cutLoop) {
@@ -1893,36 +1875,6 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
             setCutLoop({ fromMs: from, toMs: Math.min(totalMs, cut + 900) });
             seek(from);
             playerRef.current?.play();
-          }}
-          matchNote={motionNote}
-          onMatchFootage={async () => {
-            // The whip pans the way the outgoing shot's camera does (ADR 0067), read from its footage.
-            const previous = timeline.clips[selectedClipIndex - 1];
-            if (!previous) return;
-            if (selectedClip.transitionIn === "speedRamp") {
-              // A speed ramp reads each side of the cut separately (ADR 0074): the last half second of the shot before and the
-              // first of this one, so a forward move streaks from its vanishing point and a pan along its pan.
-              setMotionNote("Reading how both shots move…");
-              const motion = await measureMotion(true);
-              const out = motion[previous.id]?.endRead, into = motion[selectedClip.id]?.startRead;
-              if (!out && !into) {
-                setMotionNote("Could not read the shots.");
-                return;
-              }
-              const picked = Object.fromEntries([previous.id, selectedClip.id].flatMap((id) => (motion[id] ? [[id, motion[id]]] : [])));
-              runCommand({ type: "matchCuts", motion: picked, reorder: false, cuts: [selectedClip.id] });
-              setMotionNote(`Before the cut: ${out ? describeMotionKind(out.kind) : "unread"}. After it: ${into ? describeMotionKind(into.kind) : "unread"}.`);
-              return;
-            }
-            setMotionNote("Reading the shot before…");
-            const motion = await measureMotion();
-            const direction = motion[previous.id] ? whipDirectionFor(motion[previous.id]) : null;
-            if (!direction) {
-              setMotionNote(motion[previous.id] ? "That shot barely moves, so a plain cut will read better than a whip." : "Could not read the shot before.");
-              return;
-            }
-            apply((current) => updateClip(current, selectedClip.id, { whipDirection: direction }));
-            setMotionNote(`Whip ${direction}: the camera keeps panning the way the footage does.`);
           }}
           onClose={closeSheet}
         />
@@ -2024,7 +1976,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
                   }}
                   onOnBeat={(on) => {
                     runCommand({ type: "setOnBeat", on, speechAssetIds: speechAssetIds(libraryRef.current) });
-                    showToast(on ? "Titles, bursts and whips on the beat." : "On the beat is off.");
+                    showToast(on ? "Titles and bursts on the beat." : "On the beat is off.");
                   }}
                   onRamps={(on) => {
                     // Recut at the current energy with ramps on or off (ADR 0067): one undo step, like a drag of Energy.
@@ -2032,13 +1984,6 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
                     const music = snapshot().timeline.music;
                     runCommand({ type: "pace", energy: music?.energy ?? DEFAULT_ENERGY, ramps: on, clipEnergy: { ...clipEnergies.current }, songMap: music ? songMaps.current[music.assetId] : undefined, speechAssetIds: speechAssetIds(libraryRef.current) });
                     showToast(on ? "Shots in the build and the drop now speed up into their cuts." : "Speed ramps off.");
-                  }}
-                  onSpeedRamps={(on) => {
-                    // The cuts on the build's and the drop's downbeats become speed-ramp transitions (ADR 0073): one undo step.
-                    measureForPace();
-                    const music = snapshot().timeline.music;
-                    runCommand({ type: "pace", energy: music?.energy ?? DEFAULT_ENERGY, speedRamps: on, clipEnergy: { ...clipEnergies.current }, songMap: music ? songMaps.current[music.assetId] : undefined, speechAssetIds: speechAssetIds(libraryRef.current) });
-                    showToast(on ? "The strong cuts in the build and the drop now ramp." : "Speed-ramp cuts off.");
                   }}
                 />
               ) : null}

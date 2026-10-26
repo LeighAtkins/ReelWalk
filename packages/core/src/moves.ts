@@ -19,7 +19,6 @@
  */
 import { cameraPreset, cameraKeysAt, customCamera, easeValue, CAMERA_SHIFT_MAX, type Camera, type CameraKey, type CameraPreset } from "./camera";
 import { rampPreset, type RampPreset } from "./ramp";
-import { speedRampSchema, type SpeedRampParams } from "./speed-ramp-params";
 import { updateClip, type Clip, type Timeline } from "./timeline";
 
 export const MOVE_IDS = [
@@ -45,10 +44,6 @@ export type RealMove = {
   ramp?: RampPreset;
   /** Also switch the clip's simple Ken Burns move off. */
   holdMotion?: boolean;
-  /** A speed-ramp transition into this clip (ADR 0073); a move with no camera and no ramp is only this, so the first shot, which has no cut, refuses it. */
-  cutIn?: Partial<Omit<SpeedRampParams, "auto">>;
-  /** A speed-ramp transition into the next clip (the push that ends on a cut). Skipped on the last shot. */
-  cutOut?: Partial<Omit<SpeedRampParams, "auto">>;
 };
 
 /** How a move is drawn in its card's loop when there is no camera to draw (an AI-only move): a sketch, never a promise of the footage. */
@@ -102,7 +97,7 @@ export const MOVES: readonly Move[] = [
     id: "super-dolly-in", label: "Super dolly in", group: "push", blurb: "Starts gentle and accelerates hard into a detail.",
     ai: { lens: "24 mm, wide", hands: "Start slow, then lean into a fast dolly; the body drives it, the camera stays level.", seconds: 4, best: "any",
       prompt: "A super dolly-in: the camera starts with a slow push and accelerates steadily into a close detail at the end of the frame, wide lens, strong depth and foreground parallax as it closes in, the subject staying centred. Smooth gimbal motion, no shake, no cuts." },
-    real: { camera: [{ p: 0, scale: 1, x: 0, y: 0, ease: "linear" }, { p: 1, scale: 1.9, x: 0, y: 0, ease: "in" }], cutOut: { direction: "zoom", peak: 4, blur: 0.7, push: 0.1, durationMs: 350 } },
+    real: { camera: [{ p: 0, scale: 1, x: 0, y: 0, ease: "linear" }, { p: 1, scale: 1.9, x: 0, y: 0, ease: "in" }] },
   },
   {
     id: "crash-zoom", label: "Crash zoom", group: "push", blurb: "A sudden fast zoom onto the subject, landing on the beat.",
@@ -110,7 +105,7 @@ export const MOVES: readonly Move[] = [
       prompt: "A crash zoom: the camera holds a wide, level framing for an instant, then zooms in fast and hard onto the main subject and settles sharply on it, with a touch of motion blur during the zoom. Smooth gimbal motion, the zoom is the only movement, no cuts." },
     real: {
       camera: [{ p: 0, scale: 1, x: 0, y: 0, ease: "linear" }, { p: 0.1, scale: 1.65, x: 0, y: 0, ease: "snap" }, { p: 1, scale: 1.75, x: 0, y: 0, ease: "linear" }],
-      ramp: "hit", cutIn: { direction: "zoom", peak: 5, blur: 0.8, push: 0.1, durationMs: 300 },
+      ramp: "hit",
     },
   },
   {
@@ -119,7 +114,7 @@ export const MOVES: readonly Move[] = [
       prompt: "The camera pushes forward at an accelerating pace toward a doorway or opening, passes straight through it with the frame of the door sweeping past the edges, and the next space comes into view. Keep to visible openings, never through a solid wall. Smooth gimbal motion, one continuous move, no cuts." },
     real: {
       camera: [{ p: 0, scale: 1, x: 0, y: 0, ease: "linear" }, { p: 1, scale: 1.95, x: 0, y: 0, ease: "in" }],
-      ramp: "into-cut", cutOut: { direction: "zoom", peak: 5, blur: 0.8, push: 0.12, durationMs: 300 },
+      ramp: "into-cut",
     },
   },
   {
@@ -204,13 +199,15 @@ export const MOVES: readonly Move[] = [
     id: "whip-pan-right", label: "Whip pan right", group: "whip", blurb: "A fast pan right with streaks, into this shot.",
     ai: { lens: "24 mm", hands: "Snap the camera to the right in one fast pan, the frame smearing.", seconds: 4, best: "any",
       prompt: "The camera whips fast to the right in one quick pan, the frame smearing into horizontal motion-blur streaks, and settles sharp on a new view of the same space. Smooth gimbal motion for the settle, no cuts." },
-    real: { cutIn: { direction: "right", peak: 5, blur: 0.9, push: 0, durationMs: 300 } },
+real: null, aiOnly: "On footage already shot a whip was the whip transition, retired (ADR 0082); a generated take can pan for real.",
+    sketch: [{ p: 0, scale: 1.1, x: -8, y: 0, ease: "linear" }, { p: 0.35, scale: 1.1, x: 0, y: 0, ease: "out" }, { p: 1, scale: 1.1, x: 0, y: 0, ease: "linear" }],
   },
   {
     id: "whip-pan-left", label: "Whip pan left", group: "whip", blurb: "A fast pan left with streaks, into this shot.",
     ai: { lens: "24 mm", hands: "Snap the camera to the left in one fast pan, the frame smearing.", seconds: 4, best: "any",
       prompt: "The camera whips fast to the left in one quick pan, the frame smearing into horizontal motion-blur streaks, and settles sharp on a new view of the same space. Smooth gimbal motion for the settle, no cuts." },
-    real: { cutIn: { direction: "left", peak: 5, blur: 0.9, push: 0, durationMs: 300 } },
+real: null, aiOnly: "On footage already shot a whip was the whip transition, retired (ADR 0082); a generated take can pan for real.",
+    sketch: [{ p: 0, scale: 1.1, x: 8, y: 0, ease: "linear" }, { p: 0.35, scale: 1.1, x: 0, y: 0, ease: "out" }, { p: 1, scale: 1.1, x: 0, y: 0, ease: "linear" }],
   },
   // ── AI only: perspective, rotation, depth ──
   {
@@ -335,12 +332,9 @@ export function moveLoop(id: MoveId, steps = 24): LoopPose[] {
  * `applyMove` command, so the Moves sheet and an agent send the same thing and
  * it lands as one undo step.
  *
- * - The clip gets the move's camera (or has it cleared), its speed ramp (video
- *   only) and, for a move that carries one, a speed-ramp transition into it.
- * - A move that ends on a cut (a push through a doorway) also turns the next
- *   shot's transition into the zoom blur that carries it through.
- * - A cut-in move on the first shot has no cut to land on and is refused, as a
- *   transition is; a move that has a camera simply leaves the transition off.
+ * - The clip gets the move's camera (or has it cleared) and its speed ramp (video
+ *   only). The speed-ramp transitions some moves also wrote were retired with
+ *   that kind (ADR 0082); the camera and the ramp carry the move.
  * - An AI-only move is refused with the reason, so a batch holding it is all
  *   or nothing.
  */
@@ -358,16 +352,7 @@ export function applyMove(timeline: Timeline, clipId: string, id: MoveId): Timel
   if (camera !== undefined) patch.camera = camera;
   if (real.holdMotion) patch.motion = "none";
   if (real.ramp && clip.kind === "VIDEO") patch.ramp = rampPreset(real.ramp);
-  if (real.cutIn && index > 0) {
-    patch.transitionIn = "speedRamp";
-    patch.speedRamp = speedRampSchema.parse({ ...clip.speedRamp, ...real.cutIn, auto: undefined });
-  }
-  let next = updateClip(timeline, clipId, patch);
-  const following = next.clips[index + 1];
-  if (real.cutOut && following) {
-    next = updateClip(next, following.id, { transitionIn: "speedRamp", speedRamp: speedRampSchema.parse({ ...following.speedRamp, ...real.cutOut, auto: undefined }) });
-  }
-  return next;
+  return updateClip(timeline, clipId, patch);
 }
 
 /** Why a real move cannot go on the shot at `index`, or null: a move that is only a cut (a whip) has no cut to land on at the first shot. */

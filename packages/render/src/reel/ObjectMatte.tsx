@@ -170,7 +170,7 @@ export const ObjectMatteView: React.FC<{ clip: Clip; asset: ReelAsset; text: Tex
   const shown = clipPresentation(clip, frame, fps, durationInFrames, opening);
   return (
     <AbsoluteFill style={{ pointerEvents: "none", opacity: shown.opacity, overflow: "hidden" }}>
-      <AbsoluteFill style={shown.blur}>
+      <AbsoluteFill>
         <canvas ref={canvas} width={width} height={height} data-matte-version={MATTE_VERSION} style={{ width: "100%", height: "100%", transform: shown.transform, filter: clipFilterCss(clip) }} />
       </AbsoluteFill>
     </AbsoluteFill>

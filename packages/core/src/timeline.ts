@@ -2,8 +2,6 @@ import { walkInto } from "./walk";
 import { z } from "zod";
 import { cameraSchema } from "./camera";
 import { rampSchema, rampUnwarp, rampWarp, sliceRamp } from "./ramp";
-import { speedRampSchema } from "./speed-ramp-params";
-import { rampFootageSchema } from "./motion-kind";
 import { planOverlaySchema, roomTitle, spotSchema, type PlanOverlay } from "./plan";
 import { colorMatchSchema, colorStatsSchema, lookSchema } from "./look";
 import { textTreatmentSchema } from "./brand-fonts";
@@ -46,20 +44,39 @@ export const SPEEDS = [0.5, 1, 1.5, 2, 3] as const;
 /** "golden" is late-afternoon light, "dusk" a twilight cast, "crisp" the bright, clean look of listing photography. */
 export const FILTERS = ["none", "warm", "cool", "vivid", "mono", "fade", "golden", "dusk", "crisp"] as const;
 export const MOTIONS = ["none", "zoom-in", "zoom-out", "pan", "snap-in", "snap-out"] as const;
-/** "walk" moves the camera between two 360 photos of the same home (see walk.ts). */
-export const TRANSITIONS = ["cut", "fade", "whip", "walk", "speedRamp"] as const;
+/**
+ * How a clip enters from the one before. "cut" is no transition and the default; "fade" is Remotion's crossfade (ADR
+ * 0083); "walk" moves the camera between two 360 photos of the same home (see walk.ts). The Remotion toolbox (ADR
+ * 0082) adds three for the lively look and the close, never a default: "softDissolve" (a crossfade with a 3 % breath of
+ * scale), "focusPull" (a rack focus through a soft blur) and "lightLeak" (a soft warm glint over a hard cut, which keeps
+ * the cut on its frame).
+ */
+export const TRANSITIONS = ["cut", "fade", "walk", "softDissolve", "focusPull", "lightLeak"] as const;
+/**
+ * Kinds the owner retired on 2026-10-26 (ADR 0082): the whip pan and the speed-ramp transition. Saved reels that carry
+ * them still load: the schema reads either as a plain cut (`migrateTransition`), so nothing offers, draws or stores them.
+ */
+export const RETIRED_TRANSITIONS = ["whip", "speedRamp"] as const;
+/** A saved `transitionIn` as the schema reads it: a retired kind is a cut, anything else is left for the enum to check. */
+export function migrateTransition(value: unknown): unknown {
+  return (RETIRED_TRANSITIONS as readonly unknown[]).includes(value) ? "cut" : value;
+}
 /**
  * "elegant" is a thin white serif that fades in, for luxury reels where the
  * imagery leads. "tag" is a small lacquer sticker for a status (JUST LISTED,
- * PRICE DROP, SOLD) that sits at the top of the safe area.
+ * PRICE DROP, SOLD) that sits at the top of the safe area. "location" is a location lower third (ADR 0082, Remotion
+ * Elements' Location Lower Third in the house serif): a pin that draws itself, then the line revealed beside it.
  */
-export const TEXT_STYLES = ["plain", "box", "outline", "headline", "elegant", "tag"] as const;
+export const TEXT_STYLES = ["plain", "box", "outline", "headline", "elegant", "tag", "location"] as const;
 /**
  * How a text arrives: "auto" is the style's own way in (a pop for the bold
- * styles, a slow fade for the elegant serif), "type" writes it out letter by
+ * styles; for the elegant serif the track-in since ADR 0082, the owner's pick; it was a slow fade), "type" writes it out letter by
  * letter, "rise" drifts up as it fades in, "none" is simply there.
+ * The quiet reveals of the Remotion toolbox (ADR 0082): "fadeQuick" a 200 ms fade in and out, "maskUp" the line rises
+ * through a hard edge over 6 frames, "trackIn" the letter-spacing closes as it fades up, "blurIn" it resolves out of
+ * a soft blur.
  */
-export const TEXT_ANIMATIONS = ["auto", "pop", "fade", "rise", "type", "none"] as const;
+export const TEXT_ANIMATIONS = ["auto", "pop", "fade", "rise", "type", "none", "fadeQuick", "maskUp", "trackIn", "blurIn"] as const;
 /** Particle kinds a title can carry (ADR 0055). */
 export const PARTICLE_KINDS = ["snow", "embers", "dust"] as const;
 export type ParticleKind = (typeof PARTICLE_KINDS)[number];
@@ -77,12 +94,33 @@ export const CORNERS = ["top-left", "top-right", "bottom-left", "bottom-right"] 
 export const TAG_Y = 0.3;
 export const TEXT_COLORS = ["#ffffff", "#111111", "#ffd23f", "#ff5a5f", "#3ddc97", "#4da3ff"] as const;
 
+/**
+ * How an end card arrives (ADR 0082): "cut" (the default) the plate is there on the cut, the line in small tracked
+ * capitals; "leak" a soft warm glint hides the cut to the plate. The first gallery also had "fade" (ADR 0065's) and
+ * "over" (no plate); the owner kept these two, so a saved "fade" or "over" reads as "cut".
+ */
+export const END_CARD_REVEALS = ["cut", "leak"] as const;
+/** A saved `endCard.reveal` as the schema reads it. */
+export function migrateEndCardReveal(value: unknown): unknown {
+  return value === "fade" || value === "over" ? "cut" : value;
+}
+
 export type Filter = (typeof FILTERS)[number];
 export type Motion = (typeof MOTIONS)[number];
 export type Transition = (typeof TRANSITIONS)[number];
 export type TextStyle = (typeof TEXT_STYLES)[number];
 export type TextAnimation = (typeof TEXT_ANIMATIONS)[number];
 export type Corner = (typeof CORNERS)[number];
+
+/**
+ * How a title really arrives: its `animation`, with "auto" read as its style's own way in. The elegant serif tracks in
+ * (ADR 0082, the owner's pick of the gallery: "track-in title is way better"; it was a 0.6 s fade); a location lower
+ * third has its own reveal (none here); every other style pops.
+ */
+export function titleArrival(text: Pick<TextOverlay, "animation" | "style">): Exclude<TextAnimation, "auto"> {
+  if (text.animation !== "auto") return text.animation;
+  return text.style === "elegant" ? "trackIn" : text.style === "location" ? "none" : "pop";
+}
 
 /** Allowed `size` of a text overlay. The elegant serif may go smaller than the bold styles. */
 export const TEXT_SIZE_MAX = 2.5;
@@ -156,14 +194,10 @@ export const clipSchema = z
     spot: spotSchema.nullable().default(null),
     /** Name of the room, when known ("kitchen"). */
     room: z.string().max(40).nullable().default(null),
-    /** How this clip enters from the previous one. */
-    transitionIn: z.enum(TRANSITIONS).default("cut"),
-    /** Camera pan direction; outgoing pixels travel in the opposite direction. */
+    /** How this clip enters from the previous one. A retired kind (a whip, a speed ramp) saved before ADR 0082 reads as a cut. */
+    transitionIn: z.preprocess(migrateTransition, z.enum(TRANSITIONS).default("cut")),
+    /** The camera pan of a whip (retired, ADR 0082). Kept so a saved reel round-trips; nothing reads it. */
     whipDirection: z.enum(["left", "right", "up", "down"]).optional(),
-    /** The speed-ramp transition's settings (ADR 0073), read when `transitionIn` is "speedRamp"; absent means the defaults. */
-    speedRamp: speedRampSchema.optional(),
-    /** What each side of a speed-ramp cut was measured doing (ADR 0074), so "auto" blurs a push along its streaks and a pan along its pan. Set by "match the footage"; absent: the whip direction. */
-    rampFootage: rampFootageSchema.optional(),
     /** A closer crop of the picture about its centre: 1 shows it all, 2 the middle half. Added to any motion. */
     zoom: z.number().min(1).max(ZOOM_MAX).default(1),
     /**
@@ -332,7 +366,7 @@ export const musicSchema = z
     onBeat: z.boolean().optional(),
     /** "Ramp into cuts" (ADR 0067): when the cut changes with Energy, shots in the build and the drop speed up into their cuts. Absent is off. */
     ramps: z.boolean().optional(),
-    /** "Speed-ramp the strong cuts" (ADR 0073): when the cut changes with Energy, cuts on the build's and the drop's downbeats become speed-ramp transitions. Absent is off. */
+    /** "Speed-ramp the strong cuts" (ADR 0073), retired with the speed-ramp transition (ADR 0082): kept so saved reels round-trip; nothing reads it. */
     speedRamps: z.boolean().optional(),
     /** Chosen by ReelWalk (Make it for me, a finish), not by the studio: a finish may replace it (ADR 0064). Absent: the studio's choice. */
     autoPicked: z.boolean().optional(),
@@ -464,8 +498,15 @@ export type Opening = z.infer<typeof openingSchema>;
 export const endCardSchema = z.object({
   text: z.string().trim().min(1).max(80),
   durationMs: z.number().int().min(MIN_CLIP_MS).max(5000),
+  /**
+   * How the card arrives (ADR 0082): "cut" (absent too) the plate is there on the cut, the line in small tracked
+   * capitals; "leak" a soft warm glint hides the cut to the plate. A saved "fade" or "over" reads as "cut".
+   */
+  reveal: z.preprocess(migrateEndCardReveal, z.enum(END_CARD_REVEALS).optional()),
 });
 export type EndCard = z.infer<typeof endCardSchema>;
+/** How an end card arrives (ADR 0082); absent is "cut". */
+export type EndCardReveal = (typeof END_CARD_REVEALS)[number];
 
 /**
  * Sound design (ADR 0066): short bundled sounds on an additive `sfx` track.
@@ -744,7 +785,7 @@ export function trimClip(
   return fitTexts(updated);
 }
 
-export type ClipSettings = Partial<Pick<Clip, "speed" | "volume" | "fit" | "filter" | "motion" | "transitionIn" | "pano" | "zoom" | "lensSoftness" | "whipDirection" | "speedRamp" | "rampFootage" | "ramp" | "camera">>;
+export type ClipSettings = Partial<Pick<Clip, "speed" | "volume" | "fit" | "filter" | "motion" | "transitionIn" | "pano" | "zoom" | "lensSoftness" | "whipDirection" | "ramp" | "camera">>;
 
 export function updateClip(timeline: Timeline, id: string, settings: ClipSettings): Timeline {
   return fitTexts(replaceClip(timeline, id, (clip) => clipSchema.parse({ ...clip, ...settings })));

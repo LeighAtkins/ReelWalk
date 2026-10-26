@@ -184,7 +184,7 @@ describe("the presenter", () => {
 
 describe("the opening", () => {
   it("an empty frame 0 is high; a title not readable by 300 ms gets a pop", () => {
-    const timeline = reel([video("a", "v1", 3000)], { texts: [{ id: "t", text: "Welcome home", startMs: 100, endMs: 2500, style: "elegant", y: 0.4 }] });
+    const timeline = reel([video("a", "v1", 3000)], { texts: [{ id: "t", text: "Welcome home", startMs: 100, endMs: 2500, style: "elegant", animation: "fade", y: 0.4 }] });
     const flat = { width: W, height: H, luma: new Float32Array(W * H).fill(0.5) };
     const findings = ofCheck(run(timeline, { frames: framesFor(timeline, (s) => (s.reelMs === 0 ? flat : moving(s.sourceMs))) }), "hook");
     expect(findings.map((f) => f.id)).toEqual(["opening:empty", "opening:title:t"]);

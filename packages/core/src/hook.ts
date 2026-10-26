@@ -33,6 +33,7 @@ import {
   type Opening,
   type TextOverlay,
   type Timeline,
+  titleArrival,
 } from "./timeline";
 
 export { HOOK_PATTERNS, type HookPattern, type Opening };
@@ -321,13 +322,18 @@ export function titleLegibleAtMs(text: Pick<TextOverlay, "text" | "style" | "ani
     const { startMs, durationMs } = kineticTiming(text.kinetic);
     return startMs + durationMs;
   }
-  const animation = text.animation === "auto" ? (text.style === "elegant" ? "fade" : "pop") : text.animation;
+  const animation = titleArrival(text);
   switch (animation) {
     case "none": return 0;
     case "pop": return 150;
     case "fade": return 600;
     case "rise": return 500;
     case "type": return Math.round((text.text.length / 14) * 1000);
+    // The toolbox's reveals (ADR 0082): readable once most of the move is done (the track-in eases out fast).
+    case "fadeQuick": return 200;
+    case "maskUp": return 200;
+    case "trackIn": return 250;
+    case "blurIn": return 300;
   }
   return 150;
 }

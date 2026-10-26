@@ -134,7 +134,8 @@ describe("timeline facts", () => {
 
   it("knows how long each entrance takes", () => {
     expect(titleEntranceMs(text({}))).toBe(150); // pop, settled (the hook planner's reading)
-    expect(titleEntranceMs(text({ style: "elegant" }))).toBe(600); // the elegant fade
+    expect(titleEntranceMs(text({ style: "elegant" }))).toBe(250); // the elegant track-in (ADR 0082)
+    expect(titleEntranceMs(text({ style: "elegant", animation: "fade" }))).toBe(600); // the old elegant fade, by name
     expect(titleEntranceMs(text({ animation: "rise" }))).toBe(500);
     expect(titleEntranceMs(text({ animation: "none" }))).toBe(0);
     expect(titleEntranceMs(text({ animation: "type" }))).toBe(Math.round((17 / 14) * 1000));
@@ -190,7 +191,7 @@ describe("the checks", () => {
     expect(checks.facts.openingBlack).toBeNull();
     expect(checks.facts.loopSeamDiff).toBeNull();
     expect(checks.checks.map((c) => c.id)).toEqual(["slow-opening-title:slow"]);
-    expect(checks.facts.titleLegibleByMs).toBe(700);
+    expect(checks.facts.titleLegibleByMs).toBe(350);
     expect(checks.blocked).toBe(false);
   });
 

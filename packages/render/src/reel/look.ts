@@ -140,6 +140,7 @@ export const TEXT_STYLE_LABELS: Record<TextStyle, string> = {
   headline: "Headline",
   elegant: "Elegant",
   tag: "Sticker",
+  location: "Location",
 };
 
 export const TEXT_ANIMATION_LABELS: Record<TextAnimation, string> = {
@@ -149,6 +150,10 @@ export const TEXT_ANIMATION_LABELS: Record<TextAnimation, string> = {
   rise: "Rise",
   type: "Type",
   none: "None",
+  fadeQuick: "Quick fade",
+  maskUp: "Mask up",
+  trackIn: "Track in",
+  blurIn: "Blur in",
 };
 
 /** Lacquer, the brand's one accent, for the status sticker. */

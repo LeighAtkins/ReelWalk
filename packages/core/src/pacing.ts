@@ -12,7 +12,6 @@ import type { MotionSample } from "./motion";
 import { setTypeMotionCue, typeMotionCues } from "./kinetic";
 import { isGeneratedAssetId } from "./presenter";
 import { rampPreset } from "./ramp";
-import { defaultSpeedRamp } from "./speed-ramp-params";
 import { BEATS_PER_BAR, sectionAt } from "./song";
 import { clipRunEndMs, retimeTexts, textAttachment } from "./text-timing";
 import { MIN_CLIP_MS, clipDurationMs, clipStartsMs, timelineDurationMs, type Clip, type Music, type SectionKind, type SongSection, type TextOverlay, type Timeline } from "./timeline";
@@ -152,12 +151,6 @@ export type PaceOptions = {
    * the hero (held longer, on the drop) are left alone.
    */
   ramps?: boolean;
-  /**
-   * Speed-ramp the strong cuts (ADR 0073): a cut that lands on a downbeat in the build or the drop, between two shots
-   * that are not held, comes in as a speed-ramp transition (every other such cut at most, so it stays an event). The
-   * shot before it then keeps no `into-cut` ramp of pacing's own: the transition is the acceleration.
-   */
-  speedRamps?: boolean;
   /**
    * The shortest the reel may come out (ms). A cut that falls short gives shots more beats until it reaches it, the
    * establishing and closing shots longest, so a fast pace changes the rhythm without collapsing the reel. 0 or unset:
@@ -349,36 +342,9 @@ function cutPass(timeline: Timeline, options: PaceOptions, sections: SongSection
     shots.push({ clipId: clip.id, startMs: t, endMs: t + actual, beats, section: kind, hero: isHero, held: false });
     t += actual;
   }
-  return { clips: options.speedRamps ? withSpeedRamps(clips, shots, grid) : clips, shots, heroClipId: heroClip?.id ?? null };
+  return { clips, shots, heroClipId: heroClip?.id ?? null };
 }
 
-/** The cuts that land on a downbeat in the build or the drop become speed-ramp transitions; see `PaceOptions.speedRamps`. */
-function withSpeedRamps(clips: Clip[], shots: PaceShot[], grid: ReelGrid): Clip[] {
-  const out = clips.slice();
-  let last = -2;
-  for (let i = 1; i < out.length; i++) {
-    const shot = shots[i], before = shots[i - 1];
-    if (shot.held || before.held || shot.section === "none" || (shot.section !== "build" && shot.section !== "drop")) continue;
-    if (out[i].transitionIn !== "cut" || last === i - 1) continue;
-    if (Math.min(shot.endMs - shot.startMs, before.endMs - before.startMs) < SPEED_RAMP_MIN_SHOT_MS) continue;
-    if (Math.abs(nearestDownbeatMs(grid, shot.startMs) - shot.startMs) > 1000 / 30) continue;
-    out[i] = { ...out[i], transitionIn: "speedRamp", speedRamp: { ...defaultSpeedRamp(), auto: true } };
-    if (out[i - 1].ramp?.preset === "into-cut") out[i - 1] = { ...out[i - 1], ramp: null };
-    last = i;
-  }
-  return out;
-}
-
-/** A clip whose speed-ramp transition Pace placed goes back to a plain cut; the studio's own speed ramps are left. */
-export function clearAutoSpeedRamp(clip: Clip): Clip {
-  if (clip.transitionIn !== "speedRamp" || !clip.speedRamp?.auto) return clip;
-  const { speedRamp: _speedRamp, ...rest } = clip;
-  void _speedRamp;
-  return { ...rest, transitionIn: "cut" };
-}
-
-/** Shots shorter than this are not speed-ramped into or out of (there is no room for the ramp to read). */
-const SPEED_RAMP_MIN_SHOT_MS = 600;
 
 /** Whether pacing gives this shot a ramp into its cut: a video without one, in a part of the song that drives. */
 function rampsHere(clip: Clip, kind: SectionKind | "none", energy: number): boolean {
@@ -427,16 +393,15 @@ export function paceOrigin(timeline: Timeline): { clips: Clip[]; heroClipId: str
 export function paceTimeline(timeline: Timeline, options: PaceOptions): Timeline {
   if (!timeline.music) return timeline;
   const origin = paceOrigin(timeline);
-  // What an earlier pass placed as speed-ramp cuts is cleared first: the cut is planned afresh (a cut that moved is no longer strong).
   // A re-pace changes the rhythm, not the length: the reel stays at 15 s or what it was, whichever is shorter.
   const previousMs = origin.clips.reduce((sum, clip) => sum + clipDurationMs(clip), 0);
   const minTotalMs = options.minTotalMs ?? Math.min(REPACE_FLOOR_MS, previousMs);
-  const plan = planPace({ ...timeline, clips: origin.clips.map(clearAutoSpeedRamp) }, { ...options, minTotalMs, heroClipId: options.heroClipId ?? origin.heroClipId });
+  const plan = planPace({ ...timeline, clips: origin.clips }, { ...options, minTotalMs, heroClipId: options.heroClipId ?? origin.heroClipId });
   if (!plan) return timeline;
   const pace = { base: origin.clips.map(({ id, sourceStartMs, sourceEndMs }) => ({ id, sourceStartMs, sourceEndMs })), resultKey: clipsKey(plan.clips), heroClipId: plan.heroClipId };
   const music = { ...timeline.music, energy: Math.round(Math.min(1, Math.max(0, options.energy)) * 100) / 100, pace };
   const cut = retimeTexts(timeline, { ...timeline, music, clips: plan.clips });
-  return music.onBeat ? putOnTheBeat(cut, options.sourceDurationsMs, options.speechAssetIds) : cut;
+  return music.onBeat ? putOnTheBeat(cut) : cut;
 }
 
 /** How far (ms) the reel runs past the end of its song, 0 when it does not or the song's length is unknown. */
@@ -460,9 +425,6 @@ function fixedTitle(text: TextOverlay): boolean {
 /**
  * "On the beat": each of these goes to the nearest downbeat, never so far
  * that it changes what it belongs to:
- * - a whip's cut (the clip before it lengthens or shortens, within its
- *   source, never below a 360's sweep and never a held clip; titles follow by
- *   the attachment rule);
  * - a title's entrance (`startMs`; the title keeps its length), staying over
  *   the clip it is attached to, and for a pinned title inside the frames its
  *   path was tracked on. Titles over one clip keep their order and never land
@@ -475,11 +437,10 @@ function fixedTitle(text: TextOverlay): boolean {
  * crosses the words. Nothing that is not set is added. The reel as it was
  * without a tempo.
  */
-export function putOnTheBeat(timeline: Timeline, sourceDurationsMs: Record<string, number | null | undefined> = {}, speechAssetIds?: readonly string[]): Timeline {
+export function putOnTheBeat(timeline: Timeline): Timeline {
   const grid = reelGrid(timeline.music);
   if (!grid || timeline.clips.length === 0) return timeline;
-  const afterWhips = whipsOnTheBeat(timeline, grid, sourceDurationsMs, speechAssetIds);
-  const current = afterWhips === timeline ? timeline : retimeTexts(timeline, afterWhips);
+  const current = timeline;
   const total = timelineDurationMs(current);
   const starts = clipStartsMs(current);
   const nearestWithin = (ms: number, from: number, to: number) => {
@@ -540,28 +501,3 @@ export function putOnTheBeat(timeline: Timeline, sourceDurationsMs: Record<strin
   return changed ? { ...current, texts } : current;
 }
 
-/** Each whip's cut moved to the nearest downbeat by lengthening or shortening the clip before it, where its source, the shortest clip (a 360's sweep) and a held clip allow. */
-function whipsOnTheBeat(timeline: Timeline, grid: ReelGrid, durations: Record<string, number | null | undefined>, speechAssetIds?: readonly string[]): Timeline {
-  let clips = timeline.clips;
-  for (let i = 1; i < clips.length; i++) {
-    if (clips[i].transitionIn !== "whip") continue;
-    const before = clips[i - 1];
-    if (heldByPace(before, speechAssetIds)) continue;
-    const cut = clipStartsMs({ ...timeline, clips })[i];
-    const target = nearestDownbeatMs(grid, cut);
-    const length = clipDurationMs(before) + (target - cut);
-    if (target === cut || length < Math.max(MIN_CLIP_MS, before.pano ? PANO_MIN_MS : 0)) continue;
-    let next: Clip;
-    if (before.kind === "IMAGE") next = { ...before, sourceEndMs: before.sourceStartMs + length };
-    else {
-      const source = durations[before.assetId] ?? before.sourceEndMs;
-      const sourceLength = Math.round(length * before.speed);
-      if (sourceLength > source) continue;
-      // Grow at the end, sliding the window earlier only when the source runs out.
-      const start = Math.max(0, Math.min(before.sourceStartMs, source - sourceLength));
-      next = { ...before, sourceStartMs: start, sourceEndMs: start + sourceLength };
-    }
-    clips = clips.map((clip, at) => (at === i - 1 ? next : clip));
-  }
-  return clips === timeline.clips ? timeline : { ...timeline, clips };
-}

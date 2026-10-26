@@ -20,10 +20,10 @@ export function blackFrameTimeline(): Timeline {
   const lengths = ends.map((end, i) => end - (ends[i - 1] ?? 0));
   const clips = lengths.map((length, i) => ({
     id: `c${i + 1}`, assetId: ["a", "b", "c", "a"][i], kind: "VIDEO" as const, sourceStartMs: SOURCE_STARTS[i], sourceEndMs: SOURCE_STARTS[i] + length, transitionIn: "cut" as const, volume: 0,
-    // The shot into the first cut races into it; the second settles with an eased push; the third whips in.
+    // The shot into the first cut races into it; the second settles with an eased push; the third comes in on a soft dissolve (the whip it had was retired, ADR 0082).
     ...(i === 0 ? { ramp: rampPreset("into-cut") } : {}),
     ...(i === 1 ? { camera: cameraPreset("push-settle") } : {}),
-    ...(i === 2 ? { transitionIn: "whip" as const, whipDirection: "left" as const } : {}),
+    ...(i === 2 ? { transitionIn: "softDissolve" as const } : {}),
   }));
   return parseTimeline({
     version: 1,

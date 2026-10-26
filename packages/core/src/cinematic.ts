@@ -128,7 +128,6 @@ export function luxuryFinish(timeline: Timeline, variant: "refined" | "modern" =
     clips: timeline.clips.map((c, index) => ({ ...c, filter: applyColour ? variant === "refined" ? "golden" : "crisp" : c.filter,
       lensSoftness: c.pano ? c.lensSoftness : 0.28,
       motion: c.pano ? c.motion : index === hero ? "snap-out" : "none",
-      transitionIn: c.transitionIn === "whip" ? "cut" : c.transitionIn,
     })),
     // Contrast is independent of typography: keep small text and the user's font.
     texts: timeline.texts.map(t => ({ ...t, shadow: t.shadow ?? "strong" })),

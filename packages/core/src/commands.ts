@@ -16,11 +16,10 @@ import { resolveTextStyle, type BrandKit } from "./brand-kit";
 import { applyMove, type MoveId } from "./moves";
 import { cameraPreset, CAMERA_PRESETS, type Camera, type CameraPreset } from "./camera";
 import { placeDropOnCut } from "./drop";
-import { suggestMatchCuts, type ClipMotion, type WhipDirection } from "./match-cut";
+import { suggestMatchCuts, type ClipMotion } from "./match-cut";
 import { paceTimeline, putOnTheBeat } from "./pacing";
 import { rampPreset, RAMP_PRESETS, type Ramp, type RampPreset } from "./ramp";
-import { mergeRampFootage, motionReadSchema } from "./motion-kind";
-import { SPEED_RAMP_PRESETS, speedRampSchema, type SpeedRampParams, type SpeedRampPreset } from "./speed-ramp-params";
+import { motionReadSchema } from "./motion-kind";
 import { autoPlaceSfx, trimSfxToReel, withSfx, type AutoSfxOptions } from "./sfx";
 import type { SongMap } from "./song";
 import { applyFinish, type FinishId } from "./finishes";
@@ -45,6 +44,10 @@ import {
   addText,
   updateText,
   timelineSchema,
+  RETIRED_TRANSITIONS,
+  TRANSITIONS,
+  endCardSchema,
+  type EndCard,
   type ClipSettings,
   type HookPattern,
   type Music,
@@ -53,8 +56,6 @@ import {
   type Timeline,
 } from "./timeline";
 
-/** A speed-ramp transition's settings in a command: any of the parameters (the rest keep the clip's, or the defaults), or a preset to start from. */
-export type SpeedRampChoice = { kind: "speedRamp"; preset?: SpeedRampPreset } & Partial<Omit<SpeedRampParams, "auto">>;
 
 /** A song for `setMusic`; without a volume it keeps the current song's (or 0.8). */
 export type MusicChoice = Omit<Music, "volume"> & { volume?: number };
@@ -79,8 +80,8 @@ export type Command =
    * back the same cut. `clipEnergy` is measured motion by clip id; `songMap`
    * is the song's bars and sections when the song did not have them yet.
    */
-  | { type: "pace"; energy: number; clipEnergy?: Record<string, number>; songMap?: SongMap; /** Assets whose clips carry speech: their clips are held (see `heldByPace`). */ speechAssetIds?: string[]; /** Ramp the shots in the build and the drop into their cuts (ADR 0067), so beat-cuts land on the fast part. */ ramps?: boolean; /** Speed-ramp the cuts on the build's and the drop's downbeats (ADR 0073). */ speedRamps?: boolean }
-  /** "On the beat" (ADR 0059) switched; switching it on puts entrances, bursts, whips and the pass on the bar. */
+  | { type: "pace"; energy: number; clipEnergy?: Record<string, number>; songMap?: SongMap; /** Assets whose clips carry speech: their clips are held (see `heldByPace`). */ speechAssetIds?: string[]; /** Ramp the shots in the build and the drop into their cuts (ADR 0067), so beat-cuts land on the fast part. */ ramps?: boolean }
+  /** "On the beat" (ADR 0059) switched; switching it on puts entrances, bursts and the pass on the bar. */
   | { type: "setOnBeat"; on: boolean; speechAssetIds?: string[] }
   /** The draft review's pace and length (ADR 0022). */
   | { type: "retime"; shotMs: number }
@@ -117,16 +118,15 @@ export type Command =
    */
   | { type: "applyMove"; clipId: string; move: MoveId }
   /**
-   * Match cuts (ADR 0067) from measured motion by clip id: `reorder` puts the clips in the suggested chain (held
-   * clips keep their slots), `whips` turns every whip to follow the outgoing shot's motion. Both by default.
+   * Match cuts (ADR 0067) from measured motion by clip id: `reorder` (the default) puts the clips in the suggested chain
+   * (held clips keep their slots). The whip directions and speed-ramp footage it also wrote went with those kinds (ADR 0082).
    */
-  | { type: "matchCuts"; motion: Record<string, ClipMotion>; reorder?: boolean; whips?: boolean; /** Record what each side of a speed-ramp cut was doing, so "auto" blurs a push along its streaks (ADR 0074). Default true. */ ramps?: boolean; heldClipIds?: string[]; /** Only the cuts into these clips are read (whip direction and footage); the others keep what they have. Absent: every cut that has a measurement. */ cuts?: string[] }
+  | { type: "matchCuts"; motion: Record<string, ClipMotion>; reorder?: boolean; heldClipIds?: string[] }
   /**
-   * One clip's transition in, with the whip's direction when it is a whip. A speed ramp (ADR 0073) is
-   * `transition: "speedRamp"` with the parameters in `speedRamp` (or `transition: { kind: "speedRamp", peak, ... }`);
-   * parameters not sent keep the clip's, or the defaults; one out of range is refused; the first clip has no cut to ramp.
+   * One clip's transition in (ADR 0082): "cut" (no transition), "fade" (a crossfade), "softDissolve", "focusPull",
+   * "lightLeak", or "walk" between two 360 photos. The retired whip and speed ramp are refused with that reason.
    */
-  | { type: "setTransition"; clipId: string; transition: Timeline["clips"][number]["transitionIn"] | SpeedRampChoice; whipDirection?: WhipDirection; speedRamp?: Partial<Omit<SpeedRampParams, "auto">> & { preset?: SpeedRampPreset } }
+  | { type: "setTransition"; clipId: string; transition: Timeline["clips"][number]["transitionIn"] }
   /** One title's look or place (the critic's fixes, ADR 0062). Does not change the cut, so nothing is retimed. */
   | { type: "updateText"; textId: string; patch: Partial<Omit<TextOverlay, "id">> }
   /**
@@ -154,12 +154,17 @@ export type Command =
   | { type: "matchLook"; referenceClipId?: string | null; strength?: number; stats?: Record<string, ColorStats> }
   /** A new title. */
   | { type: "addText"; text: Omit<TextOverlay, "endMs" | "animation"> & { endMs?: number; animation?: TextOverlay["animation"] } }
-  /** Sound design placed by the rule (ADR 0066): whooshes on whips, a riser and impact into the reveal, ambience by tag. Replaces what it placed before, keeps hand-placed sounds. */
+  /** Sound design placed by the rule (ADR 0066): whooshes on quick cuts when asked, a riser and impact into the reveal, ambience by tag. Replaces what it placed before, keeps hand-placed sounds. */
   | { type: "autoSfx"; options?: AutoSfxOptions }
   /** The whole `sfx` track set by hand (an agent, a sheet); an empty list removes it. */
   | { type: "setSfx"; sfx: SfxClip[] }
   /** The song's drop put on cut `cut` (1 = the start of the second clip): your own song is moved, an Instagram sound's cut is (ADR 0066). */
   | { type: "dropOnCut"; cut: number; dropSongMs: number }
+  /**
+   * The closing card (ADR 0065) and how it arrives (ADR 0082: "fade", "cut", "over", "leak"); null takes it off. It is
+   * drawn over the last `durationMs` of the reel, so nothing is retimed.
+   */
+  | { type: "setEndCard"; endCard: EndCard | null }
   /** Several commands as one step and one undo ("Fix all", ADR 0062): all of them land, or none. */
   | { type: "batch"; commands: BatchableCommand[] };
 
@@ -177,7 +182,7 @@ const COMMAND_TYPE_REGISTRY: Record<Command["type"], true> = {
   trimClip: true, moveClip: true, splitClip: true, deleteClip: true, duplicateClip: true, setSpeed: true, setMusic: true, snapToBeat: true, pace: true, setOnBeat: true,
   retime: true, retimeToLength: true, insertPresenterTakes: true, cutaways: true, applyFinish: true, hook: true, applyProposal: true,
   setRamp: true, setCamera: true, applyMove: true, matchCuts: true, setTransition: true, updateText: true, placeOnSurface: true, applyTextStyle: true, updateClip: true, matchLook: true, addText: true,
-  autoSfx: true, setSfx: true, dropOnCut: true, batch: true,
+  autoSfx: true, setSfx: true, dropOnCut: true, setEndCard: true, batch: true,
 };
 /** The type of every command, in registry order. */
 export const COMMAND_TYPES = Object.keys(COMMAND_TYPE_REGISTRY) as Command["type"][];
@@ -278,7 +283,7 @@ function run(timeline: Timeline, command: Command, context: CommandContext): Tim
     case "snapToBeat": {
       if (timeline.clips.length < 2) return timeline;
       const snapped = cut(snapCutsToBeats(timeline, durations));
-      return timeline.music?.onBeat ? putOnTheBeat(snapped, durations) : snapped;
+      return timeline.music?.onBeat ? putOnTheBeat(snapped) : snapped;
     }
     case "pace": {
       const base = context.gestureBase ?? timeline;
@@ -287,16 +292,14 @@ function run(timeline: Timeline, command: Command, context: CommandContext): Tim
       const energy = Math.round(Math.min(1, Math.max(0, command.energy)) * 100) / 100;
       // "Ramp into cuts" is remembered on the music; switching it off takes back the ramps pacing gave (the preset it uses).
       const ramps = command.ramps ?? base.music.ramps ?? false;
-      // "Speed-ramp the strong cuts" (ADR 0073) is remembered the same way; the cuts it placed are re-planned (or taken back) by paceTimeline.
-      const speedRamps = command.speedRamps ?? base.music.speedRamps ?? false;
       const clips = command.ramps === false ? base.clips.map((clip) => (clip.ramp?.preset === "into-cut" ? { ...clip, ramp: null } : clip)) : base.clips;
-      const withSong: Timeline = { ...base, clips, music: { ...base.music, ...map, energy, ...(command.ramps !== undefined ? { ramps: command.ramps } : {}), ...(command.speedRamps !== undefined ? { speedRamps: command.speedRamps } : {}) } };
-      return paceTimeline(withSong, { energy, clipEnergy: command.clipEnergy, speechAssetIds: command.speechAssetIds, sourceDurationsMs: durations, ramps, speedRamps });
+      const withSong: Timeline = { ...base, clips, music: { ...base.music, ...map, energy, ...(command.ramps !== undefined ? { ramps: command.ramps } : {}) } };
+      return paceTimeline(withSong, { energy, clipEnergy: command.clipEnergy, speechAssetIds: command.speechAssetIds, sourceDurationsMs: durations, ramps });
     }
     case "setOnBeat": {
       if (!timeline.music) return timeline;
       const next: Timeline = { ...timeline, music: { ...timeline.music, onBeat: command.on } };
-      return command.on ? putOnTheBeat(next, durations, command.speechAssetIds) : next;
+      return command.on ? putOnTheBeat(next) : next;
     }
     case "retime":
       return retime(timeline, command.shotMs, durations);
@@ -343,29 +346,19 @@ function run(timeline: Timeline, command: Command, context: CommandContext): Tim
       return applyMove(timeline, command.clipId, command.move);
     case "setTransition": {
       requireClip(timeline, command.clipId);
-      const name = typeof command.transition === "string" ? command.transition : command.transition.kind;
-      if (name !== "speedRamp") return updateClip(timeline, command.clipId, { transitionIn: command.transition as Timeline["clips"][number]["transitionIn"], ...(name === "whip" && command.whipDirection ? { whipDirection: command.whipDirection } : {}) });
-      if (timeline.clips[0].id === command.clipId) throw new Error("The first shot has no cut before it to ramp.");
-      const { kind: _kind, ...inline } = typeof command.transition === "object" ? command.transition : { kind: "speedRamp" as const };
-      void _kind;
-      const { preset, ...given } = { ...command.speedRamp, ...inline };
-      if (preset !== undefined && !(preset in SPEED_RAMP_PRESETS)) throw new Error(`There is no speed ramp called ${preset}.`);
-      const current = timeline.clips.find((clip) => clip.id === command.clipId)!.speedRamp;
-      // A preset replaces the clip's settings (keeping its direction); loose parameters change just those.
-      const base = preset ? { ...SPEED_RAMP_PRESETS[preset], ...(current ? { direction: current.direction } : {}) } : current ?? {};
-      const parsed = speedRampSchema.safeParse({ ...base, ...stripUndefined(given), auto: undefined });
-      if (!parsed.success) throw new Error(`That speed ramp is not allowed: ${parsed.error.issues.map((issue) => `${issue.path.join(".") || "value"} ${issue.message}`).join("; ")}.`);
-      return updateClip(timeline, command.clipId, { transitionIn: "speedRamp", speedRamp: parsed.data, ...(command.whipDirection ? { whipDirection: command.whipDirection } : {}) });
+      const name = command.transition as string;
+      if ((RETIRED_TRANSITIONS as readonly string[]).includes(name)) throw new Error(`The ${name} transition was retired (ADR 0082). Use one of: ${TRANSITIONS.join(", ")}.`);
+      if (!(TRANSITIONS as readonly string[]).includes(name)) throw new Error(`There is no transition called ${name}. Use one of: ${TRANSITIONS.join(", ")}.`);
+      return updateClip(timeline, command.clipId, { transitionIn: command.transition });
     }
     case "matchCuts": {
-      // A reading of the camera (ADR 0074) is what the speed-ramp blur follows, so a malformed one is refused rather than guessed at.
+      // A malformed reading of the camera is refused rather than guessed at.
       for (const [id, measured] of Object.entries(command.motion)) {
         for (const key of ["startRead", "endRead"] as const) {
           if (measured?.[key] !== undefined && !motionReadSchema.safeParse(measured[key]).success) throw new Error(`The ${key} of the motion for ${id} is not a camera reading (kind, speed, tx, ty, zoom, rotate, focus, confidence).`);
         }
       }
-      for (const id of command.cuts ?? []) requireClip(timeline, id);
-      const options = { heldClipIds: command.heldClipIds, cutClipIds: command.cuts };
+      const options = { heldClipIds: command.heldClipIds };
       const suggestions = suggestMatchCuts(timeline, command.motion, options);
       let next = timeline;
       if (command.reorder !== false && suggestions.order.length === timeline.clips.length) {
@@ -373,17 +366,19 @@ function run(timeline: Timeline, command: Command, context: CommandContext): Tim
         const clips = suggestions.order.map((id) => byId.get(id)!);
         if (clips.some((clip, index) => clip !== timeline.clips[index])) next = cut({ ...timeline, clips });
       }
-      if (command.whips !== false) {
-        const after = suggestMatchCuts(next, command.motion, options);
-        for (const whip of after.whips) next = updateClip(next, whip.clipId, { whipDirection: whip.direction });
-      }
-      if (command.ramps !== false) {
-        // A side with no reading keeps what the cut has, so a cut read from one side (or a cut beside the one just read) is not wiped.
-        for (const entry of suggestMatchCuts(next, command.motion, options).footage) next = updateClip(next, entry.clipId, { rampFootage: mergeRampFootage(next.clips.find((clip) => clip.id === entry.clipId)?.rampFootage, entry.footage) });
-      }
       return next;
     }
     // Both throw rather than quietly changing nothing, so a batch holding them is all or nothing.
+    case "setEndCard": {
+      if (command.endCard === null) {
+        const rest = { ...timeline };
+        delete rest.endCard;
+        return rest;
+      }
+      const parsed = endCardSchema.safeParse(command.endCard);
+      if (!parsed.success) throw new Error(`That end card is not valid: ${parsed.error.issues.map((issue) => issue.message).join("; ")}.`);
+      return { ...timeline, endCard: parsed.data };
+    }
     case "updateText":
       if (!timeline.texts.some((text) => text.id === command.textId)) throw new Error(`There is no text called ${command.textId} in the reel.`);
       return updateText(timeline, command.textId, command.patch);
@@ -437,7 +432,6 @@ function run(timeline: Timeline, command: Command, context: CommandContext): Tim
   }
 }
 
-const stripUndefined = <T extends object>(value: T): Partial<T> => Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined)) as Partial<T>;
 
 function requireClip(timeline: Timeline, clipId: string): void {
   if (!timeline.clips.some((clip) => clip.id === clipId)) throw new Error(`There is no clip called ${clipId} in the reel.`);
@@ -448,7 +442,7 @@ function withMusic(timeline: Timeline, choice: MusicChoice | null, snap: boolean
   const withSong = setMusic(timeline, choice ? { ...choice, volume: choice.volume ?? timeline.music?.volume ?? 0.8, onBeat: choice.onBeat ?? timeline.music?.onBeat ?? true } : null);
   if (!snap || !withSong.music?.bpm || withSong.clips.length < 2) return withSong;
   const snapped = retimeTexts(timeline, snapCutsToBeats(withSong, durations));
-  return onBeat && snapped.music?.onBeat ? putOnTheBeat(snapped, durations) : snapped;
+  return onBeat && snapped.music?.onBeat ? putOnTheBeat(snapped) : snapped;
 }
 
 /** Which clips, texts and other parts differ between two timelines. */
@@ -471,7 +465,7 @@ export function diffTimelines(before: Timeline, after: Timeline): Change[] {
     if (!a || !b || !same(a, b)) changes.push({ kind: "text", id });
   }
   if (!same(before.music, after.music)) changes.push({ kind: "music" });
-  for (const key of ["plan", "details", "logo", "cover", "hook", "opening", "look", "sfx"] as const) {
+  for (const key of ["plan", "details", "logo", "cover", "hook", "opening", "look", "sfx", "endCard"] as const) {
     if (!same(before[key], after[key])) changes.push({ kind: "other", key });
   }
   return changes;

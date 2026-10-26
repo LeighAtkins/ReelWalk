@@ -138,14 +138,13 @@ describe("the real side of a move", () => {
     }
   });
 
-  it("crash zoom is a fast eased scale: most of the zoom in the first tenth, with a zoom blur on the cut", () => {
+  it("crash zoom is a fast eased scale: most of the zoom in the first tenth", () => {
     const real = moveById("crash-zoom").real!;
     const camera = moveCamera(real)!;
     const done = cameraKeysAt(camera, 1).scale - 1;
     expect((cameraKeysAt(camera, 0.1).scale - 1) / done).toBeGreaterThan(0.85);
     // Eased: faster at the start than an even move.
     expect((cameraKeysAt(camera, 0.02).scale - 1) / done).toBeGreaterThan(0.3);
-    expect(real.cutIn).toMatchObject({ direction: "zoom" });
     expect(real.ramp).toBe("hit");
   });
 
@@ -158,7 +157,7 @@ describe("the real side of a move", () => {
     expect(cameraKeysAt(camera, 0).y).toBe(0);
   });
 
-  it("push through a doorway accelerates to nearly twice the size and ends on a zoom-blurred cut", () => {
+  it("push through a doorway accelerates to nearly twice the size", () => {
     const real = moveById("push-through").real!;
     const camera = moveCamera(real)!;
     const early = cameraKeysAt(camera, 0.5).scale - 1;
@@ -166,7 +165,6 @@ describe("the real side of a move", () => {
     expect(early / late).toBeLessThan(0.3);
     expect(cameraKeysAt(camera, 1).scale).toBeGreaterThan(1.9);
     expect(real.ramp).toBe("into-cut");
-    expect(real.cutOut).toMatchObject({ direction: "zoom" });
   });
 
   it("tilt-up and crane-down travel opposite ways", () => {
@@ -178,14 +176,13 @@ describe("the real side of a move", () => {
 });
 
 describe("applyMove", () => {
-  it("writes a move's camera, ramp and zoom-blurred cut onto a clip, changing no length", () => {
+  it("writes a move's camera and ramp onto a clip, and no transition (the speed-ramp cut was retired, ADR 0082), changing no length", () => {
     const before = reel();
     const after = applyMove(before, "b", "crash-zoom");
     const b = clip(after, "b");
     expect(b.camera?.keys[1].scale).toBeGreaterThan(1.6);
     expect(b.ramp?.preset).toBe("hit");
-    expect(b.transitionIn).toBe("speedRamp");
-    expect(b.speedRamp).toMatchObject({ direction: "zoom", peak: 5 });
+    expect(b.transitionIn).toBe("cut");
     expect(timelineDurationMs(after)).toBe(timelineDurationMs(before));
     expect(after.clips.map(clipDurationMs)).toEqual(before.clips.map(clipDurationMs));
     expect(after.texts).toEqual(before.texts);
@@ -196,14 +193,13 @@ describe("applyMove", () => {
     const after = applyMove(reel(), "a", "crash-zoom");
     expect(clip(after, "a").camera).not.toBeNull();
     expect(clip(after, "a").transitionIn).toBe("cut");
-    expect(() => applyMove(reel(), "a", "whip-pan-right")).toThrow(/first shot has no cut/);
+    expect(() => applyMove(reel(), "a", "whip-pan-right")).toThrow(/AI-only/);
   });
 
-  it("pushes through into the next shot's cut, and skips that on the last shot", () => {
+  it("pushes through with its camera and ramp, and leaves the next cut a cut", () => {
     const after = applyMove(reel(), "b", "push-through");
-    expect(clip(after, "c").transitionIn).toBe("speedRamp");
-    expect(clip(after, "c").speedRamp?.direction).toBe("zoom");
-    expect(clip(after, "b").transitionIn).toBe("cut");
+    expect(clip(after, "c").transitionIn).toBe("cut");
+    expect(clip(after, "b").ramp?.preset).toBe("into-cut");
     const last = applyMove(reel(), "d", "push-through");
     expect(clip(last, "d").camera).not.toBeNull();
     expect(last.clips).toHaveLength(4);
@@ -215,9 +211,9 @@ describe("applyMove", () => {
     expect(clip(after, "c").camera).not.toBeNull();
   });
 
-  it("whips follow the direction asked", () => {
-    expect(clip(applyMove(reel(), "b", "whip-pan-left"), "b").speedRamp?.direction).toBe("left");
-    expect(clip(applyMove(reel(), "b", "whip-pan-right"), "b").speedRamp?.direction).toBe("right");
+  it("whip pans are AI-only now: on footage already shot they were the retired whip transition", () => {
+    expect(() => applyMove(reel(), "b", "whip-pan-left")).toThrow(/AI-only/);
+    expect(moveById("whip-pan-right").real).toBeNull();
   });
 
   it("static clears the eased move and the simple one", () => {
@@ -237,7 +233,7 @@ describe("applyMove", () => {
   it("is one command: applied once, the whole move lands; a refusal changes nothing", () => {
     const result = run(reel(), { type: "applyMove", clipId: "b", move: "push-through" });
     expect(result.rejected).toBeUndefined();
-    expect(result.changes).toEqual(expect.arrayContaining([{ kind: "clip", id: "b" }, { kind: "clip", id: "c" }]));
+    expect(result.changes).toEqual([{ kind: "clip", id: "b" }]);
     const refused = run(reel(), { type: "applyMove", clipId: "b", move: "orbit" });
     expect(refused.rejected).toMatch(/AI-only/);
     expect(refused.changes).toEqual([]);

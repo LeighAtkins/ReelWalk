@@ -62,7 +62,7 @@ import { HOOK_DESCRIPTIONS, HOOK_FONTS, HOOK_LABELS, type Hook, type HookKind,
   type TextAnimation,
   type TextOverlay,
   type TextStyle, orientQuad, type BrandKit, resolveTextStyle, brandFontFamily,
-  intensityOfSpeedRamp, SPEED_RAMP_PRESET_LABELS, SPEED_RAMP_PRESETS, speedRampAtIntensity, speedRampOf, speedRampPresetOf, type TitleOnSurface, type SpeedRampDirection, type SpeedRampParams, type SpeedRampPreset } from "@reelwalk/core";
+  type TitleOnSurface } from "@reelwalk/core";
 import { ClipSourceInfo } from "./clip-source-info";
 import { ELEGANT_FONT_FAMILY, FILTER_CSS, FILTER_LABELS, TEXT_ANIMATION_LABELS, TEXT_STYLE_LABELS, textTreatmentCss } from "@reelwalk/render/reel";
 import { StockPicker } from "./stock-picker";
@@ -778,15 +778,13 @@ export function PanoSheet({
   );
 }
 
+/** The transitions the sheet offers (ADR 0082, the owner's choice of the gallery), with their names. A cut is no transition. */
+const TRANSITION_NAMES = { cut: "Cut", fade: "Dissolve", softDissolve: "Soft dissolve", focusPull: "Focus pull", lightLeak: "Light leak", walk: "Walk there" } as const satisfies Record<Clip["transitionIn"], string>;
+
 export function TransitionSheet({
   clip,
   canWalkHere,
   onChange,
-  onDirection,
-  onMatchFootage,
-  matchNote = null,
-  onSpeedRamp,
-  speedRampNote = null,
   looping = false,
   onPlayCut,
   onClose,
@@ -795,68 +793,23 @@ export function TransitionSheet({
   /** True when this clip and the one before are 360 photos with known positions. */
   canWalkHere: boolean;
   onChange(transition: Clip["transitionIn"]): void;
-  onDirection(value: NonNullable<Clip["whipDirection"]>): void;
-  /** Whip the way the shot before moves (ADR 0067): measured from its footage. */
-  onMatchFootage?: () => void;
-  /** What matching found, while it runs and after. */
-  matchNote?: string | null;
-  /** The speed ramp's settings changed (ADR 0073): a preset, the intensity slider or the blur direction; `gesture` groups a slider drag into one undo step. */
-  onSpeedRamp?: (params: SpeedRampParams, gesture: string) => void;
-  /** What the speed ramp did for this cut (the peak it ran, how the source was found), or why it stayed a plain cut. */
-  speedRampNote?: string | null;
-  /** The cut plays in a loop on the stage above, so the studio sees the ramp as they change it. */
+  /** The cut plays in a loop on the stage above, so the studio sees the transition as they pick it. */
   looping?: boolean;
   onPlayCut?: () => void;
   onClose(): void;
 }) {
-  const ramp = clip.transitionIn === "speedRamp" ? speedRampOf(clip) : null;
-  const preset = ramp ? speedRampPresetOf(ramp) : null;
+  const offered = [...(["cut", "fade", "softDissolve", "focusPull", "lightLeak"] as const), ...(canWalkHere ? (["walk"] as const) : [])];
   return (
     <Sheet title="Transition in" onClose={onClose}>
       <Segmented
         label="Transition"
-        options={[...(canWalkHere ? (["cut", "fade", "whip", "walk"] as const) : (["cut", "fade", "whip"] as const)), ...(onSpeedRamp ? (["speedRamp"] as const) : [])]}
+        options={offered}
         value={clip.transitionIn === "walk" && !canWalkHere ? "cut" : clip.transitionIn}
         onChange={onChange}
-        format={(transition) => (transition === "cut" ? "Cut" : transition === "fade" ? "Fade through black" : transition === "whip" ? "Whip pan" : transition === "speedRamp" ? "Speed ramp" : "Walk there")}
+        format={(transition) => TRANSITION_NAMES[transition]}
       />
-      {ramp && onSpeedRamp ? (
-        <>
-          <Segmented
-            label="Speed ramp style"
-            options={["soft", "punch"] as const satisfies readonly SpeedRampPreset[]}
-            value={(preset ?? "") as SpeedRampPreset}
-            onChange={(name) => onSpeedRamp({ ...SPEED_RAMP_PRESETS[name], direction: ramp.direction }, `speedramp-${clip.id}`)}
-            format={(name) => `${SPEED_RAMP_PRESET_LABELS[name]} · ${SPEED_RAMP_PRESETS[name].peak}×`}
-          />
-          <Range
-            label="Intensity"
-            value={intensityOfSpeedRamp(ramp)}
-            min={0}
-            max={1}
-            step={0.05}
-            display={`${ramp.peak}× in ${ramp.durationMs} ms`}
-            onChange={(value) => onSpeedRamp(speedRampAtIntensity(value, ramp), `speedramp-${clip.id}`)}
-          />
-          <Segmented
-            label="Blur direction"
-            options={["auto", "right", "up", "zoom", "none"] as const satisfies readonly SpeedRampDirection[]}
-            value={(typeof ramp.direction === "number" ? "auto" : ramp.direction === "left" ? "right" : ramp.direction === "down" ? "up" : ramp.direction) as "auto" | "right" | "up" | "zoom" | "none"}
-            onChange={(direction) => onSpeedRamp({ ...ramp, direction }, `speedramp-direction-${clip.id}`)}
-            format={(direction) => (direction === "auto" ? "Follow the footage" : direction === "right" ? "Sideways" : direction === "up" ? "Up and down" : direction === "zoom" ? "Zoom" : "No blur")}
-          />
-          {onMatchFootage ? <button type="button" className="btn btn-quiet btn-block" onClick={onMatchFootage} data-testid="speedramp-match-footage">Match the footage</button> : null}
-          {onPlayCut ? <button type="button" className="btn btn-block" aria-pressed={looping} onClick={onPlayCut} data-testid="speedramp-play">{looping ? "Stop the loop" : "Play the cut"}</button> : null}
-          {speedRampNote ? <p className="muted small" data-testid="speedramp-note">{speedRampNote}</p> : null}
-          <p className="muted small">The shot before speeds up into the cut and this one settles out of it, with a blur and a small push in. It is silent, and the reel does not get longer. Follow the footage streaks a push or pull from where it expands and a pan along its pan; Match the footage reads both shots.</p>
-        </>
-      ) : null}
-      {clip.transitionIn === "whip" ? <Segmented label="Camera pan direction" options={["left", "right", "up", "down"] as const} value={clip.whipDirection ?? "right"} onChange={onDirection} format={direction => direction[0].toUpperCase() + direction.slice(1)} /> : null}
-      {clip.transitionIn === "whip" && onMatchFootage ? (
-        <button type="button" className="btn btn-quiet btn-block" onClick={onMatchFootage} data-testid="whip-match-footage">Match the footage</button>
-      ) : null}
-      {matchNote ? <p className="muted small" data-testid="whip-match-note">{matchNote}</p> : null}
-      <p className="muted small">Whip is silent. Choose the camera pan direction to match the footage; use a clean cut when the shots do not share a move.</p>
+      {onPlayCut && clip.transitionIn !== "cut" ? <button type="button" className="btn btn-block" aria-pressed={looping} onClick={onPlayCut} data-testid="transition-play">{looping ? "Stop the loop" : "Play the cut"}</button> : null}
+      <p className="muted small">A cut is the house style. Dissolve, Soft dissolve and Focus pull blend the two shots around the cut; Light leak keeps the cut and lays a soft warm glint over it. None of them makes the reel longer.</p>
       {canWalkHere ? <p className="muted small">Walk there moves the camera across the floor plan from the last 360 photo to this one.</p> : null}
     </Sheet>
   );

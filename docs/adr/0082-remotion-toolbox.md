@@ -15,8 +15,8 @@ worth adopting: hard cuts in the best reels, one serif hook sentence on the open
 it, a logo end card, no labels, no animated text, no whooshes. So the defaults do not move; new kinds are for the
 "Lively" look and the close, where the owner or an agent asks for them.
 
-This ADR builds on the primitives work (ADR 0081: `@remotion/transitions` under every cut, Playfair Display as the
-elegant face, layout-utils text fitting), which turns "fade" into a crossfade and "whip" into Remotion's slide.
+This ADR builds on the primitives work (ADR 0083: `@remotion/transitions` under every cut, Playfair Display as the
+elegant face, layout-utils text fitting), which turns "fade" into a crossfade and draws the whip as its own presentation in the series.
 
 ## What was evaluated, and how
 
@@ -31,8 +31,8 @@ reference in it is Remotion-License code, see below). Licences were read from ea
 
 | Candidate | Licence | Verdict | Why (one line) |
 |---|---|---|---|
-| `@remotion/transitions` `fade()` (crossfade) | Remotion licence (installed) | adopt (via 0081) | Is the primitives branch's new "fade"; no new kind. |
-| `@remotion/transitions` `slide()` (push) | Remotion licence | adopt (via 0081) | Is the primitives branch's new "whip"; no new kind. |
+| `@remotion/transitions` `fade()` (crossfade) | Remotion licence (installed) | adopt (via 0083) | Is ADR 0083's new "fade"; no new kind. |
+| `@remotion/transitions` `slide()` (push) | Remotion licence | no | ADR 0083 measured it as a sharp seam with no blur and kept our whip as its own presentation; no new kind. |
 | onda `morph` → **softDissolve** | MIT (degueba/onda) | adopt | Crossfade with a 3 % breath of scale: the quietest transition that still reads as chosen; CSS, so the phone preview matches. |
 | remocn `focus-pull` → **focusPull** | MIT (kapishdima/remocn) | adopt | Rack focus through a 12 px blur and a small lift; reads as a lens, not an effect. |
 | `@remotion/effects` `lightLeak()` → **lightLeak** | Remotion licence | adopt | Warm light over a hard cut that stays on its frame; the luxury close and Lively. Needs WebGL2. |
@@ -65,7 +65,7 @@ arrival, the plate fade).
 
 - `Clip.transitionIn` (`TRANSITIONS`): `softDissolve`, `focusPull`, `lightLeak`.
   - `softDissolve` and `focusPull` are CSS `TransitionPresentation`s (`packages/render/src/reel/toolbox/presentations.tsx`)
-    for the TransitionSeries of ADR 0081, centred on the saved cut like its fade and whip, so no cut, title or beat moves.
+    in ADR 0083's TransitionSeries (`transition-plan.ts` `OverlapKind`), 12 frames centred on the saved cut like its fade and whip, so no cut, title or beat moves; the mattes above the titles follow them through `AtCuts`.
   - `lightLeak` is an overlay, not a transition: `@remotion/effects` `lightLeak()` on a full-frame `Solid`, screened over the
     footage for 24 frames centred on the cut (`toolbox/cut-overlays.ts`); the cut stays hard on its frame.
 - `TextOverlay.animation` (`TEXT_ANIMATIONS`): `fadeQuick`, `maskUp`, `trackIn`, `blurIn` (`toolbox/title-reveal.ts`, pure). The
@@ -102,6 +102,5 @@ both QA tools installed and run locally on the owner's export and on the beds; `
 ## Not verified / gaps
 
 - `lightLeak` on the Linux worker (CI's smoke does not use it).
-- `softDissolve` / `focusPull` need the primitives branch's TransitionSeries: before it they render as a hard cut.
 - remotion-qa's safe-zone check skips any band holding footage (64 of 68 on the owner's reel), so it mostly reports
   "not judged" on full-bleed property video; our own caption-zone rule (ADR 0071 checks) stays the gate.

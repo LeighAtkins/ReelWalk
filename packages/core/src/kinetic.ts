@@ -87,10 +87,13 @@ export function wordReveal(text: string, spec: KineticSpec, titleMs: number): Wo
   const { startMs, durationMs } = kineticTiming(spec);
   const arrive = Math.min(WORD_ARRIVE_MS, durationMs);
   const stagger = words > 1 ? Math.max(0, durationMs - arrive) / (words - 1) : 0;
+  // Spoken timing (ADR 0084): each word at its own moment, when there is one per word; otherwise the even stagger.
+  const timed = spec.wordsMs && spec.wordsMs.length === words ? spec.wordsMs : null;
+  const arrivesAt = (index: number) => (timed ? timed[index] : startMs + index * stagger);
   let index = 0;
   return parts.map((part) => {
     if (/^\s+$/.test(part)) return { text: part, space: true, opacity: 1, rise: 0, blur: 0 };
-    const e = easeOutCubic((titleMs - startMs - index++ * stagger) / arrive);
+    const e = easeOutCubic((titleMs - arrivesAt(index++)) / arrive);
     return { text: part, space: false, opacity: Number(e.toFixed(4)), rise: Number(((1 - e) * WORD_RISE_EM).toFixed(4)), blur: Number(((1 - e) * WORD_BLUR_PX).toFixed(3)) };
   });
 }

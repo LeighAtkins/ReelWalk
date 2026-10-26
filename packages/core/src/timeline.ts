@@ -285,6 +285,11 @@ export const textSchema = z
       preset: z.enum(KINETIC_PRESETS),
       startMs: z.number().int().min(0).max(TYPE_MOTION_START_MAX_MS).optional(),
       durationMs: z.number().int().min(100).max(10_000).optional(),
+      /**
+       * "words" only (ADR 0084): when each word arrives, ms after the title appears, one per word of the text, so the
+       * words land as a speaker says them (`syncTextToSpeech`). Absent, or not one per word: evenly over `durationMs`.
+       */
+      wordsMs: z.array(z.number().int().min(0).max(TYPE_MOTION_START_MAX_MS)).max(60).optional(),
     }).optional(),
     /**
      * A pinned callout (ADR 0061): the feature the label points at, frame fractions on the title's first frame. The label

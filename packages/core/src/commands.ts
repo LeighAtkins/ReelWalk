@@ -30,6 +30,8 @@ import { planCutaways, type CutawayOptions } from "./cutaways";
 import { matchLook, type ColorStats } from "./look";
 import { attachedAnchors, retimeTexts } from "./text-timing";
 import { placementProblem, surfacePatch, type SurfacePick, type TitleOnSurface } from "./surface-place";
+import { speechSync } from "./wall-text";
+import type { TranscriptWord } from "./transcript";
 import {
   clipDurationMs,
   duplicateClip,
@@ -136,7 +138,21 @@ export type Command =
    * which this pure command cannot do: the HTTP commands route (and the editor's sheet) find it and send it as `placement`;
    * without one the command is refused with that explanation.
    */
-  | { type: "placeOnSurface"; textId: string; clipId?: string; atMs?: number; pick?: SurfacePick; placement?: TitleOnSurface }
+  | { type: "placeOnSurface"; textId: string; clipId?: string; atMs?: number; pick?: SurfacePick; placement?: TitleOnSurface;
+    /**
+     * Where on the surface and how big (ADR 0084), used when the route finds the surface: the line centred on the frame
+     * point `at` (on the surface) with capitals `capHeight` of the frame tall (default 0.025), in the surface's
+     * perspective. Absent: as large as the surface comfortably takes, centred (ADR 0075).
+     */
+    fit?: { at: { x: number; y: number }; capHeight?: number } }
+  /**
+   * A title timed to the words it repeats (ADR 0084): its words found in what the clip under it (or `clipId`) says, the
+   * title starting with the first word and ending `holdMs` after the last (default 700, never past the shot), each word
+   * arriving as it is said ("words" reveal with `wordsMs`). `speech` is the word-timed transcripts by asset id; the HTTP
+   * commands route fills it from the library, so an agent sends only `textId`. Refused, with what the clip says, when the
+   * words are not heard there.
+   */
+  | { type: "syncTextToSpeech"; textId: string; clipId?: string; holdMs?: number; leadMs?: number; speech?: Record<string, readonly TranscriptWord[]> }
   /**
    * A brand kit style applied to a title by name (ADR 0078): the kit's font, weight, slant, hard shadow and plate, with its
    * colour, size and tracking, written onto the text in one step. Checked against the workspace's kit: no kit, or a name the
@@ -181,7 +197,7 @@ export type BatchableCommand = Exclude<Command, { type: "applyProposal" } | { ty
 const COMMAND_TYPE_REGISTRY: Record<Command["type"], true> = {
   trimClip: true, moveClip: true, splitClip: true, deleteClip: true, duplicateClip: true, setSpeed: true, setMusic: true, snapToBeat: true, pace: true, setOnBeat: true,
   retime: true, retimeToLength: true, insertPresenterTakes: true, cutaways: true, applyFinish: true, hook: true, applyProposal: true,
-  setRamp: true, setCamera: true, applyMove: true, matchCuts: true, setTransition: true, updateText: true, placeOnSurface: true, applyTextStyle: true, updateClip: true, matchLook: true, addText: true,
+  setRamp: true, setCamera: true, applyMove: true, matchCuts: true, setTransition: true, updateText: true, placeOnSurface: true, syncTextToSpeech: true, applyTextStyle: true, updateClip: true, matchLook: true, addText: true,
   autoSfx: true, setSfx: true, dropOnCut: true, setEndCard: true, batch: true,
 };
 /** The type of every command, in registry order. */
@@ -388,6 +404,10 @@ function run(timeline: Timeline, command: Command, context: CommandContext): Tim
       const problem = placementProblem(command.placement);
       if (problem) throw new Error(problem);
       return updateText(timeline, command.textId, surfacePatch(command.placement));
+    }
+    case "syncTextToSpeech": {
+      if (!command.speech) throw new Error("syncTextToSpeech needs the clips' transcripts: send it to POST /api/reels/:id/commands, which reads them from the library, or pass speech yourself.");
+      return updateText(timeline, command.textId, speechSync(timeline, command.textId, command.speech, command).patch);
     }
     case "applyTextStyle": {
       if (!timeline.texts.some((text) => text.id === command.textId)) throw new Error(`There is no text called ${command.textId} in the reel.`);

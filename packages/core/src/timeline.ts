@@ -2,6 +2,7 @@ import { walkInto } from "./walk";
 import { z } from "zod";
 import { cameraSchema } from "./camera";
 import { rampSchema, rampUnwarp, rampWarp, sliceRamp } from "./ramp";
+import { motionCutSchema } from "./motion-cut";
 import { planOverlaySchema, roomTitle, spotSchema, type PlanOverlay } from "./plan";
 import { colorMatchSchema, colorStatsSchema, lookSchema } from "./look";
 import { textTreatmentSchema } from "./brand-fonts";
@@ -52,6 +53,14 @@ export const MOTIONS = ["none", "zoom-in", "zoom-out", "pan", "snap-in", "snap-o
  * the cut on its frame).
  */
 export const TRANSITIONS = ["cut", "fade", "walk", "softDissolve", "focusPull", "lightLeak"] as const;
+/**
+ * Kinds a clip may be saved with but nobody picks from a menu, because each needs measurements to exist (ADR 0089):
+ * "motionCut" is a hard cut hidden inside real fast camera motion, made only by the `setMotionCut` command (or a planner)
+ * from the clips' measured flow, which writes `clip.motionCut`. Without that record it draws as a plain cut.
+ */
+export const MEASURED_TRANSITIONS = ["motionCut"] as const;
+/** Every kind a saved clip may carry. */
+export const SAVED_TRANSITIONS = [...TRANSITIONS, ...MEASURED_TRANSITIONS] as const;
 /**
  * Kinds the owner retired on 2026-10-26 (ADR 0082): the whip pan and the speed-ramp transition. Saved reels that carry
  * them still load: the schema reads either as a plain cut (`migrateTransition`), so nothing offers, draws or stores them.
@@ -116,7 +125,7 @@ export function migrateEndCardReveal(value: unknown): unknown {
 
 export type Filter = (typeof FILTERS)[number];
 export type Motion = (typeof MOTIONS)[number];
-export type Transition = (typeof TRANSITIONS)[number];
+export type Transition = (typeof SAVED_TRANSITIONS)[number];
 export type TextStyle = (typeof TEXT_STYLES)[number];
 export type TextAnimation = (typeof TEXT_ANIMATIONS)[number];
 export type Corner = (typeof CORNERS)[number];
@@ -204,7 +213,7 @@ export const clipSchema = z
     /** Name of the room, when known ("kitchen"). */
     room: z.string().max(40).nullable().default(null),
     /** How this clip enters from the previous one. A retired kind (a whip, a speed ramp) saved before ADR 0082 reads as a cut. */
-    transitionIn: z.preprocess(migrateTransition, z.enum(TRANSITIONS).default("cut")),
+    transitionIn: z.preprocess(migrateTransition, z.enum(SAVED_TRANSITIONS).default("cut")),
     /** The camera pan of a whip (retired, ADR 0082). Kept so a saved reel round-trips; nothing reads it. */
     whipDirection: z.enum(["left", "right", "up", "down"]).optional(),
     /** A closer crop of the picture about its centre: 1 shows it all, 2 the middle half. Added to any motion. */
@@ -217,6 +226,12 @@ export const clipSchema = z
     audio: z.object({ assetId: z.string().min(1), sourceStartMs: ms, volume: unit.default(1) }).optional(),
     /** A speed ramp (ADR 0067): playback shaped inside the window, slow to fast or back; the mean stays `speed`. Absent or null: constant speed. */
     ramp: rampSchema.nullable().optional(),
+    /**
+     * A motion-hidden cut into this clip (ADR 0089): the measured motion either side, the ease-out of this clip's start,
+     * and the clip as it was before (speed, window, ramp), so taking the cut off restores it. Read only when
+     * `transitionIn` is "motionCut"; absent on every reel saved before it.
+     */
+    motionCut: motionCutSchema.optional(),
     /** An eased camera move (ADR 0067): keyframed scale and position. When set, `motion` is not read. Absent or null: `motion` as before. */
     camera: cameraSchema.nullable().optional(),
     /** Measured colour statistics of this clip's source (ADR 0070), kept so the look can be re-matched without reading pixels again. */
@@ -747,7 +762,15 @@ export function moveClip(timeline: Timeline, id: string, toIndex: number): Timel
 export function duplicateClip(timeline: Timeline, id: string, newId: string): Timeline {
   const index = timeline.clips.findIndex((clip) => clip.id === id);
   if (index === -1) return timeline;
-  return addClips(timeline, [{ ...timeline.clips[index], id: newId, transitionIn: "cut" }], index + 1);
+  return addClips(timeline, [{ ...withoutCutRecord(timeline.clips[index]), id: newId, transitionIn: "cut" }], index + 1);
+}
+
+/** A clip entering by a plain cut keeps no motion-cut record (ADR 0089): a copy or a second piece is not joined by one. */
+function withoutCutRecord(clip: Clip): Clip {
+  if (!clip.motionCut) return clip;
+  const rest = { ...clip };
+  delete rest.motionCut;
+  return rest;
 }
 
 /**
@@ -766,7 +789,7 @@ export function splitAt(timeline: Timeline, atMs: number, newId: string): Timeli
   const p = found.offsetMs / duration;
   const pieces = clip.ramp ? { first: sliceRamp(clip.ramp, 0, p), second: sliceRamp(clip.ramp, p, 1) } : null;
   const first: Clip = { ...clip, sourceEndMs: cut, ...(pieces ? { ramp: pieces.first } : {}) };
-  const second: Clip = { ...clip, id: newId, sourceStartMs: cut, transitionIn: "cut", ...(pieces ? { ramp: pieces.second } : {}) };
+  const second: Clip = { ...withoutCutRecord(clip), id: newId, sourceStartMs: cut, transitionIn: "cut", ...(pieces ? { ramp: pieces.second } : {}) };
   // Motion restarts on each piece, which reads as a deliberate second shot.
   const clips = [...timeline.clips];
   clips.splice(found.index, 1, first, second);

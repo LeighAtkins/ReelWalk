@@ -28,6 +28,9 @@ import { retime, retimeToLength } from "./review";
 import { insertPresenterTakes, type PresenterTakeInsert } from "./script";
 import { planCutaways, type CutawayOptions } from "./cutaways";
 import { matchLook, type ColorStats } from "./look";
+import { flowNear, judgeMotionCut, reelFlow, withMotionCut, withoutMotionCut, type MotionSampleLike, type CutMotion } from "./motion-cut";
+import { msToFrame } from "./frames";
+import { planDayAt, type DayLines, type DayMusic, type DayShot } from "./a-day-at";
 import { attachedAnchors, retimeTexts } from "./text-timing";
 import { placementProblem, surfacePatch, type SurfacePick, type TitleOnSurface } from "./surface-place";
 import { speechSync } from "./wall-text";
@@ -130,6 +133,24 @@ export type Command =
    * "lightLeak", or "walk" between two 360 photos. The retired whip and speed ramp are refused with that reason.
    */
   | { type: "setTransition"; clipId: string; transition: Timeline["clips"][number]["transitionIn"] }
+  /**
+   * A motion-hidden cut into a clip (ADR 0089): the hard cut kept on its frame, buried in the real fast motion either
+   * side, the clip easing from about 2.5× to 1× over its first frames, a blur along the measured motion. Made only from
+   * measured motion: `motion` in reel frame widths a second (dx, dy) and scale growth a second (zoom), or `analyses`
+   * (the ADR 0086 shot-analysis samples by asset id, with the source size) read at the cut. Refused with the reason when
+   * either side moves too little or the two moves go different ways; that refusal keeps it from being the retired whip.
+   * `on: false` takes it off (the clip's earlier speed and ramp come back, a plain cut).
+   */
+  | { type: "setMotionCut"; clipId: string; on?: boolean; motion?: { out: CutMotion; in: CutMotion };
+    analyses?: Record<string, { samples: MotionSampleLike[]; width?: number; height?: number }>; rampFrom?: number; rampFrames?: number }
+  /**
+   * Recipe 5, "a day at" (ADR 0089): the reel recut as the music-only cinematic film of the owner's reference reel 5,
+   * every cut on the beat, wides and textures alternating, morning to dusk, the reveal on the song's return after its
+   * break, two tiny centred lines. `shots` names the reel's clips with what the planner cannot see (wide or detail; time
+   * of day, else guessed from the clip's colour statistics; the reveal; an empty sky for the break); `music` is the song
+   * and its stored analysis (tempo, first beat, energy curve, sections). The report of what it did is not kept on the reel.
+   */
+  | { type: "dayAt"; shots: (Omit<DayShot, "clip" | "sourceDurationMs" | "colorStats"> & { clipId: string })[]; music: DayMusic; lines?: DayLines }
   /** One title's look or place (the critic's fixes, ADR 0062). Does not change the cut, so nothing is retimed. */
   | { type: "updateText"; textId: string; patch: Partial<Omit<TextOverlay, "id">> }
   /**
@@ -207,7 +228,7 @@ export type BatchableCommand = Exclude<Command, { type: "applyProposal" } | { ty
 const COMMAND_TYPE_REGISTRY: Record<Command["type"], true> = {
   trimClip: true, moveClip: true, splitClip: true, deleteClip: true, duplicateClip: true, setSpeed: true, setMusic: true, snapToBeat: true, pace: true, setOnBeat: true,
   retime: true, retimeToLength: true, insertPresenterTakes: true, cutaways: true, applyFinish: true, hook: true, applyProposal: true,
-  setRamp: true, setCamera: true, applyMove: true, matchCuts: true, setTransition: true, updateText: true, placeOnSurface: true, syncTextToSpeech: true, applyTextStyle: true, composeKeywordLockup: true, updateClip: true, matchLook: true, addText: true,
+  setRamp: true, setCamera: true, applyMove: true, matchCuts: true, setTransition: true, setMotionCut: true, dayAt: true, updateText: true, placeOnSurface: true, syncTextToSpeech: true, applyTextStyle: true, composeKeywordLockup: true, updateClip: true, matchLook: true, addText: true,
   autoSfx: true, setSfx: true, dropOnCut: true, setEndCard: true, batch: true,
 };
 /** The type of every command, in registry order. */
@@ -374,8 +395,27 @@ function run(timeline: Timeline, command: Command, context: CommandContext): Tim
       requireClip(timeline, command.clipId);
       const name = command.transition as string;
       if ((RETIRED_TRANSITIONS as readonly string[]).includes(name)) throw new Error(`The ${name} transition was retired (ADR 0082). Use one of: ${TRANSITIONS.join(", ")}.`);
+      if (name === "motionCut") throw new Error("A motion cut is made from measured motion: use setMotionCut (ADR 0089).");
       if (!(TRANSITIONS as readonly string[]).includes(name)) throw new Error(`There is no transition called ${name}. Use one of: ${TRANSITIONS.join(", ")}.`);
-      return updateClip(timeline, command.clipId, { transitionIn: command.transition });
+      // Another way in takes a motion cut off first, so its speed-up does not outlive it.
+      const leaving = replaceClip(timeline, command.clipId, (clip) => withoutMotionCut(clip, command.transition));
+      return updateClip(leaving, command.clipId, { transitionIn: command.transition });
+    }
+    case "setMotionCut":
+      return setMotionCut(timeline, command, durations);
+    case "dayAt": {
+      const shots: DayShot[] = command.shots.map((shot) => {
+        const clip = timeline.clips.find((entry) => entry.id === shot.clipId);
+        if (!clip) throw new Error(`There is no clip called ${shot.clipId} in the reel.`);
+        const sourceDurationMs = durations[clip.assetId];
+        if (sourceDurationMs == null) throw new Error(`The length of the source of ${shot.clipId} is not known.`);
+        const { clipId: _clipId, ...facts } = shot;
+        return { ...facts, clip, sourceDurationMs, colorStats: clip.colorStats };
+      });
+      let n = 0;
+      const ids = new Set(timeline.clips.map((clip) => clip.id).concat(timeline.texts.map((text) => text.id)));
+      const newId = () => { let id: string; do id = `day-${++n}`; while (ids.has(id)); ids.add(id); return id; };
+      return planDayAt(timeline, shots, command.music, command.lines ?? {}, newId).timeline;
     }
     case "matchCuts": {
       // A malformed reading of the camera is refused rather than guessed at.
@@ -445,7 +485,10 @@ function run(timeline: Timeline, command: Command, context: CommandContext): Tim
       // Speed is a cut change (it retimes everything after the clip), so it is not a setting this command may touch.
       const patch: ClipSettings = { ...(command.patch as ClipSettings) };
       delete patch.speed;
-      return updateClip(timeline, command.clipId, patch);
+      if (patch.transitionIn === "motionCut") throw new Error("A motion cut is made from measured motion: use setMotionCut (ADR 0089).");
+      // Another way in takes a motion cut off first, so its speed-up does not outlive it.
+      const leaving = patch.transitionIn ? replaceClip(timeline, command.clipId, (clip) => withoutMotionCut(clip, patch.transitionIn)) : timeline;
+      return updateClip(leaving, command.clipId, patch);
     }
     case "addText": {
       if (timeline.texts.some((text) => text.id === command.text.id)) throw new Error(`A text called ${command.text.id} is already in the reel.`);
@@ -475,6 +518,40 @@ function run(timeline: Timeline, command: Command, context: CommandContext): Tim
   }
 }
 
+
+/** The timeline with one clip replaced by `change(clip)`. */
+function replaceClip(timeline: Timeline, clipId: string, change: (clip: Timeline["clips"][number]) => Timeline["clips"][number]): Timeline {
+  return { ...timeline, clips: timeline.clips.map((clip) => (clip.id === clipId ? change(clip) : clip)) };
+}
+
+/** setMotionCut (ADR 0089): judged from measured motion, refused with the reason; the cut stays on its frame and the reel's length does not change. */
+function setMotionCut(timeline: Timeline, command: Extract<Command, { type: "setMotionCut" }>, durations: Record<string, number | null | undefined>): Timeline {
+  const index = timeline.clips.findIndex((clip) => clip.id === command.clipId);
+  if (index === -1) throw new Error(`There is no clip called ${command.clipId} in the reel.`);
+  const clip = timeline.clips[index];
+  if (command.on === false) return replaceClip(timeline, clip.id, (current) => withoutMotionCut(current));
+  if (index === 0) throw new Error("The first clip has no cut into it.");
+  const before = timeline.clips[index - 1];
+  if (before.kind !== "VIDEO" || clip.kind !== "VIDEO") throw new Error("A motion cut needs moving video on both sides of the cut.");
+  const plain = withoutMotionCut(clip, clip.transitionIn);
+  let motion = command.motion ?? null;
+  if (!motion && command.analyses) {
+    const read = (assetId: string, atMs: number, side: "out" | "in", speed: number, zoom: number) => {
+      const analysis = command.analyses?.[assetId];
+      const flow = analysis ? flowNear(analysis.samples, atMs, side) : null;
+      return flow ? reelFlow(flow, analysis?.width && analysis.height ? analysis.width / analysis.height : null, zoom, speed) : null;
+    };
+    const out = read(before.assetId, before.sourceEndMs, "out", before.speed, before.zoom);
+    const into = read(plain.assetId, plain.sourceStartMs, "in", plain.speed, plain.zoom);
+    if (out && into) motion = { out, in: into };
+  }
+  if (!motion) throw new Error("setMotionCut needs the measured motion either side of the cut: pass motion { out, in } or analyses (the clips' shot-analysis samples) by asset id.");
+  const verdict = judgeMotionCut(motion.out, motion.in, { rampFrom: command.rampFrom });
+  if (!verdict.ok) throw new Error(verdict.reason);
+  const frames = msToFrame(clipDurationMs(plain));
+  const next = withMotionCut(plain, verdict, frames, durations[clip.assetId], { rampFrom: command.rampFrom, rampFrames: command.rampFrames });
+  return replaceClip(timeline, clip.id, () => next);
+}
 
 function requireClip(timeline: Timeline, clipId: string): void {
   if (!timeline.clips.some((clip) => clip.id === clipId)) throw new Error(`There is no clip called ${clipId} in the reel.`);

@@ -214,3 +214,18 @@ wall, one spot for 13 s) are about footage and were addressed in the proof below
   face, which pushed every keyword up to the top of the safe area; the boxes were measured with OpenCV instead. The
   stored whisper-small transcript put "Before" a second late; faster-whisper medium word times were used instead. Both
   are fields the command already accepts.
+
+### Review fixes (sol-loop round 1 on PR #254)
+
+- **No word dropped.** A companion line that would be on for under 200 ms (a quick last word before the clip ends) used
+  to be skipped while the caption track was also suppressed, so the word vanished. Now every companion is shown or the
+  whole phrase keeps the caption track.
+- **Ink never touches ink.** The over-line on the cap line still hit tall letters ("Try" over "free": the y's tail on
+  the f). Glyph extents were measured from the bundled fonts with fontTools at the drawn weights (Playfair Display 600:
+  ascenders 0.783 em, capitals 0.723, tails −0.188; Archivo italic 500: ascenders 0.731, tails −0.182, its f included).
+  `placeCompanions` takes the keyword's text, finds the keyword's letters under each line's span, and moves the line
+  clear by a quarter of its capitals: the over-line up past an ascender and its own tails, the under-line down only
+  when a keyword tail is in its way (its tuck into the capitals is reel 3's look and stays). A line that then leaves
+  the safe area falls back to the caption track as before.
+- **Brand kit keywords keep the caption track.** `brandStyle` replaces the keyword's face, tracking and case after
+  composing, so the measured fit no longer holds; a branded lockup is composed with `interlock: false`.

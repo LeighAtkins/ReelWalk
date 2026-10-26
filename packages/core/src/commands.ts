@@ -431,7 +431,9 @@ function run(timeline: Timeline, command: Command, context: CommandContext): Tim
     case "composeKeywordLockup": {
       if (command.remove) return { ...timeline, texts: timeline.texts.filter((text) => !text.lockup) };
       if (!command.speech) throw new Error("composeKeywordLockup needs the clips' transcripts: send it to POST /api/reels/:id/commands, which reads them from the library, or pass speech yourself.");
-      const composed = composeKeywordLockups(timeline, { ...command, speech: command.speech });
+      // A kit style replaces the keyword's face, tracking and case, which the companions' fit is measured against: a
+      // branded lockup keeps the caption track (round-1 review).
+      const composed = composeKeywordLockups(timeline, { ...command, speech: command.speech, ...(command.brandStyle ? { interlock: false } : {}) });
       if (!command.brandStyle) return composed;
       // A kit style (ADR 0078) gives the keyword its face, colour and shadow; the lockup keeps its own size and place.
       if (!context.brandKit) throw new Error("This workspace has no brand kit, so there are no named text styles to apply. A kit is added to a workspace by its admin.");

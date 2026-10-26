@@ -133,6 +133,43 @@ const COMPANION_MAX_WIDTH_RATIO = 1.6;
 const ARCHIVO_CAP_EM = 0.695;
 /** The plain style's px per size (look.ts BASE_TEXT_PX). */
 const PLAIN_PX_PER_SIZE = 76;
+/*
+ * Glyph extents, measured from the bundled fonts at the weights drawn (fontTools on playfair-display-latin-wght-normal
+ * at wght 600, archivo-latin-wdth-italic at wght 500): the top and bottom of each class of letter, in em from the
+ * baseline. Used to keep a companion line's ink off the keyword's (round-1 review: "Try" over "free" put the y's tail
+ * on the f).
+ */
+const PLAYFAIR_INK = { ascender: 0.783, cap: 0.723, x: 0.53, descender: -0.188, base: -0.012 };
+const ARCHIVO_ITALIC_INK = { ascender: 0.731, cap: 0.698, x: 0.54, descender: -0.182, base: -0.012 };
+/** Letters that rise above the capitals (Playfair: b d f h k l, and the dots of i j). */
+const ASCENDERS = /[bdfhijklt]/;
+/** Letters with a tail under the baseline (Playfair g j p q y J Q; Archivo italic adds its f). */
+const PLAYFAIR_DESCENDERS = /[gjpqyJQ]/;
+const ARCHIVO_DESCENDERS = /[fgjpqyQ]/;
+/** Clear space kept between a companion's ink and the keyword's, as a share of the companion's capitals. */
+const INK_GAP = 0.25;
+const inkTop = (ch: string, ink: typeof PLAYFAIR_INK) => (ASCENDERS.test(ch) ? ink.ascender : /[A-Z0-9]/.test(ch) ? ink.cap : ink.x);
+const inkBottom = (ch: string, ink: typeof PLAYFAIR_INK, tails: RegExp) => (tails.test(ch) ? ink.descender : ink.base);
+
+/**
+ * The keyword's ink over a span of the frame (fractions): the highest top and lowest bottom, in em from its baseline,
+ * of the letters whose advance falls in `[from, to]`. Without the keyword's text, the worst case.
+ */
+function keywordInkOver(keyword: { x: number; size: number; widthFraction: number; text?: string }, from: number, to: number): { top: number; bottom: number } {
+  if (!keyword.text) return { top: PLAYFAIR_INK.ascender, bottom: PLAYFAIR_INK.descender };
+  const fontPx = keyword.size * ELEGANT_PX_PER_SIZE, W = REEL_FORMAT.width;
+  const left = keyword.x - keyword.widthFraction / 2;
+  let top = 0, bottom = 0;
+  [...keyword.text].forEach((ch, i, chars) => {
+    const x0 = left + estimateLineWidth(chars.slice(0, i).join(""), { ...KEYWORD_FONT, fontSize: fontPx }) / W;
+    const x1 = left + estimateLineWidth(chars.slice(0, i + 1).join(""), { ...KEYWORD_FONT, fontSize: fontPx }) / W;
+    if (x1 < from || x0 > to) return;
+    top = Math.max(top, inkTop(ch, PLAYFAIR_INK));
+    bottom = Math.min(bottom, inkBottom(ch, PLAYFAIR_INK, PLAYFAIR_DESCENDERS));
+  });
+  return { top, bottom };
+}
+
 /** Companions are a lighter italic than the caption track's 600 (reel 3's companions are a regular italic). */
 const COMPANION_WEIGHT = 500;
 const COMPANION_FONT = { fontFamily: "Archivo Variable", fontWeight: COMPANION_WEIGHT };
@@ -284,7 +321,7 @@ export type CompanionPlacement = { text: string; position: "over" | "under"; x: 
  * line. Null when they do not fit as one block
  * (a line wider than the keyword allows, or one that would leave the safe area): the caption track is used instead.
  */
-export function placeCompanions(keyword: { x: number; y: number; size: number; widthFraction: number }, before: string, after: string): CompanionPlacement[] | null {
+export function placeCompanions(keyword: { x: number; y: number; size: number; widthFraction: number; text?: string }, before: string, after: string): CompanionPlacement[] | null {
   const W = REEL_FORMAT.width, H = REEL_FORMAT.height;
   const fontPx = keyword.size * ELEGANT_PX_PER_SIZE;
   const cap = (fontPx * SERIF_CAP_EM) / H;
@@ -306,7 +343,21 @@ export function placeCompanions(keyword: { x: number; y: number; size: number; w
     // Over: left-aligned in from the keyword's left edge, its baseline inside the top of the capitals.
     // Under: right-aligned in from the keyword's right edge, its capitals' top inside the bottom of the capitals.
     const x = position === "over" ? left + inset + width / 2 : right - inset - width / 2;
-    const capMid = position === "over" ? capTop + COMPANION_OVER_OVERLAP * cap - c / 2 : baseline - COMPANION_OVERLAP * cap + c / 2;
+    let capMid = position === "over" ? capTop + COMPANION_OVER_OVERLAP * cap - c / 2 : baseline - COMPANION_OVERLAP * cap + c / 2;
+    // Ink never touches ink: the keyword's letters under the line (an ascender, a tail) and the line's own (a tail, a
+    // tall italic f) are measured, and the line moves clear by a quarter of its capitals.
+    const ink = keywordInkOver(keyword, x - width / 2, x + width / 2);
+    const em = px / H, kwEm = fontPx / H, gap = INK_GAP * c;
+    const chars = [...text];
+    if (position === "over") {
+      const ownBottom = Math.min(0, ...chars.map((ch) => inkBottom(ch, ARCHIVO_ITALIC_INK, ARCHIVO_DESCENDERS))) * em;
+      const highest = baseline - ink.top * kwEm - gap + ownBottom;
+      capMid = Math.min(capMid, highest - c / 2);
+    } else {
+      const ownTop = Math.max(...chars.map((ch) => inkTop(ch, ARCHIVO_ITALIC_INK))) * em;
+      // Tucked into the capitals by design (reel 3); only a tail of the keyword in the line's way pushes it down below it.
+      if (ink.bottom < ARCHIVO_ITALIC_INK.base) capMid = Math.max(capMid, baseline - ink.bottom * kwEm + gap + ownTop - c / 2);
+    }
     const y = capMid + (ARCHIVO_CAP_MID_ABOVE_CENTRE_EM * px) / H;
     // The line's own box (about 1.2 em tall) inside the safe area, or it does not interlock.
     const halfBox = (0.6 * px) / H;
@@ -390,12 +441,15 @@ export function composeKeywordLockups(timeline: Timeline, options: LockupOptions
           if (options.interlock !== false && options.captions !== false && phrase.words.length > 1 && phrase.words.length <= INTERLOCK_MAX_WORDS) {
             const setAs = (list: SpokenWord[]) => list.map((w) => keywordText(w.text) || w.text).join(" ");
             const before = phrase.words.slice(0, k), after = phrase.words.slice(k + 1);
-            const companions = placeCompanions(placed, setAs(before), setAs(after));
-            if (companions) {
-              for (const line of companions) {
-                const words = line.position === "over" ? before : after;
-                const lineStart = Math.max(clipStart, words[0].startMs - CAPTION_LEAD_MS);
-                if (phraseEnd - lineStart < 200) continue;
+            const companions = placeCompanions({ ...placed, text: word }, setAs(before), setAs(after));
+            const lines = (companions ?? []).map((line) => {
+              const words = line.position === "over" ? before : after;
+              return { line, words, lineStart: Math.max(clipStart, words[0].startMs - CAPTION_LEAD_MS) };
+            });
+            // Every companion is readable (on 200 ms or more) or none is: a word too late to show keeps the caption track,
+            // so no spoken word is dropped (round-1 review).
+            if (companions && lines.every(({ lineStart }) => phraseEnd - lineStart >= 200)) {
+              for (const { line, words, lineStart } of lines) {
                 const wordsMs = words.map((w) => Math.max(0, Math.round(w.startMs - CAPTION_LEAD_MS - lineStart)));
                 added.push(companionTitle(id, line, lineStart, phraseEnd, wordsMs));
               }
@@ -445,7 +499,7 @@ export function composeKeywordLockups(timeline: Timeline, options: LockupOptions
     }));
     const caption = options.cta.caption?.trim();
     // A short closing line interlocks under the keyword, its words following at a speaking pace once the keyword has landed.
-    const tucked = caption && options.interlock !== false && caption.split(/\s+/).length < INTERLOCK_MAX_WORDS ? placeCompanions(placed, "", caption) : null;
+    const tucked = caption && options.interlock !== false && caption.split(/\s+/).length < INTERLOCK_MAX_WORDS ? placeCompanions({ ...placed, text: word }, "", caption) : null;
     if (caption && tucked?.length) {
       const span = close.endMs - startMs;
       const wordsMs = caption.split(/\s+/).map((_, i) => Math.min(span - 100, 250 + i * 300));

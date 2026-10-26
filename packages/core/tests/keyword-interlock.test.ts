@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { LAST_MILE_KIT } from "../src/brand-kits";
 import {
-  BUTTON_COLUMN_X, COMPANION_CAP_RATIO, COMPANION_OVER_OVERLAP, COMPANION_OVERLAP, composeKeywordLockups, describeLockups, INTERLOCK_MAX_WORDS, KEYWORD_CAP, maxTextSize, parseTimeline,
+  applyCommand, BUTTON_COLUMN_X, COMPANION_CAP_RATIO, COMPANION_OVER_OVERLAP, COMPANION_OVERLAP, composeKeywordLockups, describeLockups, INTERLOCK_MAX_WORDS, KEYWORD_CAP, maxTextSize, parseTimeline,
   placeCompanions, placeKeyword, REEL_FORMAT, SAFE_AREA, SERIF_CAP_EM, TEXT_SAFE_BOTTOM, TEXT_SIZE_MAX, textSchema, type TextOverlay, type Timeline, type TranscriptWord,
 } from "../src";
 
@@ -28,7 +29,7 @@ describe("placeCompanions", () => {
   const keyword = placeKeyword("Before", KEYWORD_CAP, { x0: 0.45, y0: 0.52, x1: 0.58, y1: 0.61 });
 
   it("tucks the words after the keyword under its right half and the words before over its top-left, a third of its size", () => {
-    const placed = placeCompanions(keyword, "ask", "you list")!;
+    const placed = placeCompanions({ ...keyword, text: "Before" }, "ask", "you list")!;
     expect(placed.map((p) => [p.text, p.position])).toEqual([["ask", "over"], ["you list", "under"]]);
     const [over, under] = placed;
     const cap = keyword.capHeight;
@@ -43,7 +44,22 @@ describe("placeCompanions", () => {
     const fontH = (keyword.size * 76 * 0.7) / H;
     const baseline = keyword.y + 0.4155 * fontH, capTop = baseline - cap;
     expect(under.y - under.capHeight / 2).toBeCloseTo(baseline - COMPANION_OVERLAP * cap, 2);
-    expect(over.y + over.capHeight / 2).toBeCloseTo(capTop + COMPANION_OVER_OVERLAP * cap, 2);
+    // The line over sits on the cap line, lifted only as far as its ink needs to clear the keyword's (a quarter of its capitals).
+    expect(over.y + over.capHeight / 2).toBeLessThanOrEqual(capTop + COMPANION_OVER_OVERLAP * cap + 1e-6);
+    expect(over.y + over.capHeight / 2).toBeGreaterThan(capTop - 0.6 * over.capHeight);
+  });
+
+  it("keeps a line's ink off the keyword's: a tail over a tall letter is lifted clear (round-1 review, \"Try\" over \"free\")", () => {
+    const free = placeKeyword("free", KEYWORD_CAP, { x0: 0.45, y0: 0.52, x1: 0.58, y1: 0.61 });
+    const [over] = placeCompanions({ ...free, text: "free" }, "Try", "")!;
+    const fontH = (free.size * 76 * 0.7) / H, baseline = free.y + 0.4155 * fontH;
+    // Measured extents: Playfair 600's f rises 0.783 em; Archivo italic's y hangs 0.182 em.
+    const fTop = baseline - 0.783 * fontH;
+    const companionEm = (over.size * 76) / H, overBaseline = over.y + over.capHeight / 2;
+    expect(overBaseline + 0.182 * companionEm).toBeLessThan(fTop);
+    // Without the keyword's text the worst case is assumed, which is never lower.
+    const [blind] = placeCompanions(free, "Try", "")!;
+    expect(blind.y).toBeLessThanOrEqual(over.y + 1e-6);
   });
 
   it("refuses a line too wide to read as one block with the keyword, or one that would leave the safe area", () => {
@@ -103,6 +119,20 @@ describe("composeKeywordLockups with interlock", () => {
     const [only] = describeLockups(composeKeywordLockups(reel(), { speech: wide, faces: FACES, keywords: ["Go"] }));
     expect(only.layout).toBe("captions");
     expect(only.captions).toEqual(["absolutely", "everywhere"]);
+  });
+
+  it("keeps the caption track when a companion would be on too briefly to read, so no word is dropped (round-1 review)", () => {
+    const quick: Record<string, TranscriptWord[]> = { [PIER]: [{ w: "Do", s: 0, e: 300 }, { w: "this", s: 400, e: 700 }, { w: "now.", s: 800, e: 940 }] };
+    const short = parseTimeline({ version: 1, music: null, texts: [], clips: [{ id: "pier", assetId: PIER, kind: "VIDEO", sourceStartMs: 0, sourceEndMs: 950 }] });
+    const [only] = describeLockups(composeKeywordLockups(short, { speech: quick, faces: FACES, keywords: ["this"] }));
+    expect(only.layout).toBe("captions");
+    expect(only.captions).toEqual(["Do", "now"]);
+  });
+
+  it("keeps the caption track for a brand kit keyword, whose face the companions were not measured against (round-1 review)", () => {
+    const styled = applyCommand(reel(), { type: "composeKeywordLockup", speech: SPEECH, faces: FACES, keywords: ["Before", "yourself"], brandStyle: "lastmile-title" }, { generation: 0, brandKit: LAST_MILE_KIT });
+    expect(styled.timeline.texts.some((t) => t.lockup?.role === "companion")).toBe(false);
+    expect(styled.timeline.texts.some((t) => t.lockup?.role === "captions")).toBe(true);
   });
 
   it("interlocks a short closing line under the call to action, and keeps a long one as captions", () => {

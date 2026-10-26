@@ -7,7 +7,7 @@ const entry = (transitionIn: Clip["transitionIn"], durationInFrames = 60) => ({ 
 describe("the schema's transition kinds as Remotion presentations (ADR 0083)", () => {
   it("maps every kind the schema has", () => {
     const mapped = Object.fromEntries(TRANSITIONS.map((kind) => [kind, presentationFor(kind)]));
-    expect(mapped).toEqual({ cut: "none", fade: "fade", walk: "none", softDissolve: "softDissolve", focusPull: "focusPull", lightLeak: "none" });
+    expect(mapped).toEqual({ cut: "none", fade: "fade", walk: "none", softDissolve: "softDissolve", focusPull: "focusPull", lightLeak: "none", occlusionWipe: "occlusionWipe", zoomThrough: "zoomThrough" });
   });
 
   it("keeps transitions short: 10 frames for a fade and 12 for a soft dissolve at 30 fps, never over 12 frames' worth", () => {

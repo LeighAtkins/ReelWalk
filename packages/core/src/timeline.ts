@@ -5,6 +5,7 @@ import { rampSchema, rampUnwarp, rampWarp, sliceRamp } from "./ramp";
 import { planOverlaySchema, roomTitle, spotSchema, type PlanOverlay } from "./plan";
 import { colorMatchSchema, colorStatsSchema, lookSchema } from "./look";
 import { textTreatmentSchema } from "./brand-fonts";
+import { cutInSchema } from "./cut-schema";
 
 /**
  * A reel's edit, as a plain JSON document. The browser edits it, Postgres
@@ -50,8 +51,11 @@ export const MOTIONS = ["none", "zoom-in", "zoom-out", "pan", "snap-in", "snap-o
  * 0082) adds three for the lively look and the close, never a default: "softDissolve" (a crossfade with a 3 % breath of
  * scale), "focusPull" (a rack focus through a soft blur) and "lightLeak" (a soft warm glint over a hard cut, which keeps
  * the cut on its frame).
+ * The cut grammar (ADR 0087) adds two the planner draws, never offered in the transition menu: "occlusionWipe" (a mask
+ * wipe that follows a door frame or wall edge across the lens, `cut.wipe`) and "zoomThrough" (an eased push into a
+ * region of the outgoing shot while the incoming one settles out of the matching region, `cut.zoom`).
  */
-export const TRANSITIONS = ["cut", "fade", "walk", "softDissolve", "focusPull", "lightLeak"] as const;
+export const TRANSITIONS = ["cut", "fade", "walk", "softDissolve", "focusPull", "lightLeak", "occlusionWipe", "zoomThrough"] as const;
 /**
  * Kinds the owner retired on 2026-10-26 (ADR 0082): the whip pan and the speed-ramp transition. Saved reels that carry
  * them still load: the schema reads either as a plain cut (`migrateTransition`), so nothing offers, draws or stores them.
@@ -214,6 +218,12 @@ export const clipSchema = z
     colorStats: colorStatsSchema.optional(),
     /** The colour transform that moves this clip onto the reel's reference look (ADR 0070), applied under the `filter` preset. Absent: none. */
     colorMatch: colorMatchSchema.optional(),
+    /**
+     * The cut grammar (ADR 0087): the named technique that carries the shot change into this clip, why it was chosen,
+     * and what the drawn ones need (the wipe's edge, the zoom's regions, depth maps, J/L sound offsets). Absent on
+     * every reel saved before it, which renders exactly as before.
+     */
+    cut: cutInSchema.optional(),
   })
   .refine((clip) => clip.sourceEndMs > clip.sourceStartMs, { message: "Clip must have a positive length" });
 
@@ -790,7 +800,7 @@ export function trimClip(
   return fitTexts(updated);
 }
 
-export type ClipSettings = Partial<Pick<Clip, "speed" | "volume" | "fit" | "filter" | "motion" | "transitionIn" | "pano" | "zoom" | "lensSoftness" | "whipDirection" | "ramp" | "camera">>;
+export type ClipSettings = Partial<Pick<Clip, "speed" | "volume" | "fit" | "filter" | "motion" | "transitionIn" | "pano" | "zoom" | "lensSoftness" | "whipDirection" | "ramp" | "camera" | "cut">>;
 
 export function updateClip(timeline: Timeline, id: string, settings: ClipSettings): Timeline {
   return fitTexts(replaceClip(timeline, id, (clip) => clipSchema.parse({ ...clip, ...settings })));

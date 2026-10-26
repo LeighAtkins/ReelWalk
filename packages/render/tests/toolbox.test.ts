@@ -16,7 +16,8 @@ const FPS = 30;
 
 describe("the schema", () => {
   it("offers only the owner's kinds (2026-10-26)", () => {
-    expect(TRANSITIONS).toEqual(["cut", "fade", "walk", "softDissolve", "focusPull", "lightLeak"]);
+    // Plus the cut grammar's two (ADR 0087), drawn only by the planner and never offered in the transition menu.
+    expect(TRANSITIONS).toEqual(["cut", "fade", "walk", "softDissolve", "focusPull", "lightLeak", "occlusionWipe", "zoomThrough"]);
     expect(TEXT_ANIMATIONS).toEqual(expect.arrayContaining(["auto", "pop", "fade", "rise", "type", "none", ...TITLE_REVEALS]));
     expect(END_CARD_REVEALS).toEqual(["cut", "leak"]);
     for (const reveal of TITLE_REVEALS) expect(isTitleReveal(reveal)).toBe(true);

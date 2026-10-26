@@ -60,6 +60,10 @@ POST /api/reels/:id/commands
 ] }
 ```
 
+- **A settle on each spoken word.** With `wordsMs`, a word lands 2% large and eases to its size over 140 ms
+  (`WORD_SETTLE_MS`, ease-out, no overshoot), the "pop" the owner asked for. Without `wordsMs` the scale stays 1, so
+  saved reels are unchanged. Not visible in the production reel (main does not have it).
+
 ### A line at a spot and a size on a wall
 
 - `lineOnPlane(plane, aspect, { at, capHeight = 0.025, lines = 1 })`: the title's rectangle in the plane's own
@@ -108,7 +112,7 @@ POST /api/reels/:id/commands
     transcripts an agent sent.
   - `apps/web/lib/surface-command.test.ts` (+1): `fit` reaches the finder; malformed fits answer 400.
 - `pnpm --filter @reelwalk/web build` passed locally.
-- **Production reel** `cmvon36vt000g01adkhqh7we2`, final export `cmvoo30jm000k01adpsml3v8s` (14.93 s), built in the
+- **Production reel** `cmvon36vt000g01adkhqh7we2`, final export `cmvop88z4000n01ad9rqktut4` (v3, 14.93 s; v2 `cmvoo30jm000k01adpsml3v8s`), built in the
   owner's workspace with the deployed app. Two voiced Maya takes (`voice: "veo"`) from kit `cmvi0he2d000201admjnm9g4e`,
   corner plate `ai-cmvomd1ky000501addfs39tcj`, `mode: "static"`.
   - Planes: `wallPlane` from vanishing points measured on the plate (left (1.362, 0.894), right (−0.168, 0.882) in take

@@ -19,7 +19,7 @@ import {
 // OffthreadVideo here, and it falls back to it for files it cannot decode.
 import { Video as RenderVideo } from "@remotion/media";
 import { TransitionSeries } from "@remotion/transitions";
-import { behindInPlane, BRAND_FONTS, calloutGeometry, calloutSvg, cameraAt, captionWordAt, colorMatchFilterId, colorMatrixValues, countUpText, duckGain, evaluateTitle, flareCss, framePlan, mediaWindow, glintLetter, glintSvg, INSTAGRAM, isInstagramMusic, kineticProgress, matrix3d, particleField, particleSvg, personLayerOpacity, REEL_FORMAT, sceneLayers, SFX_DUCK, SFX_SOUNDS, sfxAssetKey, sfxEndMs, sfxGainAt, shineAt, shineBandCss, shineSpec, slideFromBehind, speechWindows, TITLE_LEADING, timelineDurationMs, titleArrival, walkInto, wrapTitleLines, wordReveal, type Clip, type Logo, type ParticleField, type PersonPass, type Plan, type SfxClip, type ShineFlare, type ShineGlint, type TextOverlay, type Timeline } from "@reelwalk/core";
+import { behindInPlane, BRAND_FONTS, cutBlurAt, calloutGeometry, calloutSvg, cameraAt, captionWordAt, colorMatchFilterId, colorMatrixValues, countUpText, duckGain, evaluateTitle, flareCss, framePlan, mediaWindow, glintLetter, glintSvg, INSTAGRAM, isInstagramMusic, kineticProgress, matrix3d, particleField, particleSvg, personLayerOpacity, REEL_FORMAT, sceneLayers, SFX_DUCK, SFX_SOUNDS, sfxAssetKey, sfxEndMs, sfxGainAt, shineAt, shineBandCss, shineSpec, slideFromBehind, speechWindows, TITLE_LEADING, timelineDurationMs, titleArrival, walkInto, wrapTitleLines, wordReveal, type Clip, type Logo, type ParticleField, type PersonPass, type Plan, type SfxClip, type ShineFlare, type ShineGlint, type TextOverlay, type Timeline } from "@reelwalk/core";
 import { layoutMeasure } from "./measure";
 import { textExit, titleFont } from "./title-motion";
 import { revealStyle } from "./toolbox/title-reveal";
@@ -30,6 +30,7 @@ import { LocationLowerThird } from "./toolbox/LocationLowerThird";
 import { clipPresentation } from "./presentation";
 import { clipSpans, mediaHandles, planCuts, type CutPlan } from "./transition-plan";
 import { AtCuts, presentationOf, timingOf } from "./transitions";
+import { MotionCutBlur } from "./motion-cut-blur";
 import { useFontsFor } from "./fonts";
 import { clipFilterCss, ELEGANT_FADE_S, FILTER_GRADES, textFillCss, textTreatmentCss, whiteBalanceId, whiteBalanceValues } from "./look";
 import { DetailsCardView } from "./DetailsCardView";
@@ -143,11 +144,13 @@ const ClipView: React.FC<{
    */
   lead?: number;
   tail?: number;
-}> = ({ clip, asset, durationInFrames, previous, plan, opening = false, lead = 0, tail = 0 }) => {
+  /** The clip after this one: a motion cut into it blurs this clip's last frames along this clip's own motion (ADR 0090). */
+  next?: Clip;
+}> = ({ clip, asset, durationInFrames, previous, plan, opening = false, lead = 0, tail = 0, next }) => {
   const sequenceFrame = useCurrentFrame();
   // The clip's own frame: 0 on the saved cut in, whatever the transition before it borrowed.
   const frame = sequenceFrame - lead;
-  const { fps } = useVideoConfig();
+  const { fps, width } = useVideoConfig();
   if (!asset) {
     // The source was deleted. Show a neutral frame instead of failing the whole render.
     return <AbsoluteFill style={{ backgroundColor: "#262320" }} />;
@@ -192,10 +195,14 @@ const ClipView: React.FC<{
     </Freeze>
   );
 
+  // A motion-hidden cut (ADR 0090): the blur of the cut into this clip on its first frames, or of the cut out of it on its last.
+  const blurIn = clip.transitionIn === "motionCut" && clip.motionCut ? cutBlurAt(clip.motionCut, "in", frame, fps, width) : null;
+  const blurOut = next?.transitionIn === "motionCut" && next.motionCut ? cutBlurAt(next.motionCut, "out", durationInFrames - 1 - frame, fps, width) : null;
+
   return (
     <AbsoluteFill style={{ opacity: shown, overflow: "hidden" }}>
       <ColorMatchFilter clip={clip} />
-      <AbsoluteFill>
+      <MotionCutBlur blur={blurIn ?? blurOut}>
       {clip.fit === "contain" ? (
         // Letterboxed: the same picture, blurred and enlarged, fills the 9:16 frame behind it.
         <AbsoluteFill style={{ filter: "blur(48px) brightness(0.7)", transform: "scale(1.25)" }}>
@@ -208,7 +215,7 @@ const ClipView: React.FC<{
       {clip.lensSoftness ? <AbsoluteFill style={{ pointerEvents: "none", backdropFilter: `blur(${clip.lensSoftness * 7}px)`,
         maskImage: "radial-gradient(ellipse 47% 40% at 50% 48%, transparent 52%, black 100%)",
         WebkitMaskImage: "radial-gradient(ellipse 47% 40% at 50% 48%, transparent 52%, black 100%)" }} /> : null}
-      </AbsoluteFill>
+      </MotionCutBlur>
     </AbsoluteFill>
   );
 };
@@ -745,6 +752,7 @@ export const ReelComposition: React.FC<ReelProps> = ({ timeline, assets, waterma
                 opening={index === 0}
                 lead={lead}
                 tail={tail}
+                next={plan.clips[index + 1]?.clip}
               />
               {/* A J-cut (ADR 0069): the sound under a cutaway is the presenter take it covers, from the same source time, on the saved span only. */}
               {clip.audio && assets[clip.audio.assetId]?.kind === "VIDEO" ? (

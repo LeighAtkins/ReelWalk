@@ -779,7 +779,7 @@ export function PanoSheet({
 }
 
 /** The transitions the sheet offers (ADR 0082, the owner's choice of the gallery), with their names. A cut is no transition. */
-const TRANSITION_NAMES = { cut: "Cut", fade: "Dissolve", softDissolve: "Soft dissolve", focusPull: "Focus pull", lightLeak: "Light leak", walk: "Walk there" } as const satisfies Record<Clip["transitionIn"], string>;
+const TRANSITION_NAMES = { cut: "Cut", fade: "Dissolve", softDissolve: "Soft dissolve", focusPull: "Focus pull", lightLeak: "Light leak", walk: "Walk there", motionCut: "In the motion" } as const satisfies Record<Clip["transitionIn"], string>;
 
 export function TransitionSheet({
   clip,
@@ -798,7 +798,9 @@ export function TransitionSheet({
   onPlayCut?: () => void;
   onClose(): void;
 }) {
-  const offered = [...(["cut", "fade", "softDissolve", "focusPull", "lightLeak"] as const), ...(canWalkHere ? (["walk"] as const) : [])];
+  // A motion-hidden cut (ADR 0090) is made from measured motion, never picked here: it is shown only on a cut that has one.
+  const hidden = clip.transitionIn === "motionCut" && clip.motionCut;
+  const offered = [...(["cut", "fade", "softDissolve", "focusPull", "lightLeak"] as const), ...(canWalkHere ? (["walk"] as const) : []), ...(hidden ? (["motionCut"] as const) : [])];
   return (
     <Sheet title="Transition in" onClose={onClose}>
       <Segmented
@@ -811,6 +813,7 @@ export function TransitionSheet({
       {onPlayCut && clip.transitionIn !== "cut" ? <button type="button" className="btn btn-block" aria-pressed={looping} onClick={onPlayCut} data-testid="transition-play">{looping ? "Stop the loop" : "Play the cut"}</button> : null}
       <p className="muted small">A cut is the house style. Dissolve, Soft dissolve and Focus pull blend the two shots around the cut; Light leak keeps the cut and lays a soft warm glint over it. None of them makes the reel longer.</p>
       {canWalkHere ? <p className="muted small">Walk there moves the camera across the floor plan from the last 360 photo to this one.</p> : null}
+      {hidden ? <p className="muted small">In the motion hides the cut inside the camera's own movement: this shot starts fast and eases to normal speed. Pick another to take it off.</p> : null}
     </Sheet>
   );
 }

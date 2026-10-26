@@ -9,6 +9,8 @@
 import { AI_BRIEFS, type AiAsset, type AiBrief, type AiSong } from "./ai-edit";
 import type { InstagramAudioTrack } from "./instagram-audio";
 import { snapCutsToBeats } from "./beats";
+import { carryOpeningTitle, planCutOnTimeline, planReport, type CutBrief, type CutPlan } from "./cut-planner";
+import type { PlannerAnalysis } from "./shot-facts";
 import {
   MIN_CLIP_MS,
   addRoomLabels,
@@ -288,4 +290,45 @@ export function ruleCutWithPick(timeline: Timeline, context: Context): { timelin
 export function usableCut(timeline: Timeline): boolean {
   const total = timelineDurationMs(timeline);
   return timeline.clips.length > 0 && total >= 6000 && total <= 90_000 && timeline.clips.every((clip) => clipDurationMs(clip) >= 700);
+}
+
+/** The feel a style asks for, when the person was not asked (ADR 0087): the slow luxury style is quiet, the quick ones lively. */
+export function briefForStyle(style: AutopilotStyle, brief: Partial<CutBrief> = {}): CutBrief {
+  const feel = brief.feel ?? (style.id === "privacy" ? "quiet" : style.id === "just-listed" ? "lively" : "classic");
+  const listing = brief.listing ?? (style.id === "open-house" ? "open-home" : "for-sale");
+  return { listing, feel };
+}
+
+/**
+ * The first cut by the cut planner (ADR 0087), when the clips have their shot analysis: the song first (its beat grid
+ * shapes the lengths; nothing is snapped afterwards), then the plan, then the finish (details card, hook), and the
+ * hook carried across the first cut. Never a finish button: Pop stays off this path. Null when no clip has an
+ * analysis, or the plan fails its own gate (the caller then cuts by rule).
+ */
+export function plannedCut(
+  timeline: Timeline,
+  context: Context & { analyses: Record<string, PlannerAnalysis | null | undefined>; brief?: Partial<CutBrief>; sourceDurationsMs?: Record<string, number | null | undefined> },
+): { timeline: Timeline; plan: CutPlan; instagramPick?: InstagramAudioTrack } | null {
+  if (!timeline.clips.some((clip) => context.analyses[clip.assetId])) return null;
+  let base: Timeline = { ...timeline, texts: [], music: null, details: null };
+  let instagramPick: InstagramAudioTrack | undefined;
+  const song = pickSong(context.songs, context.style);
+  if (song?.instagram) instagramPick = song.instagram;
+  else if (song) {
+    const asset = context.assets[song.id];
+    base = setMusic(base, { assetId: song.id, sourceStartMs: 0, volume: 0.8, bpm: song.bpm ?? asset?.bpm ?? null, beatOffsetMs: asset?.beatOffsetMs ?? null, onBeat: true, autoPicked: true });
+  }
+  // An Instagram sound is attached at posting, but its tempo still paces the cut.
+  const withGrid = instagramPick && song?.bpm && !base.music ? { ...base, music: { assetId: song.id, sourceStartMs: 0, volume: 0.8, bpm: song.bpm, beatOffsetMs: 0 } as Timeline["music"] } : base;
+  let planned: { timeline: Timeline; plan: CutPlan };
+  try {
+    planned = planCutOnTimeline(withGrid, { analyses: context.analyses, brief: briefForStyle(context.style, context.brief), sourceDurationsMs: context.sourceDurationsMs ?? durations(context.assets), carry: true });
+  } catch {
+    return null;
+  }
+  const cut: Timeline = withGrid === base ? planned.timeline : { ...planned.timeline, music: base.music };
+  const finished = finishAutopilot(cut, { ...context, instagramPick });
+  const result = carryOpeningTitle(finished.timeline, planned.plan.carryUntilMs);
+  if (!planReport(result, planned.plan).pass) return null;
+  return { timeline: result, plan: planned.plan, instagramPick: finished.instagramPick ?? instagramPick };
 }

@@ -51,7 +51,8 @@ export type PlanSource = {
 /** The song's grid in song time; `sourceStartMs` is where the reel starts in the song. */
 export type PlanBeats = { bpm: number; beatOffsetMs: number; sourceStartMs?: number; downbeats?: readonly number[] } | null;
 
-export type PlanInput = { sources: readonly PlanSource[]; brief: CutBrief; beats?: PlanBeats; targetMs?: number };
+/** `carry`: a title will be on screen over the opening, so the first cut may be a graphic carry (default true). */
+export type PlanInput = { sources: readonly PlanSource[]; brief: CutBrief; beats?: PlanBeats; targetMs?: number; carry?: boolean };
 
 export type PlannedShot = {
   /** The clip this shot is cut from. A second window of one clip gets a new id when applied. */
@@ -501,8 +502,14 @@ export function chooseTechnique(candidates: Candidate[], previous: CutTechnique 
   // 3.5 s, and close to certain by 5 s.
   const since = ctx.sinceSurpriseMs;
   const pull = ctx.mustSurprise ? 1.2 : ctx.reveal ? 0.6 : since >= 3500 ? 0.3 + (since - 3500) / 2500 : since < 2500 ? -0.4 : 0;
-  const score = (c: Candidate) => c.strength + (SURPRISING.has(c.technique) || c.surprise ? pull : 0);
-  const allowed = candidates.filter((c) => c.technique !== previous && (uses[c.technique] ?? 0) < CUT_GRAMMAR.maxUsesPerReel);
+  const surprising = (c: Candidate) => SURPRISING.has(c.technique) || Boolean(c.surprise);
+  const score = (c: Candidate) => c.strength + (surprising(c) ? pull : 0);
+  // The hook is carried over the first cut whenever there is one: the opening's rule, not a choice.
+  const carry = candidates.find((c) => c.technique === "graphicCarry");
+  if (carry) return carry;
+  let allowed = candidates.filter((c) => c.technique !== previous && (uses[c.technique] ?? 0) < CUT_GRAMMAR.maxUsesPerReel);
+  // A surprise that must come now beats the twice-a-reel limit (the gate fails a gap; an extra use is only advice).
+  if (ctx.mustSurprise && !allowed.some(surprising)) allowed = [...allowed, ...candidates.filter((c) => c.technique !== previous && surprising(c))];
   const pool = allowed.length ? allowed : candidates.filter((c) => c.technique !== previous);
   return [...(pool.length ? pool : candidates)].sort((x, y) => score(y) - score(x) || CUT_ORDER.indexOf(x.technique) - CUT_ORDER.indexOf(y.technique))[0];
 }
@@ -566,7 +573,7 @@ export function planCut(input: PlanInput): CutPlan {
     let transitionIn: Transition = "cut";
     if (i > 0) {
       const a = slots[i - 1];
-      const ctx: CutContext = { a, b: slot, index: i, atMs: starts[i], outMs: (a.startMs ?? 0) + a.lengthMs, inMs: start, beats: downbeats, feel, carry: i === 1, reveal: reveal?.index === i, sinceSurpriseMs: starts[i] - lastSurprise,
+      const ctx: CutContext = { a, b: slot, index: i, atMs: starts[i], outMs: (a.startMs ?? 0) + a.lengthMs, inMs: start, beats: downbeats, feel, carry: i === 1 && input.carry !== false, reveal: reveal?.index === i, sinceSurpriseMs: starts[i] - lastSurprise,
         mustSurprise: (starts[i + 1] ?? totalMs) - lastSurprise > CUT_GRAMMAR.surpriseGapMaxMs - 500 };
       const choice = chooseTechnique(cutCandidates(ctx), previous, uses, ctx);
       uses[choice.technique] = (uses[choice.technique] ?? 0) + 1;
@@ -657,4 +664,64 @@ export function describeCutPlan(plan: CutPlan): string[] {
     at += shot.sourceEndMs - shot.sourceStartMs;
     return line;
   });
+}
+
+/** What `planCutOnTimeline` needs beyond the reel: the analyses by asset id, and the source lengths. */
+export type PlanOnTimeline = {
+  brief?: Partial<CutBrief>;
+  analyses: Record<string, PlannerAnalysis | null | undefined>;
+  sourceDurationsMs?: Record<string, number | null | undefined>;
+  targetMs?: number;
+  /** Assets whose own sound is worth keeping under the music (J/L cuts). */
+  audioAssetIds?: readonly string[];
+  /** A title will be over the opening (the first cut adds the hook after): default, whether the reel has one now. */
+  carry?: boolean;
+};
+
+/** The plan's input from a reel: one source per distinct clip, in the reel's order, with the song's grid. */
+export function planInputOf(timeline: Timeline, options: PlanOnTimeline): PlanInput {
+  const seen = new Set<string>();
+  const sources: PlanSource[] = [];
+  for (const clip of timeline.clips) {
+    if (seen.has(clip.assetId)) continue;
+    seen.add(clip.assetId);
+    const analysis = options.analyses[clip.assetId] ?? null;
+    const durationMs = clip.kind === "IMAGE" ? Math.max(clip.sourceEndMs, 3000) : options.sourceDurationsMs?.[clip.assetId] ?? analysis?.durationMs ?? clip.sourceEndMs;
+    sources.push({ clipId: clip.id, assetId: clip.assetId, kind: clip.kind, durationMs, room: clip.room, analysis, hasAudio: options.audioAssetIds?.includes(clip.assetId) });
+  }
+  const music = timeline.music;
+  const beats: PlanBeats = music?.bpm ? { bpm: music.bpm, beatOffsetMs: music.beatOffsetMs ?? 0, sourceStartMs: music.sourceStartMs, downbeats: music.downbeats } : null;
+  return { sources, brief: { listing: options.brief?.listing ?? "for-sale", feel: options.brief?.feel ?? "classic" }, beats, targetMs: options.targetMs, carry: options.carry ?? openingTitle(timeline) !== null };
+}
+
+/** The reel's opening title: a person's (or the app's hook), on screen from the first 100 ms, not a room label. */
+export function openingTitle(timeline: Timeline) {
+  return timeline.texts.find((text) => text.startMs <= 100 && !text.id.startsWith("room-")) ?? null;
+}
+
+/**
+ * Plans the reel's own clips and writes the plan onto it (the `planCut` command, the first cut). Second windows of a
+ * clip get ids derived from it (`<id>-w2`), so a dry run and the real run agree. The opening title is carried across
+ * the first cut when the plan says so; titles are otherwise left for the caller to retime.
+ */
+export function planCutOnTimeline(timeline: Timeline, options: PlanOnTimeline): { timeline: Timeline; plan: CutPlan } {
+  const input = planInputOf(timeline, options);
+  if (!input.sources.some((source) => source.analysis)) throw new Error("None of the reel's clips has a shot analysis yet: the planner needs it (it is measured when each clip's preview is made).");
+  const plan = planCut(input);
+  const counts = new Map<string, number>();
+  const next = applyCutPlan(timeline, plan, () => "");
+  const clips = next.clips.map((clip, i) => {
+    const base = plan.shots[i].sourceClipId;
+    const n = (counts.get(base) ?? 0) + 1;
+    counts.set(base, n);
+    return n === 1 ? clip : { ...clip, id: `${base}-w${n}` };
+  });
+  return { timeline: { ...next, clips }, plan };
+}
+
+/** The opening title held across the first cut until `untilMs` (graphic carry), when there is one to hold. */
+export function carryOpeningTitle(timeline: Timeline, untilMs: number | null): Timeline {
+  const title = openingTitle(timeline);
+  if (!title || untilMs === null || title.endMs >= untilMs) return timeline;
+  return { ...timeline, texts: timeline.texts.map((text) => (text.id === title.id ? { ...text, endMs: untilMs } : text)) };
 }

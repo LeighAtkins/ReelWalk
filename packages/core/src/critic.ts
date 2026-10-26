@@ -18,6 +18,10 @@
  *               on a phone; never a box or tag, which bring their own
  *   loop        the last frame looks like the first, and the music ends on
  *               a bar, so the replay does not jump
+ *   cut-grammar on a reel cut to the grammar (ADR 0087): naked cuts, the
+ *               same technique twice in a row, a static span over 1.5 s and
+ *               no surprise for over 6 s are high; an eye jump over 15 % of
+ *               the frame and a technique used more than twice are low
  *
  * and the retention proxies of ADR 0071 (retention.ts): dead air, reading
  * time, cut rate against the song, cuts off the beat (snapped to frame-exact
@@ -52,7 +56,8 @@
 import { beatPeriodMs } from "./beats";
 import { estimateLineWidth } from "./cinematic";
 import { applyCommand, type BatchableCommand, type Command } from "./commands";
-import { retentionFindings, seriesFromSamples, type RetentionInput } from "./retention";
+import { retentionFindings, seriesFromSamples, stillWindows, type RetentionInput } from "./retention";
+import { cutGrammarReport, hasCutGrammar } from "./cut-grammar";
 import type { FrameSeries } from "./render-checks";
 import { INSTAGRAM } from "./instagram";
 import { MIN_SPEAKING_FACE_PX, minFacePx } from "./presenter";
@@ -171,7 +176,7 @@ export function criticFaceFromGeneration(row: { assetId: string; shot: unknown; 
   };
 }
 
-export type CriticCheck = "hook" | "safe-zone" | "dead-air" | "face" | "legibility" | "loop" | "beat" | "reading" | "cut-rate" | "presenter" | "stock";
+export type CriticCheck = "hook" | "safe-zone" | "dead-air" | "face" | "legibility" | "loop" | "beat" | "reading" | "cut-rate" | "presenter" | "stock" | "cut-grammar";
 export type CriticSeverity = "high" | "medium" | "low";
 /** What a finding costs the reel: the first three seconds (hook), the middle (hold), or the ending and loop (finish). */
 export type CriticImpact = "hook" | "hold" | "finish";
@@ -695,6 +700,36 @@ function loopCheck(ctx: Context): CriticFinding | null {
 }
 
 /**
+ * The cut grammar (ADR 0087), on a reel that records it (the planner's cut, or one cut to the grammar by hand): the
+ * gate's failures as high findings, its advice as low ones. A video the frames show as still counts toward a static
+ * span. A naked cut is offered a glint over it (not a safe fix: it changes the look).
+ */
+function cutGrammarChecks(ctx: Context, series: FrameSeries): CriticFinding[] {
+  const { timeline, total, starts } = ctx;
+  if (!hasCutGrammar(timeline)) return [];
+  const still = new Set<string>();
+  for (const [from, to] of stillWindows(timeline, series)) {
+    timeline.clips.forEach((clip, i) => { if (starts[i] >= from - 1 && starts[i] + clipDurationMs(clip) <= to + 1) still.add(clip.id); });
+  }
+  const report = cutGrammarReport(timeline, { stillClipIds: still });
+  const at = (ms: number) => {
+    const moment = momentAt(timeline, ms);
+    return { atMs: ms, clipId: moment?.clipId ?? null, sourceMs: moment?.sourceMs ?? null, impact: impactOf(ms, total) };
+  };
+  const findings: CriticFinding[] = report.failures.map((failure) => {
+    const cut = report.cuts.find((c) => c.atMs === failure.atMs);
+    const fixes: CriticFix[] = failure.kind === "naked-cut" && cut
+      ? [{ kind: "command", label: "Glint over the cut", command: { type: "setTransition", clipId: cut.clipId, transition: "lightLeak" }, safe: false }]
+      : [];
+    return { id: `cut-grammar:${failure.kind}:${Math.round(failure.atMs)}`, check: "cut-grammar", severity: "high", reason: failure.detail, fixes, ...at(failure.atMs) };
+  });
+  for (const warning of report.warnings) {
+    findings.push({ id: `cut-grammar:${warning.kind}:${Math.round(warning.atMs)}`, check: "cut-grammar", severity: "low", reason: warning.detail, fixes: [], ...at(warning.atMs) });
+  }
+  return findings;
+}
+
+/**
  * Runs every check. A fix is offered only if its command really changes the
  * reel and the result is valid (tried against the timeline, never applied).
  */
@@ -704,7 +739,7 @@ export function critique(input: CriticInput): CriticFinding[] {
   const ctx: Context = { ...input, frames: input.frames ?? new Map(), total: timelineDurationMs(timeline), starts: clipStartsMs(timeline), measure: input.measure ?? fallbackMeasure };
   const series = input.series ?? seriesFromSamples(timeline, ctx.frames);
   const retention = retentionFindings({ timeline, series, transcripts: input.transcripts, presenterAssetIds: input.presenterAssetIds, transformScores: input.transformScores, hook: input.hook, sourceDurationsMs: input.sourceDurationsMs });
-  const findings = [hookCheck(ctx), ...titleChecks(ctx), ...faceChecks(ctx), loopCheck(ctx), ...retention].filter((f): f is CriticFinding => f !== null);
+  const findings = [hookCheck(ctx), ...titleChecks(ctx), ...faceChecks(ctx), loopCheck(ctx), ...retention, ...cutGrammarChecks(ctx, series)].filter((f): f is CriticFinding => f !== null);
   const context = { generation: 0, sourceDurationsMs: input.sourceDurationsMs };
   for (const finding of findings) {
     finding.fixes = finding.fixes.filter((fix) => {

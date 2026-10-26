@@ -1,4 +1,5 @@
-import { autopilotRequest, autopilotStyle, finishAutopilot, ruleCutWithPick, usableCut, type InstagramAudioTrack, type ListingInfo, type Timeline } from "@reelwalk/core";
+import { autopilotRequest, autopilotStyle, finishAutopilot, plannedCut, ruleCutWithPick, usableCut, type CutBrief, type InstagramAudioTrack, type ListingInfo, type Timeline } from "@reelwalk/core";
+import { loadShotAnalyses } from "@/lib/cut-plan-server";
 import { askForChange, context } from "@/lib/ai-edit";
 import { isAiAvailable, isFakeAi } from "@/lib/openai";
 import { labelRooms } from "@/lib/room-labels";
@@ -17,17 +18,28 @@ export type AutopilotResult = { ok: true; timeline: Timeline; note: string; byMo
  * The first cut, at once (ADR 0024): the rule cut with an Instagram sound,
  * from the rooms already named while the shots uploaded. No model call, so
  * it comes back in a second or two; the model's cut follows as a polish.
+ *
+ * When the clips have their shot analysis (ADR 0086), the cut planner makes it
+ * instead (ADR 0087): walk order, best windows, varied lengths on the beat and
+ * a named technique on every shot change. A plan that fails its own gate falls
+ * back to the rule cut. No finish (Pop) is ever applied here.
  */
 export async function quickDraft(input: {
   user: { id: string; workspaceId: string };
   timeline: Timeline;
   styleId: string;
   info: ListingInfo;
+  /** What the listing is and the feel, when the person answered (the question screens); otherwise read from the style. */
+  brief?: Partial<CutBrief>;
 }): Promise<AutopilotResult> {
   if (input.timeline.clips.length === 0) return { ok: false, message: "Pick some photos or videos first." };
   const style = autopilotStyle(input.styleId);
   const { assets, songs } = await context(input.user.workspaceId, input.timeline);
-  const { timeline, instagramPick } = ruleCutWithPick(input.timeline, { assets, songs, info: input.info, style, newId: () => crypto.randomUUID() });
+  const local = { assets, songs, info: input.info, style, newId: () => crypto.randomUUID() };
+  const analyses = await loadShotAnalyses(input.user.workspaceId, [...new Set(input.timeline.clips.map((clip) => clip.assetId))]);
+  const planned = Object.keys(analyses).length ? plannedCut(input.timeline, { ...local, analyses, brief: input.brief }) : null;
+  if (planned) return { ok: true, timeline: planned.timeline, note: "Here is a first cut, every shot change planned for these shots.", byModel: false, instagramPick: planned.instagramPick };
+  const { timeline, instagramPick } = ruleCutWithPick(input.timeline, local);
   return { ok: true, timeline, note: "Here is a first cut. ReelWalk is polishing it.", byModel: false, instagramPick };
 }
 

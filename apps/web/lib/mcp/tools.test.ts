@@ -32,7 +32,7 @@ const m = vi.hoisted(() => {
 });
 
 vi.mock("@reelwalk/db", () => ({ prisma: m.prisma }));
-vi.mock("../reel-command", () => ({ loadReel: m.loadReel, applyReelCommand: m.applyReelCommand }));
+vi.mock("../reel-command", () => ({ loadReel: m.loadReel, applyReelCommand: m.applyReelCommand, hookInputsFromLibrary: () => ({ sourceDurationsMs: {} }) }));
 vi.mock("../save-reel", () => ({ saveReelFor: m.saveReelFor }));
 vi.mock("../export-reel", () => ({ queueReelExport: m.queueReelExport }));
 vi.mock("../render-jobs", () => ({ outputUrls: m.outputUrls }));

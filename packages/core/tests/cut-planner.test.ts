@@ -1,8 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { applyCutPlan, closeUpScale, describeCutPlan, planCut, planReport, stageOf, type PlanSource } from "./cut-planner";
-import { cutGrammarReport } from "./cut-grammar";
-import type { PlannerAnalysis } from "./shot-facts";
-import { clipSchema, parseTimeline, timelineDurationMs, type Timeline } from "./timeline";
+import { applyCutPlan, closeUpScale, describeCutPlan, planCut, planReport, stageOf, type PlanSource } from "../src/cut-planner";
+import { cutGrammarReport } from "../src/cut-grammar";
+import type { PlannerAnalysis } from "../src/shot-facts";
+import { clipSchema, parseTimeline, timelineDurationMs, type Timeline } from "../src/timeline";
+import { critique } from "../src/critic";
+import { applyCommand } from "../src/commands";
+import { autopilotStyle, briefForStyle, plannedCut } from "../src/autopilot";
+import { openingTitle } from "../src/cut-planner";
+import { renderChecks } from "../src/render-checks";
 
 /** A synthetic shot analysis in the ADR 0086 shape: one steady movement, best windows spread over the clip. */
 function analysis(durationMs: number, opts: { hd?: boolean; dx?: number; zoom?: number; saliencyX?: number; landscape?: boolean; occluderAt?: number; peaks?: number[]; depthSpread?: number; steady?: number; mover?: string } = {}): PlannerAnalysis {
@@ -46,7 +51,7 @@ export const REEL_91_SHOOT: PlanSource[] = [
 const SHOOT = REEL_91_SHOOT;
 
 function timelineOf(sources: PlanSource[]): Timeline {
-  return parseTimeline({ version: 1, texts: [], music: null, clips: sources.map((s) => clipSchema.parse({ id: s.clipId, assetId: s.assetId, kind: s.kind, sourceStartMs: 0, sourceEndMs: Math.min(2000, s.durationMs) })) });
+  return parseTimeline({ version: 1, texts: [], music: null, clips: sources.map((s) => clipSchema.parse({ id: s.clipId, assetId: s.assetId, kind: s.kind, room: s.room, sourceStartMs: 0, sourceEndMs: Math.min(2000, s.durationMs) })) });
 }
 
 let ids = 0;
@@ -193,5 +198,88 @@ describe("cutGrammarReport", () => {
     const kinds = cutGrammarReport(timeline).failures.map((f) => f.kind);
     expect(kinds).toContain("static");
     expect(kinds).toContain("no-surprise");
+  });
+});
+
+describe("the critic and the render checks on a planned reel", () => {
+  const titleFont = () => ({ fontSize: 60 });
+  const planned = () => applyCutPlan(timelineOf(SHOOT), planCut({ sources: SHOOT, brief: { listing: "for-sale", feel: "classic" } }), newId);
+
+  it("reports nothing for a reel never cut to the grammar", () => {
+    const plain = timelineOf(SHOOT);
+    expect(critique({ timeline: plain, titleFont }).filter((f) => f.check === "cut-grammar")).toEqual([]);
+    expect(renderChecks({ timeline: plain }).facts.cutGrammar).toBeUndefined();
+  });
+
+  it("flags a naked cut as high, offers a glint, and warns in the render checks without blocking", () => {
+    const timeline = planned();
+    const naked = timeline.clips[3];
+    delete naked.cut;
+    naked.transitionIn = "cut";
+    const finding = critique({ timeline, titleFont }).find((f) => f.id.startsWith("cut-grammar:naked-cut"));
+    expect(finding?.severity).toBe("high");
+    expect(finding?.fixes[0]).toMatchObject({ kind: "command", command: { type: "setTransition", clipId: naked.id, transition: "lightLeak" } });
+    const checks = renderChecks({ timeline });
+    expect(checks.facts.cutGrammar?.nakedCuts).toBe(1);
+    expect(checks.checks.some((c) => c.id.startsWith("cut-grammar:naked-cut") && c.level === "warn")).toBe(true);
+    expect(checks.blocked).toBe(false);
+  });
+});
+
+describe("the planCut command", () => {
+  const analyses = Object.fromEntries(SHOOT.map((s) => [s.assetId, s.analysis]));
+  const durations = Object.fromEntries(SHOOT.map((s) => [s.assetId, s.durationMs]));
+
+  it("plans the reel's own clips in one undoable step and carries the opening title across the first cut", () => {
+    const base = timelineOf(SHOOT);
+    base.texts.push({ id: "hook", text: "This is what $2.4M buys", startMs: 0, endMs: 1500, x: 0.5, y: 0.2, style: "elegant", color: "#ffffff", size: 1, animation: "auto" });
+    const result = applyCommand(base, { type: "planCut", brief: { feel: "classic" }, analyses }, { generation: 0, sourceDurationsMs: durations });
+    expect(result.rejected).toBeUndefined();
+    const timeline = result.timeline;
+    expect(timeline.clips.length).toBeGreaterThan(SHOOT.length);
+    expect(cutGrammarReport(timeline).pass).toBe(true);
+    const hook = timeline.texts.find((t) => t.id === "hook")!;
+    const firstCut = timeline.clips[0].sourceEndMs - timeline.clips[0].sourceStartMs;
+    expect(hook.endMs).toBeGreaterThan(firstCut);
+    expect(timeline.clips[1].cut?.technique).toBe("graphicCarry");
+    // The same command gives the same ids: a dry run and the real run agree.
+    expect(applyCommand(base, { type: "planCut", brief: { feel: "classic" }, analyses }, { generation: 0, sourceDurationsMs: durations }).timeline).toEqual(timeline);
+  });
+
+  it("does not claim a graphic carry when the reel has no opening title", () => {
+    const result = applyCommand(timelineOf(SHOOT), { type: "planCut", analyses }, { generation: 0, sourceDurationsMs: durations });
+    expect(result.timeline.clips[1].cut?.technique).not.toBe("graphicCarry");
+  });
+
+  it("refuses without any shot analysis", () => {
+    const result = applyCommand(timelineOf(SHOOT), { type: "planCut" }, { generation: 0 });
+    expect(result.rejected).toMatch(/shot analysis/);
+  });
+});
+
+describe("the first cut by the planner", () => {
+  const analyses = Object.fromEntries(SHOOT.map((s) => [s.assetId, s.analysis]));
+  const durations = Object.fromEntries(SHOOT.map((s) => [s.assetId, s.durationMs]));
+  const context = { assets: {}, songs: [{ id: "song", title: "Long Walks", bpm: 111.9, mood: "warm" }], info: {}, style: autopilotStyle("walkthrough"), newId, analyses, sourceDurationsMs: durations };
+
+  it("plans the cut, keeps the song unsnapped, adds the hook and carries it across the first cut", () => {
+    const result = plannedCut(timelineOf(SHOOT), context)!;
+    expect(result).not.toBeNull();
+    expect(result.plan.feel).toBe("classic");
+    expect(result.timeline.music?.assetId).toBe("song");
+    expect(result.timeline.music?.energy).toBeUndefined(); // no finish (Pop) on this path
+    const hook = openingTitle(result.timeline)!;
+    expect(hook.endMs).toBe(result.plan.carryUntilMs);
+    expect(result.timeline.clips.map((c) => c.sourceEndMs - c.sourceStartMs)).toEqual(result.plan.shots.map((s) => s.sourceEndMs - s.sourceStartMs));
+    expect(cutGrammarReport(result.timeline).pass).toBe(true);
+  });
+
+  it("reads the feel from the style unless the person chose one", () => {
+    expect(briefForStyle(autopilotStyle("privacy"))).toEqual({ listing: "for-sale", feel: "quiet" });
+    expect(briefForStyle(autopilotStyle("open-house"), { feel: "lively" })).toEqual({ listing: "open-home", feel: "lively" });
+  });
+
+  it("steps aside without any analysis", () => {
+    expect(plannedCut(timelineOf(SHOOT), { ...context, analyses: {} })).toBeNull();
   });
 });

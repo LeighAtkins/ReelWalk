@@ -1,7 +1,8 @@
 import type { Command } from "@reelwalk/core";
 import { getSessionUser } from "@/lib/auth";
 import { COMMAND_SHAPE as SHAPE, MAX_COMMANDS, inBatch, isCommand } from "@/lib/command-types";
-import { applyReelCommand, loadReel } from "@/lib/reel-command";
+import { applyReelCommand, hookInputsFromLibrary, loadReel } from "@/lib/reel-command";
+import { planSummary, resolvePlanCut } from "@/lib/cut-plan-server";
 import { resolveSurfaceCommands } from "@/lib/surface-command";
 
 export const dynamic = "force-dynamic";
@@ -33,6 +34,11 @@ export const dynamic = "force-dynamic";
  * `syncTextToSpeech { textId, clipId?, holdMs?, leadMs? }` (ADR 0084) times a title to the words it repeats in the clip
  * under it: it appears with the first word, each word arrives as it is said, and it fades `holdMs` after the last.
  * The transcripts are read from the library here.
+ *
+ * `planCut { brief?: { listing, feel }, targetMs? }` (ADR 0087) plans the whole cut to the cut grammar from the reel's
+ * own clips and their shot analyses (read from the library here when `analyses` is left out). The answer carries
+ * `plan`: one line per shot change with its technique and why, the reveal, the loop seam, and the gate's verdict;
+ * send it with `dryRun: true` to read the plan before keeping it.
  */
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const site = request.headers.get("sec-fetch-site");
@@ -64,9 +70,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const surfaces = await resolveSurfaceCommands(loaded, command, { dryRun, workspaceId: user.workspaceId });
   if (!surfaces.ok) return Response.json({ ok: false, message: surfaces.message, changes: [] }, { status: surfaces.status });
   if (surfaces.command === null) return Response.json({ ok: true, dryRun, revision: loaded.revision, changes: [], warning: null, opening: loaded.timeline.opening ?? null, timeline: loaded.timeline, surfaces: surfaces.reports });
-  command = surfaces.command;
+  command = await resolvePlanCut(surfaces.command, loaded.timeline, user.workspaceId);
   const outcome = await applyReelCommand(user, loaded, command, revision, { dryRun });
   if (!outcome.ok) return Response.json({ ok: false, message: outcome.message, changes: outcome.result?.changes ?? [] }, { status: outcome.status });
   const { timeline, changes, warning } = outcome.result;
-  return Response.json({ ok: true, dryRun, revision: outcome.revision, changes, warning: warning ?? null, opening: timeline.opening ?? null, timeline, ...(surfaces.reports.length ? { surfaces: surfaces.reports } : {}) });
+  const plan = planSummary(command, loaded.timeline, timeline, hookInputsFromLibrary(loaded.library).sourceDurationsMs ?? {});
+  return Response.json({ ok: true, dryRun, revision: outcome.revision, changes, warning: warning ?? null, opening: timeline.opening ?? null, timeline, ...(surfaces.reports.length ? { surfaces: surfaces.reports } : {}), ...(plan ? { plan } : {}) });
 }

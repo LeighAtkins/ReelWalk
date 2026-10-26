@@ -23,7 +23,8 @@ test.describe("signed out", () => {
     await expect(pricing.getByTestId("plan-agent")).toContainText("A$39", { useInnerText: true });
 
     // The monthly/yearly switch is two radios and a CSS rule: yearly prices show once it is flipped.
-    const agent = pricing.getByTestId("plan-agent");
+    // Prices are written in both currencies (ADR 0085); the A$ ones are the ones showing here.
+    const agent = pricing.getByTestId("plan-agent").locator('[data-cur="aud"]');
     await expect(agent.getByText(/billed yearly/)).toBeHidden();
     await pricing.getByTestId("interval").getByLabel(/Yearly/).check();
     await expect(agent.getByText(/billed yearly/)).toBeVisible();

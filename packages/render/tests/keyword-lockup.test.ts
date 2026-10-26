@@ -13,6 +13,11 @@ describe("keyword lockup drawing", () => {
     expect(first.blurPx).toBe(8);
     expect(first.offsetY).toBe(0);
     expect(revealStyle("blurQuick", 6, FPS, D).opacity).toBe(1);
+    // It resolves evenly (reel 3 sharpens over 5-6 frames): half way in at frame 2, not already sharp.
+    const third = revealStyle("blurQuick", 2, FPS, D);
+    expect(third.opacity).toBeGreaterThan(0.45);
+    expect(third.opacity).toBeLessThan(0.65);
+    expect(third.blurPx).toBeGreaterThan(2.5);
   });
 
   it("fills the letters with a gradient or a picture, clipped to the glyphs, with a drop shadow instead of a text shadow", () => {

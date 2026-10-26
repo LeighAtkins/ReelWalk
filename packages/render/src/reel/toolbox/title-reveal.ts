@@ -61,7 +61,9 @@ export function revealAmount(reveal: TitleReveal, frame: number, fps: number, du
   const { enter, exit } = revealFrames(reveal, fps, durationInFrames);
   // A fade is linear (an eased 6-frame fade reads as a flicker); every move eases out on the way in and in on the way out.
   const linear = reveal === "fadeQuick";
-  const inAmount = interpolate(frame, [0, enter], [0, 1], { ...clamp, easing: linear ? Easing.linear : easeOut });
+  // The keyword's quick blur resolves evenly over its 6 frames, as reel 3's do (the steep ease-out was sharp in 2).
+  const inEasing = linear ? Easing.linear : reveal === "blurQuick" ? Easing.out(Easing.quad) : easeOut;
+  const inAmount = interpolate(frame, [0, enter], [0, 1], { ...clamp, easing: inEasing });
   const outAmount = interpolate(frame, [durationInFrames - exit, durationInFrames], [1, 0], { ...clamp, easing: linear ? Easing.linear : easeIn });
   return Math.min(inAmount, outAmount);
 }

@@ -1,0 +1,9278 @@
+{
+ "note": "SYNTHETIC placeholder (contract shape only); replaced by real Reel 91 measurements",
+ "reelId": "cmvo10ubf000001ad160ggov8",
+ "clips": {
+  "cmvo11nfx000101adruyvdfgx": {
+   "fileName": "4904.mp4",
+   "analysis": {
+    "version": 1,
+    "durationMs": 12800,
+    "width": 1080,
+    "height": 1920,
+    "sampleMs": 250,
+    "aestheticEveryMs": 1000,
+    "samples": [
+     {
+      "t": 0,
+      "sharpness": 0.503,
+      "clipLow": 0.002,
+      "clipHigh": 0.007,
+      "luma": 0.421,
+      "aesthetic": 0.642,
+      "steady": 0.35,
+      "flow": {
+       "dx": -0.03,
+       "dy": 0.025,
+       "zoom": 0,
+       "magnitude": 0.039,
+       "residual": 0.213
+      },
+      "saliency": {
+       "x": 0.5,
+       "y": 0.52,
+       "strength": 0.702
+      }
+     },
+     {
+      "t": 250,
+      "sharpness": 0.552,
+      "clipLow": 0.008,
+      "clipHigh": 0.002,
+      "luma": 0.415,
+      "steady": 0.35,
+      "flow": {
+       "dx": 0.003,
+       "dy": 0.011,
+       "zoom": 0.009,
+       "magnitude": 0.011,
+       "residual": 0.206
+      },
+      "saliency": {
+       "x": 0.52,
+       "y": 0.52,
+       "strength": 0.679
+      }
+     },
+     {
+      "t": 500,
+      "sharpness": 0.844,
+      "clipLow": 0.009,
+      "clipHigh": 0.008,
+      "luma": 0.405,
+      "steady": 0.877,
+      "flow": {
+       "dx": -0.004,
+       "dy": 0.002,
+       "zoom": 0.018,
+       "magnitude": 0.009,
+       "residual": 0.238
+      },
+      "saliency": {
+       "x": 0.539,
+       "y": 0.519,
+       "strength": 0.675
+      }
+     },
+     {
+      "t": 750,
+      "sharpness": 0.891,
+      "clipLow": 0.009,
+      "clipHigh": 0.004,
+      "luma": 0.413,
+      "steady": 0.926,
+      "flow": {
+       "dx": 0.001,
+       "dy": 0.001,
+       "zoom": 0.026,
+       "magnitude": 0.013,
+       "residual": 0.15
+      },
+      "saliency": {
+       "x": 0.558,
+       "y": 0.518,
+       "strength": 0.461
+      }
+     },
+     {
+      "t": 1000,
+      "sharpness": 0.827,
+      "clipLow": 0.009,
+      "clipHigh": 0.006,
+      "luma": 0.429,
+      "aesthetic": 0.767,
+      "steady": 0.809,
+      "flow": {
+       "dx": -0.002,
+       "dy": -0.001,
+       "zoom": 0.035,
+       "magnitude": 0.017,
+       "residual": 0.141
+      },
+      "saliency": {
+       "x": 0.577,
+       "y": 0.517,
+       "strength": 0.624
+      }
+     },
+     {
+      "t": 1250,
+      "sharpness": 0.809,
+      "clipLow": 0.009,
+      "clipHigh": 0.001,
+      "luma": 0.415,
+      "steady": 0.852,
+      "flow": {
+       "dx": 0,
+       "dy": -0.001,
+       "zoom": 0.043,
+       "magnitude": 0.022,
+       "residual": 0.2
+      },
+      "saliency": {
+       "x": 0.595,
+       "y": 0.516,
+       "strength": 0.77
+      }
+     },
+     {
+      "t": 1500,
+      "sharpness": 0.817,
+      "clipLow": 0.003,
+      "clipHigh": 0.004,
+      "luma": 0.417,
+      "steady": 0.85,
+      "flow": {
+       "dx": 0,
+       "dy": -0.003,
+       "zoom": 0.051,
+       "magnitude": 0.026,
+       "residual": 0.18
+      },
+      "saliency": {
+       "x": 0.613,
+       "y": 0.514,
+       "strength": 0.646
+      }
+     },
+     {
+      "t": 1750,
+      "sharpness": 0.803,
+      "clipLow": 0.009,
+      "clipHigh": 0.006,
+      "luma": 0.425,
+      "steady": 0.877,
+      "flow": {
+       "dx": -0.003,
+       "dy": 0.004,
+       "zoom": 0.059,
+       "magnitude": 0.03,
+       "residual": 0.176
+      },
+      "saliency": {
+       "x": 0.63,
+       "y": 0.512,
+       "strength": 0.676
+      }
+     },
+     {
+      "t": 2000,
+      "sharpness": 0.805,
+      "clipLow": 0.003,
+      "clipHigh": 0.006,
+      "luma": 0.414,
+      "aesthetic": 0.665,
+      "steady": 0.859,
+      "flow": {
+       "dx": 0.004,
+       "dy": -0.001,
+       "zoom": 0.067,
+       "magnitude": 0.033,
+       "residual": 0.219
+      },
+      "saliency": {
+       "x": 0.646,
+       "y": 0.509,
+       "strength": 0.751
+      }
+     },
+     {
+      "t": 2250,
+      "sharpness": 0.714,
+      "clipLow": 0.004,
+      "clipHigh": 0.002,
+      "luma": 0.403,
+      "steady": 0.949,
+      "flow": {
+       "dx": -0.004,
+       "dy": 0.003,
+       "zoom": 0.074,
+       "magnitude": 0.037,
+       "residual": 0.133
+      },
+      "saliency": {
+       "x": 0.662,
+       "y": 0.506,
+       "strength": 0.653
+      }
+     },
+     {
+      "t": 2500,
+      "sharpness": 0.734,
+      "clipLow": 0.001,
+      "clipHigh": 0.009,
+      "luma": 0.435,
+      "steady": 0.934,
+      "flow": {
+       "dx": -0.004,
+       "dy": 0,
+       "zoom": 0.081,
+       "magnitude": 0.04,
+       "residual": 0.233
+      },
+      "saliency": {
+       "x": 0.676,
+       "y": 0.503,
+       "strength": 0.763
+      }
+     },
+     {
+      "t": 2750,
+      "sharpness": 0.641,
+      "clipLow": 0.002,
+      "clipHigh": 0.001,
+      "luma": 0.4,
+      "steady": 0.893,
+      "flow": {
+       "dx": 0.003,
+       "dy": -0.002,
+       "zoom": 0.087,
+       "magnitude": 0.043,
+       "residual": 0.135
+      },
+      "saliency": {
+       "x": 0.689,
+       "y": 0.5,
+       "strength": 0.696
+      }
+     },
+     {
+      "t": 3000,
+      "sharpness": 0.627,
+      "clipLow": 0.009,
+      "clipHigh": 0.002,
+      "luma": 0.415,
+      "aesthetic": 0.778,
+      "steady": 0.818,
+      "flow": {
+       "dx": 0,
+       "dy": 0.002,
+       "zoom": 0.093,
+       "magnitude": 0.046,
+       "residual": 0.173
+      },
+      "saliency": {
+       "x": 0.702,
+       "y": 0.496,
+       "strength": 0.401
+      }
+     },
+     {
+      "t": 3250,
+      "sharpness": 0.656,
+      "clipLow": 0,
+      "clipHigh": 0.009,
+      "luma": 0.408,
+      "steady": 0.945,
+      "flow": {
+       "dx": 0.004,
+       "dy": 0.001,
+       "zoom": 0.098,
+       "magnitude": 0.049,
+       "residual": 0.185
+      },
+      "saliency": {
+       "x": 0.712,
+       "y": 0.492,
+       "strength": 0.672
+      }
+     },
+     {
+      "t": 3500,
+      "sharpness": 0.544,
+      "clipLow": 0.006,
+      "clipHigh": 0.001,
+      "luma": 0.431,
+      "steady": 0.905,
+      "flow": {
+       "dx": -0.002,
+       "dy": -0.003,
+       "zoom": 0.103,
+       "magnitude": 0.051,
+       "residual": 0.207
+      },
+      "saliency": {
+       "x": 0.722,
+       "y": 0.488,
+       "strength": 0.599
+      }
+     },
+     {
+      "t": 3750,
+      "sharpness": 0.574,
+      "clipLow": 0.001,
+      "clipHigh": 0.007,
+      "luma": 0.436,
+      "steady": 0.806,
+      "flow": {
+       "dx": -0.005,
+       "dy": -0.004,
+       "zoom": 0.107,
+       "magnitude": 0.054,
+       "residual": 0.232
+      },
+      "saliency": {
+       "x": 0.73,
+       "y": 0.484,
+       "strength": 0.745
+      }
+     },
+     {
+      "t": 4000,
+      "sharpness": 0.518,
+      "clipLow": 0.004,
+      "clipHigh": 0.002,
+      "luma": 0.429,
+      "aesthetic": 0.766,
+      "steady": 0.86,
+      "flow": {
+       "dx": 0.005,
+       "dy": 0.005,
+       "zoom": 0.111,
+       "magnitude": 0.055,
+       "residual": 0.135
+      },
+      "saliency": {
+       "x": 0.737,
+       "y": 0.479,
+       "strength": 0.562
+      }
+     },
+     {
+      "t": 4250,
+      "sharpness": 0.437,
+      "clipLow": 0.006,
+      "clipHigh": 0.007,
+      "luma": 0.413,
+      "steady": 0.909,
+      "flow": {
+       "dx": 0.004,
+       "dy": 0.001,
+       "zoom": 0.114,
+       "magnitude": 0.057,
+       "residual": 0.163
+      },
+      "saliency": {
+       "x": 0.743,
+       "y": 0.474,
+       "strength": 0.479
+      }
+     },
+     {
+      "t": 4500,
+      "sharpness": 0.463,
+      "clipLow": 0.006,
+      "clipHigh": 0.009,
+      "luma": 0.437,
+      "steady": 0.83,
+      "flow": {
+       "dx": -0.002,
+       "dy": 0.005,
+       "zoom": 0.116,
+       "magnitude": 0.058,
+       "residual": 0.197
+      },
+      "saliency": {
+       "x": 0.747,
+       "y": 0.469,
+       "strength": 0.454
+      }
+     },
+     {
+      "t": 4750,
+      "sharpness": 0.406,
+      "clipLow": 0.009,
+      "clipHigh": 0.005,
+      "luma": 0.407,
+      "steady": 0.867,
+      "flow": {
+       "dx": 0,
+       "dy": 0.001,
+       "zoom": 0.118,
+       "magnitude": 0.059,
+       "residual": 0.125
+      },
+      "saliency": {
+       "x": 0.749,
+       "y": 0.464,
+       "strength": 0.665
+      }
+     },
+     {
+      "t": 5000,
+      "sharpness": 0.347,
+      "clipLow": 0.008,
+      "clipHigh": 0.004,
+      "luma": 0.43,
+      "aesthetic": 0.579,
+      "steady": 0.845,
+      "flow": {
+       "dx": 0,
+       "dy": 0.001,
+       "zoom": 0.119,
+       "magnitude": 0.06,
+       "residual": 0.181
+      },
+      "saliency": {
+       "x": 0.75,
+       "y": 0.459,
+       "strength": 0.481
+      }
+     },
+     {
+      "t": 5250,
+      "sharpness": 0.292,
+      "clipLow": 0.007,
+      "clipHigh": 0.004,
+      "luma": 0.403,
+      "steady": 0.916,
+      "flow": {
+       "dx": 0.002,
+       "dy": -0.002,
+       "zoom": 0.12,
+       "magnitude": 0.06,
+       "residual": 0.223
+      },
+      "saliency": {
+       "x": 0.749,
+       "y": 0.453,
+       "strength": 0.766
+      }
+     },
+     {
+      "t": 5500,
+      "sharpness": 0.341,
+      "clipLow": 0,
+      "clipHigh": 0.008,
+      "luma": 0.424,
+      "steady": 0.909,
+      "flow": {
+       "dx": 0.004,
+       "dy": 0.002,
+       "zoom": 0.12,
+       "magnitude": 0.06,
+       "residual": 0.235
+      },
+      "saliency": {
+       "x": 0.747,
+       "y": 0.448,
+       "strength": 0.415
+      }
+     },
+     {
+      "t": 5750,
+      "sharpness": 0.236,
+      "clipLow": 0.001,
+      "clipHigh": 0,
+      "luma": 0.424,
+      "steady": 0.942,
+      "flow": {
+       "dx": -0.004,
+       "dy": -0.004,
+       "zoom": 0.119,
+       "magnitude": 0.06,
+       "residual": 0.129
+      },
+      "saliency": {
+       "x": 0.744,
+       "y": 0.442,
+       "strength": 0.453
+      }
+     },
+     {
+      "t": 6000,
+      "sharpness": 0.236,
+      "clipLow": 0.005,
+      "clipHigh": 0.01,
+      "luma": 0.417,
+      "aesthetic": 0.685,
+      "steady": 0.916,
+      "flow": {
+       "dx": -0.003,
+       "dy": 0.002,
+       "zoom": 0.118,
+       "magnitude": 0.059,
+       "residual": 0.16
+      },
+      "saliency": {
+       "x": 0.739,
+       "y": 0.436,
+       "strength": 0.567
+      }
+     },
+     {
+      "t": 6250,
+      "sharpness": 0.284,
+      "clipLow": 0.01,
+      "clipHigh": 0.002,
+      "luma": 0.437,
+      "steady": 0.876,
+      "flow": {
+       "dx": -0.004,
+       "dy": -0.003,
+       "zoom": 0.116,
+       "magnitude": 0.058,
+       "residual": 0.118
+      },
+      "saliency": {
+       "x": 0.732,
+       "y": 0.431,
+       "strength": 0.484
+      }
+     },
+     {
+      "t": 6500,
+      "sharpness": 0.208,
+      "clipLow": 0.003,
+      "clipHigh": 0.006,
+      "luma": 0.422,
+      "steady": 0.872,
+      "flow": {
+       "dx": 0.001,
+       "dy": -0.003,
+       "zoom": 0.113,
+       "magnitude": 0.056,
+       "residual": 0.249
+      },
+      "saliency": {
+       "x": 0.724,
+       "y": 0.425,
+       "strength": 0.43
+      }
+     },
+     {
+      "t": 6750,
+      "sharpness": 0.203,
+      "clipLow": 0,
+      "clipHigh": 0.004,
+      "luma": 0.404,
+      "steady": 0.835,
+      "flow": {
+       "dx": -0.001,
+       "dy": -0.002,
+       "zoom": 0.11,
+       "magnitude": 0.055,
+       "residual": 0.239
+      },
+      "saliency": {
+       "x": 0.715,
+       "y": 0.419,
+       "strength": 0.711
+      }
+     },
+     {
+      "t": 7000,
+      "sharpness": 0.296,
+      "clipLow": 0.01,
+      "clipHigh": 0.008,
+      "luma": 0.426,
+      "aesthetic": 0.636,
+      "steady": 0.852,
+      "flow": {
+       "dx": 0.003,
+       "dy": -0.001,
+       "zoom": 0.106,
+       "magnitude": 0.053,
+       "residual": 0.161
+      },
+      "saliency": {
+       "x": 0.704,
+       "y": 0.413,
+       "strength": 0.599
+      }
+     },
+     {
+      "t": 7250,
+      "sharpness": 0.296,
+      "clipLow": 0.007,
+      "clipHigh": 0.006,
+      "luma": 0.429,
+      "steady": 0.933,
+      "flow": {
+       "dx": 0,
+       "dy": 0.001,
+       "zoom": 0.101,
+       "magnitude": 0.051,
+       "residual": 0.227
+      },
+      "saliency": {
+       "x": 0.692,
+       "y": 0.407,
+       "strength": 0.795
+      }
+     },
+     {
+      "t": 7500,
+      "sharpness": 0.339,
+      "clipLow": 0.01,
+      "clipHigh": 0.004,
+      "luma": 0.403,
+      "steady": 0.851,
+      "flow": {
+       "dx": -0.001,
+       "dy": 0,
+       "zoom": 0.096,
+       "magnitude": 0.048,
+       "residual": 0.232
+      },
+      "saliency": {
+       "x": 0.679,
+       "y": 0.401,
+       "strength": 0.683
+      }
+     },
+     {
+      "t": 7750,
+      "sharpness": 0.345,
+      "clipLow": 0.002,
+      "clipHigh": 0.002,
+      "luma": 0.432,
+      "steady": 0.816,
+      "flow": {
+       "dx": 0.002,
+       "dy": 0.005,
+       "zoom": 0.091,
+       "magnitude": 0.045,
+       "residual": 0.237
+      },
+      "saliency": {
+       "x": 0.665,
+       "y": 0.396,
+       "strength": 0.72
+      }
+     },
+     {
+      "t": 8000,
+      "sharpness": 0.348,
+      "clipLow": 0.004,
+      "clipHigh": 0.009,
+      "luma": 0.423,
+      "aesthetic": 0.664,
+      "steady": 0.841,
+      "flow": {
+       "dx": 0.001,
+       "dy": 0.002,
+       "zoom": 0.085,
+       "magnitude": 0.042,
+       "residual": 0.203
+      },
+      "saliency": {
+       "x": 0.65,
+       "y": 0.39,
+       "strength": 0.574
+      }
+     },
+     {
+      "t": 8250,
+      "sharpness": 0.385,
+      "clipLow": 0.002,
+      "clipHigh": 0.009,
+      "luma": 0.433,
+      "steady": 0.851,
+      "flow": {
+       "dx": -0.001,
+       "dy": -0.003,
+       "zoom": 0.078,
+       "magnitude": 0.039,
+       "residual": 0.202
+      },
+      "saliency": {
+       "x": 0.634,
+       "y": 0.385,
+       "strength": 0.751
+      }
+     },
+     {
+      "t": 8500,
+      "sharpness": 0.453,
+      "clipLow": 0,
+      "clipHigh": 0.001,
+      "luma": 0.416,
+      "steady": 0.803,
+      "flow": {
+       "dx": -0.004,
+       "dy": -0.002,
+       "zoom": 0.071,
+       "magnitude": 0.036,
+       "residual": 0.204
+      },
+      "saliency": {
+       "x": 0.617,
+       "y": 0.379,
+       "strength": 0.759
+      }
+     },
+     {
+      "t": 8750,
+      "sharpness": 0.493,
+      "clipLow": 0.007,
+      "clipHigh": 0.002,
+      "luma": 0.405,
+      "steady": 0.894,
+      "flow": {
+       "dx": -0.003,
+       "dy": -0.003,
+       "zoom": 0.064,
+       "magnitude": 0.032,
+       "residual": 0.102
+      },
+      "saliency": {
+       "x": 0.599,
+       "y": 0.374,
+       "strength": 0.725
+      }
+     },
+     {
+      "t": 9000,
+      "sharpness": 0.45,
+      "clipLow": 0.003,
+      "clipHigh": 0.007,
+      "luma": 0.438,
+      "aesthetic": 0.564,
+      "steady": 0.888,
+      "flow": {
+       "dx": 0.001,
+       "dy": 0.003,
+       "zoom": 0.057,
+       "magnitude": 0.028,
+       "residual": 0.217
+      },
+      "saliency": {
+       "x": 0.581,
+       "y": 0.369,
+       "strength": 0.681
+      }
+     },
+     {
+      "t": 9250,
+      "sharpness": 0.488,
+      "clipLow": 0,
+      "clipHigh": 0.006,
+      "luma": 0.409,
+      "steady": 0.887,
+      "flow": {
+       "dx": 0.002,
+       "dy": 0.001,
+       "zoom": 0.049,
+       "magnitude": 0.024,
+       "residual": 0.138
+      },
+      "saliency": {
+       "x": 0.562,
+       "y": 0.364,
+       "strength": 0.489
+      }
+     },
+     {
+      "t": 9500,
+      "sharpness": 0.6,
+      "clipLow": 0.002,
+      "clipHigh": 0.009,
+      "luma": 0.402,
+      "steady": 0.904,
+      "flow": {
+       "dx": 0.001,
+       "dy": 0.001,
+       "zoom": 0.04,
+       "magnitude": 0.02,
+       "residual": 0.161
+      },
+      "saliency": {
+       "x": 0.543,
+       "y": 0.359,
+       "strength": 0.717
+      }
+     },
+     {
+      "t": 9750,
+      "sharpness": 0.57,
+      "clipLow": 0.009,
+      "clipHigh": 0.005,
+      "luma": 0.433,
+      "steady": 0.864,
+      "flow": {
+       "dx": 0.002,
+       "dy": 0.003,
+       "zoom": 0.032,
+       "magnitude": 0.016,
+       "residual": 0.23
+      },
+      "saliency": {
+       "x": 0.524,
+       "y": 0.354,
+       "strength": 0.716
+      }
+     },
+     {
+      "t": 10000,
+      "sharpness": 0.685,
+      "clipLow": 0.002,
+      "clipHigh": 0.007,
+      "luma": 0.406,
+      "aesthetic": 0.445,
+      "steady": 0.942,
+      "flow": {
+       "dx": 0.002,
+       "dy": 0.004,
+       "zoom": 0.023,
+       "magnitude": 0.012,
+       "residual": 0.243
+      },
+      "saliency": {
+       "x": 0.504,
+       "y": 0.35,
+       "strength": 0.423
+      }
+     },
+     {
+      "t": 10250,
+      "sharpness": 0.731,
+      "clipLow": 0.009,
+      "clipHigh": 0.01,
+      "luma": 0.411,
+      "steady": 0.83,
+      "flow": {
+       "dx": -0.004,
+       "dy": -0.002,
+       "zoom": 0.015,
+       "magnitude": 0.007,
+       "residual": 0.104
+      },
+      "saliency": {
+       "x": 0.485,
+       "y": 0.346,
+       "strength": 0.588
+      }
+     },
+     {
+      "t": 10500,
+      "sharpness": 0.704,
+      "clipLow": 0.005,
+      "clipHigh": 0.002,
+      "luma": 0.402,
+      "steady": 0.807,
+      "flow": {
+       "dx": 0.001,
+       "dy": -0.004,
+       "zoom": 0.006,
+       "magnitude": 0.004,
+       "residual": 0.114
+      },
+      "saliency": {
+       "x": 0.465,
+       "y": 0.342,
+       "strength": 0.652
+      }
+     },
+     {
+      "t": 10750,
+      "sharpness": 0.777,
+      "clipLow": 0.005,
+      "clipHigh": 0.007,
+      "luma": 0.416,
+      "steady": 0.892,
+      "flow": {
+       "dx": 0,
+       "dy": 0.003,
+       "zoom": 0,
+       "magnitude": 0.003,
+       "residual": 0.245
+      },
+      "saliency": {
+       "x": 0.446,
+       "y": 0.339,
+       "strength": 0.708
+      }
+     },
+     {
+      "t": 11000,
+      "sharpness": 0.792,
+      "clipLow": 0.008,
+      "clipHigh": 0.002,
+      "luma": 0.403,
+      "aesthetic": 0.532,
+      "steady": 0.897,
+      "flow": {
+       "dx": 0.005,
+       "dy": 0.002,
+       "zoom": 0,
+       "magnitude": 0.005,
+       "residual": 0.165
+      },
+      "saliency": {
+       "x": 0.427,
+       "y": 0.335,
+       "strength": 0.618
+      }
+     },
+     {
+      "t": 11250,
+      "sharpness": 0.768,
+      "clipLow": 0.001,
+      "clipHigh": 0.001,
+      "luma": 0.414,
+      "steady": 0.852,
+      "flow": {
+       "dx": -0.001,
+       "dy": 0,
+       "zoom": 0,
+       "magnitude": 0.001,
+       "residual": 0.13
+      },
+      "saliency": {
+       "x": 0.409,
+       "y": 0.332,
+       "strength": 0.656
+      }
+     },
+     {
+      "t": 11500,
+      "sharpness": 0.775,
+      "clipLow": 0.008,
+      "clipHigh": 0.009,
+      "luma": 0.402,
+      "steady": 0.915,
+      "flow": {
+       "dx": -0.004,
+       "dy": -0.004,
+       "zoom": 0,
+       "magnitude": 0.006,
+       "residual": 0.148
+      },
+      "saliency": {
+       "x": 0.391,
+       "y": 0.33,
+       "strength": 0.561
+      }
+     },
+     {
+      "t": 11750,
+      "sharpness": 0.79,
+      "clipLow": 0.01,
+      "clipHigh": 0.002,
+      "luma": 0.426,
+      "steady": 0.864,
+      "flow": {
+       "dx": 0.004,
+       "dy": 0.003,
+       "zoom": 0,
+       "magnitude": 0.005,
+       "residual": 0.105
+      },
+      "saliency": {
+       "x": 0.374,
+       "y": 0.327,
+       "strength": 0.469
+      }
+     },
+     {
+      "t": 12000,
+      "sharpness": 0.822,
+      "clipLow": 0.009,
+      "clipHigh": 0.008,
+      "luma": 0.413,
+      "aesthetic": 0.449,
+      "steady": 0.845,
+      "flow": {
+       "dx": 0.003,
+       "dy": 0.003,
+       "zoom": 0,
+       "magnitude": 0.004,
+       "residual": 0.138
+      },
+      "saliency": {
+       "x": 0.357,
+       "y": 0.325,
+       "strength": 0.753
+      }
+     },
+     {
+      "t": 12250,
+      "sharpness": 0.85,
+      "clipLow": 0.009,
+      "clipHigh": 0.008,
+      "luma": 0.433,
+      "steady": 0.914,
+      "flow": {
+       "dx": 0.004,
+       "dy": 0.002,
+       "zoom": 0,
+       "magnitude": 0.004,
+       "residual": 0.246
+      },
+      "saliency": {
+       "x": 0.342,
+       "y": 0.324,
+       "strength": 0.677
+      }
+     },
+     {
+      "t": 12500,
+      "sharpness": 0.53,
+      "clipLow": 0.009,
+      "clipHigh": 0.002,
+      "luma": 0.434,
+      "steady": 0.35,
+      "flow": {
+       "dx": -0.013,
+       "dy": 0.013,
+       "zoom": 0,
+       "magnitude": 0.018,
+       "residual": 0.199
+      },
+      "saliency": {
+       "x": 0.327,
+       "y": 0.322,
+       "strength": 0.726
+      }
+     },
+     {
+      "t": 12750,
+      "sharpness": 0.572,
+      "clipLow": 0,
+      "clipHigh": 0.002,
+      "luma": 0.408,
+      "steady": 0.35,
+      "flow": {
+       "dx": -0.002,
+       "dy": 0.018,
+       "zoom": 0,
+       "magnitude": 0.018,
+       "residual": 0.104
+      },
+      "saliency": {
+       "x": 0.313,
+       "y": 0.321,
+       "strength": 0.631
+      }
+     }
+    ],
+    "windows": [
+     {
+      "lengthMs": 800,
+      "best": [
+       {
+        "startMs": 300,
+        "endMs": 1100,
+        "score": 0.668,
+        "sharpness": 0.854,
+        "exposure": 0.925,
+        "aesthetic": 0.725,
+        "steady": 0.871,
+        "motion": 0,
+        "direction": "static"
+       },
+       {
+        "startMs": 1300,
+        "endMs": 2100,
+        "score": 0.663,
+        "sharpness": 0.808,
+        "exposure": 0.948,
+        "aesthetic": 0.699,
+        "steady": 0.862,
+        "motion": 0.06,
+        "direction": "push"
+       },
+       {
+        "startMs": 2550,
+        "endMs": 3350,
+        "score": 0.66,
+        "sharpness": 0.641,
+        "exposure": 0.962,
+        "aesthetic": 0.778,
+        "steady": 0.885,
+        "motion": 0.163,
+        "direction": "push"
+       }
+      ]
+     },
+     {
+      "lengthMs": 1500,
+      "best": [
+       {
+        "startMs": 1050,
+        "endMs": 2550,
+        "score": 0.662,
+        "sharpness": 0.78,
+        "exposure": 0.953,
+        "aesthetic": 0.699,
+        "steady": 0.887,
+        "motion": 0.071,
+        "direction": "push"
+       },
+       {
+        "startMs": 2550,
+        "endMs": 4050,
+        "score": 0.648,
+        "sharpness": 0.593,
+        "exposure": 0.963,
+        "aesthetic": 0.774,
+        "steady": 0.871,
+        "motion": 0.185,
+        "direction": "push"
+       },
+       {
+        "startMs": 10550,
+        "endMs": 12050,
+        "score": 0.604,
+        "sharpness": 0.787,
+        "exposure": 0.942,
+        "aesthetic": 0.504,
+        "steady": 0.878,
+        "motion": 0,
+        "direction": "static"
+       }
+      ]
+     },
+     {
+      "lengthMs": 2500,
+      "best": [
+       {
+        "startMs": 1050,
+        "endMs": 3550,
+        "score": 0.659,
+        "sharpness": 0.715,
+        "exposure": 0.956,
+        "aesthetic": 0.731,
+        "steady": 0.888,
+        "motion": 0.111,
+        "direction": "push"
+       },
+       {
+        "startMs": 9800,
+        "endMs": 12300,
+        "score": 0.593,
+        "sharpness": 0.769,
+        "exposure": 0.939,
+        "aesthetic": 0.481,
+        "steady": 0.876,
+        "motion": 0,
+        "direction": "static"
+       },
+       {
+        "startMs": 7300,
+        "endMs": 9800,
+        "score": 0.503,
+        "sharpness": 0.447,
+        "exposure": 0.954,
+        "aesthetic": 0.599,
+        "steady": 0.86,
+        "motion": 0.081,
+        "direction": "push"
+       }
+      ]
+     },
+     {
+      "lengthMs": 4000,
+      "best": [
+       {
+        "startMs": 550,
+        "endMs": 4550,
+        "score": 0.639,
+        "sharpness": 0.679,
+        "exposure": 0.951,
+        "aesthetic": 0.744,
+        "steady": 0.876,
+        "motion": 0.121,
+        "direction": "push"
+       },
+       {
+        "startMs": 8300,
+        "endMs": 12300,
+        "score": 0.546,
+        "sharpness": 0.672,
+        "exposure": 0.946,
+        "aesthetic": 0.511,
+        "steady": 0.875,
+        "motion": 0,
+        "direction": "static"
+       }
+      ]
+     }
+    ],
+    "motion": [
+     {
+      "startMs": 0,
+      "endMs": 1250,
+      "direction": "static",
+      "magnitude": 0.0099,
+      "mover": "none",
+      "consistency": 0.8
+     },
+     {
+      "startMs": 1250,
+      "endMs": 9750,
+      "direction": "push",
+      "magnitude": 0.0455,
+      "mover": "camera",
+      "consistency": 1
+     },
+     {
+      "startMs": 9750,
+      "endMs": 12800,
+      "direction": "static",
+      "magnitude": 0.0032,
+      "mover": "none",
+      "consistency": 1
+     }
+    ],
+    "flowPeaks": [],
+    "depth": [
+     {
+      "t": 3250,
+      "cols": 16,
+      "rows": 9,
+      "grid": "AAAAAAAAAAAAAAAAAAAAACAgICAgICAgICAgICAgICBAQEBAQEBAQEBAQEBAQEBAYGBgYGBgYGBgYGBgYGBgYICAgICAgICAgICAgICAgICfn5+fn5+fn5+fn5+fn5+fv7+/v7+/v7+/v7+/v7+/v9/f39/f39/f39/f39/f39//////////////////////",
+      "foreground": 0.22,
+      "near": null,
+      "spread": 0.55
+     },
+     {
+      "t": 6500,
+      "cols": 16,
+      "rows": 9,
+      "grid": "AAAAAAAAAAAAAAAAAAAAACAgICAgICAgICAgICAgICBAQEBAQEBAQEBAQEBAQEBAYGBgYGBgYGBgYGBgYGBgYICAgICAgICAgICAgICAgICfn5+fn5+fn5+fn5+fn5+fv7+/v7+/v7+/v7+/v7+/v9/f39/f39/f39/f39/f39//////////////////////",
+      "foreground": 0.22,
+      "near": null,
+      "spread": 0.55
+     },
+     {
+      "t": 9500,
+      "cols": 16,
+      "rows": 9,
+      "grid": "AAAAAAAAAAAAAAAAAAAAACAgICAgICAgICAgICAgICBAQEBAQEBAQEBAQEBAQEBAYGBgYGBgYGBgYGBgYGBgYICAgICAgICAgICAgICAgICfn5+fn5+fn5+fn5+fn5+fv7+/v7+/v7+/v7+/v7+/v9/f39/f39/f39/f39/f39//////////////////////",
+      "foreground": 0.22,
+      "near": null,
+      "spread": 0.55
+     }
+    ],
+    "occluders": [],
+    "reframe": null,
+    "scene": {
+     "palette": [
+      {
+       "hex": "#d9d2c5",
+       "share": 0.31
+      },
+      {
+       "hex": "#6f6a62",
+       "share": 0.24
+      },
+      {
+       "hex": "#2e2b27",
+       "share": 0.17
+      },
+      {
+       "hex": "#9fb6c9",
+       "share": 0.12
+      }
+     ],
+     "round": null,
+     "rectilinear": 0.58,
+     "brightnessRamps": [],
+     "blowouts": []
+    },
+    "models": {
+     "aesthetic": "Xenova/mobileclip_s0 (CLIP-IQA prompts)",
+     "depth": "onnx-community/depth-anything-v2-small",
+     "saliency": "spectral-residual 64x64"
+    },
+    "cost": {
+     "cpuMs": 0,
+     "wallMs": 0,
+     "analysedMs": 12800
+    },
+    "createdAt": "2026-10-26T00:00:00.000Z"
+   }
+  },
+  "cmvo11s8c000401adkaymy5uh": {
+   "fileName": "4905.mp4",
+   "analysis": {
+    "version": 1,
+    "durationMs": 22089,
+    "width": 1920,
+    "height": 1080,
+    "sampleMs": 250,
+    "aestheticEveryMs": 1000,
+    "samples": [
+     {
+      "t": 0,
+      "sharpness": 0.152,
+      "clipLow": 0.009,
+      "clipHigh": 0.008,
+      "luma": 0.408,
+      "aesthetic": 0.689,
+      "steady": 0.35,
+      "flow": {
+       "dx": 0.019,
+       "dy": 0.008,
+       "zoom": 0,
+       "magnitude": 0.02,
+       "residual": 0.169
+      },
+      "saliency": {
+       "x": 0.733,
+       "y": 0.52,
+       "strength": 0.554
+      }
+     },
+     {
+      "t": 250,
+      "sharpness": 0.097,
+      "clipLow": 0.004,
+      "clipHigh": 0.005,
+      "luma": 0.41,
+      "steady": 0.35,
+      "flow": {
+       "dx": 0.004,
+       "dy": 0.015,
+       "zoom": 0.001,
+       "magnitude": 0.016,
+       "residual": 0.205
+      },
+      "saliency": {
+       "x": 0.737,
+       "y": 0.52,
+       "strength": 0.709
+      }
+     },
+     {
+      "t": 500,
+      "sharpness": 0.387,
+      "clipLow": 0.006,
+      "clipHigh": 0.009,
+      "luma": 0.423,
+      "steady": 0.847,
+      "flow": {
+       "dx": 0.001,
+       "dy": -0.002,
+       "zoom": 0.003,
+       "magnitude": 0.003,
+       "residual": 0.19
+      },
+      "saliency": {
+       "x": 0.74,
+       "y": 0.52,
+       "strength": 0.629
+      }
+     },
+     {
+      "t": 750,
+      "sharpness": 0.323,
+      "clipLow": 0.002,
+      "clipHigh": 0.001,
+      "luma": 0.413,
+      "steady": 0.895,
+      "flow": {
+       "dx": 0.006,
+       "dy": 0.001,
+       "zoom": 0.004,
+       "magnitude": 0.007,
+       "residual": 0.231
+      },
+      "saliency": {
+       "x": 0.743,
+       "y": 0.519,
+       "strength": 0.658
+      }
+     },
+     {
+      "t": 1000,
+      "sharpness": 0.329,
+      "clipLow": 0.001,
+      "clipHigh": 0.002,
+      "luma": 0.402,
+      "aesthetic": 0.681,
+      "steady": 0.856,
+      "flow": {
+       "dx": 0.006,
+       "dy": -0.002,
+       "zoom": 0.005,
+       "magnitude": 0.006,
+       "residual": 0.114
+      },
+      "saliency": {
+       "x": 0.746,
+       "y": 0.519,
+       "strength": 0.654
+      }
+     },
+     {
+      "t": 1250,
+      "sharpness": 0.283,
+      "clipLow": 0.008,
+      "clipHigh": 0.003,
+      "luma": 0.412,
+      "steady": 0.818,
+      "flow": {
+       "dx": 0.008,
+       "dy": 0,
+       "zoom": 0.006,
+       "magnitude": 0.008,
+       "residual": 0.13
+      },
+      "saliency": {
+       "x": 0.747,
+       "y": 0.519,
+       "strength": 0.575
+      }
+     },
+     {
+      "t": 1500,
+      "sharpness": 0.316,
+      "clipLow": 0.008,
+      "clipHigh": 0.008,
+      "luma": 0.42,
+      "steady": 0.93,
+      "flow": {
+       "dx": 0.007,
+       "dy": 0.001,
+       "zoom": 0.008,
+       "magnitude": 0.007,
+       "residual": 0.203
+      },
+      "saliency": {
+       "x": 0.749,
+       "y": 0.518,
+       "strength": 0.448
+      }
+     },
+     {
+      "t": 1750,
+      "sharpness": 0.334,
+      "clipLow": 0.006,
+      "clipHigh": 0.01,
+      "luma": 0.412,
+      "steady": 0.949,
+      "flow": {
+       "dx": 0.013,
+       "dy": 0.002,
+       "zoom": 0.009,
+       "magnitude": 0.013,
+       "residual": 0.106
+      },
+      "saliency": {
+       "x": 0.75,
+       "y": 0.517,
+       "strength": 0.441
+      }
+     },
+     {
+      "t": 2000,
+      "sharpness": 0.323,
+      "clipLow": 0.007,
+      "clipHigh": 0.005,
+      "luma": 0.41,
+      "aesthetic": 0.7,
+      "steady": 0.916,
+      "flow": {
+       "dx": 0.011,
+       "dy": 0.004,
+       "zoom": 0.01,
+       "magnitude": 0.012,
+       "residual": 0.128
+      },
+      "saliency": {
+       "x": 0.75,
+       "y": 0.516,
+       "strength": 0.725
+      }
+     },
+     {
+      "t": 2250,
+      "sharpness": 0.318,
+      "clipLow": 0.003,
+      "clipHigh": 0,
+      "luma": 0.429,
+      "steady": 0.877,
+      "flow": {
+       "dx": 0.017,
+       "dy": 0.001,
+       "zoom": 0.011,
+       "magnitude": 0.017,
+       "residual": 0.192
+      },
+      "saliency": {
+       "x": 0.75,
+       "y": 0.515,
+       "strength": 0.677
+      }
+     },
+     {
+      "t": 2500,
+      "sharpness": 0.286,
+      "clipLow": 0.01,
+      "clipHigh": 0.008,
+      "luma": 0.427,
+      "steady": 0.885,
+      "flow": {
+       "dx": 0.018,
+       "dy": -0.005,
+       "zoom": 0.012,
+       "magnitude": 0.019,
+       "residual": 0.133
+      },
+      "saliency": {
+       "x": 0.749,
+       "y": 0.514,
+       "strength": 0.652
+      }
+     },
+     {
+      "t": 2750,
+      "sharpness": 0.211,
+      "clipLow": 0.009,
+      "clipHigh": 0.007,
+      "luma": 0.439,
+      "steady": 0.846,
+      "flow": {
+       "dx": 0.019,
+       "dy": -0.001,
+       "zoom": 0.014,
+       "magnitude": 0.019,
+       "residual": 0.212
+      },
+      "saliency": {
+       "x": 0.748,
+       "y": 0.513,
+       "strength": 0.775
+      }
+     },
+     {
+      "t": 3000,
+      "sharpness": 0.224,
+      "clipLow": 0.002,
+      "clipHigh": 0.004,
+      "luma": 0.417,
+      "aesthetic": 0.607,
+      "steady": 0.885,
+      "flow": {
+       "dx": 0.02,
+       "dy": 0.001,
+       "zoom": 0.015,
+       "magnitude": 0.02,
+       "residual": 0.217
+      },
+      "saliency": {
+       "x": 0.746,
+       "y": 0.512,
+       "strength": 0.736
+      }
+     },
+     {
+      "t": 3250,
+      "sharpness": 0.262,
+      "clipLow": 0.004,
+      "clipHigh": 0.003,
+      "luma": 0.412,
+      "steady": 0.811,
+      "flow": {
+       "dx": 0.017,
+       "dy": -0.002,
+       "zoom": 0.016,
+       "magnitude": 0.017,
+       "residual": 0.155
+      },
+      "saliency": {
+       "x": 0.744,
+       "y": 0.51,
+       "strength": 0.573
+      }
+     },
+     {
+      "t": 3500,
+      "sharpness": 0.254,
+      "clipLow": 0.004,
+      "clipHigh": 0.006,
+      "luma": 0.436,
+      "steady": 0.942,
+      "flow": {
+       "dx": 0.024,
+       "dy": 0,
+       "zoom": 0.017,
+       "magnitude": 0.024,
+       "residual": 0.169
+      },
+      "saliency": {
+       "x": 0.741,
+       "y": 0.509,
+       "strength": 0.733
+      }
+     },
+     {
+      "t": 3750,
+      "sharpness": 0.241,
+      "clipLow": 0.006,
+      "clipHigh": 0.001,
+      "luma": 0.411,
+      "steady": 0.804,
+      "flow": {
+       "dx": 0.029,
+       "dy": 0.001,
+       "zoom": 0.018,
+       "magnitude": 0.029,
+       "residual": 0.226
+      },
+      "saliency": {
+       "x": 0.738,
+       "y": 0.507,
+       "strength": 0.445
+      }
+     },
+     {
+      "t": 4000,
+      "sharpness": 0.226,
+      "clipLow": 0.003,
+      "clipHigh": 0.001,
+      "luma": 0.43,
+      "aesthetic": 0.661,
+      "steady": 0.894,
+      "flow": {
+       "dx": 0.023,
+       "dy": 0.002,
+       "zoom": 0.019,
+       "magnitude": 0.023,
+       "residual": 0.213
+      },
+      "saliency": {
+       "x": 0.735,
+       "y": 0.506,
+       "strength": 0.406
+      }
+     },
+     {
+      "t": 4250,
+      "sharpness": 0.285,
+      "clipLow": 0.01,
+      "clipHigh": 0.001,
+      "luma": 0.407,
+      "steady": 0.806,
+      "flow": {
+       "dx": 0.03,
+       "dy": 0.004,
+       "zoom": 0.02,
+       "magnitude": 0.03,
+       "residual": 0.247
+      },
+      "saliency": {
+       "x": 0.73,
+       "y": 0.504,
+       "strength": 0.591
+      }
+     },
+     {
+      "t": 4500,
+      "sharpness": 0.299,
+      "clipLow": 0.007,
+      "clipHigh": 0.008,
+      "luma": 0.4,
+      "steady": 0.817,
+      "flow": {
+       "dx": 0.026,
+       "dy": 0,
+       "zoom": 0.021,
+       "magnitude": 0.026,
+       "residual": 0.193
+      },
+      "saliency": {
+       "x": 0.726,
+       "y": 0.502,
+       "strength": 0.7
+      }
+     },
+     {
+      "t": 4750,
+      "sharpness": 0.264,
+      "clipLow": 0.008,
+      "clipHigh": 0.007,
+      "luma": 0.425,
+      "steady": 0.824,
+      "flow": {
+       "dx": 0.025,
+       "dy": -0.002,
+       "zoom": 0.022,
+       "magnitude": 0.025,
+       "residual": 0.24
+      },
+      "saliency": {
+       "x": 0.721,
+       "y": 0.5,
+       "strength": 0.799
+      }
+     },
+     {
+      "t": 5000,
+      "sharpness": 0.249,
+      "clipLow": 0.009,
+      "clipHigh": 0.002,
+      "luma": 0.414,
+      "aesthetic": 0.739,
+      "steady": 0.863,
+      "flow": {
+       "dx": 0.031,
+       "dy": 0.002,
+       "zoom": 0.023,
+       "magnitude": 0.031,
+       "residual": 0.17
+      },
+      "saliency": {
+       "x": 0.715,
+       "y": 0.498,
+       "strength": 0.794
+      }
+     },
+     {
+      "t": 5250,
+      "sharpness": 0.311,
+      "clipLow": 0.001,
+      "clipHigh": 0.002,
+      "luma": 0.407,
+      "steady": 0.926,
+      "flow": {
+       "dx": 0.031,
+       "dy": 0.001,
+       "zoom": 0.023,
+       "magnitude": 0.031,
+       "residual": 0.15
+      },
+      "saliency": {
+       "x": 0.709,
+       "y": 0.496,
+       "strength": 0.798
+      }
+     },
+     {
+      "t": 5500,
+      "sharpness": 0.306,
+      "clipLow": 0.005,
+      "clipHigh": 0,
+      "luma": 0.422,
+      "steady": 0.923,
+      "flow": {
+       "dx": 0.033,
+       "dy": -0.004,
+       "zoom": 0.024,
+       "magnitude": 0.033,
+       "residual": 0.165
+      },
+      "saliency": {
+       "x": 0.703,
+       "y": 0.493,
+       "strength": 0.485
+      }
+     },
+     {
+      "t": 5750,
+      "sharpness": 0.317,
+      "clipLow": 0.001,
+      "clipHigh": 0.008,
+      "luma": 0.401,
+      "steady": 0.937,
+      "flow": {
+       "dx": 0.029,
+       "dy": 0.001,
+       "zoom": 0.025,
+       "magnitude": 0.029,
+       "residual": 0.208
+      },
+      "saliency": {
+       "x": 0.696,
+       "y": 0.491,
+       "strength": 0.756
+      }
+     },
+     {
+      "t": 6000,
+      "sharpness": 0.374,
+      "clipLow": 0.003,
+      "clipHigh": 0.007,
+      "luma": 0.419,
+      "aesthetic": 0.596,
+      "steady": 0.818,
+      "flow": {
+       "dx": 0.036,
+       "dy": 0.002,
+       "zoom": 0.026,
+       "magnitude": 0.036,
+       "residual": 0.113
+      },
+      "saliency": {
+       "x": 0.689,
+       "y": 0.489,
+       "strength": 0.423
+      }
+     },
+     {
+      "t": 6250,
+      "sharpness": 0.329,
+      "clipLow": 0.004,
+      "clipHigh": 0.007,
+      "luma": 0.41,
+      "steady": 0.837,
+      "flow": {
+       "dx": 0.035,
+       "dy": -0.004,
+       "zoom": 0.026,
+       "magnitude": 0.035,
+       "residual": 0.207
+      },
+      "saliency": {
+       "x": 0.681,
+       "y": 0.486,
+       "strength": 0.7
+      }
+     },
+     {
+      "t": 6500,
+      "sharpness": 0.344,
+      "clipLow": 0.003,
+      "clipHigh": 0.005,
+      "luma": 0.416,
+      "steady": 0.889,
+      "flow": {
+       "dx": 0.038,
+       "dy": 0.004,
+       "zoom": 0.027,
+       "magnitude": 0.038,
+       "residual": 0.161
+      },
+      "saliency": {
+       "x": 0.673,
+       "y": 0.483,
+       "strength": 0.62
+      }
+     },
+     {
+      "t": 6750,
+      "sharpness": 0.386,
+      "clipLow": 0.004,
+      "clipHigh": 0.01,
+      "luma": 0.43,
+      "steady": 0.94,
+      "flow": {
+       "dx": 0.04,
+       "dy": 0.004,
+       "zoom": 0.027,
+       "magnitude": 0.04,
+       "residual": 0.136
+      },
+      "saliency": {
+       "x": 0.665,
+       "y": 0.481,
+       "strength": 0.784
+      }
+     },
+     {
+      "t": 7000,
+      "sharpness": 0.423,
+      "clipLow": 0.006,
+      "clipHigh": 0.009,
+      "luma": 0.407,
+      "aesthetic": 0.686,
+      "steady": 0.866,
+      "flow": {
+       "dx": 0.041,
+       "dy": 0.002,
+       "zoom": 0.028,
+       "magnitude": 0.041,
+       "residual": 0.216
+      },
+      "saliency": {
+       "x": 0.656,
+       "y": 0.478,
+       "strength": 0.699
+      }
+     },
+     {
+      "t": 7250,
+      "sharpness": 0.389,
+      "clipLow": 0.003,
+      "clipHigh": 0.008,
+      "luma": 0.422,
+      "steady": 0.805,
+      "flow": {
+       "dx": 0.04,
+       "dy": 0.001,
+       "zoom": 0.028,
+       "magnitude": 0.04,
+       "residual": 0.183
+      },
+      "saliency": {
+       "x": 0.647,
+       "y": 0.475,
+       "strength": 0.771
+      }
+     },
+     {
+      "t": 7500,
+      "sharpness": 0.477,
+      "clipLow": 0.005,
+      "clipHigh": 0.009,
+      "luma": 0.437,
+      "steady": 0.938,
+      "flow": {
+       "dx": 0.033,
+       "dy": 0.005,
+       "zoom": 0.029,
+       "magnitude": 0.034,
+       "residual": 0.108
+      },
+      "saliency": {
+       "x": 0.638,
+       "y": 0.472,
+       "strength": 0.702
+      }
+     },
+     {
+      "t": 7750,
+      "sharpness": 0.442,
+      "clipLow": 0.004,
+      "clipHigh": 0.001,
+      "luma": 0.412,
+      "steady": 0.855,
+      "flow": {
+       "dx": 0.037,
+       "dy": 0.002,
+       "zoom": 0.029,
+       "magnitude": 0.037,
+       "residual": 0.147
+      },
+      "saliency": {
+       "x": 0.628,
+       "y": 0.47,
+       "strength": 0.556
+      }
+     },
+     {
+      "t": 8000,
+      "sharpness": 0.499,
+      "clipLow": 0.008,
+      "clipHigh": 0.008,
+      "luma": 0.402,
+      "aesthetic": 0.669,
+      "steady": 0.886,
+      "flow": {
+       "dx": 0.034,
+       "dy": -0.001,
+       "zoom": 0.029,
+       "magnitude": 0.034,
+       "residual": 0.195
+      },
+      "saliency": {
+       "x": 0.618,
+       "y": 0.467,
+       "strength": 0.454
+      }
+     },
+     {
+      "t": 8250,
+      "sharpness": 0.485,
+      "clipLow": 0.003,
+      "clipHigh": 0.007,
+      "luma": 0.407,
+      "steady": 0.945,
+      "flow": {
+       "dx": 0.036,
+       "dy": -0.001,
+       "zoom": 0.03,
+       "magnitude": 0.036,
+       "residual": 0.233
+      },
+      "saliency": {
+       "x": 0.608,
+       "y": 0.464,
+       "strength": 0.624
+      }
+     },
+     {
+      "t": 8500,
+      "sharpness": 0.574,
+      "clipLow": 0.003,
+      "clipHigh": 0.004,
+      "luma": 0.412,
+      "steady": 0.859,
+      "flow": {
+       "dx": 0.036,
+       "dy": -0.001,
+       "zoom": 0.03,
+       "magnitude": 0.036,
+       "residual": 0.129
+      },
+      "saliency": {
+       "x": 0.598,
+       "y": 0.46,
+       "strength": 0.403
+      }
+     },
+     {
+      "t": 8750,
+      "sharpness": 0.594,
+      "clipLow": 0,
+      "clipHigh": 0.009,
+      "luma": 0.403,
+      "steady": 0.816,
+      "flow": {
+       "dx": 0.037,
+       "dy": 0.001,
+       "zoom": 0.03,
+       "magnitude": 0.037,
+       "residual": 0.209
+      },
+      "saliency": {
+       "x": 0.587,
+       "y": 0.457,
+       "strength": 0.673
+      }
+     },
+     {
+      "t": 9000,
+      "sharpness": 0.646,
+      "clipLow": 0.001,
+      "clipHigh": 0.002,
+      "luma": 0.407,
+      "aesthetic": 0.643,
+      "steady": 0.849,
+      "flow": {
+       "dx": 0.042,
+       "dy": 0.001,
+       "zoom": 0.03,
+       "magnitude": 0.042,
+       "residual": 0.13
+      },
+      "saliency": {
+       "x": 0.577,
+       "y": 0.454,
+       "strength": 0.413
+      }
+     },
+     {
+      "t": 9250,
+      "sharpness": 0.672,
+      "clipLow": 0.002,
+      "clipHigh": 0.005,
+      "luma": 0.425,
+      "steady": 0.819,
+      "flow": {
+       "dx": 0.037,
+       "dy": 0,
+       "zoom": 0.03,
+       "magnitude": 0.037,
+       "residual": 0.238
+      },
+      "saliency": {
+       "x": 0.566,
+       "y": 0.451,
+       "strength": 0.67
+      }
+     },
+     {
+      "t": 9500,
+      "sharpness": 0.667,
+      "clipLow": 0.001,
+      "clipHigh": 0.004,
+      "luma": 0.418,
+      "steady": 0.841,
+      "flow": {
+       "dx": 0.042,
+       "dy": 0.004,
+       "zoom": 0.03,
+       "magnitude": 0.042,
+       "residual": 0.122
+      },
+      "saliency": {
+       "x": 0.555,
+       "y": 0.448,
+       "strength": 0.562
+      }
+     },
+     {
+      "t": 9750,
+      "sharpness": 0.687,
+      "clipLow": 0.008,
+      "clipHigh": 0.009,
+      "luma": 0.422,
+      "steady": 0.8,
+      "flow": {
+       "dx": 0.043,
+       "dy": 0.001,
+       "zoom": 0.03,
+       "magnitude": 0.043,
+       "residual": 0.152
+      },
+      "saliency": {
+       "x": 0.544,
+       "y": 0.444,
+       "strength": 0.784
+      }
+     },
+     {
+      "t": 10000,
+      "sharpness": 0.724,
+      "clipLow": 0.004,
+      "clipHigh": 0.008,
+      "luma": 0.414,
+      "aesthetic": 0.663,
+      "steady": 0.802,
+      "flow": {
+       "dx": 0.041,
+       "dy": 0.002,
+       "zoom": 0.03,
+       "magnitude": 0.041,
+       "residual": 0.184
+      },
+      "saliency": {
+       "x": 0.533,
+       "y": 0.441,
+       "strength": 0.401
+      }
+     },
+     {
+      "t": 10250,
+      "sharpness": 0.7,
+      "clipLow": 0.002,
+      "clipHigh": 0.005,
+      "luma": 0.407,
+      "steady": 0.879,
+      "flow": {
+       "dx": 0.04,
+       "dy": 0,
+       "zoom": 0.03,
+       "magnitude": 0.04,
+       "residual": 0.115
+      },
+      "saliency": {
+       "x": 0.521,
+       "y": 0.438,
+       "strength": 0.409
+      }
+     },
+     {
+      "t": 10500,
+      "sharpness": 0.762,
+      "clipLow": 0.009,
+      "clipHigh": 0.007,
+      "luma": 0.43,
+      "steady": 0.925,
+      "flow": {
+       "dx": 0.042,
+       "dy": 0.001,
+       "zoom": 0.029,
+       "magnitude": 0.042,
+       "residual": 0.158
+      },
+      "saliency": {
+       "x": 0.51,
+       "y": 0.434,
+       "strength": 0.763
+      }
+     },
+     {
+      "t": 10750,
+      "sharpness": 0.702,
+      "clipLow": 0.001,
+      "clipHigh": 0.001,
+      "luma": 0.401,
+      "steady": 0.887,
+      "flow": {
+       "dx": 0.037,
+       "dy": -0.001,
+       "zoom": 0.029,
+       "magnitude": 0.037,
+       "residual": 0.201
+      },
+      "saliency": {
+       "x": 0.499,
+       "y": 0.431,
+       "strength": 0.48
+      }
+     },
+     {
+      "t": 11000,
+      "sharpness": 0.786,
+      "clipLow": 0.01,
+      "clipHigh": 0.009,
+      "luma": 0.433,
+      "aesthetic": 0.729,
+      "steady": 0.911,
+      "flow": {
+       "dx": 0.033,
+       "dy": -0.005,
+       "zoom": 0.029,
+       "magnitude": 0.034,
+       "residual": 0.183
+      },
+      "saliency": {
+       "x": 0.487,
+       "y": 0.428,
+       "strength": 0.648
+      }
+     },
+     {
+      "t": 11250,
+      "sharpness": 0.78,
+      "clipLow": 0.005,
+      "clipHigh": 0.005,
+      "luma": 0.424,
+      "steady": 0.896,
+      "flow": {
+       "dx": 0.033,
+       "dy": -0.001,
+       "zoom": 0.028,
+       "magnitude": 0.033,
+       "residual": 0.176
+      },
+      "saliency": {
+       "x": 0.476,
+       "y": 0.424,
+       "strength": 0.691
+      }
+     },
+     {
+      "t": 11500,
+      "sharpness": 0.748,
+      "clipLow": 0,
+      "clipHigh": 0.007,
+      "luma": 0.439,
+      "steady": 0.83,
+      "flow": {
+       "dx": 0.035,
+       "dy": 0.004,
+       "zoom": 0.028,
+       "magnitude": 0.036,
+       "residual": 0.101
+      },
+      "saliency": {
+       "x": 0.465,
+       "y": 0.421,
+       "strength": 0.486
+      }
+     },
+     {
+      "t": 11750,
+      "sharpness": 0.827,
+      "clipLow": 0.006,
+      "clipHigh": 0.004,
+      "luma": 0.434,
+      "steady": 0.806,
+      "flow": {
+       "dx": 0.032,
+       "dy": -0.001,
+       "zoom": 0.027,
+       "magnitude": 0.032,
+       "residual": 0.225
+      },
+      "saliency": {
+       "x": 0.454,
+       "y": 0.417,
+       "strength": 0.748
+      }
+     },
+     {
+      "t": 12000,
+      "sharpness": 0.791,
+      "clipLow": 0.006,
+      "clipHigh": 0.001,
+      "luma": 0.412,
+      "aesthetic": 0.656,
+      "steady": 0.812,
+      "flow": {
+       "dx": 0.035,
+       "dy": -0.002,
+       "zoom": 0.027,
+       "magnitude": 0.035,
+       "residual": 0.185
+      },
+      "saliency": {
+       "x": 0.443,
+       "y": 0.414,
+       "strength": 0.771
+      }
+     },
+     {
+      "t": 12250,
+      "sharpness": 0.804,
+      "clipLow": 0.006,
+      "clipHigh": 0,
+      "luma": 0.436,
+      "steady": 0.893,
+      "flow": {
+       "dx": 0.03,
+       "dy": 0.004,
+       "zoom": 0.026,
+       "magnitude": 0.03,
+       "residual": 0.138
+      },
+      "saliency": {
+       "x": 0.432,
+       "y": 0.411,
+       "strength": 0.645
+      }
+     },
+     {
+      "t": 12500,
+      "sharpness": 0.829,
+      "clipLow": 0.01,
+      "clipHigh": 0.008,
+      "luma": 0.438,
+      "steady": 0.932,
+      "flow": {
+       "dx": 0.032,
+       "dy": 0,
+       "zoom": 0.025,
+       "magnitude": 0.032,
+       "residual": 0.108
+      },
+      "saliency": {
+       "x": 0.421,
+       "y": 0.407,
+       "strength": 0.507
+      }
+     },
+     {
+      "t": 12750,
+      "sharpness": 0.806,
+      "clipLow": 0.006,
+      "clipHigh": 0.002,
+      "luma": 0.416,
+      "steady": 0.892,
+      "flow": {
+       "dx": 0.033,
+       "dy": 0,
+       "zoom": 0.025,
+       "magnitude": 0.033,
+       "residual": 0.226
+      },
+      "saliency": {
+       "x": 0.41,
+       "y": 0.404,
+       "strength": 0.541
+      }
+     },
+     {
+      "t": 13000,
+      "sharpness": 0.821,
+      "clipLow": 0,
+      "clipHigh": 0.009,
+      "luma": 0.429,
+      "aesthetic": 0.637,
+      "steady": 0.925,
+      "flow": {
+       "dx": 0.028,
+       "dy": -0.003,
+       "zoom": 0.024,
+       "magnitude": 0.028,
+       "residual": 0.11
+      },
+      "saliency": {
+       "x": 0.4,
+       "y": 0.401,
+       "strength": 0.644
+      }
+     },
+     {
+      "t": 13250,
+      "sharpness": 0.845,
+      "clipLow": 0.004,
+      "clipHigh": 0.008,
+      "luma": 0.426,
+      "steady": 0.943,
+      "flow": {
+       "dx": 0.035,
+       "dy": -0.004,
+       "zoom": 0.023,
+       "magnitude": 0.035,
+       "residual": 0.106
+      },
+      "saliency": {
+       "x": 0.39,
+       "y": 0.397,
+       "strength": 0.453
+      }
+     },
+     {
+      "t": 13500,
+      "sharpness": 0.862,
+      "clipLow": 0.001,
+      "clipHigh": 0.005,
+      "luma": 0.418,
+      "steady": 0.912,
+      "flow": {
+       "dx": 0.033,
+       "dy": 0.003,
+       "zoom": 0.022,
+       "magnitude": 0.033,
+       "residual": 0.197
+      },
+      "saliency": {
+       "x": 0.379,
+       "y": 0.394,
+       "strength": 0.506
+      }
+     },
+     {
+      "t": 13750,
+      "sharpness": 0.841,
+      "clipLow": 0.009,
+      "clipHigh": 0.007,
+      "luma": 0.433,
+      "steady": 0.937,
+      "flow": {
+       "dx": 0.024,
+       "dy": -0.004,
+       "zoom": 0.021,
+       "magnitude": 0.025,
+       "residual": 0.228
+      },
+      "saliency": {
+       "x": 0.37,
+       "y": 0.391,
+       "strength": 0.695
+      }
+     },
+     {
+      "t": 14000,
+      "sharpness": 0.87,
+      "clipLow": 0.007,
+      "clipHigh": 0.005,
+      "luma": 0.426,
+      "aesthetic": 0.626,
+      "steady": 0.889,
+      "flow": {
+       "dx": 0.026,
+       "dy": 0.002,
+       "zoom": 0.02,
+       "magnitude": 0.026,
+       "residual": 0.127
+      },
+      "saliency": {
+       "x": 0.36,
+       "y": 0.388,
+       "strength": 0.753
+      }
+     },
+     {
+      "t": 14250,
+      "sharpness": 0.827,
+      "clipLow": 0.001,
+      "clipHigh": 0.009,
+      "luma": 0.409,
+      "steady": 0.854,
+      "flow": {
+       "dx": 0.028,
+       "dy": -0.003,
+       "zoom": 0.02,
+       "magnitude": 0.028,
+       "residual": 0.231
+      },
+      "saliency": {
+       "x": 0.351,
+       "y": 0.384,
+       "strength": 0.681
+      }
+     },
+     {
+      "t": 14500,
+      "sharpness": 0.849,
+      "clipLow": 0.008,
+      "clipHigh": 0,
+      "luma": 0.429,
+      "steady": 0.86,
+      "flow": {
+       "dx": 0.027,
+       "dy": -0.004,
+       "zoom": 0.019,
+       "magnitude": 0.027,
+       "residual": 0.127
+      },
+      "saliency": {
+       "x": 0.342,
+       "y": 0.381,
+       "strength": 0.408
+      }
+     },
+     {
+      "t": 14750,
+      "sharpness": 0.872,
+      "clipLow": 0.006,
+      "clipHigh": 0.006,
+      "luma": 0.401,
+      "steady": 0.863,
+      "flow": {
+       "dx": 0.021,
+       "dy": 0,
+       "zoom": 0.018,
+       "magnitude": 0.021,
+       "residual": 0.132
+      },
+      "saliency": {
+       "x": 0.333,
+       "y": 0.378,
+       "strength": 0.783
+      }
+     },
+     {
+      "t": 15000,
+      "sharpness": 0.827,
+      "clipLow": 0.003,
+      "clipHigh": 0.009,
+      "luma": 0.406,
+      "aesthetic": 0.512,
+      "steady": 0.925,
+      "flow": {
+       "dx": 0.018,
+       "dy": -0.003,
+       "zoom": 0.016,
+       "magnitude": 0.018,
+       "residual": 0.162
+      },
+      "saliency": {
+       "x": 0.325,
+       "y": 0.375,
+       "strength": 0.794
+      }
+     },
+     {
+      "t": 15250,
+      "sharpness": 0.833,
+      "clipLow": 0.004,
+      "clipHigh": 0.004,
+      "luma": 0.436,
+      "steady": 0.894,
+      "flow": {
+       "dx": 0.018,
+       "dy": -0.005,
+       "zoom": 0.015,
+       "magnitude": 0.019,
+       "residual": 0.207
+      },
+      "saliency": {
+       "x": 0.317,
+       "y": 0.372,
+       "strength": 0.669
+      }
+     },
+     {
+      "t": 15500,
+      "sharpness": 0.81,
+      "clipLow": 0,
+      "clipHigh": 0.005,
+      "luma": 0.402,
+      "steady": 0.872,
+      "flow": {
+       "dx": 0.017,
+       "dy": 0.004,
+       "zoom": 0.014,
+       "magnitude": 0.018,
+       "residual": 0.153
+      },
+      "saliency": {
+       "x": 0.31,
+       "y": 0.369,
+       "strength": 0.688
+      }
+     },
+     {
+      "t": 15750,
+      "sharpness": 0.817,
+      "clipLow": 0.009,
+      "clipHigh": 0.008,
+      "luma": 0.421,
+      "steady": 0.889,
+      "flow": {
+       "dx": 0.017,
+       "dy": -0.005,
+       "zoom": 0.013,
+       "magnitude": 0.018,
+       "residual": 0.18
+      },
+      "saliency": {
+       "x": 0.303,
+       "y": 0.366,
+       "strength": 0.674
+      }
+     },
+     {
+      "t": 16000,
+      "sharpness": 0.773,
+      "clipLow": 0.009,
+      "clipHigh": 0.007,
+      "luma": 0.43,
+      "aesthetic": 0.609,
+      "steady": 0.905,
+      "flow": {
+       "dx": 0.019,
+       "dy": -0.002,
+       "zoom": 0.012,
+       "magnitude": 0.019,
+       "residual": 0.23
+      },
+      "saliency": {
+       "x": 0.296,
+       "y": 0.363,
+       "strength": 0.439
+      }
+     },
+     {
+      "t": 16250,
+      "sharpness": 0.781,
+      "clipLow": 0.002,
+      "clipHigh": 0.007,
+      "luma": 0.413,
+      "steady": 0.879,
+      "flow": {
+       "dx": 0.015,
+       "dy": -0.001,
+       "zoom": 0.011,
+       "magnitude": 0.015,
+       "residual": 0.169
+      },
+      "saliency": {
+       "x": 0.289,
+       "y": 0.361,
+       "strength": 0.414
+      }
+     },
+     {
+      "t": 16500,
+      "sharpness": 0.713,
+      "clipLow": 0.001,
+      "clipHigh": 0,
+      "luma": 0.407,
+      "steady": 0.885,
+      "flow": {
+       "dx": 0.014,
+       "dy": -0.004,
+       "zoom": 0.01,
+       "magnitude": 0.015,
+       "residual": 0.205
+      },
+      "saliency": {
+       "x": 0.284,
+       "y": 0.358,
+       "strength": 0.733
+      }
+     },
+     {
+      "t": 16750,
+      "sharpness": 0.687,
+      "clipLow": 0.001,
+      "clipHigh": 0.009,
+      "luma": 0.434,
+      "steady": 0.882,
+      "flow": {
+       "dx": 0.008,
+       "dy": -0.004,
+       "zoom": 0.008,
+       "magnitude": 0.009,
+       "residual": 0.242
+      },
+      "saliency": {
+       "x": 0.278,
+       "y": 0.355,
+       "strength": 0.79
+      }
+     },
+     {
+      "t": 17000,
+      "sharpness": 0.7,
+      "clipLow": 0.005,
+      "clipHigh": 0.01,
+      "luma": 0.41,
+      "aesthetic": 0.596,
+      "steady": 0.823,
+      "flow": {
+       "dx": 0.013,
+       "dy": -0.003,
+       "zoom": 0.007,
+       "magnitude": 0.013,
+       "residual": 0.246
+      },
+      "saliency": {
+       "x": 0.273,
+       "y": 0.353,
+       "strength": 0.565
+      }
+     },
+     {
+      "t": 17250,
+      "sharpness": 0.627,
+      "clipLow": 0.005,
+      "clipHigh": 0.007,
+      "luma": 0.435,
+      "steady": 0.856,
+      "flow": {
+       "dx": 0.008,
+       "dy": -0.005,
+       "zoom": 0.006,
+       "magnitude": 0.009,
+       "residual": 0.182
+      },
+      "saliency": {
+       "x": 0.269,
+       "y": 0.35,
+       "strength": 0.721
+      }
+     },
+     {
+      "t": 17500,
+      "sharpness": 0.648,
+      "clipLow": 0.005,
+      "clipHigh": 0.005,
+      "luma": 0.414,
+      "steady": 0.847,
+      "flow": {
+       "dx": 0.006,
+       "dy": 0.005,
+       "zoom": 0.005,
+       "magnitude": 0.008,
+       "residual": 0.105
+      },
+      "saliency": {
+       "x": 0.265,
+       "y": 0.348,
+       "strength": 0.598
+      }
+     },
+     {
+      "t": 17750,
+      "sharpness": 0.638,
+      "clipLow": 0.005,
+      "clipHigh": 0.009,
+      "luma": 0.405,
+      "steady": 0.835,
+      "flow": {
+       "dx": 0.003,
+       "dy": -0.001,
+       "zoom": 0.003,
+       "magnitude": 0.003,
+       "residual": 0.22
+      },
+      "saliency": {
+       "x": 0.261,
+       "y": 0.346,
+       "strength": 0.506
+      }
+     },
+     {
+      "t": 18000,
+      "sharpness": 0.603,
+      "clipLow": 0.005,
+      "clipHigh": 0.003,
+      "luma": 0.405,
+      "aesthetic": 0.485,
+      "steady": 0.875,
+      "flow": {
+       "dx": 0.004,
+       "dy": -0.001,
+       "zoom": 0.002,
+       "magnitude": 0.004,
+       "residual": 0.213
+      },
+      "saliency": {
+       "x": 0.258,
+       "y": 0.343,
+       "strength": 0.444
+      }
+     },
+     {
+      "t": 18250,
+      "sharpness": 0.602,
+      "clipLow": 0.004,
+      "clipHigh": 0.006,
+      "luma": 0.421,
+      "steady": 0.87,
+      "flow": {
+       "dx": 0.004,
+       "dy": -0.004,
+       "zoom": 0.001,
+       "magnitude": 0.006,
+       "residual": 0.185
+      },
+      "saliency": {
+       "x": 0.255,
+       "y": 0.341,
+       "strength": 0.401
+      }
+     },
+     {
+      "t": 18500,
+      "sharpness": 0.533,
+      "clipLow": 0.007,
+      "clipHigh": 0.005,
+      "luma": 0.402,
+      "steady": 0.87,
+      "flow": {
+       "dx": -0.001,
+       "dy": 0.004,
+       "zoom": 0,
+       "magnitude": 0.004,
+       "residual": 0.167
+      },
+      "saliency": {
+       "x": 0.253,
+       "y": 0.339,
+       "strength": 0.788
+      }
+     },
+     {
+      "t": 18750,
+      "sharpness": 0.485,
+      "clipLow": 0.001,
+      "clipHigh": 0.004,
+      "luma": 0.431,
+      "steady": 0.843,
+      "flow": {
+       "dx": -0.001,
+       "dy": -0.001,
+       "zoom": 0,
+       "magnitude": 0.001,
+       "residual": 0.247
+      },
+      "saliency": {
+       "x": 0.252,
+       "y": 0.337,
+       "strength": 0.481
+      }
+     },
+     {
+      "t": 19000,
+      "sharpness": 0.502,
+      "clipLow": 0.009,
+      "clipHigh": 0.008,
+      "luma": 0.435,
+      "aesthetic": 0.47,
+      "steady": 0.838,
+      "flow": {
+       "dx": -0.002,
+       "dy": 0.004,
+       "zoom": 0,
+       "magnitude": 0.005,
+       "residual": 0.174
+      },
+      "saliency": {
+       "x": 0.251,
+       "y": 0.335,
+       "strength": 0.485
+      }
+     },
+     {
+      "t": 19250,
+      "sharpness": 0.456,
+      "clipLow": 0.008,
+      "clipHigh": 0.006,
+      "luma": 0.439,
+      "steady": 0.81,
+      "flow": {
+       "dx": 0.002,
+       "dy": 0.001,
+       "zoom": 0,
+       "magnitude": 0.003,
+       "residual": 0.226
+      },
+      "saliency": {
+       "x": 0.25,
+       "y": 0.334,
+       "strength": 0.666
+      }
+     },
+     {
+      "t": 19500,
+      "sharpness": 0.437,
+      "clipLow": 0.008,
+      "clipHigh": 0.01,
+      "luma": 0.424,
+      "steady": 0.889,
+      "flow": {
+       "dx": 0.001,
+       "dy": -0.002,
+       "zoom": 0,
+       "magnitude": 0.002,
+       "residual": 0.219
+      },
+      "saliency": {
+       "x": 0.25,
+       "y": 0.332,
+       "strength": 0.478
+      }
+     },
+     {
+      "t": 19750,
+      "sharpness": 0.463,
+      "clipLow": 0.007,
+      "clipHigh": 0.009,
+      "luma": 0.409,
+      "steady": 0.913,
+      "flow": {
+       "dx": 0.001,
+       "dy": -0.001,
+       "zoom": 0,
+       "magnitude": 0.002,
+       "residual": 0.223
+      },
+      "saliency": {
+       "x": 0.251,
+       "y": 0.33,
+       "strength": 0.428
+      }
+     },
+     {
+      "t": 20000,
+      "sharpness": 0.419,
+      "clipLow": 0,
+      "clipHigh": 0.001,
+      "luma": 0.422,
+      "aesthetic": 0.487,
+      "steady": 0.802,
+      "flow": {
+       "dx": 0.002,
+       "dy": 0.003,
+       "zoom": 0,
+       "magnitude": 0.004,
+       "residual": 0.12
+      },
+      "saliency": {
+       "x": 0.251,
+       "y": 0.329,
+       "strength": 0.747
+      }
+     },
+     {
+      "t": 20250,
+      "sharpness": 0.391,
+      "clipLow": 0.006,
+      "clipHigh": 0,
+      "luma": 0.422,
+      "steady": 0.84,
+      "flow": {
+       "dx": 0,
+       "dy": -0.003,
+       "zoom": 0,
+       "magnitude": 0.003,
+       "residual": 0.148
+      },
+      "saliency": {
+       "x": 0.253,
+       "y": 0.328,
+       "strength": 0.547
+      }
+     },
+     {
+      "t": 20500,
+      "sharpness": 0.394,
+      "clipLow": 0.002,
+      "clipHigh": 0.009,
+      "luma": 0.418,
+      "steady": 0.874,
+      "flow": {
+       "dx": 0.001,
+       "dy": 0,
+       "zoom": 0,
+       "magnitude": 0.001,
+       "residual": 0.238
+      },
+      "saliency": {
+       "x": 0.255,
+       "y": 0.326,
+       "strength": 0.655
+      }
+     },
+     {
+      "t": 20750,
+      "sharpness": 0.391,
+      "clipLow": 0.001,
+      "clipHigh": 0.008,
+      "luma": 0.415,
+      "steady": 0.831,
+      "flow": {
+       "dx": 0.003,
+       "dy": -0.004,
+       "zoom": 0,
+       "magnitude": 0.005,
+       "residual": 0.186
+      },
+      "saliency": {
+       "x": 0.257,
+       "y": 0.325,
+       "strength": 0.615
+      }
+     },
+     {
+      "t": 21000,
+      "sharpness": 0.367,
+      "clipLow": 0.004,
+      "clipHigh": 0.008,
+      "luma": 0.432,
+      "aesthetic": 0.491,
+      "steady": 0.888,
+      "flow": {
+       "dx": 0.002,
+       "dy": -0.004,
+       "zoom": 0,
+       "magnitude": 0.005,
+       "residual": 0.232
+      },
+      "saliency": {
+       "x": 0.26,
+       "y": 0.324,
+       "strength": 0.456
+      }
+     },
+     {
+      "t": 21250,
+      "sharpness": 0.334,
+      "clipLow": 0.003,
+      "clipHigh": 0.004,
+      "luma": 0.432,
+      "steady": 0.877,
+      "flow": {
+       "dx": 0,
+       "dy": 0.004,
+       "zoom": 0,
+       "magnitude": 0.004,
+       "residual": 0.141
+      },
+      "saliency": {
+       "x": 0.264,
+       "y": 0.323,
+       "strength": 0.66
+      }
+     },
+     {
+      "t": 21500,
+      "sharpness": 0.278,
+      "clipLow": 0.009,
+      "clipHigh": 0.01,
+      "luma": 0.408,
+      "steady": 0.924,
+      "flow": {
+       "dx": 0.001,
+       "dy": 0.001,
+       "zoom": 0,
+       "magnitude": 0.002,
+       "residual": 0.243
+      },
+      "saliency": {
+       "x": 0.268,
+       "y": 0.322,
+       "strength": 0.746
+      }
+     },
+     {
+      "t": 21750,
+      "sharpness": 0.05,
+      "clipLow": 0.003,
+      "clipHigh": 0.007,
+      "luma": 0.437,
+      "steady": 0.35,
+      "flow": {
+       "dx": -0.019,
+       "dy": -0.017,
+       "zoom": 0,
+       "magnitude": 0.026,
+       "residual": 0.104
+      },
+      "saliency": {
+       "x": 0.272,
+       "y": 0.322,
+       "strength": 0.744
+      }
+     },
+     {
+      "t": 22000,
+      "sharpness": 0.05,
+      "clipLow": 0.004,
+      "clipHigh": 0.006,
+      "luma": 0.4,
+      "aesthetic": 0.417,
+      "steady": 0.35,
+      "flow": {
+       "dx": 0,
+       "dy": -0.027,
+       "zoom": 0,
+       "magnitude": 0.027,
+       "residual": 0.164
+      },
+      "saliency": {
+       "x": 0.277,
+       "y": 0.321,
+       "strength": 0.521
+      }
+     }
+    ],
+    "windows": [
+     {
+      "lengthMs": 800,
+      "best": [
+       {
+        "startMs": 12800,
+        "endMs": 13600,
+        "score": 0.673,
+        "sharpness": 0.843,
+        "exposure": 0.955,
+        "aesthetic": 0.637,
+        "steady": 0.927,
+        "motion": 0.075,
+        "direction": "right"
+       },
+       {
+        "startMs": 10550,
+        "endMs": 11350,
+        "score": 0.667,
+        "sharpness": 0.756,
+        "exposure": 0.948,
+        "aesthetic": 0.729,
+        "steady": 0.898,
+        "motion": 0.092,
+        "direction": "right"
+       },
+       {
+        "startMs": 11800,
+        "endMs": 12600,
+        "score": 0.659,
+        "sharpness": 0.808,
+        "exposure": 0.948,
+        "aesthetic": 0.656,
+        "steady": 0.879,
+        "motion": 0.077,
+        "direction": "right"
+       }
+      ]
+     },
+     {
+      "lengthMs": 1500,
+      "best": [
+       {
+        "startMs": 12050,
+        "endMs": 13550,
+        "score": 0.668,
+        "sharpness": 0.828,
+        "exposure": 0.951,
+        "aesthetic": 0.643,
+        "steady": 0.916,
+        "motion": 0.074,
+        "direction": "right"
+       },
+       {
+        "startMs": 10300,
+        "endMs": 11800,
+        "score": 0.662,
+        "sharpness": 0.768,
+        "exposure": 0.947,
+        "aesthetic": 0.706,
+        "steady": 0.876,
+        "motion": 0.098,
+        "direction": "right"
+       },
+       {
+        "startMs": 13550,
+        "endMs": 15050,
+        "score": 0.63,
+        "sharpness": 0.848,
+        "exposure": 0.942,
+        "aesthetic": 0.588,
+        "steady": 0.888,
+        "motion": 0.026,
+        "direction": "right"
+       }
+      ]
+     },
+     {
+      "lengthMs": 2500,
+      "best": [
+       {
+        "startMs": 11050,
+        "endMs": 13550,
+        "score": 0.664,
+        "sharpness": 0.811,
+        "exposure": 0.954,
+        "aesthetic": 0.663,
+        "steady": 0.884,
+        "motion": 0.079,
+        "direction": "right"
+       },
+       {
+        "startMs": 8550,
+        "endMs": 11050,
+        "score": 0.635,
+        "sharpness": 0.694,
+        "exposure": 0.951,
+        "aesthetic": 0.668,
+        "steady": 0.853,
+        "motion": 0.122,
+        "direction": "right"
+       },
+       {
+        "startMs": 14800,
+        "endMs": 17300,
+        "score": 0.612,
+        "sharpness": 0.757,
+        "exposure": 0.948,
+        "aesthetic": 0.576,
+        "steady": 0.881,
+        "motion": 0,
+        "direction": "static"
+       }
+      ]
+     },
+     {
+      "lengthMs": 4000,
+      "best": [
+       {
+        "startMs": 10300,
+        "endMs": 14300,
+        "score": 0.663,
+        "sharpness": 0.806,
+        "exposure": 0.947,
+        "aesthetic": 0.664,
+        "steady": 0.89,
+        "motion": 0.078,
+        "direction": "right"
+       },
+       {
+        "startMs": 14300,
+        "endMs": 18300,
+        "score": 0.59,
+        "sharpness": 0.736,
+        "exposure": 0.948,
+        "aesthetic": 0.559,
+        "steady": 0.872,
+        "motion": 0,
+        "direction": "static"
+       },
+       {
+        "startMs": 6300,
+        "endMs": 10300,
+        "score": 0.559,
+        "sharpness": 0.544,
+        "exposure": 0.95,
+        "aesthetic": 0.661,
+        "steady": 0.862,
+        "motion": 0.116,
+        "direction": "right"
+       }
+      ]
+     }
+    ],
+    "motion": [
+     {
+      "startMs": 0,
+      "endMs": 3500,
+      "direction": "static",
+      "magnitude": 0.012,
+      "mover": "none",
+      "consistency": 0.857
+     },
+     {
+      "startMs": 3500,
+      "endMs": 15000,
+      "direction": "right",
+      "magnitude": 0.0333,
+      "mover": "camera",
+      "consistency": 1
+     },
+     {
+      "startMs": 15000,
+      "endMs": 22089,
+      "direction": "static",
+      "magnitude": 0.0058,
+      "mover": "none",
+      "consistency": 0.931
+     }
+    ],
+    "flowPeaks": [],
+    "depth": [
+     {
+      "t": 5500,
+      "cols": 16,
+      "rows": 9,
+      "grid": "AAAAAAAAAAAAAAAAAAAAACAgICAgICAgICAgICAgICBAQEBAQEBAQEBAQEBAQEBAYGBgYGBgYGBgYGBgYGBgYICAgICAgICAgICAgICAgICfn5+fn5+fn5+fn5+fn5+fv7+/v7+/v7+/v7+/v7+/v9/f39/f39/f39/f39/f39//////////////////////",
+      "foreground": 0.22,
+      "near": null,
+      "spread": 0.55
+     },
+     {
+      "t": 11000,
+      "cols": 16,
+      "rows": 9,
+      "grid": "AAAAAAAAAAAAAAAAAAAAACAgICAgICAgICAgICAgICBAQEBAQEBAQEBAQEBAQEBAYGBgYGBgYGBgYGBgYGBgYICAgICAgICAgICAgICAgICfn5+fn5+fn5+fn5+fn5+fv7+/v7+/v7+/v7+/v7+/v9/f39/f39/f39/f39/f39//////////////////////",
+      "foreground": 0.22,
+      "near": null,
+      "spread": 0.55
+     },
+     {
+      "t": 16500,
+      "cols": 16,
+      "rows": 9,
+      "grid": "AAAAAAAAAAAAAAAAAAAAACAgICAgICAgICAgICAgICBAQEBAQEBAQEBAQEBAQEBAYGBgYGBgYGBgYGBgYGBgYICAgICAgICAgICAgICAgICfn5+fn5+fn5+fn5+fn5+fv7+/v7+/v7+/v7+/v7+/v9/f39/f39/f39/f39/f39//////////////////////",
+      "foreground": 0.22,
+      "near": null,
+      "spread": 0.55
+     }
+    ],
+    "occluders": [],
+    "reframe": {
+     "aspect": 1.7777777777777777,
+     "cropWidth": 0.316,
+     "path": [
+      {
+       "t": 0,
+       "x": 0.6293,
+       "y": 0.5
+      },
+      {
+       "t": 500,
+       "x": 0.6297,
+       "y": 0.5
+      },
+      {
+       "t": 1000,
+       "x": 0.6305,
+       "y": 0.5
+      },
+      {
+       "t": 1500,
+       "x": 0.6323,
+       "y": 0.5
+      },
+      {
+       "t": 2000,
+       "x": 0.6356,
+       "y": 0.5
+      },
+      {
+       "t": 2500,
+       "x": 0.6401,
+       "y": 0.5
+      },
+      {
+       "t": 3000,
+       "x": 0.6411,
+       "y": 0.5
+      },
+      {
+       "t": 3500,
+       "x": 0.6415,
+       "y": 0.5
+      },
+      {
+       "t": 4000,
+       "x": 0.6408,
+       "y": 0.5
+      },
+      {
+       "t": 4500,
+       "x": 0.6367,
+       "y": 0.5
+      },
+      {
+       "t": 5000,
+       "x": 0.6329,
+       "y": 0.5
+      },
+      {
+       "t": 5500,
+       "x": 0.6305,
+       "y": 0.5
+      },
+      {
+       "t": 6000,
+       "x": 0.6286,
+       "y": 0.5
+      },
+      {
+       "t": 6500,
+       "x": 0.626,
+       "y": 0.5
+      },
+      {
+       "t": 7000,
+       "x": 0.6212,
+       "y": 0.5
+      },
+      {
+       "t": 7500,
+       "x": 0.6134,
+       "y": 0.5
+      },
+      {
+       "t": 8000,
+       "x": 0.6056,
+       "y": 0.5
+      },
+      {
+       "t": 8500,
+       "x": 0.5932,
+       "y": 0.5
+      },
+      {
+       "t": 9000,
+       "x": 0.5826,
+       "y": 0.5
+      },
+      {
+       "t": 9500,
+       "x": 0.5716,
+       "y": 0.5
+      },
+      {
+       "t": 10000,
+       "x": 0.5596,
+       "y": 0.5
+      },
+      {
+       "t": 10500,
+       "x": 0.5479,
+       "y": 0.5
+      },
+      {
+       "t": 11000,
+       "x": 0.5364,
+       "y": 0.5
+      },
+      {
+       "t": 11500,
+       "x": 0.5223,
+       "y": 0.5
+      },
+      {
+       "t": 12000,
+       "x": 0.5099,
+       "y": 0.5
+      },
+      {
+       "t": 12500,
+       "x": 0.4945,
+       "y": 0.5
+      },
+      {
+       "t": 13000,
+       "x": 0.4807,
+       "y": 0.5
+      },
+      {
+       "t": 13500,
+       "x": 0.4643,
+       "y": 0.5
+      },
+      {
+       "t": 14000,
+       "x": 0.4494,
+       "y": 0.5
+      },
+      {
+       "t": 14500,
+       "x": 0.4328,
+       "y": 0.5
+      },
+      {
+       "t": 15000,
+       "x": 0.4212,
+       "y": 0.5
+      },
+      {
+       "t": 15500,
+       "x": 0.4085,
+       "y": 0.5
+      },
+      {
+       "t": 16000,
+       "x": 0.3972,
+       "y": 0.5
+      },
+      {
+       "t": 16500,
+       "x": 0.3885,
+       "y": 0.5
+      },
+      {
+       "t": 17000,
+       "x": 0.3802,
+       "y": 0.5
+      },
+      {
+       "t": 17500,
+       "x": 0.3711,
+       "y": 0.5
+      },
+      {
+       "t": 18000,
+       "x": 0.3619,
+       "y": 0.5
+      },
+      {
+       "t": 18500,
+       "x": 0.3545,
+       "y": 0.5
+      },
+      {
+       "t": 19000,
+       "x": 0.3476,
+       "y": 0.5
+      },
+      {
+       "t": 19500,
+       "x": 0.3415,
+       "y": 0.5
+      },
+      {
+       "t": 20000,
+       "x": 0.3381,
+       "y": 0.5
+      },
+      {
+       "t": 20500,
+       "x": 0.3366,
+       "y": 0.5
+      },
+      {
+       "t": 21000,
+       "x": 0.3359,
+       "y": 0.5
+      },
+      {
+       "t": 21500,
+       "x": 0.3356,
+       "y": 0.5
+      },
+      {
+       "t": 22000,
+       "x": 0.3355,
+       "y": 0.5
+      }
+     ],
+     "closeUps": []
+    },
+    "scene": {
+     "palette": [
+      {
+       "hex": "#d9d2c5",
+       "share": 0.31
+      },
+      {
+       "hex": "#6f6a62",
+       "share": 0.24
+      },
+      {
+       "hex": "#2e2b27",
+       "share": 0.17
+      },
+      {
+       "hex": "#9fb6c9",
+       "share": 0.12
+      }
+     ],
+     "round": null,
+     "rectilinear": 0.31,
+     "brightnessRamps": [],
+     "blowouts": []
+    },
+    "models": {
+     "aesthetic": "Xenova/mobileclip_s0 (CLIP-IQA prompts)",
+     "depth": "onnx-community/depth-anything-v2-small",
+     "saliency": "spectral-residual 64x64"
+    },
+    "cost": {
+     "cpuMs": 0,
+     "wallMs": 0,
+     "analysedMs": 22089
+    },
+    "createdAt": "2026-10-26T00:00:00.000Z"
+   }
+  },
+  "cmvo11z6s000701ad08fz4mb3": {
+   "fileName": "4906.mp4",
+   "analysis": {
+    "version": 1,
+    "durationMs": 9877,
+    "width": 1920,
+    "height": 1080,
+    "sampleMs": 250,
+    "aestheticEveryMs": 1000,
+    "samples": [
+     {
+      "t": 0,
+      "sharpness": 0.173,
+      "clipLow": 0,
+      "clipHigh": 0.01,
+      "luma": 0.432,
+      "aesthetic": 0.718,
+      "steady": 0.35,
+      "flow": {
+       "dx": -0.003,
+       "dy": 0.012,
+       "zoom": 0,
+       "magnitude": 0.013,
+       "residual": 0.239
+      },
+      "saliency": {
+       "x": 0.331,
+       "y": 0.52,
+       "strength": 0.557
+      }
+     },
+     {
+      "t": 250,
+      "sharpness": 0.208,
+      "clipLow": 0.007,
+      "clipHigh": 0.01,
+      "luma": 0.44,
+      "steady": 0.35,
+      "flow": {
+       "dx": -0.026,
+       "dy": -0.008,
+       "zoom": 0,
+       "magnitude": 0.027,
+       "residual": 0.129
+      },
+      "saliency": {
+       "x": 0.313,
+       "y": 0.52,
+       "strength": 0.579
+      }
+     },
+     {
+      "t": 500,
+      "sharpness": 0.576,
+      "clipLow": 0.008,
+      "clipHigh": 0.008,
+      "luma": 0.416,
+      "steady": 0.804,
+      "flow": {
+       "dx": -0.014,
+       "dy": -0.001,
+       "zoom": 0,
+       "magnitude": 0.014,
+       "residual": 0.189
+      },
+      "saliency": {
+       "x": 0.298,
+       "y": 0.519,
+       "strength": 0.494
+      }
+     },
+     {
+      "t": 750,
+      "sharpness": 0.666,
+      "clipLow": 0.009,
+      "clipHigh": 0,
+      "luma": 0.43,
+      "steady": 0.9,
+      "flow": {
+       "dx": -0.025,
+       "dy": 0.004,
+       "zoom": 0,
+       "magnitude": 0.025,
+       "residual": 0.209
+      },
+      "saliency": {
+       "x": 0.284,
+       "y": 0.517,
+       "strength": 0.401
+      }
+     },
+     {
+      "t": 1000,
+      "sharpness": 0.703,
+      "clipLow": 0.009,
+      "clipHigh": 0.001,
+      "luma": 0.413,
+      "aesthetic": 0.598,
+      "steady": 0.831,
+      "flow": {
+       "dx": -0.031,
+       "dy": 0.003,
+       "zoom": 0,
+       "magnitude": 0.031,
+       "residual": 0.195
+      },
+      "saliency": {
+       "x": 0.272,
+       "y": 0.515,
+       "strength": 0.728
+      }
+     },
+     {
+      "t": 1250,
+      "sharpness": 0.743,
+      "clipLow": 0.003,
+      "clipHigh": 0.005,
+      "luma": 0.412,
+      "steady": 0.919,
+      "flow": {
+       "dx": -0.041,
+       "dy": 0.004,
+       "zoom": 0,
+       "magnitude": 0.041,
+       "residual": 0.142
+      },
+      "saliency": {
+       "x": 0.263,
+       "y": 0.513,
+       "strength": 0.538
+      }
+     },
+     {
+      "t": 1500,
+      "sharpness": 0.754,
+      "clipLow": 0.003,
+      "clipHigh": 0.01,
+      "luma": 0.439,
+      "steady": 0.817,
+      "flow": {
+       "dx": -0.044,
+       "dy": -0.003,
+       "zoom": 0,
+       "magnitude": 0.044,
+       "residual": 0.193
+      },
+      "saliency": {
+       "x": 0.256,
+       "y": 0.51,
+       "strength": 0.624
+      }
+     },
+     {
+      "t": 1750,
+      "sharpness": 0.772,
+      "clipLow": 0.009,
+      "clipHigh": 0.008,
+      "luma": 0.411,
+      "steady": 0.919,
+      "flow": {
+       "dx": -0.048,
+       "dy": 0.001,
+       "zoom": 0,
+       "magnitude": 0.048,
+       "residual": 0.242
+      },
+      "saliency": {
+       "x": 0.252,
+       "y": 0.506,
+       "strength": 0.441
+      }
+     },
+     {
+      "t": 2000,
+      "sharpness": 0.827,
+      "clipLow": 0.003,
+      "clipHigh": 0.008,
+      "luma": 0.438,
+      "aesthetic": 0.769,
+      "steady": 0.934,
+      "flow": {
+       "dx": -0.053,
+       "dy": 0.003,
+       "zoom": 0,
+       "magnitude": 0.053,
+       "residual": 0.234
+      },
+      "saliency": {
+       "x": 0.25,
+       "y": 0.502,
+       "strength": 0.53
+      }
+     },
+     {
+      "t": 2250,
+      "sharpness": 0.84,
+      "clipLow": 0.001,
+      "clipHigh": 0,
+      "luma": 0.439,
+      "steady": 0.927,
+      "flow": {
+       "dx": -0.061,
+       "dy": -0.004,
+       "zoom": 0,
+       "magnitude": 0.062,
+       "residual": 0.23
+      },
+      "saliency": {
+       "x": 0.251,
+       "y": 0.498,
+       "strength": 0.77
+      }
+     },
+     {
+      "t": 2500,
+      "sharpness": 0.859,
+      "clipLow": 0.008,
+      "clipHigh": 0.002,
+      "luma": 0.405,
+      "steady": 0.946,
+      "flow": {
+       "dx": -0.067,
+       "dy": 0.002,
+       "zoom": 0,
+       "magnitude": 0.067,
+       "residual": 0.247
+      },
+      "saliency": {
+       "x": 0.254,
+       "y": 0.493,
+       "strength": 0.724
+      }
+     },
+     {
+      "t": 2750,
+      "sharpness": 0.837,
+      "clipLow": 0.005,
+      "clipHigh": 0.006,
+      "luma": 0.411,
+      "steady": 0.946,
+      "flow": {
+       "dx": -0.073,
+       "dy": 0.005,
+       "zoom": 0,
+       "magnitude": 0.073,
+       "residual": 0.133
+      },
+      "saliency": {
+       "x": 0.26,
+       "y": 0.487,
+       "strength": 0.406
+      }
+     },
+     {
+      "t": 3000,
+      "sharpness": 0.847,
+      "clipLow": 0.003,
+      "clipHigh": 0.007,
+      "luma": 0.428,
+      "aesthetic": 0.602,
+      "steady": 0.918,
+      "flow": {
+       "dx": -0.077,
+       "dy": -0.001,
+       "zoom": 0,
+       "magnitude": 0.077,
+       "residual": 0.13
+      },
+      "saliency": {
+       "x": 0.268,
+       "y": 0.481,
+       "strength": 0.472
+      }
+     },
+     {
+      "t": 3250,
+      "sharpness": 0.769,
+      "clipLow": 0,
+      "clipHigh": 0.002,
+      "luma": 0.41,
+      "steady": 0.858,
+      "flow": {
+       "dx": -0.073,
+       "dy": -0.001,
+       "zoom": 0,
+       "magnitude": 0.073,
+       "residual": 0.202
+      },
+      "saliency": {
+       "x": 0.279,
+       "y": 0.475,
+       "strength": 0.688
+      }
+     },
+     {
+      "t": 3500,
+      "sharpness": 0.748,
+      "clipLow": 0.002,
+      "clipHigh": 0.007,
+      "luma": 0.404,
+      "steady": 0.817,
+      "flow": {
+       "dx": -0.077,
+       "dy": -0.002,
+       "zoom": 0,
+       "magnitude": 0.077,
+       "residual": 0.105
+      },
+      "saliency": {
+       "x": 0.292,
+       "y": 0.469,
+       "strength": 0.626
+      }
+     },
+     {
+      "t": 3750,
+      "sharpness": 0.744,
+      "clipLow": 0.004,
+      "clipHigh": 0.002,
+      "luma": 0.405,
+      "steady": 0.824,
+      "flow": {
+       "dx": -0.078,
+       "dy": -0.003,
+       "zoom": 0,
+       "magnitude": 0.078,
+       "residual": 0.215
+      },
+      "saliency": {
+       "x": 0.307,
+       "y": 0.462,
+       "strength": 0.611
+      }
+     },
+     {
+      "t": 4000,
+      "sharpness": 0.709,
+      "clipLow": 0.002,
+      "clipHigh": 0.002,
+      "luma": 0.408,
+      "aesthetic": 0.611,
+      "steady": 0.859,
+      "flow": {
+       "dx": -0.076,
+       "dy": 0.002,
+       "zoom": 0,
+       "magnitude": 0.076,
+       "residual": 0.225
+      },
+      "saliency": {
+       "x": 0.324,
+       "y": 0.455,
+       "strength": 0.483
+      }
+     },
+     {
+      "t": 4250,
+      "sharpness": 0.643,
+      "clipLow": 0.001,
+      "clipHigh": 0.008,
+      "luma": 0.412,
+      "steady": 0.841,
+      "flow": {
+       "dx": -0.081,
+       "dy": 0.002,
+       "zoom": 0,
+       "magnitude": 0.081,
+       "residual": 0.149
+      },
+      "saliency": {
+       "x": 0.343,
+       "y": 0.448,
+       "strength": 0.483
+      }
+     },
+     {
+      "t": 4500,
+      "sharpness": 0.616,
+      "clipLow": 0.008,
+      "clipHigh": 0,
+      "luma": 0.404,
+      "steady": 0.827,
+      "flow": {
+       "dx": -0.078,
+       "dy": 0.002,
+       "zoom": 0,
+       "magnitude": 0.078,
+       "residual": 0.135
+      },
+      "saliency": {
+       "x": 0.363,
+       "y": 0.44,
+       "strength": 0.762
+      }
+     },
+     {
+      "t": 4750,
+      "sharpness": 0.57,
+      "clipLow": 0.01,
+      "clipHigh": 0.01,
+      "luma": 0.434,
+      "steady": 0.903,
+      "flow": {
+       "dx": -0.075,
+       "dy": -0.004,
+       "zoom": 0,
+       "magnitude": 0.075,
+       "residual": 0.202
+      },
+      "saliency": {
+       "x": 0.385,
+       "y": 0.433,
+       "strength": 0.656
+      }
+     },
+     {
+      "t": 5000,
+      "sharpness": 0.516,
+      "clipLow": 0.002,
+      "clipHigh": 0.003,
+      "luma": 0.412,
+      "aesthetic": 0.606,
+      "steady": 0.878,
+      "flow": {
+       "dx": -0.072,
+       "dy": 0,
+       "zoom": 0,
+       "magnitude": 0.072,
+       "residual": 0.144
+      },
+      "saliency": {
+       "x": 0.408,
+       "y": 0.425,
+       "strength": 0.432
+      }
+     },
+     {
+      "t": 5250,
+      "sharpness": 0.453,
+      "clipLow": 0.001,
+      "clipHigh": 0.005,
+      "luma": 0.435,
+      "steady": 0.833,
+      "flow": {
+       "dx": -0.075,
+       "dy": -0.003,
+       "zoom": 0,
+       "magnitude": 0.075,
+       "residual": 0.126
+      },
+      "saliency": {
+       "x": 0.432,
+       "y": 0.418,
+       "strength": 0.782
+      }
+     },
+     {
+      "t": 5500,
+      "sharpness": 0.367,
+      "clipLow": 0.002,
+      "clipHigh": 0.005,
+      "luma": 0.406,
+      "steady": 0.838,
+      "flow": {
+       "dx": -0.065,
+       "dy": 0.005,
+       "zoom": 0,
+       "magnitude": 0.065,
+       "residual": 0.199
+      },
+      "saliency": {
+       "x": 0.457,
+       "y": 0.41,
+       "strength": 0.596
+      }
+     },
+     {
+      "t": 5750,
+      "sharpness": 0.327,
+      "clipLow": 0.005,
+      "clipHigh": 0.008,
+      "luma": 0.418,
+      "steady": 0.802,
+      "flow": {
+       "dx": -0.068,
+       "dy": -0.002,
+       "zoom": 0,
+       "magnitude": 0.068,
+       "residual": 0.215
+      },
+      "saliency": {
+       "x": 0.482,
+       "y": 0.403,
+       "strength": 0.43
+      }
+     },
+     {
+      "t": 6000,
+      "sharpness": 0.258,
+      "clipLow": 0.008,
+      "clipHigh": 0.007,
+      "luma": 0.409,
+      "aesthetic": 0.635,
+      "steady": 0.867,
+      "flow": {
+       "dx": -0.059,
+       "dy": -0.002,
+       "zoom": 0,
+       "magnitude": 0.059,
+       "residual": 0.124
+      },
+      "saliency": {
+       "x": 0.507,
+       "y": 0.395,
+       "strength": 0.759
+      }
+     },
+     {
+      "t": 6250,
+      "sharpness": 0.303,
+      "clipLow": 0.005,
+      "clipHigh": 0.005,
+      "luma": 0.428,
+      "steady": 0.917,
+      "flow": {
+       "dx": -0.052,
+       "dy": -0.002,
+       "zoom": 0,
+       "magnitude": 0.052,
+       "residual": 0.109
+      },
+      "saliency": {
+       "x": 0.533,
+       "y": 0.388,
+       "strength": 0.68
+      }
+     },
+     {
+      "t": 6500,
+      "sharpness": 0.229,
+      "clipLow": 0.01,
+      "clipHigh": 0.007,
+      "luma": 0.436,
+      "steady": 0.846,
+      "flow": {
+       "dx": -0.044,
+       "dy": 0.003,
+       "zoom": 0,
+       "magnitude": 0.044,
+       "residual": 0.147
+      },
+      "saliency": {
+       "x": 0.558,
+       "y": 0.381,
+       "strength": 0.789
+      }
+     },
+     {
+      "t": 6750,
+      "sharpness": 0.3,
+      "clipLow": 0.008,
+      "clipHigh": 0.006,
+      "luma": 0.404,
+      "steady": 0.833,
+      "flow": {
+       "dx": -0.045,
+       "dy": 0.001,
+       "zoom": 0,
+       "magnitude": 0.045,
+       "residual": 0.241
+      },
+      "saliency": {
+       "x": 0.582,
+       "y": 0.374,
+       "strength": 0.546
+      }
+     },
+     {
+      "t": 7000,
+      "sharpness": 0.226,
+      "clipLow": 0.007,
+      "clipHigh": 0.003,
+      "luma": 0.402,
+      "aesthetic": 0.557,
+      "steady": 0.878,
+      "flow": {
+       "dx": -0.041,
+       "dy": 0,
+       "zoom": 0,
+       "magnitude": 0.041,
+       "residual": 0.143
+      },
+      "saliency": {
+       "x": 0.605,
+       "y": 0.367,
+       "strength": 0.415
+      }
+     },
+     {
+      "t": 7250,
+      "sharpness": 0.291,
+      "clipLow": 0.008,
+      "clipHigh": 0.004,
+      "luma": 0.413,
+      "steady": 0.924,
+      "flow": {
+       "dx": -0.03,
+       "dy": 0.003,
+       "zoom": 0,
+       "magnitude": 0.03,
+       "residual": 0.153
+      },
+      "saliency": {
+       "x": 0.628,
+       "y": 0.361,
+       "strength": 0.436
+      }
+     },
+     {
+      "t": 7500,
+      "sharpness": 0.291,
+      "clipLow": 0.008,
+      "clipHigh": 0.004,
+      "luma": 0.424,
+      "steady": 0.827,
+      "flow": {
+       "dx": -0.025,
+       "dy": 0.001,
+       "zoom": 0,
+       "magnitude": 0.025,
+       "residual": 0.141
+      },
+      "saliency": {
+       "x": 0.649,
+       "y": 0.355,
+       "strength": 0.739
+      }
+     },
+     {
+      "t": 7750,
+      "sharpness": 0.294,
+      "clipLow": 0.01,
+      "clipHigh": 0.004,
+      "luma": 0.407,
+      "steady": 0.875,
+      "flow": {
+       "dx": -0.014,
+       "dy": -0.001,
+       "zoom": 0,
+       "magnitude": 0.014,
+       "residual": 0.244
+      },
+      "saliency": {
+       "x": 0.668,
+       "y": 0.349,
+       "strength": 0.756
+      }
+     },
+     {
+      "t": 8000,
+      "sharpness": 0.313,
+      "clipLow": 0.006,
+      "clipHigh": 0.008,
+      "luma": 0.415,
+      "aesthetic": 0.447,
+      "steady": 0.906,
+      "flow": {
+       "dx": -0.007,
+       "dy": 0.003,
+       "zoom": 0,
+       "magnitude": 0.008,
+       "residual": 0.247
+      },
+      "saliency": {
+       "x": 0.686,
+       "y": 0.344,
+       "strength": 0.549
+      }
+     },
+     {
+      "t": 8250,
+      "sharpness": 0.409,
+      "clipLow": 0.002,
+      "clipHigh": 0.003,
+      "luma": 0.419,
+      "steady": 0.926,
+      "flow": {
+       "dx": -0.001,
+       "dy": 0.004,
+       "zoom": 0,
+       "magnitude": 0.004,
+       "residual": 0.191
+      },
+      "saliency": {
+       "x": 0.702,
+       "y": 0.34,
+       "strength": 0.737
+      }
+     },
+     {
+      "t": 8500,
+      "sharpness": 0.437,
+      "clipLow": 0.003,
+      "clipHigh": 0.007,
+      "luma": 0.407,
+      "steady": 0.837,
+      "flow": {
+       "dx": 0.001,
+       "dy": 0.002,
+       "zoom": 0,
+       "magnitude": 0.002,
+       "residual": 0.2
+      },
+      "saliency": {
+       "x": 0.716,
+       "y": 0.335,
+       "strength": 0.461
+      }
+     },
+     {
+      "t": 8750,
+      "sharpness": 0.505,
+      "clipLow": 0.008,
+      "clipHigh": 0.002,
+      "luma": 0.422,
+      "steady": 0.847,
+      "flow": {
+       "dx": 0.002,
+       "dy": 0.001,
+       "zoom": 0,
+       "magnitude": 0.003,
+       "residual": 0.126
+      },
+      "saliency": {
+       "x": 0.728,
+       "y": 0.331,
+       "strength": 0.739
+      }
+     },
+     {
+      "t": 9000,
+      "sharpness": 0.528,
+      "clipLow": 0.006,
+      "clipHigh": 0.008,
+      "luma": 0.437,
+      "aesthetic": 0.447,
+      "steady": 0.817,
+      "flow": {
+       "dx": 0.002,
+       "dy": 0.004,
+       "zoom": 0,
+       "magnitude": 0.005,
+       "residual": 0.223
+      },
+      "saliency": {
+       "x": 0.737,
+       "y": 0.328,
+       "strength": 0.672
+      }
+     },
+     {
+      "t": 9250,
+      "sharpness": 0.547,
+      "clipLow": 0.008,
+      "clipHigh": 0.004,
+      "luma": 0.435,
+      "steady": 0.822,
+      "flow": {
+       "dx": -0.001,
+       "dy": -0.002,
+       "zoom": 0,
+       "magnitude": 0.002,
+       "residual": 0.186
+      },
+      "saliency": {
+       "x": 0.744,
+       "y": 0.325,
+       "strength": 0.432
+      }
+     },
+     {
+      "t": 9500,
+      "sharpness": 0.361,
+      "clipLow": 0.008,
+      "clipHigh": 0.005,
+      "luma": 0.436,
+      "steady": 0.35,
+      "flow": {
+       "dx": -0.017,
+       "dy": -0.003,
+       "zoom": 0,
+       "magnitude": 0.017,
+       "residual": 0.203
+      },
+      "saliency": {
+       "x": 0.748,
+       "y": 0.323,
+       "strength": 0.548
+      }
+     },
+     {
+      "t": 9750,
+      "sharpness": 0.424,
+      "clipLow": 0.006,
+      "clipHigh": 0.009,
+      "luma": 0.405,
+      "steady": 0.35,
+      "flow": {
+       "dx": 0.014,
+       "dy": 0.022,
+       "zoom": 0,
+       "magnitude": 0.026,
+       "residual": 0.112
+      },
+      "saliency": {
+       "x": 0.75,
+       "y": 0.322,
+       "strength": 0.792
+      }
+     }
+    ],
+    "windows": [
+     {
+      "lengthMs": 800,
+      "best": [
+       {
+        "startMs": 1800,
+        "endMs": 2600,
+        "score": 0.74,
+        "sharpness": 0.842,
+        "exposure": 0.963,
+        "aesthetic": 0.769,
+        "steady": 0.936,
+        "motion": 0.254,
+        "direction": "left"
+       },
+       {
+        "startMs": 2800,
+        "endMs": 3600,
+        "score": 0.696,
+        "sharpness": 0.788,
+        "exposure": 0.965,
+        "aesthetic": 0.602,
+        "steady": 0.864,
+        "motion": 0.348,
+        "direction": "left"
+       },
+       {
+        "startMs": 3800,
+        "endMs": 4600,
+        "score": 0.661,
+        "sharpness": 0.656,
+        "exposure": 0.965,
+        "aesthetic": 0.611,
+        "steady": 0.842,
+        "motion": 0.365,
+        "direction": "left"
+       }
+      ]
+     },
+     {
+      "lengthMs": 1500,
+      "best": [
+       {
+        "startMs": 1550,
+        "endMs": 3050,
+        "score": 0.726,
+        "sharpness": 0.83,
+        "exposure": 0.95,
+        "aesthetic": 0.713,
+        "steady": 0.932,
+        "motion": 0.271,
+        "direction": "left"
+       },
+       {
+        "startMs": 3050,
+        "endMs": 4550,
+        "score": 0.672,
+        "sharpness": 0.705,
+        "exposure": 0.968,
+        "aesthetic": 0.608,
+        "steady": 0.838,
+        "motion": 0.357,
+        "direction": "left"
+       },
+       {
+        "startMs": 4550,
+        "endMs": 6050,
+        "score": 0.499,
+        "sharpness": 0.415,
+        "exposure": 0.945,
+        "aesthetic": 0.616,
+        "steady": 0.853,
+        "motion": 0.306,
+        "direction": "left"
+       }
+      ]
+     },
+     {
+      "lengthMs": 2500,
+      "best": [
+       {
+        "startMs": 1550,
+        "endMs": 4050,
+        "score": 0.708,
+        "sharpness": 0.795,
+        "exposure": 0.96,
+        "aesthetic": 0.671,
+        "steady": 0.895,
+        "motion": 0.302,
+        "direction": "left"
+       },
+       {
+        "startMs": 4050,
+        "endMs": 6550,
+        "score": 0.484,
+        "sharpness": 0.428,
+        "exposure": 0.945,
+        "aesthetic": 0.619,
+        "steady": 0.855,
+        "motion": 0.293,
+        "direction": "left"
+       },
+       {
+        "startMs": 7050,
+        "endMs": 9550,
+        "score": 0.412,
+        "sharpness": 0.398,
+        "exposure": 0.942,
+        "aesthetic": 0.469,
+        "steady": 0.813,
+        "motion": 0,
+        "direction": "static"
+       }
+      ]
+     },
+     {
+      "lengthMs": 4000,
+      "best": [
+       {
+        "startMs": 1050,
+        "endMs": 5050,
+        "score": 0.683,
+        "sharpness": 0.737,
+        "exposure": 0.955,
+        "aesthetic": 0.646,
+        "steady": 0.883,
+        "motion": 0.295,
+        "direction": "left"
+       },
+       {
+        "startMs": 5050,
+        "endMs": 9050,
+        "score": 0.392,
+        "sharpness": 0.346,
+        "exposure": 0.943,
+        "aesthetic": 0.541,
+        "steady": 0.861,
+        "motion": 0.086,
+        "direction": "left"
+       }
+      ]
+     }
+    ],
+    "motion": [
+     {
+      "startMs": 0,
+      "endMs": 750,
+      "direction": "static",
+      "magnitude": 0.0144,
+      "mover": "none",
+      "consistency": 0.667
+     },
+     {
+      "startMs": 750,
+      "endMs": 7750,
+      "direction": "left",
+      "magnitude": 0.0584,
+      "mover": "camera",
+      "consistency": 1
+     },
+     {
+      "startMs": 7750,
+      "endMs": 9877,
+      "direction": "static",
+      "magnitude": 0.0041,
+      "mover": "none",
+      "consistency": 0.889
+     }
+    ],
+    "flowPeaks": [],
+    "depth": [
+     {
+      "t": 2500,
+      "cols": 16,
+      "rows": 9,
+      "grid": "AAAAAAAAAAAAAAAAAAAAACAgICAgICAgICAgICAgICBAQEBAQEBAQEBAQEBAQEBAYGBgYGBgYGBgYGBgYGBgYICAgICAgICAgICAgICAgICfn5+fn5+fn5+fn5+fn5+fv7+/v7+/v7+/v7+/v7+/v9/f39/f39/f39/f39/f39//////////////////////",
+      "foreground": 0.22,
+      "near": null,
+      "spread": 0.55
+     },
+     {
+      "t": 5000,
+      "cols": 16,
+      "rows": 9,
+      "grid": "AAAAAAAAAAAAAAAAAAAAACAgICAgICAgICAgICAgICBAQEBAQEBAQEBAQEBAQEBAYGBgYGBgYGBgYGBgYGBgYICAgICAgICAgICAgICAgICfn5+fn5+fn5+fn5+fn5+fv7+/v7+/v7+/v7+/v7+/v9/f39/f39/f39/f39/f39//////////////////////",
+      "foreground": 0.22,
+      "near": null,
+      "spread": 0.55
+     },
+     {
+      "t": 7500,
+      "cols": 16,
+      "rows": 9,
+      "grid": "AAAAAAAAAAAAAAAAAAAAACAgICAgICAgICAgICAgICBAQEBAQEBAQEBAQEBAQEBAYGBgYGBgYGBgYGBgYGBgYICAgICAgICAgICAgICAgICfn5+fn5+fn5+fn5+fn5+fv7+/v7+/v7+/v7+/v7+/v9/f39/f39/f39/f39/f39//////////////////////",
+      "foreground": 0.22,
+      "near": null,
+      "spread": 0.55
+     }
+    ],
+    "occluders": [],
+    "reframe": {
+     "aspect": 1.7777777777777777,
+     "cropWidth": 0.316,
+     "path": [
+      {
+       "t": 0,
+       "x": 0.3996,
+       "y": 0.5
+      },
+      {
+       "t": 500,
+       "x": 0.3933,
+       "y": 0.5
+      },
+      {
+       "t": 1000,
+       "x": 0.3864,
+       "y": 0.5
+      },
+      {
+       "t": 1500,
+       "x": 0.377,
+       "y": 0.5
+      },
+      {
+       "t": 2000,
+       "x": 0.3667,
+       "y": 0.5
+      },
+      {
+       "t": 2500,
+       "x": 0.3619,
+       "y": 0.5
+      },
+      {
+       "t": 3000,
+       "x": 0.3592,
+       "y": 0.5
+      },
+      {
+       "t": 3500,
+       "x": 0.3637,
+       "y": 0.5
+      },
+      {
+       "t": 4000,
+       "x": 0.3729,
+       "y": 0.5
+      },
+      {
+       "t": 4500,
+       "x": 0.3899,
+       "y": 0.5
+      },
+      {
+       "t": 5000,
+       "x": 0.4104,
+       "y": 0.5
+      },
+      {
+       "t": 5500,
+       "x": 0.4349,
+       "y": 0.5
+      },
+      {
+       "t": 6000,
+       "x": 0.4608,
+       "y": 0.5
+      },
+      {
+       "t": 6500,
+       "x": 0.488,
+       "y": 0.5
+      },
+      {
+       "t": 7000,
+       "x": 0.5188,
+       "y": 0.5
+      },
+      {
+       "t": 7500,
+       "x": 0.5444,
+       "y": 0.5
+      },
+      {
+       "t": 8000,
+       "x": 0.5729,
+       "y": 0.5
+      },
+      {
+       "t": 8500,
+       "x": 0.5975,
+       "y": 0.5
+      },
+      {
+       "t": 9000,
+       "x": 0.6179,
+       "y": 0.5
+      },
+      {
+       "t": 9500,
+       "x": 0.6365,
+       "y": 0.5
+      },
+      {
+       "t": 9750,
+       "x": 0.643,
+       "y": 0.5
+      }
+     ],
+     "closeUps": []
+    },
+    "scene": {
+     "palette": [
+      {
+       "hex": "#d9d2c5",
+       "share": 0.31
+      },
+      {
+       "hex": "#6f6a62",
+       "share": 0.24
+      },
+      {
+       "hex": "#2e2b27",
+       "share": 0.17
+      },
+      {
+       "hex": "#9fb6c9",
+       "share": 0.12
+      }
+     ],
+     "round": null,
+     "rectilinear": 0.58,
+     "brightnessRamps": [],
+     "blowouts": []
+    },
+    "models": {
+     "aesthetic": "Xenova/mobileclip_s0 (CLIP-IQA prompts)",
+     "depth": "onnx-community/depth-anything-v2-small",
+     "saliency": "spectral-residual 64x64"
+    },
+    "cost": {
+     "cpuMs": 0,
+     "wallMs": 0,
+     "analysedMs": 9877
+    },
+    "createdAt": "2026-10-26T00:00:00.000Z"
+   }
+  },
+  "cmvo1203y000a01adzq9a5t23": {
+   "fileName": "4907.mp4",
+   "analysis": {
+    "version": 1,
+    "durationMs": 7474,
+    "width": 1920,
+    "height": 1080,
+    "sampleMs": 250,
+    "aestheticEveryMs": 1000,
+    "samples": [
+     {
+      "t": 0,
+      "sharpness": 0.251,
+      "clipLow": 0.009,
+      "clipHigh": 0.009,
+      "luma": 0.433,
+      "aesthetic": 0.602,
+      "steady": 0.35,
+      "flow": {
+       "dx": 0.013,
+       "dy": -0.017,
+       "zoom": 0,
+       "magnitude": 0.021,
+       "residual": 0.172
+      },
+      "saliency": {
+       "x": 0.716,
+       "y": 0.52,
+       "strength": 0.663
+      }
+     },
+     {
+      "t": 250,
+      "sharpness": 0.177,
+      "clipLow": 0.005,
+      "clipHigh": 0.007,
+      "luma": 0.42,
+      "steady": 0.35,
+      "flow": {
+       "dx": 0.03,
+       "dy": -0.009,
+       "zoom": 0,
+       "magnitude": 0.032,
+       "residual": 0.143
+      },
+      "saliency": {
+       "x": 0.697,
+       "y": 0.519,
+       "strength": 0.661
+      }
+     },
+     {
+      "t": 500,
+      "sharpness": 0.419,
+      "clipLow": 0.005,
+      "clipHigh": 0.001,
+      "luma": 0.419,
+      "steady": 0.943,
+      "flow": {
+       "dx": 0.019,
+       "dy": 0,
+       "zoom": 0,
+       "magnitude": 0.019,
+       "residual": 0.137
+      },
+      "saliency": {
+       "x": 0.675,
+       "y": 0.518,
+       "strength": 0.58
+      }
+     },
+     {
+      "t": 750,
+      "sharpness": 0.361,
+      "clipLow": 0.001,
+      "clipHigh": 0,
+      "luma": 0.435,
+      "steady": 0.8,
+      "flow": {
+       "dx": 0.022,
+       "dy": 0.001,
+       "zoom": 0,
+       "magnitude": 0.022,
+       "residual": 0.182
+      },
+      "saliency": {
+       "x": 0.649,
+       "y": 0.516,
+       "strength": 0.6
+      }
+     },
+     {
+      "t": 1000,
+      "sharpness": 0.286,
+      "clipLow": 0.002,
+      "clipHigh": 0.007,
+      "luma": 0.425,
+      "aesthetic": 0.768,
+      "steady": 0.823,
+      "flow": {
+       "dx": 0.03,
+       "dy": 0.001,
+       "zoom": 0,
+       "magnitude": 0.03,
+       "residual": 0.249
+      },
+      "saliency": {
+       "x": 0.621,
+       "y": 0.512,
+       "strength": 0.687
+      }
+     },
+     {
+      "t": 1250,
+      "sharpness": 0.284,
+      "clipLow": 0.008,
+      "clipHigh": 0.01,
+      "luma": 0.434,
+      "steady": 0.805,
+      "flow": {
+       "dx": 0.039,
+       "dy": 0,
+       "zoom": 0,
+       "magnitude": 0.039,
+       "residual": 0.191
+      },
+      "saliency": {
+       "x": 0.591,
+       "y": 0.508,
+       "strength": 0.562
+      }
+     },
+     {
+      "t": 1500,
+      "sharpness": 0.289,
+      "clipLow": 0.001,
+      "clipHigh": 0.004,
+      "luma": 0.429,
+      "steady": 0.947,
+      "flow": {
+       "dx": 0.048,
+       "dy": -0.005,
+       "zoom": 0,
+       "magnitude": 0.048,
+       "residual": 0.248
+      },
+      "saliency": {
+       "x": 0.559,
+       "y": 0.502,
+       "strength": 0.721
+      }
+     },
+     {
+      "t": 1750,
+      "sharpness": 0.293,
+      "clipLow": 0.003,
+      "clipHigh": 0.008,
+      "luma": 0.436,
+      "steady": 0.803,
+      "flow": {
+       "dx": 0.05,
+       "dy": 0.001,
+       "zoom": 0,
+       "magnitude": 0.05,
+       "residual": 0.218
+      },
+      "saliency": {
+       "x": 0.526,
+       "y": 0.496,
+       "strength": 0.708
+      }
+     },
+     {
+      "t": 2000,
+      "sharpness": 0.312,
+      "clipLow": 0.001,
+      "clipHigh": 0.001,
+      "luma": 0.434,
+      "aesthetic": 0.775,
+      "steady": 0.813,
+      "flow": {
+       "dx": 0.059,
+       "dy": 0.004,
+       "zoom": 0,
+       "magnitude": 0.059,
+       "residual": 0.15
+      },
+      "saliency": {
+       "x": 0.493,
+       "y": 0.489,
+       "strength": 0.66
+      }
+     },
+     {
+      "t": 2250,
+      "sharpness": 0.345,
+      "clipLow": 0.002,
+      "clipHigh": 0.004,
+      "luma": 0.416,
+      "steady": 0.822,
+      "flow": {
+       "dx": 0.064,
+       "dy": 0.002,
+       "zoom": 0,
+       "magnitude": 0.064,
+       "residual": 0.245
+      },
+      "saliency": {
+       "x": 0.46,
+       "y": 0.482,
+       "strength": 0.553
+      }
+     },
+     {
+      "t": 2500,
+      "sharpness": 0.371,
+      "clipLow": 0.006,
+      "clipHigh": 0.001,
+      "luma": 0.429,
+      "steady": 0.85,
+      "flow": {
+       "dx": 0.067,
+       "dy": -0.004,
+       "zoom": 0,
+       "magnitude": 0.067,
+       "residual": 0.193
+      },
+      "saliency": {
+       "x": 0.427,
+       "y": 0.474,
+       "strength": 0.697
+      }
+     },
+     {
+      "t": 2750,
+      "sharpness": 0.397,
+      "clipLow": 0.005,
+      "clipHigh": 0.009,
+      "luma": 0.427,
+      "steady": 0.914,
+      "flow": {
+       "dx": 0.065,
+       "dy": -0.002,
+       "zoom": 0,
+       "magnitude": 0.065,
+       "residual": 0.166
+      },
+      "saliency": {
+       "x": 0.396,
+       "y": 0.465,
+       "strength": 0.722
+      }
+     },
+     {
+      "t": 3000,
+      "sharpness": 0.484,
+      "clipLow": 0.008,
+      "clipHigh": 0.001,
+      "luma": 0.438,
+      "aesthetic": 0.693,
+      "steady": 0.852,
+      "flow": {
+       "dx": 0.074,
+       "dy": -0.001,
+       "zoom": 0,
+       "magnitude": 0.074,
+       "residual": 0.225
+      },
+      "saliency": {
+       "x": 0.366,
+       "y": 0.456,
+       "strength": 0.678
+      }
+     },
+     {
+      "t": 3250,
+      "sharpness": 0.527,
+      "clipLow": 0.003,
+      "clipHigh": 0.003,
+      "luma": 0.4,
+      "steady": 0.923,
+      "flow": {
+       "dx": 0.073,
+       "dy": -0.004,
+       "zoom": 0,
+       "magnitude": 0.074,
+       "residual": 0.137
+      },
+      "saliency": {
+       "x": 0.339,
+       "y": 0.446,
+       "strength": 0.4
+      }
+     },
+     {
+      "t": 3500,
+      "sharpness": 0.679,
+      "clipLow": 0.008,
+      "clipHigh": 0.007,
+      "luma": 0.409,
+      "steady": 0.885,
+      "flow": {
+       "dx": 0.07,
+       "dy": 0.001,
+       "zoom": 0,
+       "magnitude": 0.07,
+       "residual": 0.231
+      },
+      "saliency": {
+       "x": 0.315,
+       "y": 0.437,
+       "strength": 0.783
+      }
+     },
+     {
+      "t": 3750,
+      "sharpness": 0.71,
+      "clipLow": 0.004,
+      "clipHigh": 0.005,
+      "luma": 0.42,
+      "steady": 0.87,
+      "flow": {
+       "dx": 0.066,
+       "dy": -0.005,
+       "zoom": 0,
+       "magnitude": 0.066,
+       "residual": 0.216
+      },
+      "saliency": {
+       "x": 0.294,
+       "y": 0.427,
+       "strength": 0.402
+      }
+     },
+     {
+      "t": 4000,
+      "sharpness": 0.737,
+      "clipLow": 0.004,
+      "clipHigh": 0.005,
+      "luma": 0.41,
+      "aesthetic": 0.678,
+      "steady": 0.84,
+      "flow": {
+       "dx": 0.06,
+       "dy": -0.004,
+       "zoom": 0,
+       "magnitude": 0.06,
+       "residual": 0.218
+      },
+      "saliency": {
+       "x": 0.277,
+       "y": 0.417,
+       "strength": 0.511
+      }
+     },
+     {
+      "t": 4250,
+      "sharpness": 0.805,
+      "clipLow": 0.003,
+      "clipHigh": 0.008,
+      "luma": 0.428,
+      "steady": 0.922,
+      "flow": {
+       "dx": 0.057,
+       "dy": 0,
+       "zoom": 0,
+       "magnitude": 0.057,
+       "residual": 0.164
+      },
+      "saliency": {
+       "x": 0.264,
+       "y": 0.407,
+       "strength": 0.416
+      }
+     },
+     {
+      "t": 4500,
+      "sharpness": 0.822,
+      "clipLow": 0.004,
+      "clipHigh": 0.004,
+      "luma": 0.407,
+      "steady": 0.94,
+      "flow": {
+       "dx": 0.057,
+       "dy": 0.003,
+       "zoom": 0,
+       "magnitude": 0.057,
+       "residual": 0.168
+      },
+      "saliency": {
+       "x": 0.255,
+       "y": 0.397,
+       "strength": 0.612
+      }
+     },
+     {
+      "t": 4750,
+      "sharpness": 0.889,
+      "clipLow": 0.005,
+      "clipHigh": 0.003,
+      "luma": 0.434,
+      "steady": 0.877,
+      "flow": {
+       "dx": 0.044,
+       "dy": 0.003,
+       "zoom": 0,
+       "magnitude": 0.045,
+       "residual": 0.241
+      },
+      "saliency": {
+       "x": 0.251,
+       "y": 0.387,
+       "strength": 0.616
+      }
+     },
+     {
+      "t": 5000,
+      "sharpness": 0.841,
+      "clipLow": 0.006,
+      "clipHigh": 0,
+      "luma": 0.425,
+      "aesthetic": 0.588,
+      "steady": 0.896,
+      "flow": {
+       "dx": 0.045,
+       "dy": 0.004,
+       "zoom": 0,
+       "magnitude": 0.046,
+       "residual": 0.209
+      },
+      "saliency": {
+       "x": 0.251,
+       "y": 0.378,
+       "strength": 0.72
+      }
+     },
+     {
+      "t": 5250,
+      "sharpness": 0.847,
+      "clipLow": 0,
+      "clipHigh": 0.003,
+      "luma": 0.427,
+      "steady": 0.915,
+      "flow": {
+       "dx": 0.031,
+       "dy": 0.001,
+       "zoom": 0,
+       "magnitude": 0.031,
+       "residual": 0.112
+      },
+      "saliency": {
+       "x": 0.255,
+       "y": 0.369,
+       "strength": 0.634
+      }
+     },
+     {
+      "t": 5500,
+      "sharpness": 0.842,
+      "clipLow": 0.005,
+      "clipHigh": 0.008,
+      "luma": 0.43,
+      "steady": 0.88,
+      "flow": {
+       "dx": 0.023,
+       "dy": 0.005,
+       "zoom": 0,
+       "magnitude": 0.023,
+       "residual": 0.202
+      },
+      "saliency": {
+       "x": 0.264,
+       "y": 0.361,
+       "strength": 0.571
+      }
+     },
+     {
+      "t": 5750,
+      "sharpness": 0.733,
+      "clipLow": 0.008,
+      "clipHigh": 0.007,
+      "luma": 0.437,
+      "steady": 0.908,
+      "flow": {
+       "dx": 0.019,
+       "dy": 0.003,
+       "zoom": 0,
+       "magnitude": 0.019,
+       "residual": 0.111
+      },
+      "saliency": {
+       "x": 0.277,
+       "y": 0.353,
+       "strength": 0.484
+      }
+     },
+     {
+      "t": 6000,
+      "sharpness": 0.669,
+      "clipLow": 0.007,
+      "clipHigh": 0.009,
+      "luma": 0.407,
+      "aesthetic": 0.416,
+      "steady": 0.857,
+      "flow": {
+       "dx": 0.012,
+       "dy": -0.004,
+       "zoom": 0,
+       "magnitude": 0.013,
+       "residual": 0.237
+      },
+      "saliency": {
+       "x": 0.293,
+       "y": 0.346,
+       "strength": 0.509
+      }
+     },
+     {
+      "t": 6250,
+      "sharpness": 0.648,
+      "clipLow": 0.002,
+      "clipHigh": 0.008,
+      "luma": 0.432,
+      "steady": 0.803,
+      "flow": {
+       "dx": 0.002,
+       "dy": -0.002,
+       "zoom": 0,
+       "magnitude": 0.003,
+       "residual": 0.239
+      },
+      "saliency": {
+       "x": 0.314,
+       "y": 0.339,
+       "strength": 0.477
+      }
+     },
+     {
+      "t": 6500,
+      "sharpness": 0.529,
+      "clipLow": 0.004,
+      "clipHigh": 0.005,
+      "luma": 0.405,
+      "steady": 0.875,
+      "flow": {
+       "dx": 0.003,
+       "dy": 0,
+       "zoom": 0,
+       "magnitude": 0.003,
+       "residual": 0.206
+      },
+      "saliency": {
+       "x": 0.338,
+       "y": 0.334,
+       "strength": 0.403
+      }
+     },
+     {
+      "t": 6750,
+      "sharpness": 0.494,
+      "clipLow": 0.001,
+      "clipHigh": 0.009,
+      "luma": 0.413,
+      "steady": 0.88,
+      "flow": {
+       "dx": -0.003,
+       "dy": -0.001,
+       "zoom": 0,
+       "magnitude": 0.003,
+       "residual": 0.241
+      },
+      "saliency": {
+       "x": 0.365,
+       "y": 0.329,
+       "strength": 0.758
+      }
+     },
+     {
+      "t": 7000,
+      "sharpness": 0.412,
+      "clipLow": 0.004,
+      "clipHigh": 0.004,
+      "luma": 0.408,
+      "aesthetic": 0.51,
+      "steady": 0.811,
+      "flow": {
+       "dx": 0.002,
+       "dy": 0.004,
+       "zoom": 0,
+       "magnitude": 0.004,
+       "residual": 0.118
+      },
+      "saliency": {
+       "x": 0.394,
+       "y": 0.325,
+       "strength": 0.756
+      }
+     },
+     {
+      "t": 7250,
+      "sharpness": 0.065,
+      "clipLow": 0.001,
+      "clipHigh": 0.002,
+      "luma": 0.428,
+      "steady": 0.35,
+      "flow": {
+       "dx": 0.016,
+       "dy": 0.013,
+       "zoom": 0,
+       "magnitude": 0.021,
+       "residual": 0.146
+      },
+      "saliency": {
+       "x": 0.425,
+       "y": 0.323,
+       "strength": 0.569
+      }
+     }
+    ],
+    "windows": [
+     {
+      "lengthMs": 800,
+      "best": [
+       {
+        "startMs": 4050,
+        "endMs": 4850,
+        "score": 0.698,
+        "sharpness": 0.839,
+        "exposure": 0.955,
+        "aesthetic": 0.648,
+        "steady": 0.913,
+        "motion": 0.206,
+        "direction": "right"
+       },
+       {
+        "startMs": 3050,
+        "endMs": 3850,
+        "score": 0.669,
+        "sharpness": 0.639,
+        "exposure": 0.95,
+        "aesthetic": 0.688,
+        "steady": 0.893,
+        "motion": 0.313,
+        "direction": "right"
+       },
+       {
+        "startMs": 5050,
+        "endMs": 5850,
+        "score": 0.594,
+        "sharpness": 0.807,
+        "exposure": 0.948,
+        "aesthetic": 0.531,
+        "steady": 0.901,
+        "motion": 0.027,
+        "direction": "right"
+       }
+      ]
+     },
+     {
+      "lengthMs": 1500,
+      "best": [
+       {
+        "startMs": 3300,
+        "endMs": 4800,
+        "score": 0.687,
+        "sharpness": 0.774,
+        "exposure": 0.95,
+        "aesthetic": 0.666,
+        "steady": 0.889,
+        "motion": 0.245,
+        "direction": "right"
+       },
+       {
+        "startMs": 4800,
+        "endMs": 6300,
+        "score": 0.555,
+        "sharpness": 0.763,
+        "exposure": 0.948,
+        "aesthetic": 0.502,
+        "steady": 0.877,
+        "motion": 0.016,
+        "direction": "right"
+       },
+       {
+        "startMs": 1800,
+        "endMs": 3300,
+        "score": 0.554,
+        "sharpness": 0.406,
+        "exposure": 0.963,
+        "aesthetic": 0.734,
+        "steady": 0.862,
+        "motion": 0.295,
+        "direction": "right"
+       }
+      ]
+     },
+     {
+      "lengthMs": 2500,
+      "best": [
+       {
+        "startMs": 3050,
+        "endMs": 5550,
+        "score": 0.676,
+        "sharpness": 0.77,
+        "exposure": 0.956,
+        "aesthetic": 0.645,
+        "steady": 0.895,
+        "motion": 0.206,
+        "direction": "right"
+       },
+       {
+        "startMs": 550,
+        "endMs": 3050,
+        "score": 0.505,
+        "sharpness": 0.342,
+        "exposure": 0.959,
+        "aesthetic": 0.756,
+        "steady": 0.843,
+        "motion": 0.199,
+        "direction": "right"
+       }
+      ]
+     },
+     {
+      "lengthMs": 4000,
+      "best": [
+       {
+        "startMs": 2550,
+        "endMs": 6550,
+        "score": 0.605,
+        "sharpness": 0.697,
+        "exposure": 0.95,
+        "aesthetic": 0.594,
+        "steady": 0.885,
+        "motion": 0.151,
+        "direction": "right"
+       }
+      ]
+     }
+    ],
+    "motion": [
+     {
+      "startMs": 0,
+      "endMs": 5750,
+      "direction": "right",
+      "magnitude": 0.0481,
+      "mover": "camera",
+      "consistency": 0.913
+     },
+     {
+      "startMs": 5750,
+      "endMs": 7474,
+      "direction": "static",
+      "magnitude": 0.0075,
+      "mover": "none",
+      "consistency": 0.857
+     }
+    ],
+    "flowPeaks": [],
+    "depth": [
+     {
+      "t": 1750,
+      "cols": 16,
+      "rows": 9,
+      "grid": "AAAAAAAAAAAAAAAAAAAAACAgICAgICAgICAgICAgICBAQEBAQEBAQEBAQEBAQEBAYGBgYGBgYGBgYGBgYGBgYICAgICAgICAgICAgICAgICfn5+fn5+fn5+fn5+fn5+fv7+/v7+/v7+/v7+/v7+/v9/f39/f39/f39/f39/f39//////////////////////",
+      "foreground": 0.22,
+      "near": null,
+      "spread": 0.55
+     },
+     {
+      "t": 3750,
+      "cols": 16,
+      "rows": 9,
+      "grid": "AAAAAAAAAAAAAAAAAAAAACAgICAgICAgICAgICAgICBAQEBAQEBAQEBAQEBAQEBAYGBgYGBgYGBgYGBgYGBgYICAgICAgICAgICAgICAgICfn5+fn5+fn5+fn5+fn5+fv7+/v7+/v7+/v7+/v7+/v9/f39/f39/f39/f39/f39//////////////////////",
+      "foreground": 0.22,
+      "near": null,
+      "spread": 0.55
+     },
+     {
+      "t": 5500,
+      "cols": 16,
+      "rows": 9,
+      "grid": "AAAAAAAAAAAAAAAAAAAAACAgICAgICAgICAgICAgICBAQEBAQEBAQEBAQEBAQEBAYGBgYGBgYGBgYGBgYGBgYICAgICAgICAgICAgICAgICfn5+fn5+fn5+fn5+fn5+fv7+/v7+/v7+/v7+/v7+/v9/f39/f39/f39/f39/f39//////////////////////",
+      "foreground": 0.22,
+      "near": null,
+      "spread": 0.55
+     }
+    ],
+    "occluders": [],
+    "reframe": {
+     "aspect": 1.7777777777777777,
+     "cropWidth": 0.316,
+     "path": [
+      {
+       "t": 0,
+       "x": 0.6308,
+       "y": 0.5
+      },
+      {
+       "t": 500,
+       "x": 0.6171,
+       "y": 0.5
+      },
+      {
+       "t": 1000,
+       "x": 0.5962,
+       "y": 0.5
+      },
+      {
+       "t": 1500,
+       "x": 0.5691,
+       "y": 0.5
+      },
+      {
+       "t": 2000,
+       "x": 0.5347,
+       "y": 0.5
+      },
+      {
+       "t": 2500,
+       "x": 0.4994,
+       "y": 0.5
+      },
+      {
+       "t": 3000,
+       "x": 0.4638,
+       "y": 0.5
+      },
+      {
+       "t": 3500,
+       "x": 0.4345,
+       "y": 0.5
+      },
+      {
+       "t": 4000,
+       "x": 0.4097,
+       "y": 0.5
+      },
+      {
+       "t": 4500,
+       "x": 0.3902,
+       "y": 0.5
+      },
+      {
+       "t": 5000,
+       "x": 0.3799,
+       "y": 0.5
+      },
+      {
+       "t": 5500,
+       "x": 0.3757,
+       "y": 0.5
+      },
+      {
+       "t": 6000,
+       "x": 0.3777,
+       "y": 0.5
+      },
+      {
+       "t": 6500,
+       "x": 0.3834,
+       "y": 0.5
+      },
+      {
+       "t": 7000,
+       "x": 0.3946,
+       "y": 0.5
+      },
+      {
+       "t": 7250,
+       "x": 0.3987,
+       "y": 0.5
+      }
+     ],
+     "closeUps": []
+    },
+    "scene": {
+     "palette": [
+      {
+       "hex": "#d9d2c5",
+       "share": 0.31
+      },
+      {
+       "hex": "#6f6a62",
+       "share": 0.24
+      },
+      {
+       "hex": "#2e2b27",
+       "share": 0.17
+      },
+      {
+       "hex": "#9fb6c9",
+       "share": 0.12
+      }
+     ],
+     "round": {
+      "t": 2000,
+      "x": 0.56,
+      "y": 0.22,
+      "r": 0.06,
+      "score": 0.63
+     },
+     "rectilinear": 0.58,
+     "brightnessRamps": [],
+     "blowouts": []
+    },
+    "models": {
+     "aesthetic": "Xenova/mobileclip_s0 (CLIP-IQA prompts)",
+     "depth": "onnx-community/depth-anything-v2-small",
+     "saliency": "spectral-residual 64x64"
+    },
+    "cost": {
+     "cpuMs": 0,
+     "wallMs": 0,
+     "analysedMs": 7474
+    },
+    "createdAt": "2026-10-26T00:00:00.000Z"
+   }
+  },
+  "cmvo12w28000g01adduji45li": {
+   "fileName": "4908.mp4",
+   "analysis": {
+    "version": 1,
+    "durationMs": 7841,
+    "width": 1920,
+    "height": 1080,
+    "sampleMs": 250,
+    "aestheticEveryMs": 1000,
+    "samples": [
+     {
+      "t": 0,
+      "sharpness": 0.117,
+      "clipLow": 0.006,
+      "clipHigh": 0.003,
+      "luma": 0.414,
+      "aesthetic": 0.635,
+      "steady": 0.35,
+      "flow": {
+       "dx": 0.008,
+       "dy": 0.019,
+       "zoom": 0,
+       "magnitude": 0.02,
+       "residual": 0.144
+      },
+      "saliency": {
+       "x": 0.5,
+       "y": 0.52,
+       "strength": 0.748
+      }
+     },
+     {
+      "t": 250,
+      "sharpness": 0.24,
+      "clipLow": 0.005,
+      "clipHigh": 0.009,
+      "luma": 0.428,
+      "steady": 0.35,
+      "flow": {
+       "dx": -0.008,
+       "dy": 0.012,
+       "zoom": 0,
+       "magnitude": 0.014,
+       "residual": 0.238
+      },
+      "saliency": {
+       "x": 0.532,
+       "y": 0.52,
+       "strength": 0.514
+      }
+     },
+     {
+      "t": 500,
+      "sharpness": 0.537,
+      "clipLow": 0.009,
+      "clipHigh": 0.007,
+      "luma": 0.418,
+      "steady": 0.812,
+      "flow": {
+       "dx": -0.004,
+       "dy": 0.018,
+       "zoom": 0,
+       "magnitude": 0.019,
+       "residual": 0.221
+      },
+      "saliency": {
+       "x": 0.563,
+       "y": 0.518,
+       "strength": 0.659
+      }
+     },
+     {
+      "t": 750,
+      "sharpness": 0.637,
+      "clipLow": 0.008,
+      "clipHigh": 0.008,
+      "luma": 0.403,
+      "steady": 0.832,
+      "flow": {
+       "dx": 0.005,
+       "dy": 0.023,
+       "zoom": 0,
+       "magnitude": 0.023,
+       "residual": 0.141
+      },
+      "saliency": {
+       "x": 0.593,
+       "y": 0.516,
+       "strength": 0.514
+      }
+     },
+     {
+      "t": 1000,
+      "sharpness": 0.687,
+      "clipLow": 0.001,
+      "clipHigh": 0.002,
+      "luma": 0.406,
+      "aesthetic": 0.632,
+      "steady": 0.911,
+      "flow": {
+       "dx": -0.001,
+       "dy": 0.031,
+       "zoom": 0,
+       "magnitude": 0.031,
+       "residual": 0.108
+      },
+      "saliency": {
+       "x": 0.622,
+       "y": 0.513,
+       "strength": 0.406
+      }
+     },
+     {
+      "t": 1250,
+      "sharpness": 0.708,
+      "clipLow": 0.006,
+      "clipHigh": 0.008,
+      "luma": 0.439,
+      "steady": 0.872,
+      "flow": {
+       "dx": -0.002,
+       "dy": 0.03,
+       "zoom": 0,
+       "magnitude": 0.031,
+       "residual": 0.132
+      },
+      "saliency": {
+       "x": 0.649,
+       "y": 0.509,
+       "strength": 0.43
+      }
+     },
+     {
+      "t": 1500,
+      "sharpness": 0.787,
+      "clipLow": 0.002,
+      "clipHigh": 0,
+      "luma": 0.423,
+      "steady": 0.871,
+      "flow": {
+       "dx": 0,
+       "dy": 0.035,
+       "zoom": 0,
+       "magnitude": 0.035,
+       "residual": 0.137
+      },
+      "saliency": {
+       "x": 0.673,
+       "y": 0.504,
+       "strength": 0.519
+      }
+     },
+     {
+      "t": 1750,
+      "sharpness": 0.813,
+      "clipLow": 0.006,
+      "clipHigh": 0.001,
+      "luma": 0.419,
+      "steady": 0.916,
+      "flow": {
+       "dx": 0,
+       "dy": 0.049,
+       "zoom": 0,
+       "magnitude": 0.049,
+       "residual": 0.153
+      },
+      "saliency": {
+       "x": 0.695,
+       "y": 0.498,
+       "strength": 0.754
+      }
+     },
+     {
+      "t": 2000,
+      "sharpness": 0.855,
+      "clipLow": 0.01,
+      "clipHigh": 0.009,
+      "luma": 0.433,
+      "aesthetic": 0.728,
+      "steady": 0.832,
+      "flow": {
+       "dx": -0.001,
+       "dy": 0.045,
+       "zoom": 0,
+       "magnitude": 0.045,
+       "residual": 0.123
+      },
+      "saliency": {
+       "x": 0.713,
+       "y": 0.492,
+       "strength": 0.453
+      }
+     },
+     {
+      "t": 2250,
+      "sharpness": 0.808,
+      "clipLow": 0.006,
+      "clipHigh": 0.005,
+      "luma": 0.438,
+      "steady": 0.945,
+      "flow": {
+       "dx": -0.002,
+       "dy": 0.049,
+       "zoom": 0,
+       "magnitude": 0.049,
+       "residual": 0.104
+      },
+      "saliency": {
+       "x": 0.728,
+       "y": 0.485,
+       "strength": 0.766
+      }
+     },
+     {
+      "t": 2500,
+      "sharpness": 0.849,
+      "clipLow": 0.001,
+      "clipHigh": 0.003,
+      "luma": 0.433,
+      "steady": 0.814,
+      "flow": {
+       "dx": -0.004,
+       "dy": 0.059,
+       "zoom": 0,
+       "magnitude": 0.059,
+       "residual": 0.106
+      },
+      "saliency": {
+       "x": 0.739,
+       "y": 0.478,
+       "strength": 0.432
+      }
+     },
+     {
+      "t": 2750,
+      "sharpness": 0.779,
+      "clipLow": 0.002,
+      "clipHigh": 0.004,
+      "luma": 0.412,
+      "steady": 0.883,
+      "flow": {
+       "dx": 0.002,
+       "dy": 0.057,
+       "zoom": 0,
+       "magnitude": 0.057,
+       "residual": 0.23
+      },
+      "saliency": {
+       "x": 0.746,
+       "y": 0.47,
+       "strength": 0.497
+      }
+     },
+     {
+      "t": 3000,
+      "sharpness": 0.755,
+      "clipLow": 0.008,
+      "clipHigh": 0.002,
+      "luma": 0.43,
+      "aesthetic": 0.702,
+      "steady": 0.831,
+      "flow": {
+       "dx": -0.004,
+       "dy": 0.063,
+       "zoom": 0,
+       "magnitude": 0.063,
+       "residual": 0.211
+      },
+      "saliency": {
+       "x": 0.75,
+       "y": 0.461,
+       "strength": 0.408
+      }
+     },
+     {
+      "t": 3250,
+      "sharpness": 0.767,
+      "clipLow": 0.01,
+      "clipHigh": 0.001,
+      "luma": 0.401,
+      "steady": 0.862,
+      "flow": {
+       "dx": -0.002,
+       "dy": 0.061,
+       "zoom": 0,
+       "magnitude": 0.061,
+       "residual": 0.202
+      },
+      "saliency": {
+       "x": 0.749,
+       "y": 0.452,
+       "strength": 0.604
+      }
+     },
+     {
+      "t": 3500,
+      "sharpness": 0.642,
+      "clipLow": 0.008,
+      "clipHigh": 0.006,
+      "luma": 0.423,
+      "steady": 0.877,
+      "flow": {
+       "dx": 0.001,
+       "dy": 0.059,
+       "zoom": 0,
+       "magnitude": 0.059,
+       "residual": 0.23
+      },
+      "saliency": {
+       "x": 0.744,
+       "y": 0.443,
+       "strength": 0.764
+      }
+     },
+     {
+      "t": 3750,
+      "sharpness": 0.641,
+      "clipLow": 0.008,
+      "clipHigh": 0.001,
+      "luma": 0.417,
+      "steady": 0.927,
+      "flow": {
+       "dx": 0.002,
+       "dy": 0.055,
+       "zoom": 0,
+       "magnitude": 0.055,
+       "residual": 0.186
+      },
+      "saliency": {
+       "x": 0.736,
+       "y": 0.434,
+       "strength": 0.779
+      }
+     },
+     {
+      "t": 4000,
+      "sharpness": 0.579,
+      "clipLow": 0.009,
+      "clipHigh": 0.006,
+      "luma": 0.427,
+      "aesthetic": 0.618,
+      "steady": 0.844,
+      "flow": {
+       "dx": 0.001,
+       "dy": 0.052,
+       "zoom": 0,
+       "magnitude": 0.052,
+       "residual": 0.163
+      },
+      "saliency": {
+       "x": 0.723,
+       "y": 0.424,
+       "strength": 0.452
+      }
+     },
+     {
+      "t": 4250,
+      "sharpness": 0.524,
+      "clipLow": 0.004,
+      "clipHigh": 0.006,
+      "luma": 0.41,
+      "steady": 0.822,
+      "flow": {
+       "dx": 0.003,
+       "dy": 0.057,
+       "zoom": 0,
+       "magnitude": 0.058,
+       "residual": 0.196
+      },
+      "saliency": {
+       "x": 0.707,
+       "y": 0.414,
+       "strength": 0.466
+      }
+     },
+     {
+      "t": 4500,
+      "sharpness": 0.404,
+      "clipLow": 0.002,
+      "clipHigh": 0.007,
+      "luma": 0.413,
+      "steady": 0.827,
+      "flow": {
+       "dx": 0.002,
+       "dy": 0.046,
+       "zoom": 0,
+       "magnitude": 0.046,
+       "residual": 0.175
+      },
+      "saliency": {
+       "x": 0.687,
+       "y": 0.405,
+       "strength": 0.699
+      }
+     },
+     {
+      "t": 4750,
+      "sharpness": 0.402,
+      "clipLow": 0.01,
+      "clipHigh": 0.005,
+      "luma": 0.44,
+      "steady": 0.911,
+      "flow": {
+       "dx": 0.005,
+       "dy": 0.044,
+       "zoom": 0,
+       "magnitude": 0.044,
+       "residual": 0.123
+      },
+      "saliency": {
+       "x": 0.665,
+       "y": 0.396,
+       "strength": 0.73
+      }
+     },
+     {
+      "t": 5000,
+      "sharpness": 0.333,
+      "clipLow": 0.008,
+      "clipHigh": 0.005,
+      "luma": 0.403,
+      "aesthetic": 0.6,
+      "steady": 0.836,
+      "flow": {
+       "dx": 0.004,
+       "dy": 0.037,
+       "zoom": 0,
+       "magnitude": 0.037,
+       "residual": 0.118
+      },
+      "saliency": {
+       "x": 0.639,
+       "y": 0.386,
+       "strength": 0.732
+      }
+     },
+     {
+      "t": 5250,
+      "sharpness": 0.247,
+      "clipLow": 0,
+      "clipHigh": 0.002,
+      "luma": 0.422,
+      "steady": 0.905,
+      "flow": {
+       "dx": -0.001,
+       "dy": 0.032,
+       "zoom": 0,
+       "magnitude": 0.032,
+       "residual": 0.122
+      },
+      "saliency": {
+       "x": 0.612,
+       "y": 0.378,
+       "strength": 0.464
+      }
+     },
+     {
+      "t": 5500,
+      "sharpness": 0.235,
+      "clipLow": 0.002,
+      "clipHigh": 0,
+      "luma": 0.429,
+      "steady": 0.948,
+      "flow": {
+       "dx": 0.003,
+       "dy": 0.033,
+       "zoom": 0,
+       "magnitude": 0.033,
+       "residual": 0.128
+      },
+      "saliency": {
+       "x": 0.582,
+       "y": 0.369,
+       "strength": 0.593
+      }
+     },
+     {
+      "t": 5750,
+      "sharpness": 0.215,
+      "clipLow": 0.006,
+      "clipHigh": 0.006,
+      "luma": 0.406,
+      "steady": 0.894,
+      "flow": {
+       "dx": -0.002,
+       "dy": 0.024,
+       "zoom": 0,
+       "magnitude": 0.024,
+       "residual": 0.209
+      },
+      "saliency": {
+       "x": 0.552,
+       "y": 0.361,
+       "strength": 0.614
+      }
+     },
+     {
+      "t": 6000,
+      "sharpness": 0.294,
+      "clipLow": 0.001,
+      "clipHigh": 0.007,
+      "luma": 0.413,
+      "aesthetic": 0.436,
+      "steady": 0.913,
+      "flow": {
+       "dx": 0.001,
+       "dy": 0.015,
+       "zoom": 0,
+       "magnitude": 0.015,
+       "residual": 0.146
+      },
+      "saliency": {
+       "x": 0.52,
+       "y": 0.354,
+       "strength": 0.445
+      }
+     },
+     {
+      "t": 6250,
+      "sharpness": 0.258,
+      "clipLow": 0.005,
+      "clipHigh": 0.005,
+      "luma": 0.412,
+      "steady": 0.843,
+      "flow": {
+       "dx": -0.004,
+       "dy": 0.003,
+       "zoom": 0,
+       "magnitude": 0.005,
+       "residual": 0.2
+      },
+      "saliency": {
+       "x": 0.488,
+       "y": 0.347,
+       "strength": 0.711
+      }
+     },
+     {
+      "t": 6500,
+      "sharpness": 0.307,
+      "clipLow": 0.009,
+      "clipHigh": 0.002,
+      "luma": 0.406,
+      "steady": 0.929,
+      "flow": {
+       "dx": -0.002,
+       "dy": 0.002,
+       "zoom": 0,
+       "magnitude": 0.002,
+       "residual": 0.19
+      },
+      "saliency": {
+       "x": 0.457,
+       "y": 0.341,
+       "strength": 0.654
+      }
+     },
+     {
+      "t": 6750,
+      "sharpness": 0.356,
+      "clipLow": 0.005,
+      "clipHigh": 0,
+      "luma": 0.422,
+      "steady": 0.904,
+      "flow": {
+       "dx": 0,
+       "dy": 0,
+       "zoom": 0,
+       "magnitude": 0,
+       "residual": 0.14
+      },
+      "saliency": {
+       "x": 0.426,
+       "y": 0.335,
+       "strength": 0.474
+      }
+     },
+     {
+      "t": 7000,
+      "sharpness": 0.387,
+      "clipLow": 0.01,
+      "clipHigh": 0.004,
+      "luma": 0.422,
+      "aesthetic": 0.528,
+      "steady": 0.816,
+      "flow": {
+       "dx": 0.003,
+       "dy": 0.002,
+       "zoom": 0,
+       "magnitude": 0.004,
+       "residual": 0.13
+      },
+      "saliency": {
+       "x": 0.396,
+       "y": 0.331,
+       "strength": 0.568
+      }
+     },
+     {
+      "t": 7250,
+      "sharpness": 0.467,
+      "clipLow": 0.002,
+      "clipHigh": 0.006,
+      "luma": 0.423,
+      "steady": 0.909,
+      "flow": {
+       "dx": -0.004,
+       "dy": -0.005,
+       "zoom": 0,
+       "magnitude": 0.006,
+       "residual": 0.181
+      },
+      "saliency": {
+       "x": 0.368,
+       "y": 0.327,
+       "strength": 0.722
+      }
+     },
+     {
+      "t": 7500,
+      "sharpness": 0.25,
+      "clipLow": 0.003,
+      "clipHigh": 0.005,
+      "luma": 0.438,
+      "steady": 0.35,
+      "flow": {
+       "dx": -0.009,
+       "dy": -0.013,
+       "zoom": 0,
+       "magnitude": 0.016,
+       "residual": 0.246
+      },
+      "saliency": {
+       "x": 0.342,
+       "y": 0.324,
+       "strength": 0.585
+      }
+     },
+     {
+      "t": 7750,
+      "sharpness": 0.323,
+      "clipLow": 0.003,
+      "clipHigh": 0.005,
+      "luma": 0.428,
+      "steady": 0.35,
+      "flow": {
+       "dx": -0.013,
+       "dy": 0.021,
+       "zoom": 0,
+       "magnitude": 0.025,
+       "residual": 0.112
+      },
+      "saliency": {
+       "x": 0.319,
+       "y": 0.322,
+       "strength": 0.798
+      }
+     }
+    ],
+    "windows": [
+     {
+      "lengthMs": 800,
+      "best": [
+       {
+        "startMs": 2050,
+        "endMs": 2850,
+        "score": 0.705,
+        "sharpness": 0.812,
+        "exposure": 0.965,
+        "aesthetic": 0.719,
+        "steady": 0.881,
+        "motion": 0.219,
+        "direction": "down"
+       },
+       {
+        "startMs": 3050,
+        "endMs": 3850,
+        "score": 0.662,
+        "sharpness": 0.683,
+        "exposure": 0.943,
+        "aesthetic": 0.674,
+        "steady": 0.889,
+        "motion": 0.24,
+        "direction": "down"
+       },
+       {
+        "startMs": 1050,
+        "endMs": 1850,
+        "score": 0.661,
+        "sharpness": 0.769,
+        "exposure": 0.962,
+        "aesthetic": 0.664,
+        "steady": 0.886,
+        "motion": 0.115,
+        "direction": "down"
+       }
+      ]
+     },
+     {
+      "lengthMs": 1500,
+      "best": [
+       {
+        "startMs": 1550,
+        "endMs": 3050,
+        "score": 0.7,
+        "sharpness": 0.81,
+        "exposure": 0.953,
+        "aesthetic": 0.719,
+        "steady": 0.87,
+        "motion": 0.21,
+        "direction": "down"
+       },
+       {
+        "startMs": 3050,
+        "endMs": 4550,
+        "score": 0.622,
+        "sharpness": 0.593,
+        "exposure": 0.943,
+        "aesthetic": 0.646,
+        "steady": 0.86,
+        "motion": 0.22,
+        "direction": "down"
+       },
+       {
+        "startMs": 5800,
+        "endMs": 7300,
+        "score": 0.41,
+        "sharpness": 0.345,
+        "exposure": 0.953,
+        "aesthetic": 0.482,
+        "steady": 0.886,
+        "motion": 0,
+        "direction": "static"
+       }
+      ]
+     },
+     {
+      "lengthMs": 2500,
+      "best": [
+       {
+        "startMs": 1300,
+        "endMs": 3800,
+        "score": 0.684,
+        "sharpness": 0.77,
+        "exposure": 0.954,
+        "aesthetic": 0.697,
+        "steady": 0.876,
+        "motion": 0.208,
+        "direction": "down"
+       },
+       {
+        "startMs": 3800,
+        "endMs": 6300,
+        "score": 0.404,
+        "sharpness": 0.349,
+        "exposure": 0.952,
+        "aesthetic": 0.556,
+        "steady": 0.874,
+        "motion": 0.091,
+        "direction": "down"
+       }
+      ]
+     },
+     {
+      "lengthMs": 4000,
+      "best": [
+       {
+        "startMs": 550,
+        "endMs": 4550,
+        "score": 0.651,
+        "sharpness": 0.702,
+        "exposure": 0.95,
+        "aesthetic": 0.67,
+        "steady": 0.867,
+        "motion": 0.177,
+        "direction": "down"
+       }
+      ]
+     }
+    ],
+    "motion": [
+     {
+      "startMs": 0,
+      "endMs": 750,
+      "direction": "static",
+      "magnitude": 0.0164,
+      "mover": "none",
+      "consistency": 0.667
+     },
+     {
+      "startMs": 750,
+      "endMs": 6000,
+      "direction": "down",
+      "magnitude": 0.0448,
+      "mover": "camera",
+      "consistency": 1
+     },
+     {
+      "startMs": 6000,
+      "endMs": 7841,
+      "direction": "static",
+      "magnitude": 0.0047,
+      "mover": "none",
+      "consistency": 0.875
+     }
+    ],
+    "flowPeaks": [
+     {
+      "t": 3500,
+      "magnitude": 0.059,
+      "direction": "down",
+      "mover": "camera"
+     }
+    ],
+    "depth": [
+     {
+      "t": 2000,
+      "cols": 16,
+      "rows": 9,
+      "grid": "AAAAAAAAAAAAAAAAAAAAACAgICAgICAgICAgICAgICBAQEBAQEBAQEBAQEBAQEBAYGBgYGBgYGBgYGBgYGBgYICAgICAgICAgICAgICAgICfn5+fn5+fn5+fn5+fn5+fv7+/v7+/v7+/v7+/v7+/v9/f39/f39/f39/f39/f39//////////////////////",
+      "foreground": 0.22,
+      "near": null,
+      "spread": 0.55
+     },
+     {
+      "t": 4000,
+      "cols": 16,
+      "rows": 9,
+      "grid": "AAAAAAAAAAAAAAAAAAAAACAgICAgICAgICAgICAgICBAQEBAQEBAQEBAQEBAQEBAYGBgYGBgYGBgYGBgYGBgYICAgICAgICAgICAgICAgICfn5+fn5+fn5+fn5+fn5+fv7+/v7+/v7+/v7+/v7+/v9/f39/f39/f39/f39/f39//////////////////////",
+      "foreground": 0.22,
+      "near": null,
+      "spread": 0.55
+     },
+     {
+      "t": 6000,
+      "cols": 16,
+      "rows": 9,
+      "grid": "AAAAAAAAAAAAAAAAAAAAACAgICAgICAgICAgICAgICBAQEBAQEBAQEBAQEBAQEBAYGBgYGBgYGBgYGBgYGBgYICAgICAgICAgICAgICAgICfn5+fn5+fn5+fn5+fn5+fv7+/v7+/v7+/v7+/v7+/v9/f39/f39/f39/f39/f39//////////////////////",
+      "foreground": 0.22,
+      "near": null,
+      "spread": 0.55
+     }
+    ],
+    "occluders": [],
+    "reframe": {
+     "aspect": 1.7777777777777777,
+     "cropWidth": 0.316,
+     "path": [
+      {
+       "t": 0,
+       "x": 0.5092,
+       "y": 0.5
+      },
+      {
+       "t": 500,
+       "x": 0.5198,
+       "y": 0.5
+      },
+      {
+       "t": 1000,
+       "x": 0.5382,
+       "y": 0.5
+      },
+      {
+       "t": 1500,
+       "x": 0.5588,
+       "y": 0.5
+      },
+      {
+       "t": 2000,
+       "x": 0.5808,
+       "y": 0.5
+      },
+      {
+       "t": 2500,
+       "x": 0.6001,
+       "y": 0.5
+      },
+      {
+       "t": 3000,
+       "x": 0.6136,
+       "y": 0.5
+      },
+      {
+       "t": 3500,
+       "x": 0.6193,
+       "y": 0.5
+      },
+      {
+       "t": 4000,
+       "x": 0.6185,
+       "y": 0.5
+      },
+      {
+       "t": 4500,
+       "x": 0.611,
+       "y": 0.5
+      },
+      {
+       "t": 5000,
+       "x": 0.5959,
+       "y": 0.5
+      },
+      {
+       "t": 5500,
+       "x": 0.5748,
+       "y": 0.5
+      },
+      {
+       "t": 6000,
+       "x": 0.5478,
+       "y": 0.5
+      },
+      {
+       "t": 6500,
+       "x": 0.5165,
+       "y": 0.5
+      },
+      {
+       "t": 7000,
+       "x": 0.4848,
+       "y": 0.5
+      },
+      {
+       "t": 7500,
+       "x": 0.4584,
+       "y": 0.5
+      },
+      {
+       "t": 7750,
+       "x": 0.4471,
+       "y": 0.5
+      }
+     ],
+     "closeUps": []
+    },
+    "scene": {
+     "palette": [
+      {
+       "hex": "#d9d2c5",
+       "share": 0.31
+      },
+      {
+       "hex": "#6f6a62",
+       "share": 0.24
+      },
+      {
+       "hex": "#2e2b27",
+       "share": 0.17
+      },
+      {
+       "hex": "#9fb6c9",
+       "share": 0.12
+      }
+     ],
+     "round": null,
+     "rectilinear": 0.58,
+     "brightnessRamps": [],
+     "blowouts": []
+    },
+    "models": {
+     "aesthetic": "Xenova/mobileclip_s0 (CLIP-IQA prompts)",
+     "depth": "onnx-community/depth-anything-v2-small",
+     "saliency": "spectral-residual 64x64"
+    },
+    "cost": {
+     "cpuMs": 0,
+     "wallMs": 0,
+     "analysedMs": 7841
+    },
+    "createdAt": "2026-10-26T00:00:00.000Z"
+   }
+  },
+  "cmvo12vor000d01ads3vhf94u": {
+   "fileName": "4909.mp4",
+   "analysis": {
+    "version": 1,
+    "durationMs": 8242,
+    "width": 1920,
+    "height": 1080,
+    "sampleMs": 250,
+    "aestheticEveryMs": 1000,
+    "samples": [
+     {
+      "t": 0,
+      "sharpness": 0.05,
+      "clipLow": 0,
+      "clipHigh": 0.053,
+      "luma": 0.41,
+      "aesthetic": 0.622,
+      "steady": 0.35,
+      "flow": {
+       "dx": 0.011,
+       "dy": -0.003,
+       "zoom": 0,
+       "magnitude": 0.012,
+       "residual": 0.196
+      },
+      "saliency": {
+       "x": 0.5,
+       "y": 0.52,
+       "strength": 0.623
+      }
+     },
+     {
+      "t": 250,
+      "sharpness": 0.05,
+      "clipLow": 0.007,
+      "clipHigh": 0.045,
+      "luma": 0.402,
+      "steady": 0.35,
+      "flow": {
+       "dx": 0.002,
+       "dy": 0.007,
+       "zoom": -0.009,
+       "magnitude": 0.007,
+       "residual": 0.139
+      },
+      "saliency": {
+       "x": 0.53,
+       "y": 0.52,
+       "strength": 0.68
+      }
+     },
+     {
+      "t": 500,
+      "sharpness": 0.267,
+      "clipLow": 0,
+      "clipHigh": 0.058,
+      "luma": 0.41,
+      "steady": 0.92,
+      "flow": {
+       "dx": -0.001,
+       "dy": 0.003,
+       "zoom": -0.018,
+       "magnitude": 0.009,
+       "residual": 0.233
+      },
+      "saliency": {
+       "x": 0.56,
+       "y": 0.518,
+       "strength": 0.515
+      }
+     },
+     {
+      "t": 750,
+      "sharpness": 0.334,
+      "clipLow": 0.005,
+      "clipHigh": 0.052,
+      "luma": 0.414,
+      "steady": 0.949,
+      "flow": {
+       "dx": -0.005,
+       "dy": 0.004,
+       "zoom": -0.027,
+       "magnitude": 0.013,
+       "residual": 0.13
+      },
+      "saliency": {
+       "x": 0.589,
+       "y": 0.516,
+       "strength": 0.442
+      }
+     },
+     {
+      "t": 1000,
+      "sharpness": 0.387,
+      "clipLow": 0.001,
+      "clipHigh": 0.051,
+      "luma": 0.412,
+      "aesthetic": 0.719,
+      "steady": 0.812,
+      "flow": {
+       "dx": 0,
+       "dy": -0.005,
+       "zoom": -0.035,
+       "magnitude": 0.018,
+       "residual": 0.215
+      },
+      "saliency": {
+       "x": 0.617,
+       "y": 0.513,
+       "strength": 0.519
+      }
+     },
+     {
+      "t": 1250,
+      "sharpness": 0.421,
+      "clipLow": 0.006,
+      "clipHigh": 0.063,
+      "luma": 0.437,
+      "steady": 0.831,
+      "flow": {
+       "dx": 0.005,
+       "dy": -0.003,
+       "zoom": -0.043,
+       "magnitude": 0.022,
+       "residual": 0.14
+      },
+      "saliency": {
+       "x": 0.643,
+       "y": 0.51,
+       "strength": 0.647
+      }
+     },
+     {
+      "t": 1500,
+      "sharpness": 0.45,
+      "clipLow": 0.002,
+      "clipHigh": 0.045,
+      "luma": 0.435,
+      "steady": 0.929,
+      "flow": {
+       "dx": 0,
+       "dy": 0,
+       "zoom": -0.051,
+       "magnitude": 0.025,
+       "residual": 0.127
+      },
+      "saliency": {
+       "x": 0.666,
+       "y": 0.505,
+       "strength": 0.672
+      }
+     },
+     {
+      "t": 1750,
+      "sharpness": 0.506,
+      "clipLow": 0.008,
+      "clipHigh": 0.058,
+      "luma": 0.414,
+      "steady": 0.826,
+      "flow": {
+       "dx": 0.002,
+       "dy": -0.001,
+       "zoom": -0.057,
+       "magnitude": 0.029,
+       "residual": 0.22
+      },
+      "saliency": {
+       "x": 0.688,
+       "y": 0.5,
+       "strength": 0.481
+      }
+     },
+     {
+      "t": 2000,
+      "sharpness": 0.614,
+      "clipLow": 0.007,
+      "clipHigh": 0.064,
+      "luma": 0.428,
+      "aesthetic": 0.784,
+      "steady": 0.91,
+      "flow": {
+       "dx": 0.004,
+       "dy": -0.001,
+       "zoom": -0.063,
+       "magnitude": 0.032,
+       "residual": 0.175
+      },
+      "saliency": {
+       "x": 0.706,
+       "y": 0.495,
+       "strength": 0.624
+      }
+     },
+     {
+      "t": 2250,
+      "sharpness": 0.655,
+      "clipLow": 0.01,
+      "clipHigh": 0.061,
+      "luma": 0.427,
+      "steady": 0.826,
+      "flow": {
+       "dx": 0,
+       "dy": 0.002,
+       "zoom": -0.069,
+       "magnitude": 0.034,
+       "residual": 0.227
+      },
+      "saliency": {
+       "x": 0.722,
+       "y": 0.488,
+       "strength": 0.771
+      }
+     },
+     {
+      "t": 2500,
+      "sharpness": 0.671,
+      "clipLow": 0.005,
+      "clipHigh": 0.043,
+      "luma": 0.405,
+      "steady": 0.945,
+      "flow": {
+       "dx": 0.005,
+       "dy": 0.001,
+       "zoom": -0.073,
+       "magnitude": 0.036,
+       "residual": 0.105
+      },
+      "saliency": {
+       "x": 0.734,
+       "y": 0.481,
+       "strength": 0.581
+      }
+     },
+     {
+      "t": 2750,
+      "sharpness": 0.794,
+      "clipLow": 0.007,
+      "clipHigh": 0.06,
+      "luma": 0.435,
+      "steady": 0.938,
+      "flow": {
+       "dx": 0.004,
+       "dy": 0.001,
+       "zoom": -0.076,
+       "magnitude": 0.038,
+       "residual": 0.241
+      },
+      "saliency": {
+       "x": 0.743,
+       "y": 0.474,
+       "strength": 0.525
+      }
+     },
+     {
+      "t": 3000,
+      "sharpness": 0.813,
+      "clipLow": 0.007,
+      "clipHigh": 0.054,
+      "luma": 0.417,
+      "aesthetic": 0.611,
+      "steady": 0.881,
+      "flow": {
+       "dx": 0,
+       "dy": -0.004,
+       "zoom": -0.078,
+       "magnitude": 0.039,
+       "residual": 0.13
+      },
+      "saliency": {
+       "x": 0.748,
+       "y": 0.466,
+       "strength": 0.785
+      }
+     },
+     {
+      "t": 3250,
+      "sharpness": 0.849,
+      "clipLow": 0.002,
+      "clipHigh": 0.066,
+      "luma": 0.401,
+      "steady": 0.926,
+      "flow": {
+       "dx": -0.001,
+       "dy": 0.002,
+       "zoom": -0.08,
+       "magnitude": 0.04,
+       "residual": 0.216
+      },
+      "saliency": {
+       "x": 0.75,
+       "y": 0.458,
+       "strength": 0.775
+      }
+     },
+     {
+      "t": 3500,
+      "sharpness": 0.869,
+      "clipLow": 0.008,
+      "clipHigh": 0.049,
+      "luma": 0.44,
+      "steady": 0.869,
+      "flow": {
+       "dx": 0.001,
+       "dy": 0.005,
+       "zoom": -0.08,
+       "magnitude": 0.04,
+       "residual": 0.146
+      },
+      "saliency": {
+       "x": 0.748,
+       "y": 0.449,
+       "strength": 0.652
+      }
+     },
+     {
+      "t": 3750,
+      "sharpness": 0.82,
+      "clipLow": 0.004,
+      "clipHigh": 0.06,
+      "luma": 0.409,
+      "steady": 0.86,
+      "flow": {
+       "dx": -0.004,
+       "dy": -0.001,
+       "zoom": -0.079,
+       "magnitude": 0.04,
+       "residual": 0.174
+      },
+      "saliency": {
+       "x": 0.742,
+       "y": 0.44,
+       "strength": 0.568
+      }
+     },
+     {
+      "t": 4000,
+      "sharpness": 0.874,
+      "clipLow": 0.007,
+      "clipHigh": 0.065,
+      "luma": 0.424,
+      "aesthetic": 0.744,
+      "steady": 0.816,
+      "flow": {
+       "dx": 0.004,
+       "dy": 0,
+       "zoom": -0.077,
+       "magnitude": 0.039,
+       "residual": 0.122
+      },
+      "saliency": {
+       "x": 0.733,
+       "y": 0.431,
+       "strength": 0.673
+      }
+     },
+     {
+      "t": 4250,
+      "sharpness": 0.84,
+      "clipLow": 0.006,
+      "clipHigh": 0.066,
+      "luma": 0.427,
+      "steady": 0.842,
+      "flow": {
+       "dx": 0.003,
+       "dy": 0.001,
+       "zoom": -0.074,
+       "magnitude": 0.037,
+       "residual": 0.154
+      },
+      "saliency": {
+       "x": 0.72,
+       "y": 0.422,
+       "strength": 0.758
+      }
+     },
+     {
+      "t": 4500,
+      "sharpness": 0.818,
+      "clipLow": 0.003,
+      "clipHigh": 0.065,
+      "luma": 0.416,
+      "steady": 0.923,
+      "flow": {
+       "dx": 0.004,
+       "dy": -0.005,
+       "zoom": -0.071,
+       "magnitude": 0.035,
+       "residual": 0.202
+      },
+      "saliency": {
+       "x": 0.704,
+       "y": 0.413,
+       "strength": 0.543
+      }
+     },
+     {
+      "t": 4750,
+      "sharpness": 0.696,
+      "clipLow": 0.006,
+      "clipHigh": 0.053,
+      "luma": 0.438,
+      "steady": 0.934,
+      "flow": {
+       "dx": 0.004,
+       "dy": -0.002,
+       "zoom": -0.066,
+       "magnitude": 0.033,
+       "residual": 0.184
+      },
+      "saliency": {
+       "x": 0.686,
+       "y": 0.404,
+       "strength": 0.764
+      }
+     },
+     {
+      "t": 5000,
+      "sharpness": 0.636,
+      "clipLow": 0.01,
+      "clipHigh": 0.063,
+      "luma": 0.423,
+      "aesthetic": 0.503,
+      "steady": 0.929,
+      "flow": {
+       "dx": 0.001,
+       "dy": 0.003,
+       "zoom": -0.06,
+       "magnitude": 0.03,
+       "residual": 0.214
+      },
+      "saliency": {
+       "x": 0.664,
+       "y": 0.395,
+       "strength": 0.538
+      }
+     },
+     {
+      "t": 5250,
+      "sharpness": 0.624,
+      "clipLow": 0.007,
+      "clipHigh": 0.044,
+      "luma": 0.416,
+      "steady": 0.934,
+      "flow": {
+       "dx": 0.003,
+       "dy": -0.003,
+       "zoom": -0.054,
+       "magnitude": 0.027,
+       "residual": 0.216
+      },
+      "saliency": {
+       "x": 0.64,
+       "y": 0.387,
+       "strength": 0.631
+      }
+     },
+     {
+      "t": 5500,
+      "sharpness": 0.533,
+      "clipLow": 0.006,
+      "clipHigh": 0.068,
+      "luma": 0.4,
+      "steady": 0.805,
+      "flow": {
+       "dx": -0.002,
+       "dy": 0.004,
+       "zoom": -0.047,
+       "magnitude": 0.023,
+       "residual": 0.187
+      },
+      "saliency": {
+       "x": 0.614,
+       "y": 0.378,
+       "strength": 0.54
+      }
+     },
+     {
+      "t": 5750,
+      "sharpness": 0.522,
+      "clipLow": 0.003,
+      "clipHigh": 0.05,
+      "luma": 0.424,
+      "steady": 0.814,
+      "flow": {
+       "dx": -0.001,
+       "dy": 0.002,
+       "zoom": -0.039,
+       "magnitude": 0.02,
+       "residual": 0.127
+      },
+      "saliency": {
+       "x": 0.586,
+       "y": 0.37,
+       "strength": 0.66
+      }
+     },
+     {
+      "t": 6000,
+      "sharpness": 0.423,
+      "clipLow": 0.001,
+      "clipHigh": 0.054,
+      "luma": 0.415,
+      "aesthetic": 0.642,
+      "steady": 0.884,
+      "flow": {
+       "dx": -0.005,
+       "dy": -0.002,
+       "zoom": -0.031,
+       "magnitude": 0.015,
+       "residual": 0.18
+      },
+      "saliency": {
+       "x": 0.557,
+       "y": 0.362,
+       "strength": 0.479
+      }
+     },
+     {
+      "t": 6250,
+      "sharpness": 0.402,
+      "clipLow": 0.002,
+      "clipHigh": 0.063,
+      "luma": 0.406,
+      "steady": 0.806,
+      "flow": {
+       "dx": 0,
+       "dy": -0.002,
+       "zoom": -0.022,
+       "magnitude": 0.011,
+       "residual": 0.235
+      },
+      "saliency": {
+       "x": 0.527,
+       "y": 0.355,
+       "strength": 0.451
+      }
+     },
+     {
+      "t": 6500,
+      "sharpness": 0.334,
+      "clipLow": 0.005,
+      "clipHigh": 0.053,
+      "luma": 0.414,
+      "steady": 0.815,
+      "flow": {
+       "dx": 0,
+       "dy": 0.001,
+       "zoom": -0.013,
+       "magnitude": 0.007,
+       "residual": 0.171
+      },
+      "saliency": {
+       "x": 0.497,
+       "y": 0.349,
+       "strength": 0.768
+      }
+     },
+     {
+      "t": 6750,
+      "sharpness": 0.307,
+      "clipLow": 0.006,
+      "clipHigh": 0.052,
+      "luma": 0.403,
+      "steady": 0.882,
+      "flow": {
+       "dx": 0,
+       "dy": -0.001,
+       "zoom": -0.004,
+       "magnitude": 0.002,
+       "residual": 0.162
+      },
+      "saliency": {
+       "x": 0.467,
+       "y": 0.343,
+       "strength": 0.404
+      }
+     },
+     {
+      "t": 7000,
+      "sharpness": 0.308,
+      "clipLow": 0.008,
+      "clipHigh": 0.058,
+      "luma": 0.431,
+      "aesthetic": 0.464,
+      "steady": 0.899,
+      "flow": {
+       "dx": -0.004,
+       "dy": 0,
+       "zoom": 0,
+       "magnitude": 0.004,
+       "residual": 0.147
+      },
+      "saliency": {
+       "x": 0.437,
+       "y": 0.337,
+       "strength": 0.63
+      }
+     },
+     {
+      "t": 7250,
+      "sharpness": 0.286,
+      "clipLow": 0.004,
+      "clipHigh": 0.058,
+      "luma": 0.425,
+      "steady": 0.944,
+      "flow": {
+       "dx": -0.001,
+       "dy": -0.001,
+       "zoom": 0,
+       "magnitude": 0.002,
+       "residual": 0.154
+      },
+      "saliency": {
+       "x": 0.408,
+       "y": 0.332,
+       "strength": 0.448
+      }
+     },
+     {
+      "t": 7500,
+      "sharpness": 0.234,
+      "clipLow": 0,
+      "clipHigh": 0.042,
+      "luma": 0.411,
+      "steady": 0.854,
+      "flow": {
+       "dx": -0.001,
+       "dy": 0.005,
+       "zoom": 0,
+       "magnitude": 0.005,
+       "residual": 0.168
+      },
+      "saliency": {
+       "x": 0.381,
+       "y": 0.328,
+       "strength": 0.512
+      }
+     },
+     {
+      "t": 7750,
+      "sharpness": 0.313,
+      "clipLow": 0.004,
+      "clipHigh": 0.042,
+      "luma": 0.416,
+      "steady": 0.826,
+      "flow": {
+       "dx": 0.003,
+       "dy": 0,
+       "zoom": 0,
+       "magnitude": 0.003,
+       "residual": 0.122
+      },
+      "saliency": {
+       "x": 0.355,
+       "y": 0.325,
+       "strength": 0.506
+      }
+     },
+     {
+      "t": 8000,
+      "sharpness": 0.05,
+      "clipLow": 0.005,
+      "clipHigh": 0.057,
+      "luma": 0.434,
+      "aesthetic": 0.377,
+      "steady": 0.35,
+      "flow": {
+       "dx": 0.014,
+       "dy": 0.024,
+       "zoom": 0,
+       "magnitude": 0.028,
+       "residual": 0.145
+      },
+      "saliency": {
+       "x": 0.331,
+       "y": 0.323,
+       "strength": 0.423
+      }
+     }
+    ],
+    "windows": [
+     {
+      "lengthMs": 800,
+      "best": [
+       {
+        "startMs": 3550,
+        "endMs": 4350,
+        "score": 0.649,
+        "sharpness": 0.845,
+        "exposure": 0.653,
+        "aesthetic": 0.744,
+        "steady": 0.839,
+        "motion": 0.117,
+        "direction": "pull"
+       },
+       {
+        "startMs": 2300,
+        "endMs": 3100,
+        "score": 0.628,
+        "sharpness": 0.759,
+        "exposure": 0.707,
+        "aesthetic": 0.669,
+        "steady": 0.921,
+        "motion": 0.11,
+        "direction": "pull"
+       },
+       {
+        "startMs": 1300,
+        "endMs": 2100,
+        "score": 0.564,
+        "sharpness": 0.523,
+        "exposure": 0.693,
+        "aesthetic": 0.762,
+        "steady": 0.888,
+        "motion": 0.054,
+        "direction": "pull"
+       }
+      ]
+     },
+     {
+      "lengthMs": 1500,
+      "best": [
+       {
+        "startMs": 3050,
+        "endMs": 4550,
+        "score": 0.646,
+        "sharpness": 0.845,
+        "exposure": 0.666,
+        "aesthetic": 0.7,
+        "steady": 0.873,
+        "motion": 0.116,
+        "direction": "pull"
+       },
+       {
+        "startMs": 1550,
+        "endMs": 3050,
+        "score": 0.604,
+        "sharpness": 0.676,
+        "exposure": 0.68,
+        "aesthetic": 0.726,
+        "steady": 0.888,
+        "motion": 0.092,
+        "direction": "pull"
+       },
+       {
+        "startMs": 4550,
+        "endMs": 6050,
+        "score": 0.499,
+        "sharpness": 0.572,
+        "exposure": 0.696,
+        "aesthetic": 0.549,
+        "steady": 0.883,
+        "motion": 0.029,
+        "direction": "pull"
+       }
+      ]
+     },
+     {
+      "lengthMs": 2500,
+      "best": [
+       {
+        "startMs": 2050,
+        "endMs": 4550,
+        "score": 0.636,
+        "sharpness": 0.8,
+        "exposure": 0.676,
+        "aesthetic": 0.699,
+        "steady": 0.883,
+        "motion": 0.111,
+        "direction": "pull"
+       },
+       {
+        "startMs": 4550,
+        "endMs": 7050,
+        "score": 0.419,
+        "sharpness": 0.479,
+        "exposure": 0.694,
+        "aesthetic": 0.551,
+        "steady": 0.87,
+        "motion": 0,
+        "direction": "static"
+       }
+      ]
+     },
+     {
+      "lengthMs": 4000,
+      "best": [
+       {
+        "startMs": 1300,
+        "endMs": 5300,
+        "score": 0.607,
+        "sharpness": 0.721,
+        "exposure": 0.683,
+        "aesthetic": 0.674,
+        "steady": 0.893,
+        "motion": 0.091,
+        "direction": "pull"
+       }
+      ]
+     }
+    ],
+    "motion": [
+     {
+      "startMs": 0,
+      "endMs": 1250,
+      "direction": "static",
+      "magnitude": 0.0089,
+      "mover": "none",
+      "consistency": 1
+     },
+     {
+      "startMs": 1250,
+      "endMs": 5750,
+      "direction": "pull",
+      "magnitude": 0.0333,
+      "mover": "camera",
+      "consistency": 1
+     },
+     {
+      "startMs": 5750,
+      "endMs": 8242,
+      "direction": "static",
+      "magnitude": 0.0055,
+      "mover": "none",
+      "consistency": 0.9
+     }
+    ],
+    "flowPeaks": [],
+    "depth": [
+     {
+      "t": 2000,
+      "cols": 16,
+      "rows": 9,
+      "grid": "AAAAAAAAAAAAAAAAAAAAACAgICAgICAgICAgICAgICBAQEBAQEBAQEBAQEBAQEBAYGBgYGBgYGBgYGBgYGBgYICAgICAgICAgICAgICAgICfn5+fn5+fn5+fn5+fn5+fv7+/v7+/v7+/v7+/v7+/v9/f39/f39/f39/f39/f39//////////////////////",
+      "foreground": 0.22,
+      "near": null,
+      "spread": 0.55
+     },
+     {
+      "t": 4000,
+      "cols": 16,
+      "rows": 9,
+      "grid": "AAAAAAAAAAAAAAAAAAAAACAgICAgICAgICAgICAgICBAQEBAQEBAQEBAQEBAQEBAYGBgYGBgYGBgYGBgYGBgYICAgICAgICAgICAgICAgICfn5+fn5+fn5+fn5+fn5+fv7+/v7+/v7+/v7+/v7+/v9/f39/f39/f39/f39/f39//////////////////////",
+      "foreground": 0.22,
+      "near": null,
+      "spread": 0.55
+     },
+     {
+      "t": 6250,
+      "cols": 16,
+      "rows": 9,
+      "grid": "AAAAAAAAAAAAAAAAAAAAACAgICAgICAgICAgICAgICBAQEBAQEBAQEBAQEBAQEBAYGBgYGBgYGBgYGBgYGBgYICAgICAgICAgICAgICAgICfn5+fn5+fn5+fn5+fn5+fv7+/v7+/v7+/v7+/v7+/v9/f39/f39/f39/f39/f39//////////////////////",
+      "foreground": 0.22,
+      "near": null,
+      "spread": 0.55
+     }
+    ],
+    "occluders": [],
+    "reframe": {
+     "aspect": 1.7777777777777777,
+     "cropWidth": 0.316,
+     "path": [
+      {
+       "t": 0,
+       "x": 0.5112,
+       "y": 0.5
+      },
+      {
+       "t": 500,
+       "x": 0.5233,
+       "y": 0.5
+      },
+      {
+       "t": 1000,
+       "x": 0.541,
+       "y": 0.5
+      },
+      {
+       "t": 1500,
+       "x": 0.5625,
+       "y": 0.5
+      },
+      {
+       "t": 2000,
+       "x": 0.589,
+       "y": 0.5
+      },
+      {
+       "t": 2500,
+       "x": 0.6114,
+       "y": 0.5
+      },
+      {
+       "t": 3000,
+       "x": 0.6309,
+       "y": 0.5
+      },
+      {
+       "t": 3500,
+       "x": 0.6421,
+       "y": 0.5
+      },
+      {
+       "t": 4000,
+       "x": 0.6452,
+       "y": 0.5
+      },
+      {
+       "t": 4500,
+       "x": 0.638,
+       "y": 0.5
+      },
+      {
+       "t": 5000,
+       "x": 0.6234,
+       "y": 0.5
+      },
+      {
+       "t": 5500,
+       "x": 0.6018,
+       "y": 0.5
+      },
+      {
+       "t": 6000,
+       "x": 0.5757,
+       "y": 0.5
+      },
+      {
+       "t": 6500,
+       "x": 0.5489,
+       "y": 0.5
+      },
+      {
+       "t": 7000,
+       "x": 0.5245,
+       "y": 0.5
+      },
+      {
+       "t": 7500,
+       "x": 0.5052,
+       "y": 0.5
+      },
+      {
+       "t": 8000,
+       "x": 0.4909,
+       "y": 0.5
+      }
+     ],
+     "closeUps": []
+    },
+    "scene": {
+     "palette": [
+      {
+       "hex": "#d9d2c5",
+       "share": 0.31
+      },
+      {
+       "hex": "#6f6a62",
+       "share": 0.24
+      },
+      {
+       "hex": "#2e2b27",
+       "share": 0.17
+      },
+      {
+       "hex": "#9fb6c9",
+       "share": 0.12
+      }
+     ],
+     "round": null,
+     "rectilinear": 0.58,
+     "brightnessRamps": [],
+     "blowouts": [
+      {
+       "t": 2000,
+       "box": {
+        "x": 0.1,
+        "y": 0,
+        "w": 0.8,
+        "h": 0.35
+       },
+       "share": 0.18,
+       "kind": "sky"
+      }
+     ]
+    },
+    "models": {
+     "aesthetic": "Xenova/mobileclip_s0 (CLIP-IQA prompts)",
+     "depth": "onnx-community/depth-anything-v2-small",
+     "saliency": "spectral-residual 64x64"
+    },
+    "cost": {
+     "cpuMs": 0,
+     "wallMs": 0,
+     "analysedMs": 8242
+    },
+    "createdAt": "2026-10-26T00:00:00.000Z"
+   }
+  },
+  "cmvo138e4000j01ad84r5ptyd": {
+   "fileName": "4910.mp4",
+   "analysis": {
+    "version": 1,
+    "durationMs": 6306,
+    "width": 1920,
+    "height": 1080,
+    "sampleMs": 250,
+    "aestheticEveryMs": 1000,
+    "samples": [
+     {
+      "t": 0,
+      "sharpness": 0.05,
+      "clipLow": 0.004,
+      "clipHigh": 0.008,
+      "luma": 0.402,
+      "aesthetic": 0.632,
+      "steady": 0.35,
+      "flow": {
+       "dx": 0.013,
+       "dy": -0.007,
+       "zoom": 0,
+       "magnitude": 0.015,
+       "residual": 0.112
+      },
+      "saliency": {
+       "x": 0.465,
+       "y": 0.52,
+       "strength": 0.55
+      }
+     },
+     {
+      "t": 250,
+      "sharpness": 0.05,
+      "clipLow": 0.001,
+      "clipHigh": 0.008,
+      "luma": 0.424,
+      "steady": 0.35,
+      "flow": {
+       "dx": -0.038,
+       "dy": 0.005,
+       "zoom": 0,
+       "magnitude": 0.038,
+       "residual": 0.233
+      },
+      "saliency": {
+       "x": 0.426,
+       "y": 0.519,
+       "strength": 0.609
+      }
+     },
+     {
+      "t": 500,
+      "sharpness": 0.207,
+      "clipLow": 0.009,
+      "clipHigh": 0.01,
+      "luma": 0.413,
+      "steady": 0.826,
+      "flow": {
+       "dx": -0.031,
+       "dy": -0.001,
+       "zoom": 0,
+       "magnitude": 0.031,
+       "residual": 0.15
+      },
+      "saliency": {
+       "x": 0.389,
+       "y": 0.517,
+       "strength": 0.563
+      }
+     },
+     {
+      "t": 750,
+      "sharpness": 0.276,
+      "clipLow": 0.006,
+      "clipHigh": 0.001,
+      "luma": 0.402,
+      "steady": 0.885,
+      "flow": {
+       "dx": -0.045,
+       "dy": -0.004,
+       "zoom": 0,
+       "magnitude": 0.045,
+       "residual": 0.196
+      },
+      "saliency": {
+       "x": 0.355,
+       "y": 0.514,
+       "strength": 0.689
+      }
+     },
+     {
+      "t": 1000,
+      "sharpness": 0.232,
+      "clipLow": 0.001,
+      "clipHigh": 0.006,
+      "luma": 0.425,
+      "aesthetic": 0.706,
+      "steady": 0.891,
+      "flow": {
+       "dx": -0.06,
+       "dy": 0.001,
+       "zoom": 0,
+       "magnitude": 0.06,
+       "residual": 0.222
+      },
+      "saliency": {
+       "x": 0.325,
+       "y": 0.509,
+       "strength": 0.708
+      }
+     },
+     {
+      "t": 1250,
+      "sharpness": 0.322,
+      "clipLow": 0.007,
+      "clipHigh": 0.007,
+      "luma": 0.402,
+      "steady": 0.919,
+      "flow": {
+       "dx": -0.064,
+       "dy": -0.002,
+       "zoom": 0,
+       "magnitude": 0.064,
+       "residual": 0.174
+      },
+      "saliency": {
+       "x": 0.299,
+       "y": 0.503,
+       "strength": 0.704
+      }
+     },
+     {
+      "t": 1500,
+      "sharpness": 0.362,
+      "clipLow": 0.007,
+      "clipHigh": 0.002,
+      "luma": 0.425,
+      "steady": 0.831,
+      "flow": {
+       "dx": -0.076,
+       "dy": -0.001,
+       "zoom": 0,
+       "magnitude": 0.076,
+       "residual": 0.186
+      },
+      "saliency": {
+       "x": 0.278,
+       "y": 0.496,
+       "strength": 0.676
+      }
+     },
+     {
+      "t": 1750,
+      "sharpness": 0.41,
+      "clipLow": 0.005,
+      "clipHigh": 0.005,
+      "luma": 0.417,
+      "steady": 0.808,
+      "flow": {
+       "dx": -0.083,
+       "dy": -0.003,
+       "zoom": 0,
+       "magnitude": 0.084,
+       "residual": 0.181
+      },
+      "saliency": {
+       "x": 0.263,
+       "y": 0.487,
+       "strength": 0.711
+      }
+     },
+     {
+      "t": 2000,
+      "sharpness": 0.556,
+      "clipLow": 0.003,
+      "clipHigh": 0.009,
+      "luma": 0.414,
+      "aesthetic": 0.662,
+      "steady": 0.941,
+      "flow": {
+       "dx": -0.096,
+       "dy": 0.002,
+       "zoom": 0,
+       "magnitude": 0.096,
+       "residual": 0.234
+      },
+      "saliency": {
+       "x": 0.253,
+       "y": 0.478,
+       "strength": 0.731
+      }
+     },
+     {
+      "t": 2250,
+      "sharpness": 0.555,
+      "clipLow": 0.004,
+      "clipHigh": 0.005,
+      "luma": 0.437,
+      "steady": 0.8,
+      "flow": {
+       "dx": -0.096,
+       "dy": -0.001,
+       "zoom": 0,
+       "magnitude": 0.096,
+       "residual": 0.211
+      },
+      "saliency": {
+       "x": 0.25,
+       "y": 0.468,
+       "strength": 0.723
+      }
+     },
+     {
+      "t": 2500,
+      "sharpness": 0.674,
+      "clipLow": 0.002,
+      "clipHigh": 0.002,
+      "luma": 0.425,
+      "steady": 0.843,
+      "flow": {
+       "dx": -0.095,
+       "dy": -0.003,
+       "zoom": 0,
+       "magnitude": 0.095,
+       "residual": 0.189
+      },
+      "saliency": {
+       "x": 0.253,
+       "y": 0.457,
+       "strength": 0.731
+      }
+     },
+     {
+      "t": 2750,
+      "sharpness": 0.743,
+      "clipLow": 0.007,
+      "clipHigh": 0.005,
+      "luma": 0.436,
+      "steady": 0.816,
+      "flow": {
+       "dx": -0.096,
+       "dy": -0.002,
+       "zoom": 0,
+       "magnitude": 0.096,
+       "residual": 0.203
+      },
+      "saliency": {
+       "x": 0.262,
+       "y": 0.446,
+       "strength": 0.402
+      }
+     },
+     {
+      "t": 3000,
+      "sharpness": 0.843,
+      "clipLow": 0.007,
+      "clipHigh": 0.002,
+      "luma": 0.419,
+      "aesthetic": 0.62,
+      "steady": 0.94,
+      "flow": {
+       "dx": -0.094,
+       "dy": 0,
+       "zoom": 0,
+       "magnitude": 0.094,
+       "residual": 0.222
+      },
+      "saliency": {
+       "x": 0.278,
+       "y": 0.434,
+       "strength": 0.618
+      }
+     },
+     {
+      "t": 3250,
+      "sharpness": 0.885,
+      "clipLow": 0.008,
+      "clipHigh": 0,
+      "luma": 0.402,
+      "steady": 0.874,
+      "flow": {
+       "dx": -0.089,
+       "dy": 0.005,
+       "zoom": 0,
+       "magnitude": 0.089,
+       "residual": 0.222
+      },
+      "saliency": {
+       "x": 0.298,
+       "y": 0.422,
+       "strength": 0.717
+      }
+     },
+     {
+      "t": 3500,
+      "sharpness": 0.838,
+      "clipLow": 0.008,
+      "clipHigh": 0.001,
+      "luma": 0.434,
+      "steady": 0.864,
+      "flow": {
+       "dx": -0.082,
+       "dy": -0.004,
+       "zoom": 0,
+       "magnitude": 0.082,
+       "residual": 0.241
+      },
+      "saliency": {
+       "x": 0.324,
+       "y": 0.411,
+       "strength": 0.534
+      }
+     },
+     {
+      "t": 3750,
+      "sharpness": 0.656,
+      "clipLow": 0.12,
+      "clipHigh": 0.005,
+      "luma": 0.18,
+      "steady": 0.867,
+      "flow": {
+       "dx": -0.082,
+       "dy": 0,
+       "zoom": 0,
+       "magnitude": 0.082,
+       "residual": 0.104
+      },
+      "saliency": {
+       "x": 0.354,
+       "y": 0.399,
+       "strength": 0.755
+      }
+     },
+     {
+      "t": 4000,
+      "sharpness": 0.56,
+      "clipLow": 0.12,
+      "clipHigh": 0.001,
+      "luma": 0.18,
+      "aesthetic": 0.62,
+      "steady": 0.813,
+      "flow": {
+       "dx": -0.067,
+       "dy": -0.005,
+       "zoom": 0,
+       "magnitude": 0.067,
+       "residual": 0.103
+      },
+      "saliency": {
+       "x": 0.388,
+       "y": 0.387,
+       "strength": 0.629
+      }
+     },
+     {
+      "t": 4250,
+      "sharpness": 0.568,
+      "clipLow": 0.12,
+      "clipHigh": 0.007,
+      "luma": 0.18,
+      "steady": 0.847,
+      "flow": {
+       "dx": -0.058,
+       "dy": 0.003,
+       "zoom": 0,
+       "magnitude": 0.058,
+       "residual": 0.222
+      },
+      "saliency": {
+       "x": 0.425,
+       "y": 0.376,
+       "strength": 0.629
+      }
+     },
+     {
+      "t": 4500,
+      "sharpness": 0.723,
+      "clipLow": 0.003,
+      "clipHigh": 0.01,
+      "luma": 0.403,
+      "steady": 0.918,
+      "flow": {
+       "dx": -0.043,
+       "dy": -0.004,
+       "zoom": 0,
+       "magnitude": 0.043,
+       "residual": 0.177
+      },
+      "saliency": {
+       "x": 0.464,
+       "y": 0.366,
+       "strength": 0.621
+      }
+     },
+     {
+      "t": 4750,
+      "sharpness": 0.597,
+      "clipLow": 0.006,
+      "clipHigh": 0.01,
+      "luma": 0.437,
+      "steady": 0.943,
+      "flow": {
+       "dx": -0.034,
+       "dy": 0.003,
+       "zoom": 0,
+       "magnitude": 0.034,
+       "residual": 0.169
+      },
+      "saliency": {
+       "x": 0.503,
+       "y": 0.356,
+       "strength": 0.403
+      }
+     },
+     {
+      "t": 5000,
+      "sharpness": 0.482,
+      "clipLow": 0.001,
+      "clipHigh": 0.008,
+      "luma": 0.411,
+      "aesthetic": 0.449,
+      "steady": 0.904,
+      "flow": {
+       "dx": -0.011,
+       "dy": -0.001,
+       "zoom": 0,
+       "magnitude": 0.011,
+       "residual": 0.207
+      },
+      "saliency": {
+       "x": 0.543,
+       "y": 0.348,
+       "strength": 0.628
+      }
+     },
+     {
+      "t": 5250,
+      "sharpness": 0.466,
+      "clipLow": 0.001,
+      "clipHigh": 0.001,
+      "luma": 0.402,
+      "steady": 0.829,
+      "flow": {
+       "dx": 0,
+       "dy": 0.003,
+       "zoom": 0,
+       "magnitude": 0.003,
+       "residual": 0.146
+      },
+      "saliency": {
+       "x": 0.581,
+       "y": 0.34,
+       "strength": 0.48
+      }
+     },
+     {
+      "t": 5500,
+      "sharpness": 0.403,
+      "clipLow": 0.003,
+      "clipHigh": 0.002,
+      "luma": 0.414,
+      "steady": 0.852,
+      "flow": {
+       "dx": -0.001,
+       "dy": 0.004,
+       "zoom": 0,
+       "magnitude": 0.004,
+       "residual": 0.221
+      },
+      "saliency": {
+       "x": 0.617,
+       "y": 0.333,
+       "strength": 0.558
+      }
+     },
+     {
+      "t": 5750,
+      "sharpness": 0.357,
+      "clipLow": 0.002,
+      "clipHigh": 0.006,
+      "luma": 0.4,
+      "steady": 0.881,
+      "flow": {
+       "dx": 0.003,
+       "dy": 0,
+       "zoom": 0,
+       "magnitude": 0.003,
+       "residual": 0.117
+      },
+      "saliency": {
+       "x": 0.651,
+       "y": 0.328,
+       "strength": 0.613
+      }
+     },
+     {
+      "t": 6000,
+      "sharpness": 0.05,
+      "clipLow": 0.009,
+      "clipHigh": 0.007,
+      "luma": 0.417,
+      "aesthetic": 0.494,
+      "steady": 0.35,
+      "flow": {
+       "dx": -0.01,
+       "dy": -0.005,
+       "zoom": 0,
+       "magnitude": 0.011,
+       "residual": 0.154
+      },
+      "saliency": {
+       "x": 0.68,
+       "y": 0.324,
+       "strength": 0.545
+      }
+     },
+     {
+      "t": 6250,
+      "sharpness": 0.05,
+      "clipLow": 0.004,
+      "clipHigh": 0.003,
+      "luma": 0.419,
+      "steady": 0.35,
+      "flow": {
+       "dx": 0.01,
+       "dy": 0.007,
+       "zoom": 0,
+       "magnitude": 0.012,
+       "residual": 0.177
+      },
+      "saliency": {
+       "x": 0.705,
+       "y": 0.321,
+       "strength": 0.747
+      }
+     }
+    ],
+    "windows": [
+     {
+      "lengthMs": 800,
+      "best": [
+       {
+        "startMs": 2800,
+        "endMs": 3600,
+        "score": 0.738,
+        "sharpness": 0.855,
+        "exposure": 0.957,
+        "aesthetic": 0.62,
+        "steady": 0.893,
+        "motion": 0.427,
+        "direction": "left"
+       },
+       {
+        "startMs": 1800,
+        "endMs": 2600,
+        "score": 0.679,
+        "sharpness": 0.595,
+        "exposure": 0.958,
+        "aesthetic": 0.662,
+        "steady": 0.861,
+        "motion": 0.473,
+        "direction": "left"
+       },
+       {
+        "startMs": 4300,
+        "endMs": 5100,
+        "score": 0.541,
+        "sharpness": 0.601,
+        "exposure": 0.937,
+        "aesthetic": 0.506,
+        "steady": 0.922,
+        "motion": 0.058,
+        "direction": "left"
+       }
+      ]
+     },
+     {
+      "lengthMs": 1500,
+      "best": [
+       {
+        "startMs": 2050,
+        "endMs": 3550,
+        "score": 0.712,
+        "sharpness": 0.756,
+        "exposure": 0.958,
+        "aesthetic": 0.634,
+        "steady": 0.856,
+        "motion": 0.45,
+        "direction": "left"
+       },
+       {
+        "startMs": 550,
+        "endMs": 2050,
+        "score": 0.491,
+        "sharpness": 0.36,
+        "exposure": 0.951,
+        "aesthetic": 0.691,
+        "steady": 0.879,
+        "motion": 0.318,
+        "direction": "left"
+       },
+       {
+        "startMs": 3550,
+        "endMs": 5050,
+        "score": 0.488,
+        "sharpness": 0.598,
+        "exposure": 0.658,
+        "aesthetic": 0.563,
+        "steady": 0.882,
+        "motion": 0.182,
+        "direction": "left"
+       }
+      ]
+     },
+     {
+      "lengthMs": 2500,
+      "best": [
+       {
+        "startMs": 1050,
+        "endMs": 3550,
+        "score": 0.62,
+        "sharpness": 0.619,
+        "exposure": 0.952,
+        "aesthetic": 0.654,
+        "steady": 0.864,
+        "motion": 0.42,
+        "direction": "left"
+       }
+      ]
+     },
+     {
+      "lengthMs": 4000,
+      "best": [
+       {
+        "startMs": 1050,
+        "endMs": 5050,
+        "score": 0.557,
+        "sharpness": 0.611,
+        "exposure": 0.842,
+        "aesthetic": 0.62,
+        "steady": 0.87,
+        "motion": 0.331,
+        "direction": "left"
+       }
+      ]
+     }
+    ],
+    "motion": [
+     {
+      "startMs": 0,
+      "endMs": 5000,
+      "direction": "left",
+      "magnitude": 0.0658,
+      "mover": "camera",
+      "consistency": 0.95
+     },
+     {
+      "startMs": 5000,
+      "endMs": 6306,
+      "direction": "static",
+      "magnitude": 0.002,
+      "mover": "none",
+      "consistency": 1
+     }
+    ],
+    "flowPeaks": [],
+    "depth": [
+     {
+      "t": 1500,
+      "cols": 16,
+      "rows": 9,
+      "grid": "AAAAAAAAAAAAAAAAAAAAACAgICAgICAgICAgICAgICBAQEBAQEBAQEBAQEBAQEBAYGBgYGBgYGBgYGBgYGBgYICAgICAgICAgICAgICAgICfn5+fn5+fn5+fn5+fn5+fv7+/v7+/v7+/v7+/v7+/v9/f39/f39/f39/f39/f39//////////////////////",
+      "foreground": 0.22,
+      "near": null,
+      "spread": 0.55
+     },
+     {
+      "t": 3250,
+      "cols": 16,
+      "rows": 9,
+      "grid": "AAAAAAAAAAAAAAAAAAAAACAgICAgICAgICAgICAgICBAQEBAQEBAQEBAQEBAQEBAYGBgYGBgYGBgYGBgYGBgYICAgICAgICAgICAgICAgICfn5+fn5+fn5+fn5+fn5+fv7+/v7+/v7+/v7+/v7+/v9/f39/f39/f39/f39/f39//////////////////////",
+      "foreground": 0.22,
+      "near": null,
+      "spread": 0.55
+     },
+     {
+      "t": 4750,
+      "cols": 16,
+      "rows": 9,
+      "grid": "AAAAAAAAAAAAAAAAAAAAACAgICAgICAgICAgICAgICBAQEBAQEBAQEBAQEBAQEBAYGBgYGBgYGBgYGBgYGBgYICAgICAgICAgICAgICAgICfn5+fn5+fn5+fn5+fn5+fv7+/v7+/v7+/v7+/v7+/v9/f39/f39/f39/f39/f39//////////////////////",
+      "foreground": 0.22,
+      "near": null,
+      "spread": 0.55
+     }
+    ],
+    "occluders": [
+     {
+      "startMs": 3600,
+      "endMs": 4300,
+      "peakMs": 4000,
+      "direction": "left",
+      "coverage": 0.46,
+      "edgeFrom": 1.05,
+      "edgeTo": -0.05,
+      "near": true,
+      "score": 0.72
+     }
+    ],
+    "reframe": {
+     "aspect": 1.7777777777777777,
+     "cropWidth": 0.316,
+     "path": [
+      {
+       "t": 0,
+       "x": 0.4607,
+       "y": 0.5
+      },
+      {
+       "t": 500,
+       "x": 0.4437,
+       "y": 0.5
+      },
+      {
+       "t": 1000,
+       "x": 0.4256,
+       "y": 0.5
+      },
+      {
+       "t": 1500,
+       "x": 0.4044,
+       "y": 0.5
+      },
+      {
+       "t": 2000,
+       "x": 0.3876,
+       "y": 0.5
+      },
+      {
+       "t": 2500,
+       "x": 0.3772,
+       "y": 0.5
+      },
+      {
+       "t": 3000,
+       "x": 0.3771,
+       "y": 0.5
+      },
+      {
+       "t": 3500,
+       "x": 0.3894,
+       "y": 0.5
+      },
+      {
+       "t": 4000,
+       "x": 0.4116,
+       "y": 0.5
+      },
+      {
+       "t": 4500,
+       "x": 0.4419,
+       "y": 0.5
+      },
+      {
+       "t": 5000,
+       "x": 0.4786,
+       "y": 0.5
+      },
+      {
+       "t": 5500,
+       "x": 0.5174,
+       "y": 0.5
+      },
+      {
+       "t": 6000,
+       "x": 0.5523,
+       "y": 0.5
+      },
+      {
+       "t": 6250,
+       "x": 0.5661,
+       "y": 0.5
+      }
+     ],
+     "closeUps": []
+    },
+    "scene": {
+     "palette": [
+      {
+       "hex": "#d9d2c5",
+       "share": 0.31
+      },
+      {
+       "hex": "#6f6a62",
+       "share": 0.24
+      },
+      {
+       "hex": "#2e2b27",
+       "share": 0.17
+      },
+      {
+       "hex": "#9fb6c9",
+       "share": 0.12
+      }
+     ],
+     "round": null,
+     "rectilinear": 0.58,
+     "brightnessRamps": [],
+     "blowouts": []
+    },
+    "models": {
+     "aesthetic": "Xenova/mobileclip_s0 (CLIP-IQA prompts)",
+     "depth": "onnx-community/depth-anything-v2-small",
+     "saliency": "spectral-residual 64x64"
+    },
+    "cost": {
+     "cpuMs": 0,
+     "wallMs": 0,
+     "analysedMs": 6306
+    },
+    "createdAt": "2026-10-26T00:00:00.000Z"
+   }
+  },
+  "cmvo138s2000m01ad4uen65rq": {
+   "fileName": "4911.mp4",
+   "analysis": {
+    "version": 1,
+    "durationMs": 5906,
+    "width": 1920,
+    "height": 1080,
+    "sampleMs": 250,
+    "aestheticEveryMs": 1000,
+    "samples": [
+     {
+      "t": 0,
+      "sharpness": 0.189,
+      "clipLow": 0.006,
+      "clipHigh": 0.003,
+      "luma": 0.437,
+      "aesthetic": 0.634,
+      "steady": 0.35,
+      "flow": {
+       "dx": 0.001,
+       "dy": 0.012,
+       "zoom": 0,
+       "magnitude": 0.012,
+       "residual": 0.124
+      },
+      "saliency": {
+       "x": 0.5,
+       "y": 0.52,
+       "strength": 0.785
+      }
+     },
+     {
+      "t": 250,
+      "sharpness": 0.284,
+      "clipLow": 0.008,
+      "clipHigh": 0.001,
+      "luma": 0.411,
+      "steady": 0.35,
+      "flow": {
+       "dx": -0.002,
+       "dy": -0.024,
+       "zoom": 0.011,
+       "magnitude": 0.024,
+       "residual": 0.234
+      },
+      "saliency": {
+       "x": 0.542,
+       "y": 0.519,
+       "strength": 0.781
+      }
+     },
+     {
+      "t": 500,
+      "sharpness": 0.623,
+      "clipLow": 0.003,
+      "clipHigh": 0.006,
+      "luma": 0.429,
+      "steady": 0.865,
+      "flow": {
+       "dx": -0.004,
+       "dy": 0.002,
+       "zoom": 0.022,
+       "magnitude": 0.011,
+       "residual": 0.197
+      },
+      "saliency": {
+       "x": 0.583,
+       "y": 0.517,
+       "strength": 0.498
+      }
+     },
+     {
+      "t": 750,
+      "sharpness": 0.783,
+      "clipLow": 0.01,
+      "clipHigh": 0,
+      "luma": 0.432,
+      "steady": 0.893,
+      "flow": {
+       "dx": 0.002,
+       "dy": -0.003,
+       "zoom": 0.032,
+       "magnitude": 0.016,
+       "residual": 0.102
+      },
+      "saliency": {
+       "x": 0.622,
+       "y": 0.513,
+       "strength": 0.792
+      }
+     },
+     {
+      "t": 1000,
+      "sharpness": 0.781,
+      "clipLow": 0.004,
+      "clipHigh": 0.001,
+      "luma": 0.404,
+      "aesthetic": 0.655,
+      "steady": 0.927,
+      "flow": {
+       "dx": -0.003,
+       "dy": 0.003,
+       "zoom": 0.042,
+       "magnitude": 0.021,
+       "residual": 0.201
+      },
+      "saliency": {
+       "x": 0.657,
+       "y": 0.507,
+       "strength": 0.466
+      }
+     },
+     {
+      "t": 1250,
+      "sharpness": 0.799,
+      "clipLow": 0.001,
+      "clipHigh": 0.01,
+      "luma": 0.411,
+      "steady": 0.913,
+      "flow": {
+       "dx": -0.003,
+       "dy": 0.003,
+       "zoom": 0.05,
+       "magnitude": 0.025,
+       "residual": 0.162
+      },
+      "saliency": {
+       "x": 0.687,
+       "y": 0.501,
+       "strength": 0.712
+      }
+     },
+     {
+      "t": 1500,
+      "sharpness": 0.84,
+      "clipLow": 0.009,
+      "clipHigh": 0.005,
+      "luma": 0.41,
+      "steady": 0.831,
+      "flow": {
+       "dx": -0.003,
+       "dy": 0.004,
+       "zoom": 0.057,
+       "magnitude": 0.029,
+       "residual": 0.137
+      },
+      "saliency": {
+       "x": 0.712,
+       "y": 0.492,
+       "strength": 0.717
+      }
+     },
+     {
+      "t": 1750,
+      "sharpness": 0.849,
+      "clipLow": 0.006,
+      "clipHigh": 0.002,
+      "luma": 0.404,
+      "steady": 0.872,
+      "flow": {
+       "dx": -0.002,
+       "dy": -0.003,
+       "zoom": 0.063,
+       "magnitude": 0.031,
+       "residual": 0.118
+      },
+      "saliency": {
+       "x": 0.732,
+       "y": 0.483,
+       "strength": 0.557
+      }
+     },
+     {
+      "t": 2000,
+      "sharpness": 0.792,
+      "clipLow": 0.01,
+      "clipHigh": 0.007,
+      "luma": 0.414,
+      "aesthetic": 0.594,
+      "steady": 0.892,
+      "flow": {
+       "dx": 0.002,
+       "dy": 0.003,
+       "zoom": 0.067,
+       "magnitude": 0.033,
+       "residual": 0.144
+      },
+      "saliency": {
+       "x": 0.744,
+       "y": 0.473,
+       "strength": 0.697
+      }
+     },
+     {
+      "t": 2250,
+      "sharpness": 0.689,
+      "clipLow": 0.006,
+      "clipHigh": 0.005,
+      "luma": 0.423,
+      "steady": 0.833,
+      "flow": {
+       "dx": 0.002,
+       "dy": 0,
+       "zoom": 0.069,
+       "magnitude": 0.035,
+       "residual": 0.196
+      },
+      "saliency": {
+       "x": 0.75,
+       "y": 0.461,
+       "strength": 0.632
+      }
+     },
+     {
+      "t": 2500,
+      "sharpness": 0.612,
+      "clipLow": 0.004,
+      "clipHigh": 0.008,
+      "luma": 0.419,
+      "steady": 0.921,
+      "flow": {
+       "dx": -0.004,
+       "dy": -0.004,
+       "zoom": 0.07,
+       "magnitude": 0.035,
+       "residual": 0.195
+      },
+      "saliency": {
+       "x": 0.748,
+       "y": 0.45,
+       "strength": 0.652
+      }
+     },
+     {
+      "t": 2750,
+      "sharpness": 0.62,
+      "clipLow": 0.004,
+      "clipHigh": 0.008,
+      "luma": 0.465,
+      "steady": 0.943,
+      "flow": {
+       "dx": 0.003,
+       "dy": 0.005,
+       "zoom": 0.069,
+       "magnitude": 0.034,
+       "residual": 0.141
+      },
+      "saliency": {
+       "x": 0.739,
+       "y": 0.437,
+       "strength": 0.419
+      }
+     },
+     {
+      "t": 3000,
+      "sharpness": 0.448,
+      "clipLow": 0.01,
+      "clipHigh": 0.002,
+      "luma": 0.524,
+      "aesthetic": 0.636,
+      "steady": 0.804,
+      "flow": {
+       "dx": 0.003,
+       "dy": 0.001,
+       "zoom": 0.066,
+       "magnitude": 0.033,
+       "residual": 0.109
+      },
+      "saliency": {
+       "x": 0.724,
+       "y": 0.425,
+       "strength": 0.66
+      }
+     },
+     {
+      "t": 3250,
+      "sharpness": 0.355,
+      "clipLow": 0.001,
+      "clipHigh": 0.006,
+      "luma": 0.563,
+      "steady": 0.86,
+      "flow": {
+       "dx": 0.002,
+       "dy": 0.002,
+       "zoom": 0.061,
+       "magnitude": 0.031,
+       "residual": 0.142
+      },
+      "saliency": {
+       "x": 0.702,
+       "y": 0.412,
+       "strength": 0.415
+      }
+     },
+     {
+      "t": 3500,
+      "sharpness": 0.291,
+      "clipLow": 0.009,
+      "clipHigh": 0.008,
+      "luma": 0.641,
+      "steady": 0.882,
+      "flow": {
+       "dx": 0.003,
+       "dy": -0.003,
+       "zoom": 0.055,
+       "magnitude": 0.028,
+       "residual": 0.225
+      },
+      "saliency": {
+       "x": 0.674,
+       "y": 0.399,
+       "strength": 0.534
+      }
+     },
+     {
+      "t": 3750,
+      "sharpness": 0.321,
+      "clipLow": 0.003,
+      "clipHigh": 0.009,
+      "luma": 0.688,
+      "steady": 0.896,
+      "flow": {
+       "dx": 0.003,
+       "dy": -0.003,
+       "zoom": 0.048,
+       "magnitude": 0.024,
+       "residual": 0.245
+      },
+      "saliency": {
+       "x": 0.642,
+       "y": 0.387,
+       "strength": 0.78
+      }
+     },
+     {
+      "t": 4000,
+      "sharpness": 0.243,
+      "clipLow": 0,
+      "clipHigh": 0.008,
+      "luma": 0.659,
+      "aesthetic": 0.501,
+      "steady": 0.864,
+      "flow": {
+       "dx": -0.002,
+       "dy": 0.002,
+       "zoom": 0.039,
+       "magnitude": 0.019,
+       "residual": 0.209
+      },
+      "saliency": {
+       "x": 0.605,
+       "y": 0.376,
+       "strength": 0.522
+      }
+     },
+     {
+      "t": 4250,
+      "sharpness": 0.253,
+      "clipLow": 0.01,
+      "clipHigh": 0.005,
+      "luma": 0.651,
+      "steady": 0.839,
+      "flow": {
+       "dx": -0.002,
+       "dy": 0.005,
+       "zoom": 0.029,
+       "magnitude": 0.015,
+       "residual": 0.133
+      },
+      "saliency": {
+       "x": 0.565,
+       "y": 0.365,
+       "strength": 0.525
+      }
+     },
+     {
+      "t": 4500,
+      "sharpness": 0.289,
+      "clipLow": 0.001,
+      "clipHigh": 0.006,
+      "luma": 0.651,
+      "steady": 0.928,
+      "flow": {
+       "dx": -0.002,
+       "dy": 0.003,
+       "zoom": 0.019,
+       "magnitude": 0.009,
+       "residual": 0.24
+      },
+      "saliency": {
+       "x": 0.523,
+       "y": 0.354,
+       "strength": 0.791
+      }
+     },
+     {
+      "t": 4750,
+      "sharpness": 0.35,
+      "clipLow": 0.004,
+      "clipHigh": 0.001,
+      "luma": 0.669,
+      "steady": 0.885,
+      "flow": {
+       "dx": 0.002,
+       "dy": 0.002,
+       "zoom": 0.008,
+       "magnitude": 0.004,
+       "residual": 0.154
+      },
+      "saliency": {
+       "x": 0.481,
+       "y": 0.345,
+       "strength": 0.485
+      }
+     },
+     {
+      "t": 5000,
+      "sharpness": 0.355,
+      "clipLow": 0.003,
+      "clipHigh": 0.004,
+      "luma": 0.687,
+      "aesthetic": 0.463,
+      "steady": 0.817,
+      "flow": {
+       "dx": -0.005,
+       "dy": -0.004,
+       "zoom": 0,
+       "magnitude": 0.006,
+       "residual": 0.13
+      },
+      "saliency": {
+       "x": 0.439,
+       "y": 0.338,
+       "strength": 0.647
+      }
+     },
+     {
+      "t": 5250,
+      "sharpness": 0.501,
+      "clipLow": 0.007,
+      "clipHigh": 0.004,
+      "luma": 0.678,
+      "steady": 0.816,
+      "flow": {
+       "dx": 0.001,
+       "dy": -0.003,
+       "zoom": 0,
+       "magnitude": 0.003,
+       "residual": 0.204
+      },
+      "saliency": {
+       "x": 0.399,
+       "y": 0.331,
+       "strength": 0.432
+      }
+     },
+     {
+      "t": 5500,
+      "sharpness": 0.513,
+      "clipLow": 0.008,
+      "clipHigh": 0.004,
+      "luma": 0.659,
+      "steady": 0.943,
+      "flow": {
+       "dx": 0.001,
+       "dy": -0.003,
+       "zoom": 0,
+       "magnitude": 0.003,
+       "residual": 0.16
+      },
+      "saliency": {
+       "x": 0.362,
+       "y": 0.326,
+       "strength": 0.578
+      }
+     },
+     {
+      "t": 5750,
+      "sharpness": 0.39,
+      "clipLow": 0.009,
+      "clipHigh": 0.009,
+      "luma": 0.681,
+      "steady": 0.35,
+      "flow": {
+       "dx": -0.005,
+       "dy": 0.01,
+       "zoom": 0,
+       "magnitude": 0.011,
+       "residual": 0.146
+      },
+      "saliency": {
+       "x": 0.329,
+       "y": 0.322,
+       "strength": 0.661
+      }
+     }
+    ],
+    "windows": [
+     {
+      "lengthMs": 800,
+      "best": [
+       {
+        "startMs": 1050,
+        "endMs": 1850,
+        "score": 0.654,
+        "sharpness": 0.829,
+        "exposure": 0.945,
+        "aesthetic": 0.635,
+        "steady": 0.872,
+        "motion": 0.052,
+        "direction": "push"
+       },
+       {
+        "startMs": 2050,
+        "endMs": 2850,
+        "score": 0.607,
+        "sharpness": 0.64,
+        "exposure": 0.942,
+        "aesthetic": 0.608,
+        "steady": 0.899,
+        "motion": 0.092,
+        "direction": "push"
+       },
+       {
+        "startMs": 4800,
+        "endMs": 5600,
+        "score": 0.478,
+        "sharpness": 0.456,
+        "exposure": 0.95,
+        "aesthetic": 0.463,
+        "steady": 0.859,
+        "motion": 0,
+        "direction": "static"
+       }
+      ]
+     },
+     {
+      "lengthMs": 1500,
+      "best": [
+       {
+        "startMs": 800,
+        "endMs": 2300,
+        "score": 0.643,
+        "sharpness": 0.792,
+        "exposure": 0.945,
+        "aesthetic": 0.625,
+        "steady": 0.878,
+        "motion": 0.056,
+        "direction": "push"
+       },
+       {
+        "startMs": 2300,
+        "endMs": 3800,
+        "score": 0.484,
+        "sharpness": 0.441,
+        "exposure": 0.94,
+        "aesthetic": 0.607,
+        "steady": 0.884,
+        "motion": 0.068,
+        "direction": "push"
+       },
+       {
+        "startMs": 4050,
+        "endMs": 5550,
+        "score": 0.412,
+        "sharpness": 0.377,
+        "exposure": 0.953,
+        "aesthetic": 0.476,
+        "steady": 0.871,
+        "motion": 0,
+        "direction": "static"
+       }
+      ]
+     },
+     {
+      "lengthMs": 2500,
+      "best": [
+       {
+        "startMs": 550,
+        "endMs": 3050,
+        "score": 0.615,
+        "sharpness": 0.721,
+        "exposure": 0.944,
+        "aesthetic": 0.627,
+        "steady": 0.883,
+        "motion": 0.058,
+        "direction": "push"
+       },
+       {
+        "startMs": 3050,
+        "endMs": 5550,
+        "score": 0.389,
+        "sharpness": 0.347,
+        "exposure": 0.949,
+        "aesthetic": 0.513,
+        "steady": 0.873,
+        "motion": 0,
+        "direction": "static"
+       }
+      ]
+     },
+     {
+      "lengthMs": 4000,
+      "best": [
+       {
+        "startMs": 300,
+        "endMs": 4300,
+        "score": 0.467,
+        "sharpness": 0.581,
+        "exposure": 0.944,
+        "aesthetic": 0.605,
+        "steady": 0.877,
+        "motion": 0.039,
+        "direction": "push"
+       }
+      ]
+     }
+    ],
+    "motion": [
+     {
+      "startMs": 0,
+      "endMs": 1000,
+      "direction": "static",
+      "magnitude": 0.0081,
+      "mover": "none",
+      "consistency": 0.75
+     },
+     {
+      "startMs": 1000,
+      "endMs": 4000,
+      "direction": "push",
+      "magnitude": 0.0299,
+      "mover": "camera",
+      "consistency": 1
+     },
+     {
+      "startMs": 4000,
+      "endMs": 5906,
+      "direction": "static",
+      "magnitude": 0.0059,
+      "mover": "none",
+      "consistency": 1
+     }
+    ],
+    "flowPeaks": [],
+    "depth": [
+     {
+      "t": 1500,
+      "cols": 16,
+      "rows": 9,
+      "grid": "AAAAAAAAAAAAAAAAAAAAACAgICAgICAgICAgICAgICBAQEBAQEBAQEBAQEBAQEBAYGBgYGBgYGBgYGBgYGBgYICAgICAgICAgICAgICAgICfn5+fn5+fn5+fn5+fn5+fv7+/v7+/v7+/v7+/v7+/v9/f39/f39/f39/f39/f39//////////////////////",
+      "foreground": 0.22,
+      "near": null,
+      "spread": 0.55
+     },
+     {
+      "t": 3000,
+      "cols": 16,
+      "rows": 9,
+      "grid": "AAAAAAAAAAAAAAAAAAAAACAgICAgICAgICAgICAgICBAQEBAQEBAQEBAQEBAQEBAYGBgYGBgYGBgYGBgYGBgYICAgICAgICAgICAgICAgICfn5+fn5+fn5+fn5+fn5+fv7+/v7+/v7+/v7+/v7+/v9/f39/f39/f39/f39/f39//////////////////////",
+      "foreground": 0.22,
+      "near": null,
+      "spread": 0.55
+     },
+     {
+      "t": 4500,
+      "cols": 16,
+      "rows": 9,
+      "grid": "AAAAAAAAAAAAAAAAAAAAACAgICAgICAgICAgICAgICBAQEBAQEBAQEBAQEBAQEBAYGBgYGBgYGBgYGBgYGBgYICAgICAgICAgICAgICAgICfn5+fn5+fn5+fn5+fn5+fv7+/v7+/v7+/v7+/v7+/v9/f39/f39/f39/f39/f39//////////////////////",
+      "foreground": 0.22,
+      "near": null,
+      "spread": 0.55
+     }
+    ],
+    "occluders": [],
+    "reframe": {
+     "aspect": 1.7777777777777777,
+     "cropWidth": 0.316,
+     "path": [
+      {
+       "t": 0,
+       "x": 0.5227,
+       "y": 0.5
+      },
+      {
+       "t": 500,
+       "x": 0.5408,
+       "y": 0.5
+      },
+      {
+       "t": 1000,
+       "x": 0.5595,
+       "y": 0.5
+      },
+      {
+       "t": 1500,
+       "x": 0.5808,
+       "y": 0.5
+      },
+      {
+       "t": 2000,
+       "x": 0.5976,
+       "y": 0.5
+      },
+      {
+       "t": 2500,
+       "x": 0.6074,
+       "y": 0.5
+      },
+      {
+       "t": 3000,
+       "x": 0.6079,
+       "y": 0.5
+      },
+      {
+       "t": 3500,
+       "x": 0.5968,
+       "y": 0.5
+      },
+      {
+       "t": 4000,
+       "x": 0.5764,
+       "y": 0.5
+      },
+      {
+       "t": 4500,
+       "x": 0.5487,
+       "y": 0.5
+      },
+      {
+       "t": 5000,
+       "x": 0.5172,
+       "y": 0.5
+      },
+      {
+       "t": 5500,
+       "x": 0.4875,
+       "y": 0.5
+      },
+      {
+       "t": 5750,
+       "x": 0.4752,
+       "y": 0.5
+      }
+     ],
+     "closeUps": []
+    },
+    "scene": {
+     "palette": [
+      {
+       "hex": "#d9d2c5",
+       "share": 0.31
+      },
+      {
+       "hex": "#6f6a62",
+       "share": 0.24
+      },
+      {
+       "hex": "#2e2b27",
+       "share": 0.17
+      },
+      {
+       "hex": "#9fb6c9",
+       "share": 0.12
+      }
+     ],
+     "round": null,
+     "rectilinear": 0.58,
+     "brightnessRamps": [
+      {
+       "startMs": 2500,
+       "endMs": 3700,
+       "from": 0.42,
+       "to": 0.67,
+       "kind": "up"
+      }
+     ],
+     "blowouts": []
+    },
+    "models": {
+     "aesthetic": "Xenova/mobileclip_s0 (CLIP-IQA prompts)",
+     "depth": "onnx-community/depth-anything-v2-small",
+     "saliency": "spectral-residual 64x64"
+    },
+    "cost": {
+     "cpuMs": 0,
+     "wallMs": 0,
+     "analysedMs": 5906
+    },
+    "createdAt": "2026-10-26T00:00:00.000Z"
+   }
+  }
+ }
+}

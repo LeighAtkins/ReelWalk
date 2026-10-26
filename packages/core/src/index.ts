@@ -90,3 +90,5 @@ export * from "./render-checks";
 export * from "./retention";
 export * from "./look";
 export * from "./stock";
+export * from "./shot-analysis";
+export * from "./crop-path";

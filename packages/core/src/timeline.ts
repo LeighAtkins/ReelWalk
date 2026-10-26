@@ -5,6 +5,7 @@ import { rampSchema, rampUnwarp, rampWarp, sliceRamp } from "./ramp";
 import { planOverlaySchema, roomTitle, spotSchema, type PlanOverlay } from "./plan";
 import { colorMatchSchema, colorStatsSchema, lookSchema } from "./look";
 import { textTreatmentSchema } from "./brand-fonts";
+import { clipReframeSchema } from "./crop-path";
 
 /**
  * A reel's edit, as a plain JSON document. The browser edits it, Postgres
@@ -214,6 +215,12 @@ export const clipSchema = z
     colorStats: colorStatsSchema.optional(),
     /** The colour transform that moves this clip onto the reel's reference look (ADR 0070), applied under the `filter` preset. Absent: none. */
     colorMatch: colorMatchSchema.optional(),
+    /**
+     * The 9:16 crop path of a source wider than the reel (ADR 0086): where the cover crop is centred over source time,
+     * following the subject. Drawn by the shared composition under `zoom`, `motion` and `camera`. Absent: the centred
+     * crop, so every reel saved before it renders as it did.
+     */
+    reframe: clipReframeSchema.optional(),
   })
   .refine((clip) => clip.sourceEndMs > clip.sourceStartMs, { message: "Clip must have a positive length" });
 

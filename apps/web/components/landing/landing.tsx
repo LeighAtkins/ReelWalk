@@ -1,7 +1,9 @@
 import Link from "next/link";
-import { formatAud, PLANS } from "@reelwalk/core";
+import { formatCharge, PLANS, taxNote, type Currency } from "@reelwalk/core";
+import { CurrencyScope, InCurrency } from "@/components/currency";
 import { BrandMark, InstagramIcon } from "@/components/icons";
 import { withAttribution, type Attribution } from "@/lib/attribution";
+import type { CurrencyResolution } from "@/lib/currency";
 import type { SampleReel } from "@/lib/sample-reels";
 import { EditorMock, ExportMock, MediaSheetMock, ReelStill, ShareMock } from "./mocks";
 import { PricingSection } from "./pricing";
@@ -18,12 +20,23 @@ export const INSTAGRAM_URL = "https://www.instagram.com/reelwalking";
  * app's own visual system (globals.css): the same navy, type and controls,
  * so the drawn screens (mocks.tsx) sit in it rather than on it.
  */
-export function Landing({ samples, attribution = null }: { samples: SampleReel[]; attribution?: Attribution | null }) {
+export function Landing({
+  samples,
+  attribution = null,
+  currency,
+  offered,
+}: {
+  samples: SampleReel[];
+  attribution?: Attribution | null;
+  /** Where the visitor was placed and the currencies on sale (ADR 0085): A$ for Australia, US$ elsewhere. */
+  currency: CurrencyResolution;
+  offered: Currency[];
+}) {
   const paid = PLANS.AGENT;
   // utm_* and click ids from the ad link travel on to sign-up in the URL (ADR 0080).
   const signup = withAttribution("/signup", attribution);
   return (
-    <div className={styles.page}>
+    <CurrencyScope className={styles.page} resolution={currency} offered={offered}>
       <SiteHeader attribution={attribution} />
 
       <main className={styles.main}>
@@ -175,7 +188,7 @@ export function Landing({ samples, attribution = null }: { samples: SampleReel[]
           </ul>
         </section>
 
-        <PricingSection viewer={{ signedIn: false, attribution }} />
+        <PricingSection viewer={{ signedIn: false, attribution }} currency={offered.length === 1 ? offered[0]! : currency.currency} offered={offered} />
 
         <section className={styles.faq} aria-labelledby="faq-title">
           <h2 id="faq-title">Questions</h2>
@@ -216,7 +229,12 @@ export function Landing({ samples, attribution = null }: { samples: SampleReel[]
         <section className={styles.closing} aria-labelledby="closing-title">
           <h2 id="closing-title">Try it on the next listing</h2>
           <p className={styles.lede}>
-            Make a reel from a shoot you have already done. If it earns its keep, the Agent plan is {formatAud(paid.priceAud)} a month, GST included.
+            Make a reel from a shoot you have already done. If it earns its keep, the Agent plan is{" "}
+            <InCurrency
+              aud={`${formatCharge(paid.priceAud, "aud")} a month, ${taxNote("aud")}`}
+              usd={`${formatCharge(paid.priceUsd, "usd")} a month, ${taxNote("usd")}`}
+            />
+            .
           </p>
           <Link href={signup} className="btn">
             Start free, no card
@@ -225,7 +243,7 @@ export function Landing({ samples, attribution = null }: { samples: SampleReel[]
       </main>
 
       <SiteFooter />
-    </div>
+    </CurrencyScope>
   );
 }
 

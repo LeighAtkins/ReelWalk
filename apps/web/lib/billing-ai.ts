@@ -1,5 +1,5 @@
 import type Stripe from "stripe";
-import { AI_TOP_UP, type PlanId } from "@reelwalk/core";
+import { aiTopUp, CURRENCIES, type Currency, type PlanId } from "@reelwalk/core";
 import { lockBillingAccount, prisma } from "@reelwalk/db";
 import { customerId, planForPrice, stripe } from "./stripe";
 
@@ -44,8 +44,12 @@ export async function applyAiInvoice(invoice: Stripe.Invoice, subscription: Stri
   }, BILLING_TX);
 }
 
-export function aiTopUpPrice(): string | null {
-  const value = process.env.STRIPE_PRICE_AI_TOP_UP;
+/**
+ * The Stripe price of the 10-credit top-up in a currency: STRIPE_PRICE_AI_TOP_UP is the A$19 price,
+ * STRIPE_PRICE_AI_TOP_UP_USD the US$12 one (ADR 0085). Null when unset, which hides the button.
+ */
+export function aiTopUpPrice(currency: Currency = "aud"): string | null {
+  const value = process.env[currency === "usd" ? "STRIPE_PRICE_AI_TOP_UP_USD" : "STRIPE_PRICE_AI_TOP_UP"];
   return value && value !== "unset" ? value : null;
 }
 
@@ -55,30 +59,35 @@ const BILLING_TX = { maxWait: 10_000, timeout: 15_000 };
 
 /**
  * The A$19 price is GST-inclusive, so Stripe's total equals the subtotal and the GST is shown inside it;
- * a price set up tax-exclusive would add the tax on top. Both are the right amount; anything else is not.
+ * the US$12 price is tax-exclusive, so Stripe adds the tax on top. Both are the right amount; anything
+ * else is not.
  */
-function topUpTotalMatches(session: Stripe.Checkout.Session): boolean {
+function topUpTotalMatches(session: Stripe.Checkout.Session, priceCents: number): boolean {
   const tax = session.total_details?.amount_tax ?? 0;
-  return session.amount_total === AI_TOP_UP.priceCents || session.amount_total === AI_TOP_UP.priceCents + tax;
+  return session.amount_total === priceCents || session.amount_total === priceCents + tax;
 }
 
 /** Signed Stripe session + exact server-side price + unique source = one grant. */
 export async function applyAiTopUp(session: Stripe.Checkout.Session) {
   if (session.mode !== "payment" || session.payment_status !== "paid" || session.metadata?.purpose !== "ai-top-up") return;
-  const price = aiTopUpPrice();
+  // The session's own currency picks which configured price it must have bought, and at what amount.
+  const currency = CURRENCIES.find(c => c === session.currency);
+  if (!currency) throw new Error("Unexpected AI top-up purchase.");
+  const price = aiTopUpPrice(currency);
   if (!price) throw new Error("AI top-up price is not configured.");
+  const topUp = aiTopUp(currency);
   const customer = customerId(session.customer);
   const workspaceId = session.client_reference_id;
   if (!customer || !workspaceId) throw new Error("Missing top-up customer.");
   const lines = await stripe().checkout.sessions.listLineItems(session.id, { limit: 2 });
   if (lines.data.length !== 1 || lines.data[0]?.price?.id !== price || lines.data[0]?.quantity !== 1 ||
-    session.currency !== AI_TOP_UP.currency || session.amount_subtotal !== AI_TOP_UP.priceCents ||
-    (session.total_details?.amount_discount ?? 0) !== 0 || !topUpTotalMatches(session)) throw new Error("Unexpected AI top-up purchase.");
+    session.amount_subtotal !== topUp.priceCents ||
+    (session.total_details?.amount_discount ?? 0) !== 0 || !topUpTotalMatches(session, topUp.priceCents)) throw new Error("Unexpected AI top-up purchase.");
   await prisma.$transaction(async tx => {
     const workspace = await lockBillingAccount(tx, workspaceId);
     if (workspace.stripeCustomerId !== customer) throw new Error("Top-up customer does not match workspace.");
     await tx.aiCreditGrant.upsert({ where: { source: `checkout:${session.id}` }, update: {}, create: {
-      workspaceId, source: `checkout:${session.id}`, kind: "TOP_UP", amount: AI_TOP_UP.credits, remaining: AI_TOP_UP.credits,
+      workspaceId, source: `checkout:${session.id}`, kind: "TOP_UP", amount: topUp.credits, remaining: topUp.credits,
     } });
   }, BILLING_TX);
 }

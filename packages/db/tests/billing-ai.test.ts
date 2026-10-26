@@ -31,6 +31,7 @@ describe.skipIf(!process.env.DATABASE_URL)("Stripe AI funding (Postgres)", () =>
     await prisma.workspace.deleteMany({ where: { id: { in: ids } } });
     if (charged) await prisma.aiSpendBudget.update({ where: { id: "vertex-video" }, data: { reservedCents: { decrement: charged } } });
     delete process.env.STRIPE_PRICE_AI_TOP_UP;
+    delete process.env.STRIPE_PRICE_AI_TOP_UP_USD;
     await prisma.$disconnect();
   });
   it("paid invoice replay cannot restore spent monthly credits", async () => {
@@ -75,9 +76,25 @@ describe.skipIf(!process.env.DATABASE_URL)("Stripe AI funding (Postgres)", () =>
     await applyAiTopUp({ ...session, id: `cs_${randomUUID()}`, amount_total: 1900, total_details: { amount_tax: 173, amount_discount: 0, amount_shipping: 0 } } as typeof session);
     expect((await aiCreditSummary(prisma, w.id)).topUp).toBe(20);
     await expect(applyAiTopUp({ ...session, id: `cs_${randomUUID()}`, amount_total: 1500 })).rejects.toThrow("Unexpected");
+    // A US$ session must have bought the US$ price at US$12: the A$ line and amount are refused.
+    process.env.STRIPE_PRICE_AI_TOP_UP_USD = "price-top-up-usd";
     await expect(applyAiTopUp({ ...session, id: `cs_${randomUUID()}`, currency: "usd" })).rejects.toThrow("Unexpected");
+    await expect(applyAiTopUp({ ...session, id: `cs_${randomUUID()}`, currency: "eur" })).rejects.toThrow("Unexpected");
     await expect(applyAiTopUp({ ...session, id: `cs_${randomUUID()}`, total_details: { ...session.total_details!, amount_discount: 150 } })).rejects.toThrow("Unexpected");
     await expect(applyAiTopUp({ ...session, id: `cs_${randomUUID()}`, amount_subtotal: 1400 })).rejects.toThrow("Unexpected");
     expect((await aiCreditSummary(prisma, w.id)).topUp).toBe(20);
+  });
+  it("funds a US$12 top-up with the tax added on top (ADR 0085), and only through the US$ price", async () => {
+    const w = await studio(); process.env.STRIPE_PRICE_AI_TOP_UP = "price-top-up"; process.env.STRIPE_PRICE_AI_TOP_UP_USD = "price-top-up-usd";
+    mocks.listLineItems.mockResolvedValue({ data: [{ price: { id: "price-top-up-usd" }, quantity: 1 }] });
+    const session = { id: `cs_${randomUUID()}`, mode: "payment", payment_status: "paid", metadata: { purpose: "ai-top-up" }, currency: "usd", amount_subtotal: 1200, amount_total: 1299, total_details: { amount_tax: 99, amount_discount: 0, amount_shipping: 0 }, customer: w.stripeCustomerId, client_reference_id: w.id } as unknown as Parameters<typeof applyAiTopUp>[0];
+    await applyAiTopUp(session);
+    expect((await aiCreditSummary(prisma, w.id)).topUp).toBe(10);
+    await expect(applyAiTopUp({ ...session, id: `cs_${randomUUID()}`, amount_subtotal: 1900, amount_total: 1900 })).rejects.toThrow("Unexpected");
+    mocks.listLineItems.mockResolvedValue({ data: [{ price: { id: "price-top-up" }, quantity: 1 }] });
+    await expect(applyAiTopUp({ ...session, id: `cs_${randomUUID()}` })).rejects.toThrow("Unexpected");
+    delete process.env.STRIPE_PRICE_AI_TOP_UP_USD;
+    await expect(applyAiTopUp({ ...session, id: `cs_${randomUUID()}` })).rejects.toThrow("not configured");
+    expect((await aiCreditSummary(prisma, w.id)).topUp).toBe(10);
   });
 });

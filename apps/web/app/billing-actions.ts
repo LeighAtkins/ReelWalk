@@ -5,7 +5,8 @@ import { isBillingInterval, isPlanId } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
 import { appUrl } from "@/lib/app-url";
 import { recordFunnelEvent } from "@/lib/funnel";
-import { isBillingConfigured, priceForPlan, stripe } from "@/lib/stripe";
+import { requestCurrency } from "@/lib/request-currency";
+import { chargeableCurrency, isBillingConfigured, priceForPlan, stripe } from "@/lib/stripe";
 import { canManage } from "@/lib/workspace-access";
 import { getCurrentUser } from "@/lib/workspace";
 import { aiTopUpPrice } from "@/lib/billing-ai";
@@ -33,7 +34,9 @@ export async function startCheckout(formData: FormData): Promise<void> {
   const plan = formData.get("plan");
   const interval = formData.get("interval") ?? "month";
   if (!isBillingConfigured() || !isPlanId(plan) || plan === "FREE" || !isBillingInterval(interval)) redirect("/account?billing=unavailable");
-  const price = priceForPlan(plan, interval);
+  // A$ for Australia, US$ for everyone else, or what the visitor picked on the pricing page (ADR 0085).
+  const currency = chargeableCurrency((await requestCurrency()).currency);
+  const price = priceForPlan(plan, interval, currency);
   if (!price) redirect("/account?billing=unavailable");
   // Where the button was: the message after a first export (ADR 0081) is told apart from the plan buttons in the funnel.
   const from = formData.get("from") === "first-export" ? "first-export" : null;
@@ -51,8 +54,9 @@ export async function startCheckout(formData: FormData): Promise<void> {
     billing_address_collection: "auto",
     tax_id_collection: { enabled: true },
     customer_update: { name: "auto", address: "auto" },
-    // GST (ADR 0081): Stripe works the tax out from the billing address. The prices are GST-inclusive and
+    // GST (ADR 0081): Stripe works the tax out from the billing address. The A$ prices are GST-inclusive and
     // no tax is collected until a registration exists in the Stripe Dashboard, so this is safe to leave on.
+    // The US$ prices are tax-exclusive (the account's default tax behaviour; ADR 0085): tax is added on top.
     automatic_tax: { enabled: true },
     // Tags the session in the Dashboard so this flow can be told apart from later ones.
     integration_identifier: "reelwalk_plan_checkout_qmxvtkhe",
@@ -60,7 +64,7 @@ export async function startCheckout(formData: FormData): Promise<void> {
     cancel_url: `${base}/account`,
   });
   if (!session.url) redirect("/account?billing=unavailable");
-  await recordFunnelEvent({ name: "checkout_started", userId: user.id, workspaceId: user.workspaceId, data: { plan, interval, ...(from ? { from } : {}) } });
+  await recordFunnelEvent({ name: "checkout_started", userId: user.id, workspaceId: user.workspaceId, data: { plan, interval, currency, ...(from ? { from } : {}) } });
   redirect(session.url);
 }
 
@@ -69,14 +73,15 @@ export async function buyAiCredits(): Promise<void> {
   const user = await getCurrentUser();
   // Owners pay, and there is nothing to buy credits for in a workspace with AI off (ADR 0079).
   if (!canManage(user.role) || user.workspace.aiGeneration === "off") redirect("/account?billing=unavailable");
-  const price = aiTopUpPrice();
+  const currency = chargeableCurrency((await requestCurrency()).currency);
+  const price = aiTopUpPrice(currency);
   if (!isBillingConfigured() || !price || user.email === "demo@reelwalk.local") redirect("/account?billing=unavailable");
   const customer = await customerFor(user.workspaceId, user.email, user.workspace.name);
   const base = await appUrl();
   const session = await stripe().checkout.sessions.create({
     mode: "payment", customer, line_items: [{ price, quantity: 1 }], client_reference_id: user.workspaceId,
     metadata: { purpose: "ai-top-up", workspaceId: user.workspaceId },
-    // Same as the plans: the address lets Stripe work out GST on the A$19.
+    // Same as the plans: the address lets Stripe work out GST on the A$19, or the tax added to the US$12.
     billing_address_collection: "auto",
     customer_update: { name: "auto", address: "auto" },
     automatic_tax: { enabled: true },

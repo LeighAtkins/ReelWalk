@@ -32,6 +32,13 @@ export const AI_TRIAL_CREDITS = 2;
 export const AI_PLAN_CREDITS = { FREE: 2, AGENT: 20, OFFICE: 60 } as const;
 /** 10 AI credits for A$19, GST included (cents of Australian dollars: the Stripe price must match). */
 export const AI_TOP_UP = { priceCents: 1900, credits: 10, currency: "aud" } as const;
+/** The same 10 credits for US$12 plus tax, for visitors outside Australia (ADR 0085). */
+export const AI_TOP_UP_USD = { priceCents: 1200, credits: 10, currency: "usd" } as const;
+
+/** The top-up as sold in a currency. */
+export function aiTopUp(currency: "aud" | "usd"): typeof AI_TOP_UP | typeof AI_TOP_UP_USD {
+  return currency === "usd" ? AI_TOP_UP_USD : AI_TOP_UP;
+}
 
 /** Monthly windows stay anchored to the subscription day, including Jan 31. */
 export function aiCreditWindow(anchor: Date, paidThrough: Date, now = new Date()): { start: Date; end: Date } | null {

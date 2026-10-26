@@ -262,6 +262,33 @@ variable "stripe_price_office_yearly" {
   default = ""
 }
 
+# The US$ prices for visitors outside Australia (ADR 0085). Empty: everyone sees and pays A$.
+variable "stripe_price_agent_monthly_usd" {
+  type    = string
+  default = ""
+}
+
+variable "stripe_price_agent_yearly_usd" {
+  type    = string
+  default = ""
+}
+
+variable "stripe_price_office_monthly_usd" {
+  type    = string
+  default = ""
+}
+
+variable "stripe_price_office_yearly_usd" {
+  type    = string
+  default = ""
+}
+
+# The US$12 AI top-up; empty hides the top-up button for US$ visitors.
+variable "stripe_price_ai_top_up_usd" {
+  type    = string
+  default = ""
+}
+
 # Optional: the Stripe product ids of the Agent and Studio plans, so a subscription bought on an
 # older (USD) price still resolves to its plan after the prices moved to AUD (ADR 0081).
 variable "stripe_product_agent" {

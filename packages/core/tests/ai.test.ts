@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AI_CLIP_SECONDS, AI_PLAN_CREDITS, AI_TOP_UP, AI_TRIAL_CREDITS, PLANS, aiClipCostCents, aiClipCredits, aiCreditWindow, aiDefaultClipSeconds } from "../src";
+import { AI_CLIP_SECONDS, AI_PLAN_CREDITS, AI_TOP_UP, AI_TRIAL_CREDITS, aiTopUp, PLANS, aiClipCostCents, aiClipCredits, aiCreditWindow, aiDefaultClipSeconds } from "../src";
 
 describe("AI video allowance windows", () => {
   const anchor = new Date("2026-01-31T15:30:00Z");
@@ -30,5 +30,12 @@ describe("AI video allowance windows", () => {
     expect(aiDefaultClipSeconds("construction")).toBe(8);
     expect(aiDefaultClipSeconds("bridge")).toBe(4);
     expect(aiDefaultClipSeconds(undefined)).toBe(4);
+  });
+});
+
+describe("AI top-up by currency (ADR 0085)", () => {
+  it("is A$19 GST included in Australia and US$12 plus tax elsewhere, 10 credits either way", () => {
+    expect(aiTopUp("aud")).toBe(AI_TOP_UP);
+    expect(aiTopUp("usd")).toEqual({ priceCents: 1200, credits: 10, currency: "usd" });
   });
 });

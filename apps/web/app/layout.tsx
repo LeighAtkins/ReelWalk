@@ -10,6 +10,7 @@ import "@fontsource-variable/cormorant-garamond/wght.css";
 import "./globals.css";
 import type { Metadata, Viewport } from "next";
 import { WheelScroll } from "@/components/wheel-scroll";
+import { COUNTRY_SNIPPET } from "@/lib/currency";
 import { OG_IMAGE, SITE_URL } from "@/lib/site";
 
 const DESCRIPTION = "Your listing, as a reel, in a minute. Turn the photos and clips on your phone into a vertical listing reel for Instagram, with the music cut to the beat. Free to start, no card.";
@@ -40,6 +41,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en-AU">
       <body>
+        {/* Places the visitor once (rw_country) so the server can price every later page in A$ or US$ (ADR 0085). */}
+        <script dangerouslySetInnerHTML={{ __html: COUNTRY_SNIPPET }} />
         {children}
         <WheelScroll />
       </body>

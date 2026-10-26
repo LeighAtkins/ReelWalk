@@ -1,5 +1,5 @@
 import Stripe from "stripe";
-import { BILLING_INTERVALS, type BillingInterval, type PlanId } from "@reelwalk/core";
+import { BILLING_INTERVALS, CURRENCIES, type BillingInterval, type Currency, type PlanId } from "@reelwalk/core";
 
 /**
  * Stripe is optional: without keys the account page shows plans but no
@@ -14,6 +14,11 @@ import { BILLING_INTERVALS, type BillingInterval, type PlanId } from "@reelwalk/
  * swap still carries its old USD price id, so a price that is not one of the
  * env ids is also recognised by its lookup key (agent_monthly_aud, ...) and by
  * its product (STRIPE_PRODUCT_AGENT / STRIPE_PRODUCT_OFFICE, optional).
+ *
+ * Visitors outside Australia pay in US dollars (ADR 0085): the same four
+ * names with _USD (STRIPE_PRICE_AGENT_MONTHLY_USD, ...) hold those prices.
+ * Billing is on with the A$ prices alone; US$ is offered only once both US$
+ * monthly prices are set (`isCurrencyAvailable`).
  */
 export function isBillingConfigured(): boolean {
   return ["STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", ...PAID.map((plan) => priceEnvName(plan, "month"))].every(isSet);
@@ -33,20 +38,40 @@ export function stripe(): Stripe {
 
 const PAID: Exclude<PlanId, "FREE">[] = ["AGENT", "OFFICE"];
 
-/** The env var holding the Stripe price id for a plan at an interval. */
-export function priceEnvName(plan: Exclude<PlanId, "FREE">, interval: BillingInterval): string {
-  return `STRIPE_PRICE_${plan}_${interval === "year" ? "YEARLY" : "MONTHLY"}`;
+/** The env var holding the Stripe price id for a plan at an interval, in A$ unless US$ is named. */
+export function priceEnvName(plan: Exclude<PlanId, "FREE">, interval: BillingInterval, currency: Currency = "aud"): string {
+  return `STRIPE_PRICE_${plan}_${interval === "year" ? "YEARLY" : "MONTHLY"}${currency === "usd" ? "_USD" : ""}`;
 }
 
-export function priceForPlan(plan: PlanId, interval: BillingInterval = "month"): string | null {
+export function priceForPlan(plan: PlanId, interval: BillingInterval = "month", currency: Currency = "aud"): string | null {
   if (plan === "FREE") return null;
-  const id = process.env[priceEnvName(plan, interval)];
+  const id = process.env[priceEnvName(plan, interval, currency)];
   return id && id !== "unset" ? id : null;
 }
 
 /** Whether every paid plan can be bought at this interval (yearly prices may be left out). */
-export function isIntervalAvailable(interval: BillingInterval): boolean {
-  return PAID.every((plan) => priceForPlan(plan, interval) !== null);
+export function isIntervalAvailable(interval: BillingInterval, currency: Currency = "aud"): boolean {
+  return PAID.every((plan) => priceForPlan(plan, interval, currency) !== null);
+}
+
+/** Whether plans can be bought in this currency: A$ whenever billing is on, US$ once its monthly prices are set. */
+export function isCurrencyAvailable(currency: Currency): boolean {
+  return isBillingConfigured() && isIntervalAvailable("month", currency);
+}
+
+/**
+ * The currency a visitor actually sees and pays in. With billing on and no US$ prices set, everyone is
+ * shown A$ (what checkout would charge), so a page never shows a price that cannot be bought. With
+ * billing off (development, previews) the resolved currency stands.
+ */
+export function chargeableCurrency(resolved: Currency): Currency {
+  if (resolved === "usd" && isBillingConfigured() && !isIntervalAvailable("month", "usd")) return "aud";
+  return resolved;
+}
+
+/** The currencies the pricing toggle offers: both, unless billing is on without US$ prices. */
+export function offeredCurrencies(): Currency[] {
+  return CURRENCIES.filter((currency) => chargeableCurrency(currency) === currency);
 }
 
 /** What identifies a Stripe price: its id, and when the object is at hand its lookup key and product. */
@@ -58,6 +83,11 @@ export const PRICE_LOOKUP_KEYS: Record<string, Exclude<PlanId, "FREE">> = {
   agent_yearly_aud: "AGENT",
   office_monthly_aud: "OFFICE",
   office_yearly_aud: "OFFICE",
+  // The original US$ prices (ADR 0085 sells them again outside Australia).
+  agent_monthly: "AGENT",
+  agent_yearly: "AGENT",
+  studio_monthly: "OFFICE",
+  studio_yearly: "OFFICE",
 };
 
 /** The env var holding a plan's Stripe product id (optional): its prices in any currency sell that plan. */
@@ -75,7 +105,9 @@ export function planForPrice(price: string | PriceRef | null | undefined): PlanI
   if (!price) return null;
   const ref: PriceRef = typeof price === "string" ? { id: price } : price;
   if (ref.id) {
-    const byId = PAID.find((plan) => BILLING_INTERVALS.some((interval) => priceForPlan(plan, interval) === ref.id));
+    const byId = PAID.find((plan) =>
+      CURRENCIES.some((currency) => BILLING_INTERVALS.some((interval) => priceForPlan(plan, interval, currency) === ref.id)),
+    );
     if (byId) return byId;
   }
   if (ref.lookup_key && Object.hasOwn(PRICE_LOOKUP_KEYS, ref.lookup_key)) return PRICE_LOOKUP_KEYS[ref.lookup_key];

@@ -316,6 +316,12 @@ resource "aws_apprunner_service" "web" {
           STRIPE_PRICE_AI_TOP_UP      = var.stripe_price_ai_top_up
           STRIPE_PRODUCT_AGENT        = var.stripe_product_agent
           STRIPE_PRODUCT_OFFICE       = var.stripe_product_office
+          # US$ prices for visitors outside Australia (ADR 0085).
+          STRIPE_PRICE_AGENT_MONTHLY_USD  = var.stripe_price_agent_monthly_usd
+          STRIPE_PRICE_AGENT_YEARLY_USD   = var.stripe_price_agent_yearly_usd
+          STRIPE_PRICE_OFFICE_MONTHLY_USD = var.stripe_price_office_monthly_usd
+          STRIPE_PRICE_OFFICE_YEARLY_USD  = var.stripe_price_office_yearly_usd
+          STRIPE_PRICE_AI_TOP_UP_USD      = var.stripe_price_ai_top_up_usd
           # Finished reels the landing page plays; empty shows a placeholder frame.
           SAMPLE_REEL_URL        = var.sample_reel_urls
           SAMPLE_REEL_POSTER_URL = var.sample_reel_poster_urls

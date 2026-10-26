@@ -28,7 +28,8 @@ import { outputUrls } from "@/lib/render-jobs";
 import { audioProblemsFrom, ensureChecks, gateFor, withAudio, type ChecksResult } from "@/lib/render-verify";
 import { coverUrls, readTimeline } from "@/lib/reels";
 import { reelAudioTrace } from "@/lib/sound";
-import { isBillingConfigured, isIntervalAvailable } from "@/lib/stripe";
+import { isBillingConfigured, chargeableCurrency, isIntervalAvailable } from "@/lib/stripe";
+import { requestCurrency } from "@/lib/request-currency";
 import { getCurrentUser, mediaScope } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
@@ -110,7 +111,10 @@ export default async function ExportPage({
   // The one message after a first successful export (ADR 0081): only a Free studio that could buy, and only once.
   const nudge =
     urls && planId === "FREE" && !comped && isBillingConfigured() && (await claimUpgradePrompt({ userId: user.id, workspaceId: user.workspaceId, data: { reelId: reel.id } }))
-      ? firstExportNudge(user.attribution, { yearlyAvailable: isIntervalAvailable("year") })
+      ? await (async () => {
+          const currency = chargeableCurrency((await requestCurrency()).currency);
+          return firstExportNudge(user.attribution, { yearlyAvailable: isIntervalAvailable("year", currency), currency });
+        })()
       : null;
 
   return (

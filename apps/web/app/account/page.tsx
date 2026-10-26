@@ -12,12 +12,13 @@ import { listGrants } from "@/lib/mcp/oauth-store";
 import { SCOPE_LABELS } from "@/lib/mcp/scopes";
 import { deleteCommentTrigger, disconnectCommentReplies, saveCommentTrigger, toggleCommentTrigger } from "@/app/comment-reply-actions";
 import { FeedbackForm } from "@/components/feedback-form";
-import { AI_TOP_UP, formatAud, outputSize, PLANS, PRICE_SMALL_PRINT } from "@reelwalk/core";
+import { aiTopUp, formatCharge, outputSize, planPrice, PLANS, priceSmallPrint } from "@reelwalk/core";
+import { requestCurrency } from "@/lib/request-currency";
 import { isInstagramConfigured } from "@/lib/instagram";
 import { isMessagingConfigured } from "@/lib/instagram-messaging";
 import { aiEditUsage } from "@/lib/ai-edit";
 import { exportsThisMonth, storageUsed, workspacePlan } from "@/lib/plans";
-import { isBillingConfigured } from "@/lib/stripe";
+import { chargeableCurrency, isBillingConfigured } from "@/lib/stripe";
 import { SubmitButton } from "@/components/submit-button";
 import { createWorkspace, setWorkspaceAi, switchWorkspace } from "@/app/workspace-actions";
 import { listWorkspaces } from "@/lib/workspaces";
@@ -61,6 +62,9 @@ export default async function AccountPage({
   const { plan } = current;
   const usedGb = usedBytes / 1024 ** 3;
   const billingOn = isBillingConfigured();
+  // A$ in Australia, US$ elsewhere (ADR 0085): what checkout from this page would charge.
+  const currency = chargeableCurrency((await requestCurrency()).currency);
+  const topUp = aiTopUp(currency);
   // The next plan up, if there is one to offer.
   const next = current.id === "FREE" ? PLANS.AGENT : current.id === "AGENT" ? PLANS.OFFICE : null;
 
@@ -94,7 +98,7 @@ export default async function AccountPage({
         <section className="card" id="plan" data-testid="plan-card" data-plan={current.id}>
           <h2>
             {plan.name} plan
-            {plan.priceAud > 0 && !current.comped ? <span className="muted"> · {formatAud(plan.priceAud)}/month</span> : null}
+            {plan.priceAud > 0 && !current.comped ? <span className="muted"> · {formatCharge(planPrice(plan, "month", currency), currency)}/month</span> : null}
           </h2>
           {current.comped ? (
             <p className="muted small">
@@ -159,7 +163,7 @@ export default async function AccountPage({
               <input type="hidden" name="plan" value={next.id} />
               <p className="muted small">
                 {next.name}: {next.exportsPerMonth} exports a month at 1080×1920 with no mark, {next.storageGb} GB of uploads, one-tap posting to
-                Instagram{next.seats > 1 ? `, ${next.seats} people` : ""}. {formatAud(next.priceAud)}/month, cancel any time.
+                Instagram{next.seats > 1 ? `, ${next.seats} people` : ""}. {formatCharge(planPrice(next, "month", currency), currency)}/month, cancel any time.
               </p>
               <SubmitButton className="btn btn-block" pendingLabel="Opening checkout…" testId="upgrade">
                 Upgrade to {next.name}
@@ -171,7 +175,7 @@ export default async function AccountPage({
               Compare all plans and yearly prices
             </Link>
           </p>
-          <p className="muted small" style={{ marginBottom: 0 }}>{PRICE_SMALL_PRINT}</p>
+          <p className="muted small" style={{ marginBottom: 0 }}>{priceSmallPrint(currency)}</p>
           {billingOn && current.stripeCustomerId ? (
             <form action={openBillingPortal}>
               <SubmitButton className="btn btn-quiet btn-block" pendingLabel="Opening…" testId="billing-portal">
@@ -231,8 +235,8 @@ export default async function AccountPage({
           <p className="muted small">One credit creates a 4-second clip; an 8-second clip uses 2. Agent includes 20 a month; Studio includes 60. Monthly credits reset without rollover, including on yearly plans. Purchased credits do not expire.</p>
           {billing === "credits" ? <p className="toast" role="status">Thank you. Your credits appear once payment is confirmed.</p> : null}
           {aiOff ? null : <Link className="btn btn-block" href="/ai-video">Generate AI video</Link>}
-          {billingOn && aiTopUpPrice() && !aiOff && owner ? <form action={buyAiCredits} style={{ marginTop: 12 }}>
-            <SubmitButton className="btn btn-quiet btn-block" pendingLabel="Opening checkout…">{AI_TOP_UP.credits} extra AI credits · {formatAud(AI_TOP_UP.priceCents / 100)}</SubmitButton>
+          {billingOn && aiTopUpPrice(currency) && !aiOff && owner ? <form action={buyAiCredits} style={{ marginTop: 12 }}>
+            <SubmitButton className="btn btn-quiet btn-block" pendingLabel="Opening checkout…">{topUp.credits} extra AI credits · {formatCharge(topUp.priceCents / 100, currency)}</SubmitButton>
           </form> : null}
         </section>
 

@@ -760,3 +760,28 @@
   font-size: 12.5px;
   text-align: center;
 }
+
+/* "Prices in AUD · USD" (ADR 0085): a line of text with two quiet buttons, not a second switch. */
+.currency {
+  margin: 0;
+  color: var(--muted);
+  font-size: 15px;
+}
+
+.currency button {
+  min-height: 44px;
+  padding: 0 6px;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.currency button[aria-pressed="true"] {
+  color: var(--paper);
+  font-weight: 700;
+  text-decoration: none;
+}

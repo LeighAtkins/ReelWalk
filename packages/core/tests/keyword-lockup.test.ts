@@ -4,6 +4,7 @@ import {
   maxTextSize, parseTimeline, phrasesOf, pickKeyword, placeKeyword, REEL_FORMAT, SAFE_AREA, screenTitleExtent, SERIF_CAP_EM, TEXT_SAFE_BOTTOM, TEXT_SIZE_MAX,
   textSchema, updateText, type Timeline, type TranscriptWord,
 } from "../src";
+import { LAST_MILE_KIT } from "../src/brand-kits";
 
 // The owner's two Maya takes (2026-10-26), their whisper transcripts as stored (take 1 with its trailing hallucination).
 const TAKE1 = "ai-take1", TAKE2 = "ai-take2";
@@ -125,6 +126,20 @@ describe("the composeKeywordLockup command", () => {
     const removed = applyCommand(done.timeline, { type: "composeKeywordLockup", remove: true }, { generation: 1 });
     expect(removed.timeline.texts.map((t) => t.id)).toEqual(["mine"]);
     expect(applyCommand(reel(), { type: "composeKeywordLockup" }, { generation: 0 }).rejected).toMatch(/transcripts/);
+  });
+
+  it("sets a brand kit style on the keywords at the same pixel size, and refuses one without a kit", () => {
+    const plain = applyCommand(reel(), { type: "composeKeywordLockup", speech: SPEECH, faces: FACES }, { generation: 0 }).timeline;
+    const styled = applyCommand(reel(), { type: "composeKeywordLockup", speech: SPEECH, faces: FACES, brandStyle: "lastmile-title" }, { generation: 0, brandKit: LAST_MILE_KIT });
+    expect(styled.rejected).toBeUndefined();
+    const before = plain.texts.find((t) => t.id === "kw-clip-one-1")!, after = styled.timeline.texts.find((t) => t.id === "kw-clip-one-1")!;
+    expect(after).toMatchObject({ style: "plain", brand: { style: "lastmile-title" }, x: before.x, y: before.y, startMs: before.startMs });
+    // The plain style's base is the elegant serif's ÷ 0.7: the same px.
+    expect(after.size).toBeCloseTo(before.size * 0.7, 4);
+    expect(after.weight).toBeUndefined();
+    // The caption words keep the house caption look.
+    expect(styled.timeline.texts.find((t) => t.id === "kc-clip-one-1")!.brand).toBeUndefined();
+    expect(applyCommand(reel(), { type: "composeKeywordLockup", speech: SPEECH, brandStyle: "x" }, { generation: 0 }).rejected).toMatch(/no brand kit/);
   });
 });
 

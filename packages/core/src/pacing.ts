@@ -158,7 +158,18 @@ export type PaceOptions = {
    * shot before it then keeps no `into-cut` ramp of pacing's own: the transition is the acceleration.
    */
   speedRamps?: boolean;
+  /**
+   * The shortest the reel may come out (ms). A cut that falls short gives shots more beats until it reaches it, the
+   * establishing and closing shots longest, so a fast pace changes the rhythm without collapsing the reel. 0 or unset:
+   * no floor (`paceTimeline` sets it to `REPACE_FLOOR_MS` or the previous length, whichever is smaller).
+   */
+  minTotalMs?: number;
 };
+
+/** A re-pace keeps the reel at least this long, or as long as it was if that was shorter. */
+export const REPACE_FLOOR_MS = 15_000;
+/** The most beats the length guard gives one shot. */
+const GUARD_MAX_BEATS = 12;
 
 /**
  * Whether pacing must leave a clip exactly as it is: an AI take (a presenter speaking, generated footage), or a video
@@ -243,7 +254,50 @@ function longestMs(clip: Clip, durations: Record<string, number | null | undefin
   return Math.floor((durations[clip.assetId] ?? clip.sourceEndMs) / clip.speed);
 }
 
+/** The grid step (in beats) a shot of `beats` cuts on: a bar for whole bars, else every second beat. */
+const stepFor = (beats: number) => (beats >= 4 && beats % 4 === 0 ? BEATS_PER_BAR : beats >= 2 ? 2 : 1);
+
+const planMs = (plan: PacePlan) => plan.clips.reduce((sum, clip) => sum + clipDurationMs(clip), 0);
+
+/**
+ * `cutPass`, then, when `options.minTotalMs` is not met, the same cut with more beats on some shots. One shot at a
+ * time is raised (2, 4, 6, 8, ...) until the reel is long enough, always the shot that is shortest after allowing the
+ * establishing and closing shots two beats more, and every other middle shot one step shorter than its neighbours, so
+ * the result varies instead of every shot getting the same count. A shot its source cannot fill is left as it is.
+ */
 function cutPlan(timeline: Timeline, options: PaceOptions, sections: SongSection[], grid: ReelGrid, held: (clip: Clip) => boolean, heroClip: Clip | null): PacePlan {
+  const floor = options.minTotalMs ?? 0;
+  const first = cutPass(timeline, options, sections, grid, held, heroClip);
+  if (floor <= 0 || planMs(first) >= floor) return first;
+  const free = first.shots.filter((shot) => !shot.held);
+  const asks = new Map(free.map((shot) => [shot.clipId, shot.beats]));
+  const rank = new Map(free.map((shot, j) => [shot.clipId, j]));
+  const adjusted = (id: string) => {
+    const j = rank.get(id)!;
+    const end = j === 0 || j === free.length - 1;
+    return asks.get(id)! - (end ? 2 : j % 2 === 0 ? 0 : -1);
+  };
+  const capped = new Set<string>();
+  let best = first;
+  for (let round = 0; round < 120 && planMs(best) < floor; round++) {
+    const next = free.filter((shot) => !capped.has(shot.clipId) && asks.get(shot.clipId)! < GUARD_MAX_BEATS).sort((a, b) => adjusted(a.clipId) - adjusted(b.clipId) || rank.get(a.clipId)! - rank.get(b.clipId)!)[0];
+    if (!next) break;
+    const was = asks.get(next.clipId)!;
+    asks.set(next.clipId, was < 2 ? 2 : was < 4 ? 4 : was + 2);
+    const plan = cutPass(timeline, options, sections, grid, held, heroClip, asks);
+    // A shot that did not get most of the beats it asked for has run out of source: leave it where it was.
+    const got = plan.shots.find((shot) => shot.clipId === next.clipId);
+    if (!got || got.endMs - got.startMs < asks.get(next.clipId)! * grid.periodMs * 0.7) {
+      asks.set(next.clipId, was);
+      capped.add(next.clipId);
+      continue;
+    }
+    best = plan;
+  }
+  return best;
+}
+
+function cutPass(timeline: Timeline, options: PaceOptions, sections: SongSection[], grid: ReelGrid, held: (clip: Clip) => boolean, heroClip: Clip | null, asks?: ReadonlyMap<string, number>): PacePlan {
   const energy = Math.min(1, Math.max(0, options.energy));
   const durations = options.sourceDurationsMs ?? {};
   const P = grid.periodMs;
@@ -274,9 +328,9 @@ function cutPlan(timeline: Timeline, options: PaceOptions, sections: SongSection
       t += actual;
       continue;
     }
-    const beats = isHero ? shotBeats(HERO_BEATS, energy, 0.5, minBeats) : shotBeats(SHOT_BEATS[kind], energy, energyOf(clip), minBeats);
+    const beats = asks?.get(clip.id) ?? (isHero ? shotBeats(HERO_BEATS, energy, 0.5, minBeats) : shotBeats(SHOT_BEATS[kind], energy, energyOf(clip), minBeats));
     const minimum = Math.max(MIN_CLIP_MS, clip.pano ? PANO_MIN_MS : 0);
-    const step = Math.min(beats, BEATS_PER_BAR);
+    const step = stepFor(beats);
     let end = gridAtOrAfter(grid, Math.max(t + beats * P - (step * P) / 2, t + minimum), step);
     // Every section start is a cut, so the drop lands on one.
     const boundary = sections.find((section) => section.startMs > t + minimum && section.startMs < end - 1);
@@ -374,7 +428,10 @@ export function paceTimeline(timeline: Timeline, options: PaceOptions): Timeline
   if (!timeline.music) return timeline;
   const origin = paceOrigin(timeline);
   // What an earlier pass placed as speed-ramp cuts is cleared first: the cut is planned afresh (a cut that moved is no longer strong).
-  const plan = planPace({ ...timeline, clips: origin.clips.map(clearAutoSpeedRamp) }, { ...options, heroClipId: options.heroClipId ?? origin.heroClipId });
+  // A re-pace changes the rhythm, not the length: the reel stays at 15 s or what it was, whichever is shorter.
+  const previousMs = origin.clips.reduce((sum, clip) => sum + clipDurationMs(clip), 0);
+  const minTotalMs = options.minTotalMs ?? Math.min(REPACE_FLOOR_MS, previousMs);
+  const plan = planPace({ ...timeline, clips: origin.clips.map(clearAutoSpeedRamp) }, { ...options, minTotalMs, heroClipId: options.heroClipId ?? origin.heroClipId });
   if (!plan) return timeline;
   const pace = { base: origin.clips.map(({ id, sourceStartMs, sourceEndMs }) => ({ id, sourceStartMs, sourceEndMs })), resultKey: clipsKey(plan.clips), heroClipId: plan.heroClipId };
   const music = { ...timeline.music, energy: Math.round(Math.min(1, Math.max(0, options.energy)) * 100) / 100, pace };

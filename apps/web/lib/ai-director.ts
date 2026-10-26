@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import sharp from "sharp";
 import { z } from "zod";
-import { DIRECTOR_INSTRUCTIONS, DIRECTOR_PLAN_JSON_SCHEMA, AI_EDIT_SYSTEM_PROMPT, applyAiEditPlan, describeMotion, describeReel, directorPlanSchema, isEquirect, parseTimeline, referencedAssetIds, validateDirectorReferences } from "@reelwalk/core";
+import { DIRECTOR_INSTRUCTIONS, DIRECTOR_PLAN_JSON_SCHEMA, AI_EDIT_SYSTEM_PROMPT, applyAiEditPlan, describeMotion, describeReel, directorPlanSchema, isEquirect, namesCuts, parseTimeline, referencedAssetIds, validateDirectorReferences } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
 import { aiEditBlockedReason, context, newAssets } from "./ai-edit";
 import { aiModel, aiProvider, structuredAnswer } from "./openai";
@@ -73,7 +73,7 @@ export async function directReel(user: { id: string; workspaceId: string }, reel
   if (plan.verdict === "ready" && (!evidence.length || aiSources.some(a => !evidence.some(e => e.assetId === a.assetId && e.timesMs.length >= 3)))) throw new Error("Opus reported ready without enough AI source-frame evidence. No edit or generation was applied.");
   if (plan.verdict === "needs-generation" && !plan.shots.length) throw new Error("Opus asked for a new shot but did not write it. Ask again.");
   validateDirectorReferences(plan, available.assets);
-  const applied = applyAiEditPlan(timeline, plan.edit, { ...available, newId: () => crypto.randomUUID() });
+  const applied = applyAiEditPlan(timeline, plan.edit, { ...available, newId: () => crypto.randomUUID(), namedCuts: namesCuts(input.request) });
   const stored = { kind: "director", ...(input.runId ? { runId: input.runId } : {}), plan, baseline: timeline, instagramPick: applied.instagramPick ?? null, timeline: applied.timeline, evidence: evidence.map(e => ({ assetId: e.assetId, timesMs: e.timesMs, sha256: e.sha256 })) };
   await prisma.aiEdit.update({ where: { id: record.id }, data: {
     model: answer.model, note: plan.note, plan: stored as never, applied: applied.applied, skipped: applied.skipped,

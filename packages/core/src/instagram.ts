@@ -1,4 +1,4 @@
-import { placedByApp, REEL_FORMAT, textUnderCard, timelineDurationMs, type Timeline } from "./timeline";
+import { placedByApp, REEL_FORMAT, TEXT_SAFE_BOTTOM, textUnderCard, timelineDurationMs, type Timeline } from "./timeline";
 
 /**
  * Instagram Reels limits the export is checked against. Instagram changes
@@ -20,7 +20,7 @@ export const INSTAGRAM = {
 /** The safe area as fractions of the frame, for drawing guides and checking positions. */
 export const SAFE_AREA = {
   top: INSTAGRAM.safeZonePx.top / REEL_FORMAT.height,
-  bottom: 1 - INSTAGRAM.safeZonePx.bottom / REEL_FORMAT.height,
+  bottom: TEXT_SAFE_BOTTOM,
   left: INSTAGRAM.safeZonePx.left / REEL_FORMAT.width,
   right: 1 - INSTAGRAM.safeZonePx.right / REEL_FORMAT.width,
 } as const;

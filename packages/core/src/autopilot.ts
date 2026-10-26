@@ -60,7 +60,7 @@ export const AUTOPILOT_STYLES: Record<string, AutopilotStyle> = {
     mood: /popular|nu disco|upbeat house|cheerful|upbeat|sunny|bouncy/,
     filter: "none",
     hook: () => ({ text: "Just listed", style: "headline", size: 1.2 }),
-    roomLabels: true,
+    roomLabels: false,
     detailsCard: true,
   },
   privacy: {
@@ -80,7 +80,7 @@ export const AUTOPILOT_STYLES: Record<string, AutopilotStyle> = {
     mood: /popular|real estate|soft house|cheerful|upbeat|sunny|bouncy/,
     filter: "none",
     hook: (info) => ({ text: info.openHouse ? `Open home\n${info.openHouse}` : "Open home", style: "box", size: 1.1 }),
-    roomLabels: true,
+    roomLabels: false,
     detailsCard: true,
   },
   walkthrough: {
@@ -90,7 +90,7 @@ export const AUTOPILOT_STYLES: Record<string, AutopilotStyle> = {
     mood: /real estate|soft house|lo-fi|warm|relaxed|easy|gentle|hopeful/,
     filter: "warm",
     hook: (info) => ({ text: info.address?.trim() || "Take a look inside", style: "plain", size: 1 }),
-    roomLabels: true,
+    roomLabels: false,
     detailsCard: true,
   },
 };
@@ -237,8 +237,9 @@ export function finishAutopilot(
 /**
  * The cut by rule, for when there is no model or its answer is unusable:
  * outside shots first and views last, photos at the style's pace with a
- * slow push-in, 360 photos as sweeps, long videos split into two or three
- * shots from their middle, the whole reel kept under the style's length.
+ * slow push-in, 360 photos as sweeps, one shot per video from its middle (a
+ * shoot of fewer than three clips may give a long video two separate windows),
+ * the whole reel kept under the style's length.
  */
 export function ruleCut(timeline: Timeline, context: Context): Timeline {
   const { assets, style, newId } = context;
@@ -256,10 +257,12 @@ export function ruleCut(timeline: Timeline, context: Context): Timeline {
     }
     const source = assets[clip.assetId]?.durationMs ?? clip.sourceEndMs;
     const length = Math.min(style.shotMs, Math.max(MIN_CLIP_MS, source));
-    // A long video gives two or three shots from its middle, where the camera is moving.
-    const pieces = source >= length * 4.5 ? 3 : source >= length * 3 ? 2 : 1;
+    // One shot per clip. Only a shoot of fewer than three clips splits a long video, into two windows
+    // with a gap between them (a mid-clip split of a longer shoot read as a stutter: ADR 0021, 0024).
+    const pieces = ordered.length < 3 && source >= length * 3 ? 2 : 1;
     for (let piece = 0; piece < pieces; piece++) {
-      const start = pieces === 1 ? Math.max(0, Math.round((source - length) / 2)) : Math.round(source * (0.15 + (0.7 * piece) / pieces));
+      const room = Math.max(0, source - length);
+      const start = pieces === 1 ? Math.round(room / 2) : Math.round(room * (piece === 0 ? 0.1 : 0.9));
       const end = Math.min(source, start + length);
       shots.push({ ...clip, id: piece === 0 ? clip.id : newId(), sourceStartMs: Math.max(0, end - length), sourceEndMs: end, speed: 1, filter: style.filter, transitionIn: "cut" });
     }

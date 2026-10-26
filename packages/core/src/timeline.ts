@@ -22,6 +22,20 @@ import { textTreatmentSchema } from "./brand-fonts";
 
 export const REEL_FORMAT = { width: 1080, height: 1920, fps: 30 } as const;
 
+/**
+ * The lowest a title may sit (y, 0 at the top, 1 at the bottom): below it
+ * Instagram's caption, audio label and buttons cover the frame. One value
+ * for the first cut, the caption guard, the export check and the model's
+ * prompt, so they cannot disagree.
+ */
+export const TEXT_SAFE_BOTTOM = 0.72;
+
+/** Where a room label sits when labels are on: clear of the safe-zone limit. */
+export const ROOM_LABEL_Y = 0.66;
+
+/** Words for a shot that is not a room: a label would read as nonsense over it. */
+export const NON_ROOM_NAME = /\b(aerial|exterior|facade|façade|views?|drone|street|outside|arrival|sunset|dusk|skyline|overhead|establishing)\b/i;
+
 /** Shortest clip the editor will produce by trimming or splitting. */
 export const MIN_CLIP_MS = 500;
 /** Default on-screen time for a photo. */
@@ -816,9 +830,9 @@ export function coverMs(timeline: Timeline): number {
  * Where a room's name is drawn: centred, with its whole box above Instagram's caption zone (the bottom
  * 500 px of 1920, y 0.74). The first version put the centre on that line (y 0.74), so every label read as
  * "where Instagram's buttons or caption may cover it" (ADR 0081); a box title at size 0.8 is about a tenth
- * of the frame tall, so this keeps it clear with room to spare.
+ * of the frame tall, so this keeps it clear with room to spare (0.66, below the 0.72 safe-zone limit).
  */
-export const ROOM_LABEL_AT = { x: 0.5, y: 0.68 } as const;
+export const ROOM_LABEL_AT = { x: 0.5, y: ROOM_LABEL_Y } as const;
 
 /** The y the first version drew room labels at, which reels saved then still carry. */
 const LEGACY_ROOM_LABEL_Y = 0.74;
@@ -852,7 +866,7 @@ export function addRoomLabels(timeline: Timeline): Timeline {
   // Plain windows first: a label is only validated once it is known to be long enough (a 167 ms clip at 3x has no room for one).
   const labels: { id: string; text: string; startMs: number; endMs: number }[] = [];
   timeline.clips.forEach((clip, index) => {
-    if (!clip.room) return;
+    if (!clip.room || NON_ROOM_NAME.test(clip.room)) return;
     // Consecutive shots of the same room share one label.
     if (index > 0 && timeline.clips[index - 1].room === clip.room) {
       const previous = labels[labels.length - 1];

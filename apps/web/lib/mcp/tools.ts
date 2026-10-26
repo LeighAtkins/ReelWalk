@@ -8,6 +8,7 @@ import {
   COMMAND_TYPES,
   canExport,
   describeBrandKit,
+  digestShotAnalysis,
   clipStartsMs,
   clipDurationMs,
   emptyTimeline,
@@ -29,6 +30,7 @@ import { workspaceBrandKit } from "../brand-kit";
 import { applyReelCommand, loadReel } from "../reel-command";
 import { readTimeline } from "../reels";
 import { saveReelFor } from "../save-reel";
+import { loadShotAnalyses } from "../shot-analysis";
 import { mediaScope } from "../media-scope";
 import { AI_OFF_CODE, AI_OFF_MESSAGE, aiIsOff } from "../ai-gate";
 import { listWorkspaces } from "../workspaces";
@@ -198,6 +200,9 @@ const getReel: ToolSpec = {
       prisma.renderJob.findFirst({ where: { reelId, workspaceId: ctx.user.workspaceId, kind: "REEL" }, orderBy: { createdAt: "desc" }, select: { id: true, status: true, progress: true, createdAt: true } }),
     ]);
     const issues = instagramIssues(loaded.timeline, reel?.caption ?? "");
+    // What each video shows, moment by moment (ADR 0086), as a compact digest; GET /api/reels/:id/shots has it in full.
+    // A digest is extra: a failure to read it never fails the summary.
+    const shots = await loadShotAnalyses(ctx.user.workspaceId, Object.keys(loaded.library)).catch(() => ({}) as Awaited<ReturnType<typeof loadShotAnalyses>>);
     return ok({
       reelId: loaded.id,
       title: loaded.title,
@@ -205,7 +210,7 @@ const getReel: ToolSpec = {
       caption: reel?.caption ?? "",
       url: reelUrl(ctx, loaded.id),
       ...summarise(loaded.timeline, loaded.library),
-      media: Object.values(loaded.library).map((asset) => ({ id: asset.id, kind: asset.kind, fileName: asset.fileName, durationMs: asset.durationMs, width: asset.width, height: asset.height, hasSpeech: asset.kind === "VIDEO" && hasSpeech(asset.transcript), credit: asset.credit })),
+      media: Object.values(loaded.library).map((asset) => ({ id: asset.id, kind: asset.kind, fileName: asset.fileName, durationMs: asset.durationMs, width: asset.width, height: asset.height, hasSpeech: asset.kind === "VIDEO" && hasSpeech(asset.transcript), credit: asset.credit, ...(shots[asset.id] ? { shot: digestShotAnalysis(shots[asset.id]) } : {}) })),
       canExport: canExport(issues),
       issues,
       brandKit: loaded.brandKit ? { id: loaded.brandKit.id, name: loaded.brandKit.name, styles: loaded.brandKit.styles.map((style) => style.name), hint: "get_brand_kit has the palette and what each style looks like; apply one with applyTextStyle." } : null,
@@ -468,6 +473,7 @@ const COMMAND_SHEET = [
   "syncTextToSpeech{textId,clipId?,holdMs?} (the title appears with the first word it repeats from the clip's speech, each word as it is said, and fades after the last)",
   "setRamp{clipId,ramp}",
   "setCamera{clipId,camera}",
+  "setReframe{clipId,reframe:auto|{aspect,keys:[{t,x}]}|null} (auto: the 9:16 crop follows the subject along the clip's shot analysis)",
   "cutaways{everyMs|null}",
   "matchCuts{motion}",
   "matchLook{referenceClipId?,strength?}",

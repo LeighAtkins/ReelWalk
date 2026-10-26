@@ -28,6 +28,7 @@ import { labelRooms } from "@/lib/room-labels";
 import { aimPano } from "@/lib/pano-aim";
 import { toLibraryAssets, type LibraryAsset } from "@/lib/library";
 import { mediaScope } from "@/lib/media-scope";
+import { shotLines } from "@/lib/shot-analysis";
 import { insideProviderGate } from "@/lib/provider-gate";
 
 /** Library entries for media a new timeline uses that the old one did not: a song the AI picked plays at once. */
@@ -128,6 +129,9 @@ export async function context(workspaceId: string, timeline: Timeline): Promise<
   if (fromInstagram.length > 0) songs.splice(0, songs.length, ...fromInstagram);
   const unused = own.map(toAsset);
   for (const asset of unused) assets[asset.id] = asset;
+  // What the reel's own videos show, moment by moment (ADR 0086): in-points, motion, occluders, close-ups.
+  const lines = await shotLines(workspaceId, used);
+  for (const [id, line] of Object.entries(lines)) if (assets[id]) assets[id] = { ...assets[id], shot: line };
   return { assets, songs, unused };
 }
 

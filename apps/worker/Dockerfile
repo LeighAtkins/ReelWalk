@@ -8,8 +8,9 @@ FROM node:22-bookworm-slim AS runtime
 # fixes that CI's cached layer lacks (2026-10-21: libssh 0.10.6-0+deb12u3;
 # 2026-10-23: libexpat1 2.5.0-1+deb12u5 for CVE-2025-59375 / CVE-2026-77214;
 # 2026-10-24: libbrotli1 1.0.9-2+deb12u1 for CVE-2026-111497;
-# 2026-10-25: fonts-noto-color-emoji added, so emoji in titles are not tofu).
-ARG BASE_REFRESH=2026-10-25
+# 2026-10-25: fonts-noto-color-emoji added, so emoji in titles are not tofu;
+# 2026-10-26: libssl3 3.0.22-1~deb12u2 for CVE-2026-84782).
+ARG BASE_REFRESH=2026-10-26
 RUN apt-get update \
   && apt-get upgrade -y \
   && apt-get install -y --no-install-recommends ca-certificates curl \
@@ -61,6 +62,10 @@ RUN node_modules/.bin/tsx src/ensure-browser.ts
 # (src/transcribe.ts), cached here so a render task never downloads it.
 RUN node_modules/.bin/tsx scripts/fetch-whisper.ts /workspace/models
 
+# The shot-analysis models (about 75 MB: MobileCLIP-S0 image tower, Depth Anything V2 small int8) for
+# src/shot-analysis.ts (ADR 0086), cached in the same directory.
+RUN node_modules/.bin/tsx scripts/fetch-shot-models.ts /workspace/models
+
 ## ── Stage 3: runner ───────────────────────────────────────────
 FROM runtime AS runner
 
@@ -72,6 +77,7 @@ COPY --from=build /workspace /workspace
 WORKDIR /workspace/apps/worker
 
 ENV TRANSCRIBE_MODEL_DIR=/workspace/models
+ENV SHOT_MODEL_DIR=/workspace/models
 
 USER node
 EXPOSE 8081

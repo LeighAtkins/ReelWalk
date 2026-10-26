@@ -221,11 +221,13 @@ wall, one spot for 13 s) are about footage and were addressed in the proof below
   to be skipped while the caption track was also suppressed, so the word vanished. Now every companion is shown or the
   whole phrase keeps the caption track.
 - **Ink never touches ink.** The over-line on the cap line still hit tall letters ("Try" over "free": the y's tail on
-  the f). Glyph extents were measured from the bundled fonts with fontTools at the drawn weights (Playfair Display 600:
-  ascenders 0.783 em, capitals 0.723, tails −0.188; Archivo italic 500: ascenders 0.731, tails −0.182, its f included).
-  `placeCompanions` takes the keyword's text, finds the keyword's letters under each line's span, and moves the line
-  clear by a quarter of its capitals: the over-line up past an ascender and its own tails, the under-line down only
-  when a keyword tail is in its way (its tuck into the capitals is reel 3's look and stays). A line that then leaves
-  the safe area falls back to the caption track as before.
+  the f). Every glyph's top and bottom was measured from the bundled fonts with fontTools at the drawn weights
+  (Playfair Display 600, Archivo italic 500) into a per-character table; a character not in it counts as the font's
+  tallest and deepest. Round 2 of the review found why a table and not letter classes: Playfair's figures are
+  old-style (3 4 5 7 9 hang to −0.15 em) and its $ rises to 0.84 em, past the ascenders (0.783). `placeCompanions`
+  takes the keyword's text, finds the keyword's glyphs under each line's span, and moves the line clear by a quarter
+  of its capitals: the over-line up past the tallest glyph and its own tails, the under-line down only when a keyword
+  glyph hangs below the line in its way (its tuck into the capitals is reel 3's look and stays). A line that then
+  leaves the safe area falls back to the caption track as before.
 - **Brand kit keywords keep the caption track.** `brandStyle` replaces the keyword's face, tracking and case after
   composing, so the measured fit no longer holds; a branded lockup is composed with `interlock: false`.

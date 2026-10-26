@@ -121,6 +121,19 @@ describe("composeKeywordLockups with interlock", () => {
     expect(only.captions).toEqual(["absolutely", "everywhere"]);
   });
 
+  it("clears figures and symbols too: Playfair's $ rises past its ascenders and its old-style 3 hangs below the line (round-2 review)", () => {
+    const face = { x0: 0.45, y0: 0.52, x1: 0.58, y1: 0.61 };
+    const dollars = placeKeyword("$500", KEYWORD_CAP, face), three = placeKeyword("3", KEYWORD_CAP, face);
+    const [over] = placeCompanions({ ...dollars, text: "$500" }, "Save", "")!;
+    const [under] = placeCompanions({ ...three, text: "3" }, "", "times")!;
+    const fontH = (k: typeof dollars) => (k.size * 76 * 0.7) / H;
+    const baseline = (k: typeof dollars) => k.y + 0.4155 * fontH(k);
+    const em = (line: typeof over) => (line.size * 76) / H, lineBaseline = (line: typeof over) => line.y + line.capHeight / 2;
+    // Measured: Playfair 600's $ tops out at 0.84 em, its 3 hangs to -0.151 em; Archivo italic's i rises 0.723 em.
+    expect(lineBaseline(over) + 0.014 * em(over)).toBeLessThan(baseline(dollars) - 0.84 * fontH(dollars));
+    expect(lineBaseline(under) - 0.723 * em(under)).toBeGreaterThan(baseline(three) + 0.151 * fontH(three));
+  });
+
   it("keeps the caption track when a companion would be on too briefly to read, so no word is dropped (round-1 review)", () => {
     const quick: Record<string, TranscriptWord[]> = { [PIER]: [{ w: "Do", s: 0, e: 300 }, { w: "this", s: 400, e: 700 }, { w: "now.", s: 800, e: 940 }] };
     const short = parseTimeline({ version: 1, music: null, texts: [], clips: [{ id: "pier", assetId: PIER, kind: "VIDEO", sourceStartMs: 0, sourceEndMs: 950 }] });

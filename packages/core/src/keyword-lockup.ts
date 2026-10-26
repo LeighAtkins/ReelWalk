@@ -135,28 +135,43 @@ const ARCHIVO_CAP_EM = 0.695;
 const PLAIN_PX_PER_SIZE = 76;
 /*
  * Glyph extents, measured from the bundled fonts at the weights drawn (fontTools on playfair-display-latin-wght-normal
- * at wght 600, archivo-latin-wdth-italic at wght 500): the top and bottom of each class of letter, in em from the
- * baseline. Used to keep a companion line's ink off the keyword's (round-1 review: "Try" over "free" put the y's tail
- * on the f).
+ * at wght 600, archivo-latin-wdth-italic at wght 500 wdth 100): each glyph's top and bottom in em from the baseline.
+ * Used to keep a companion line's ink off the keyword's (round-1 review: "Try" over "free" put the y's tail on the f;
+ * round 2: Playfair's old-style figures 3 4 5 7 9 hang below the line and its $ rises above the ascenders). A character
+ * not measured is taken as the font's tallest and deepest.
  */
-const PLAYFAIR_INK = { ascender: 0.783, cap: 0.723, x: 0.53, descender: -0.188, base: -0.012 };
-const ARCHIVO_ITALIC_INK = { ascender: 0.731, cap: 0.698, x: 0.54, descender: -0.182, base: -0.012 };
-/** Letters that rise above the capitals (Playfair: b d f h k l, and the dots of i j). */
-const ASCENDERS = /[bdfhijklt]/;
-/** Letters with a tail under the baseline (Playfair g j p q y J Q; Archivo italic adds its f). */
-const PLAYFAIR_DESCENDERS = /[gjpqyJQ]/;
-const ARCHIVO_DESCENDERS = /[fgjpqyQ]/;
+type Ink = { glyphs: Map<string, [number, number]>; top: number; bottom: number };
+const inkTable = (groups: [string, number, number][]): Ink => {
+  const glyphs = new Map(groups.flatMap(([chars, top, bottom]) => [...chars].map((ch) => [ch, [top, bottom] as [number, number]] as const)));
+  return { glyphs, top: Math.max(...groups.map((g) => g[1])), bottom: Math.min(...groups.map((g) => g[2])) };
+};
+const PLAYFAIR_INK = inkTable([
+  ["$", 0.84, -0.132], ["%", 0.824, -0.055], ["()", 0.806, -0.182], ["bd", 0.783, -0.016], ["hkl", 0.783, 0], ["f!?", 0.782, -0.014],
+  ["i", 0.772, 0], ["j", 0.772, -0.188], ["'\"‘’“”", 0.73, 0.45], ["6CGO8&/S", 0.723, -0.014], ["Q", 0.722, -0.188], ["A", 0.711, 0],
+  ["BDEFHIKLPTXYZMNVWRU", 0.708, -0.014], ["J", 0.708, -0.188], ["t", 0.681, -0.014], ["@", 0.668, -0.161], ["+#", 0.606, 0.1],
+  ["5", 0.559, -0.148], ["g", 0.541, -0.188], ["qp", 0.533, -0.181], ["aceos0mnr2:u1zwvx", 0.531, -0.014], ["3", 0.531, -0.151],
+  ["4", 0.531, -0.141], ["9", 0.531, -0.15], [";", 0.53, -0.138], ["7", 0.521, -0.148], ["y", 0.517, -0.188], ["-", 0.307, 0.233],
+  [",", 0.132, -0.138], [".", 0.132, -0.014],
+]);
+const ARCHIVO_ITALIC_INK = inkTable([
+  ["()", 0.735, -0.157], ["/", 0.735, -0.049], ["f", 0.731, -0.182], ["bdhikl", 0.723, -0.012], ["j", 0.723, -0.182], ["$", 0.723, -0.049],
+  ["CGOS03689%&#24?", 0.698, -0.012], ["Q", 0.698, -0.13], ["@", 0.698, -0.153], ["1ABDEFHIKLMNPRTVWXYZ7!JU5", 0.687, -0.012],
+  ["'\"‘’“”", 0.686, 0.409], ["t", 0.673, -0.012], ["aceosmnruvwxz", 0.538, -0.012], ["g", 0.538, -0.182], ["pq", 0.538, -0.173],
+  [":", 0.527, 0], [";", 0.527, -0.154], ["y", 0.526, -0.182], ["+", 0.511, 0], ["-", 0.32, 0.22], [",", 0.116, -0.154], [".", 0.116, 0],
+]);
 /** Clear space kept between a companion's ink and the keyword's, as a share of the companion's capitals. */
 const INK_GAP = 0.25;
-const inkTop = (ch: string, ink: typeof PLAYFAIR_INK) => (ASCENDERS.test(ch) ? ink.ascender : /[A-Z0-9]/.test(ch) ? ink.cap : ink.x);
-const inkBottom = (ch: string, ink: typeof PLAYFAIR_INK, tails: RegExp) => (tails.test(ch) ? ink.descender : ink.base);
+const inkTop = (ch: string, ink: Ink) => (/\s/.test(ch) ? 0 : ink.glyphs.get(ch)?.[0] ?? ink.top);
+const inkBottom = (ch: string, ink: Ink) => (/\s/.test(ch) ? 0 : ink.glyphs.get(ch)?.[1] ?? ink.bottom);
+/** The base of letters that sit on the line (a round letter's overshoot): below it, a tail is in the way. */
+const ON_LINE = -0.016;
 
 /**
  * The keyword's ink over a span of the frame (fractions): the highest top and lowest bottom, in em from its baseline,
  * of the letters whose advance falls in `[from, to]`. Without the keyword's text, the worst case.
  */
 function keywordInkOver(keyword: { x: number; size: number; widthFraction: number; text?: string }, from: number, to: number): { top: number; bottom: number } {
-  if (!keyword.text) return { top: PLAYFAIR_INK.ascender, bottom: PLAYFAIR_INK.descender };
+  if (!keyword.text) return { top: PLAYFAIR_INK.top, bottom: PLAYFAIR_INK.bottom };
   const fontPx = keyword.size * ELEGANT_PX_PER_SIZE, W = REEL_FORMAT.width;
   const left = keyword.x - keyword.widthFraction / 2;
   let top = 0, bottom = 0;
@@ -165,7 +180,7 @@ function keywordInkOver(keyword: { x: number; size: number; widthFraction: numbe
     const x1 = left + estimateLineWidth(chars.slice(0, i + 1).join(""), { ...KEYWORD_FONT, fontSize: fontPx }) / W;
     if (x1 < from || x0 > to) return;
     top = Math.max(top, inkTop(ch, PLAYFAIR_INK));
-    bottom = Math.min(bottom, inkBottom(ch, PLAYFAIR_INK, PLAYFAIR_DESCENDERS));
+    bottom = Math.min(bottom, inkBottom(ch, PLAYFAIR_INK));
   });
   return { top, bottom };
 }
@@ -350,13 +365,13 @@ export function placeCompanions(keyword: { x: number; y: number; size: number; w
     const em = px / H, kwEm = fontPx / H, gap = INK_GAP * c;
     const chars = [...text];
     if (position === "over") {
-      const ownBottom = Math.min(0, ...chars.map((ch) => inkBottom(ch, ARCHIVO_ITALIC_INK, ARCHIVO_DESCENDERS))) * em;
+      const ownBottom = Math.min(0, ...chars.map((ch) => inkBottom(ch, ARCHIVO_ITALIC_INK))) * em;
       const highest = baseline - ink.top * kwEm - gap + ownBottom;
       capMid = Math.min(capMid, highest - c / 2);
     } else {
       const ownTop = Math.max(...chars.map((ch) => inkTop(ch, ARCHIVO_ITALIC_INK))) * em;
       // Tucked into the capitals by design (reel 3); only a tail of the keyword in the line's way pushes it down below it.
-      if (ink.bottom < ARCHIVO_ITALIC_INK.base) capMid = Math.max(capMid, baseline - ink.bottom * kwEm + gap + ownTop - c / 2);
+      if (ink.bottom < ON_LINE) capMid = Math.max(capMid, baseline - ink.bottom * kwEm + gap + ownTop - c / 2);
     }
     const y = capMid + (ARCHIVO_CAP_MID_ABOVE_CENTRE_EM * px) / H;
     // The line's own box (about 1.2 em tall) inside the safe area, or it does not interlock.

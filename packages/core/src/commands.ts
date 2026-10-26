@@ -56,6 +56,7 @@ import {
   type ClipSettings,
   type HookPattern,
   type Music,
+  type Clip,
   type SfxClip,
   type TextOverlay,
   type Timeline,
@@ -365,7 +366,8 @@ function run(timeline: Timeline, command: Command, context: CommandContext): Tim
       requireClip(timeline, command.clipId);
       const clip = timeline.clips.find((c) => c.id === command.clipId)!;
       if (command.reframe === null) {
-        const { reframe: _dropped, ...rest } = clip;
+        const rest: Clip = { ...clip };
+        delete rest.reframe;
         return { ...timeline, clips: timeline.clips.map((c) => (c.id === clip.id ? rest : c)) };
       }
       if (!canReframe(timeline, clip)) throw new Error("Only a cover-fitted video clip with no title pinned to it can be reframed.");

@@ -230,8 +230,7 @@ export async function analyseShot(source: ShotSource, options: ShotOptions = {})
   const settle = (upTo: number) => {
     while (pending.length && pending[0].index + 1 <= upTo) {
       const p = pending.shift()!;
-      const { index: _index, ...rest } = p;
-      samples.push({ ...rest, steady: 1, flow: flowFor(p) });
+      samples.push({ t: p.t, sharpness: p.sharpness, clipLow: p.clipLow, clipHigh: p.clipHigh, luma: p.luma, ...(p.aesthetic !== undefined ? { aesthetic: p.aesthetic } : {}), saliency: p.saliency, steady: 1, flow: flowFor(p) });
     }
     // Only the frames a pending sample still needs are kept.
     const keepFrom = (pending[0]?.t ?? Infinity) - 1000 / FPS - 1;

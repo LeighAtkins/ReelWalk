@@ -201,7 +201,8 @@ const getReel: ToolSpec = {
     ]);
     const issues = instagramIssues(loaded.timeline, reel?.caption ?? "");
     // What each video shows, moment by moment (ADR 0086), as a compact digest; GET /api/reels/:id/shots has it in full.
-    const shots = await loadShotAnalyses(ctx.user.workspaceId, Object.keys(loaded.library));
+    // A digest is extra: a failure to read it never fails the summary.
+    const shots = await loadShotAnalyses(ctx.user.workspaceId, Object.keys(loaded.library)).catch(() => ({}) as Awaited<ReturnType<typeof loadShotAnalyses>>);
     return ok({
       reelId: loaded.id,
       title: loaded.title,

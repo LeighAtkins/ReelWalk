@@ -393,8 +393,9 @@ function run(timeline: Timeline, command: Command, context: CommandContext): Tim
     // Both throw rather than quietly changing nothing, so a batch holding them is all or nothing.
     case "setEndCard": {
       if (command.endCard === null) {
-        const { endCard: _gone, ...rest } = timeline;
-        return rest as Timeline;
+        const rest = { ...timeline };
+        delete rest.endCard;
+        return rest;
       }
       const parsed = endCardSchema.safeParse(command.endCard);
       if (!parsed.success) throw new Error(`That end card is not valid: ${parsed.error.issues.map((issue) => issue.message).join("; ")}.`);

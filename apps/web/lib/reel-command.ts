@@ -4,6 +4,7 @@ import { workspaceBrandKit } from "./brand-kit";
 import { toLibraryAssets, type LibraryAsset } from "./library";
 import { readTimeline } from "./reels";
 import { saveReelFor } from "./save-reel";
+import { withShotAnalyses } from "./shot-analysis";
 import { mediaScope } from "./workspace";
 
 /**
@@ -72,7 +73,9 @@ export type ApplyOutcome =
  */
 export async function applyReelCommand(user: { workspaceId: string }, loaded: LoadedReel, command: Command, revision = loaded.revision, options: { dryRun?: boolean } = {}): Promise<ApplyOutcome> {
   if (revision !== loaded.revision) return { ok: false, status: 409, message: "The reel changed since you read it. Read it again and send the command against its current revision." };
-  const full = withLibraryInputs(command, loaded.library);
+  // A reframe asked for as "auto" reads the clip's shot analysis (ADR 0086), which the library does not carry.
+  const analysed = await withShotAnalyses(user.workspaceId, command, (clipId) => loaded.timeline.clips.find((clip) => clip.id === clipId)?.assetId);
+  const full = withLibraryInputs(analysed, loaded.library);
   const result = applyCommand(loaded.timeline, full, { generation: loaded.revision, sourceDurationsMs: hookInputsFromLibrary(loaded.library).sourceDurationsMs, brandKit: loaded.brandKit });
   if (result.rejected) return { ok: false, status: 400, message: result.rejected, result };
   if (result.stale) return { ok: false, status: 409, message: "The proposal was made against an older revision of the reel.", result };

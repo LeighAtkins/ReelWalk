@@ -1,7 +1,13 @@
-import { autopilotRequest, autopilotStyle, finishAutopilot, ruleCutWithPick, usableCut, type InstagramAudioTrack, type ListingInfo, type Timeline } from "@reelwalk/core";
+import { applyReframes, autopilotRequest, autopilotStyle, finishAutopilot, referencedAssetIds, ruleCutWithPick, usableCut, type InstagramAudioTrack, type ListingInfo, type Timeline } from "@reelwalk/core";
 import { askForChange, context } from "@/lib/ai-edit";
 import { isAiAvailable, isFakeAi } from "@/lib/openai";
 import { labelRooms } from "@/lib/room-labels";
+import { loadShotAnalyses } from "@/lib/shot-analysis";
+
+/** A new cut's wide videos follow their subject in the 9:16 crop (ADR 0086), from the analyses the worker stored. */
+async function reframed(workspaceId: string, timeline: Timeline): Promise<Timeline> {
+  return applyReframes(timeline, await loadShotAnalyses(workspaceId, referencedAssetIds(timeline)));
+}
 
 /**
  * "Make it for me" (ADR 0021): the studio's picked shots, a style and any
@@ -27,7 +33,8 @@ export async function quickDraft(input: {
   if (input.timeline.clips.length === 0) return { ok: false, message: "Pick some photos or videos first." };
   const style = autopilotStyle(input.styleId);
   const { assets, songs } = await context(input.user.workspaceId, input.timeline);
-  const { timeline, instagramPick } = ruleCutWithPick(input.timeline, { assets, songs, info: input.info, style, newId: () => crypto.randomUUID() });
+  const { timeline: cut, instagramPick } = ruleCutWithPick(input.timeline, { assets, songs, info: input.info, style, newId: () => crypto.randomUUID() });
+  const timeline = await reframed(input.user.workspaceId, cut);
   return { ok: true, timeline, note: "Here is a first cut. ReelWalk is polishing it.", byModel: false, instagramPick };
 }
 
@@ -57,11 +64,12 @@ export async function makeItForMe(input: {
       const timeline = !input.timeline.music && finished.timeline.music && !finished.timeline.music.autoPicked
         ? { ...finished.timeline, music: { ...finished.timeline.music, autoPicked: true } }
         : finished.timeline;
-      return { ok: true, timeline, note: added.length ? `${asked.note} Added: ${added.join(", ")}.` : asked.note, byModel: true, instagramPick };
+      return { ok: true, timeline: await reframed(input.user.workspaceId, timeline), note: added.length ? `${asked.note} Added: ${added.join(", ")}.` : asked.note, byModel: true, instagramPick };
     }
     if (!asked.ok) console.warn("autopilot: model not used:", asked.message);
     else console.warn("autopilot: model's cut not usable, cutting by rule", asked.applied.length, asked.questions);
   }
-  const { timeline, instagramPick } = ruleCutWithPick(input.timeline, local);
+  const { timeline: cut, instagramPick } = ruleCutWithPick(input.timeline, local);
+  const timeline = await reframed(input.user.workspaceId, cut);
   return { ok: true, timeline, note: "Your reel is cut to the beat with music, a title and your details.", byModel: false, instagramPick };
 }

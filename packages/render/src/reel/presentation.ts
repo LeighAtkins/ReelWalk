@@ -1,5 +1,5 @@
 import { interpolate } from "remotion";
-import { clipCameraAt, type Clip } from "@reelwalk/core";
+import { clipCameraAt, clipSourceSeconds, reframeShiftAt, REEL_FORMAT, type Clip } from "@reelwalk/core";
 
 /** Frames of the fade from black when the reel's opening shot has transitionIn "fade" (every other fade is a TransitionSeries crossfade, ADR 0083). */
 export const FADE_FRAMES = 8;
@@ -28,7 +28,13 @@ export type ClipPresentation = {
 export function clipPresentation(clip: Clip, frame: number, fps: number, durationInFrames: number, opening = false): ClipPresentation {
   // Clamped: a clip is mounted a second early (premount) with negative frames.
   const progress = durationInFrames > 1 ? Math.min(1, Math.max(0, frame / (durationInFrames - 1))) : 0;
-  const transform = motionTransform(clip, progress, Math.max(0, frame / fps), opening);
+  const moved = motionTransform(clip, progress, Math.max(0, frame / fps), opening);
+  // The reframe (ADR 0086) slides the whole cover-fitted picture so the 9:16 crop follows the subject: outermost, so
+  // the zoom and camera move happen inside the crop. Keyed on the source time of this frame (the mattes' formula).
+  const shift = clip.reframe && clip.fit === "cover" && clip.kind === "VIDEO"
+    ? reframeShiftAt(clip.reframe, clipSourceSeconds(clip, Math.max(0, frame), fps, durationInFrames) * 1000, REEL_FORMAT.width / REEL_FORMAT.height)
+    : 0;
+  const transform = Math.abs(shift) > 0.001 ? `translateX(${shift.toFixed(3)}%)${moved ? ` ${moved}` : ""}` : moved;
   // The reel's first shot has no shot before it to cross from: its "fade" is a fade up from black.
   const fadeIn = opening && clip.transitionIn === "fade" ? interpolate(frame, [0, FADE_FRAMES], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" }) : 1;
   return { opacity: fadeIn, transform };

@@ -288,6 +288,8 @@ export type AiAsset = {
   transcript?: Transcript | null;
   /** Made by a generator (Veo), not shot: its voice is invented per take. */
   aiGenerated?: boolean;
+  /** What is in the picture, moment by moment, in one line (`describeShotAnalysis`, ADR 0086), when the worker analysed it. */
+  shot?: string | null;
 };
 
 /** A fresh clip for an asset, as the editor would make it when the asset is tapped. */
@@ -415,6 +417,8 @@ export function describeReel(input: {
         ? `source ${ms(clip.sourceStartMs)}–${ms(clip.sourceEndMs)}${asset?.durationMs ? ` of ${ms(asset.durationMs)}` : ""}, speed ${clip.speed}x, sound ${Math.round(clip.volume * 100)}%`
         : null,
       clip.kind === "VIDEO" && hasSpeech(asset?.transcript) ? describeSpeech(asset!.transcript!, clip) : null,
+      clip.kind === "VIDEO" && asset?.shot ? `measured in source ms: ${asset.shot}` : null,
+      clip.reframe ? "reframed to follow the subject" : null,
       `look ${clip.filter}`,
       clip.zoom !== 1 ? `zoom ${clip.zoom}` : null,
       !clip.pano && (clip.kind === "IMAGE" || clip.motion !== "none") ? `motion ${clip.motion}` : null,

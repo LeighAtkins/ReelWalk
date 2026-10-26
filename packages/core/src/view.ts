@@ -1,5 +1,6 @@
 import { clipCameraAt, locateFrame } from "./cinematic";
 import { clipSourceFrame } from "./frames";
+import { reframeShiftAt } from "./crop-path";
 import { applyHomography, homography, type Quad } from "./motion";
 import { clipDurationMs, clipOffsetMsAtSource, clipSourceMsAt, framePlan, REEL_FORMAT, type Clip, type Timeline } from "./timeline";
 
@@ -68,12 +69,14 @@ export type ClipPicture = {
   shiftX: number;
   /** The camera move's vertical shift, as a fraction of the frame height (before scaling); 0 for the Ken Burns presets. */
   shiftY: number;
+  /** The reframe's slide of the whole picture (ADR 0086), a fraction of the frame width, applied after the scale; 0 without one. */
+  reframeX?: number;
   /** The frame the picture is fitted into, in composition px. */
   frame: PixelSize;
 };
 
 /** Where a clip is in its own playback: `progress` 0..1 as the composition computes it, and seconds since it started. */
-export type ClipMoment = { progress: number; seconds: number; /** The reel's opening shot: its eased move is read already in progress (ADR 0067). */ opening?: boolean };
+export type ClipMoment = { progress: number; seconds: number; /** The reel's opening shot: its eased move is read already in progress (ADR 0067). */ opening?: boolean; /** The source time (ms) of the moment, which the reframe crop path (ADR 0086) is keyed on. */ sourceMs?: number };
 
 /**
  * The moment of a clip at `sourceMs` of its source, as the composition sees
@@ -87,7 +90,7 @@ export function clipMomentAtSource(clip: Pick<Clip, "kind" | "speed" | "sourceSt
   const frames = durationInFrames ?? Math.max(1, Math.round((clipDurationMs(clip as Clip) * fps) / 1000));
   // Along the ramp when the clip has one (ADR 0067); linear otherwise.
   const frame = clipOffsetMsAtSource(clip as Clip, Math.max(clip.sourceStartMs, sourceMs)) * (fps / 1000);
-  return { progress: frames > 1 ? Math.min(1, Math.max(0, frame / (frames - 1))) : 0, seconds: Math.max(0, frame / fps) };
+  return { progress: frames > 1 ? Math.min(1, Math.max(0, frame / (frames - 1))) : 0, seconds: Math.max(0, frame / fps), sourceMs };
 }
 
 /**
@@ -112,9 +115,11 @@ export function onScreenAt(timeline: Timeline, reelMs: number, fps: number = REE
 }
 
 /** Takes a clip, its source size in px and a moment; returns how its picture sits in the composition then. */
-export function clipPicture(clip: Pick<Clip, "fit" | "zoom" | "motion" | "camera">, source: PixelSize, moment: ClipMoment, frame: PixelSize = REEL_FORMAT): ClipPicture {
+export function clipPicture(clip: Pick<Clip, "fit" | "zoom" | "motion" | "camera"> & { reframe?: Clip["reframe"] }, source: PixelSize, moment: ClipMoment, frame: PixelSize = REEL_FORMAT): ClipPicture {
   const move = clipCameraAt(clip, moment.progress, moment.seconds, moment.opening);
-  return { sourceWidth: source.width, sourceHeight: source.height, fit: clip.fit, scale: (clip.zoom || 1) * move.scale, shiftX: move.x / 100, shiftY: move.y / 100, frame: { width: frame.width, height: frame.height } };
+  // The reframe slides a cover-fitted picture; it needs the moment's source time (moments made by clipMomentAtSource have it).
+  const reframeX = clip.reframe && clip.fit === "cover" && moment.sourceMs !== undefined ? reframeShiftAt(clip.reframe, moment.sourceMs, frame.width / frame.height) / 100 : 0;
+  return { sourceWidth: source.width, sourceHeight: source.height, fit: clip.fit, scale: (clip.zoom || 1) * move.scale, shiftX: move.x / 100, shiftY: move.y / 100, ...(reframeX ? { reframeX } : {}), frame: { width: frame.width, height: frame.height } };
 }
 
 /** The picture's fit rectangles in composition px (before zoom and motion). */
@@ -127,13 +132,13 @@ export function sourceToComposition(picture: ClipPicture, px: number, py: number
   const r = pictureRects(picture);
   const u0 = (r.dx + ((px - r.sx) * r.dw) / r.sw) / picture.frame.width;
   const v0 = (r.dy + ((py - r.sy) * r.dh) / r.sh) / picture.frame.height;
-  return [0.5 + picture.scale * (u0 - 0.5 + picture.shiftX), 0.5 + picture.scale * (v0 - 0.5 + picture.shiftY)];
+  return [0.5 + picture.scale * (u0 - 0.5 + picture.shiftX) + (picture.reframeX ?? 0), 0.5 + picture.scale * (v0 - 0.5 + picture.shiftY)];
 }
 
 /** Takes composition fraction; returns source px (may fall outside the source where the frame shows no picture). */
 export function compositionToSource(picture: ClipPicture, u: number, v: number): XY {
   const r = pictureRects(picture);
-  const u0 = (u - 0.5) / picture.scale + 0.5 - picture.shiftX;
+  const u0 = (u - (picture.reframeX ?? 0) - 0.5) / picture.scale + 0.5 - picture.shiftX;
   const v0 = (v - 0.5) / picture.scale + 0.5 - picture.shiftY;
   return [r.sx + ((u0 * picture.frame.width - r.dx) * r.sw) / r.dw, r.sy + ((v0 * picture.frame.height - r.dy) * r.sh) / r.dh];
 }
@@ -148,8 +153,8 @@ export function compositionToSource(picture: ClipPicture, u: number, v: number):
  */
 export function pictureCanvasTransform(picture: ClipPicture, width: number, height: number): [number, number, number, number, number, number] {
   const s = picture.scale, tx = picture.shiftX * width, ty = picture.shiftY * height;
-  // p' = c + s·(p − c + t)
-  return [s, 0, 0, s, width / 2 + s * (tx - width / 2), height / 2 + s * (ty - height / 2)];
+  // p' = c + s·(p − c + t) + r, r the reframe's slide (ADR 0086)
+  return [s, 0, 0, s, width / 2 + s * (tx - width / 2) + (picture.reframeX ?? 0) * width, height / 2 + s * (ty - height / 2)];
 }
 
 // ── The composition on screen ───────────────────────────────────

@@ -20,6 +20,9 @@ import { suggestMatchCuts, type ClipMotion } from "./match-cut";
 import { paceTimeline, putOnTheBeat } from "./pacing";
 import { rampPreset, RAMP_PRESETS, type Ramp, type RampPreset } from "./ramp";
 import { motionReadSchema } from "./motion-kind";
+import type { ClipReframe } from "./crop-path";
+import { canReframe, reframeFromAnalysis } from "./reframe";
+import type { ShotAnalysis } from "./shot-analysis";
 import { autoPlaceSfx, trimSfxToReel, withSfx, type AutoSfxOptions } from "./sfx";
 import type { SongMap } from "./song";
 import { applyFinish, type FinishId } from "./finishes";
@@ -114,6 +117,12 @@ export type Command =
   /** A clip's eased camera move (ADR 0067): a preset's name, keys, or null to go back to its `motion`. */
   | { type: "setCamera"; clipId: string; camera: Camera | CameraPreset | null }
   /**
+   * A video clip's 9:16 reframe (ADR 0086): "auto" follows the subject along the crop path of its asset's shot
+   * analysis (the HTTP route fills `analysis` from the library when it is not sent), explicit keys set a path, null
+   * goes back to the centred crop.
+   */
+  | { type: "setReframe"; clipId: string; reframe: ClipReframe | "auto" | null; analysis?: Pick<ShotAnalysis, "width" | "height" | "reframe"> | null }
+  /**
    * A named camera move from the moves table (ADR 0076) written onto a clip: its eased camera, speed ramp and the zoom or
    * streak blur on the cut in or out. One undo step. An AI-only move (a dolly zoom, an orbit) is refused with the reason;
    * ask for it as an AI shot with `move` on POST /api/ai/generations instead.
@@ -197,7 +206,7 @@ export type BatchableCommand = Exclude<Command, { type: "applyProposal" } | { ty
 const COMMAND_TYPE_REGISTRY: Record<Command["type"], true> = {
   trimClip: true, moveClip: true, splitClip: true, deleteClip: true, duplicateClip: true, setSpeed: true, setMusic: true, snapToBeat: true, pace: true, setOnBeat: true,
   retime: true, retimeToLength: true, insertPresenterTakes: true, cutaways: true, applyFinish: true, hook: true, applyProposal: true,
-  setRamp: true, setCamera: true, applyMove: true, matchCuts: true, setTransition: true, updateText: true, placeOnSurface: true, syncTextToSpeech: true, applyTextStyle: true, updateClip: true, matchLook: true, addText: true,
+  setRamp: true, setCamera: true, setReframe: true, applyMove: true, matchCuts: true, setTransition: true, updateText: true, placeOnSurface: true, syncTextToSpeech: true, applyTextStyle: true, updateClip: true, matchLook: true, addText: true,
   autoSfx: true, setSfx: true, dropOnCut: true, setEndCard: true, batch: true,
 };
 /** The type of every command, in registry order. */
@@ -351,6 +360,18 @@ function run(timeline: Timeline, command: Command, context: CommandContext): Tim
       const ramp = typeof command.ramp === "string" ? (RAMP_PRESETS.includes(command.ramp) ? rampPreset(command.ramp) : null) : command.ramp;
       if (typeof command.ramp === "string" && !ramp) throw new Error(`There is no ramp called ${command.ramp}.`);
       return updateClip(timeline, command.clipId, { ramp });
+    }
+    case "setReframe": {
+      requireClip(timeline, command.clipId);
+      const clip = timeline.clips.find((c) => c.id === command.clipId)!;
+      if (command.reframe === null) {
+        const { reframe: _dropped, ...rest } = clip;
+        return { ...timeline, clips: timeline.clips.map((c) => (c.id === clip.id ? rest : c)) };
+      }
+      if (!canReframe(timeline, clip)) throw new Error("Only a cover-fitted video clip with no title pinned to it can be reframed.");
+      const reframe = command.reframe === "auto" ? (command.analysis ? reframeFromAnalysis(command.analysis) : null) : command.reframe;
+      if (!reframe) throw new Error(command.analysis ? "This clip's source is not wider than the reel, so there is nothing to reframe." : "This clip's video has not been analysed yet; try again once its preview is ready.");
+      return updateClip(timeline, clip.id, { reframe });
     }
     case "setCamera": {
       requireClip(timeline, command.clipId);

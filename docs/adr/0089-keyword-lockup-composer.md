@@ -291,3 +291,34 @@ face boxes on wide takes, and whisper-small's word times.
   box may still be high; pass `faces` by hand for them as in round 2, or re-make the take.
 - A refined box costs one more Gemini Flash call per passing gate check.
 - The follow lags a fast move by about 0.2 s; a whip of the head is not chased.
+
+### What was verified (round 3)
+
+- Tests: `packages/core/tests/keyword-follow.test.ts` (the spring never overshoots and smooths wobble; paths stay in
+  every member's room, at most 64 keyframes; the keyword moves with a moving face and keeps her head 15–55 % into
+  its capitals; nothing crosses y 0.72 or the button column; a locked-off take and `follow: false` get no path; a
+  camera scale-out is followed without a track; an author-placed keyword stays put), `face-track-onset.test.ts`
+  (a moving textured patch tracked within a pixel; a blank seed refused; voiced stretches; the pier take's late phrase
+  moved back as a whole), worker `take-face.test.ts` (the refine square holds the real face of the pier take; crop
+  boxes read back; the track's seed) and web `face-hint.test.ts` (refined box preferred, a broken track dropped).
+- **Tracker on real takes.** `trackFace` on the three proof takes (10 fps, 360×640, about 1 s each) against OpenCV's
+  face detector on the same frames: median centre error 3–12 px of 1080×1920, 90th percentile 7–40 px, tracks the
+  whole 8 s. The first version stopped at the first unsure frame (1.3 s into the walking take); unsure frames are now
+  skipped.
+- **Onset snap on real audio.** Pier take: "Before you list," 1080/1300/1660 → 830/1050/1410 ms (voice 0.83–1.49 s);
+  "Ask" 5160 → 4930 (faster-whisper said 4940). Walking take: the line moves 0.17 s earlier.
+- **One moving take** (3 credits; 6 left of the 9 test credits): Maya from the presenter kit's portrait, composed `wide`
+  onto a still of a sandy beach path in Sydney (Pexels photo 36943713; no Australian moving clip with a walkable path
+  was found in the Pexels and Pixabay libraries, so the plate is a still and Veo makes the motion). Two attempts came
+  back with no video (filtered by Google; refunded, reason not logged then); the third, with the surfers in the photo
+  painted out, worked: `ai-cmvpbo9rt000201adi0mmwz9t`. The face matches the kit. The composer made her chest-up (face
+  422 px), not knees-up, and Veo gave a slow pull-back and a rise (the edges converge 5–15 px/s, the sea barely moves:
+  parallax, but no walk). Veo babbled for 1.5 s before the line; the cut starts at the line.
+- **Proof.** A copy of the production reel, take 1 → moving take → take 2, composed with tracks and snapped words and
+  rendered locally at 720p (`renderReel`, person matte): every lockup gets a path; on the moving take "more" rides her
+  head and stays behind her hair (`one-question-moving-strip-v4.jpg`), but her head hides its middle letter ("m re")
+  because the take is a close shot. Files under `https://dh5xvp6apljoh.cloudfront.net/samples/recipes-2026-10-26/`:
+  `one-question-maya-720-v4.mp4`, `-side-by-side-v4.jpg/.mp4`, `-frame-sheet-v4.jpg`, `-moving-strip-v4.jpg`,
+  `-moving-take-raw-v4.mp4`. The production copy is reel `cmvpc10ab000301adc9jr3qvy` (caption layout, no follow, until
+  #254 and this deploy). The local proof has no music.
+- Not verified live: the gate's second look (a Gemini call) and the worker's track step run only after deploy.

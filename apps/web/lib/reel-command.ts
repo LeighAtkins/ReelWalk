@@ -52,6 +52,11 @@ export function hookInputsFromLibrary(library: Record<string, LibraryAsset>): Pi
 
 /** A hook command sent without measurements gets the library's: an agent need not read transcripts itself. */
 export function withLibraryInputs(command: Command, library: Record<string, LibraryAsset>): Command {
+  // A title timed to speech (ADR 0084) gets the same transcripts, alone or inside a batch.
+  if (command.type === "syncTextToSpeech") return { ...command, speech: command.speech ?? hookInputsFromLibrary(library).speech };
+  if (command.type === "batch" && command.commands.some((item) => item.type === "syncTextToSpeech")) {
+    return { ...command, commands: command.commands.map((item) => (item.type === "syncTextToSpeech" ? withLibraryInputs(item, library) as typeof item : item)) };
+  }
   if (command.type !== "hook") return command;
   const known = hookInputsFromLibrary(library);
   return { ...command, speech: command.speech ?? known.speech, sourceDurationsMs: command.sourceDurationsMs ?? known.sourceDurationsMs };

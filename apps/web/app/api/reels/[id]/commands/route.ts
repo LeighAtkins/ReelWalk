@@ -27,7 +27,12 @@ export const dynamic = "force-dynamic";
  * surface, and tracks it through the shot when it has detail to follow; otherwise it is placed fixed and the answer
  * says so. `surfaces` in the answer lists what was found; with `dryRun: true` it is all that is done (nothing is
  * tracked or saved). `pick` is "auto" (the default), "wall", "floor", "ceiling", "sky", "tabletop", "ground" or
- * "window". Sending `placement.corners` yourself skips the search.
+ * "window". Sending `placement.corners` yourself skips the search. `fit: { at: { x, y }, capHeight? }` (ADR 0084) lays the
+ * line at that point of the surface with capitals that tall (a fraction of the frame), instead of filling the surface.
+ *
+ * `syncTextToSpeech { textId, clipId?, holdMs?, leadMs? }` (ADR 0084) times a title to the words it repeats in the clip
+ * under it: it appears with the first word, each word arrives as it is said, and it fades `holdMs` after the last.
+ * The transcripts are read from the library here.
  */
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const site = request.headers.get("sec-fetch-site");

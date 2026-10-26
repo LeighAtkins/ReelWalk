@@ -325,6 +325,8 @@ resource "aws_apprunner_service" "web" {
           # Finished reels the landing page plays; empty shows a placeholder frame.
           SAMPLE_REEL_URL        = var.sample_reel_urls
           SAMPLE_REEL_POSTER_URL = var.sample_reel_poster_urls
+          SAMPLE_REEL_LABELS     = var.sample_reel_labels
+          SAMPLE_REEL_RAW_URLS   = var.sample_reel_raw_urls
         })
         runtime_environment_secrets = merge({ for k, p in aws_ssm_parameter.app : k => p.arn }, var.anthropic_api_key_ssm_arn == "" ? {} : { ANTHROPIC_API_KEY = var.anthropic_api_key_ssm_arn })
       }

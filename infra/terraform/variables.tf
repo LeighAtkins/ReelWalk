@@ -314,6 +314,18 @@ variable "sample_reel_poster_urls" {
   default = ""
 }
 
+# What each sample reel shows, comma separated in the same order ("From 9 phone clips,Cut to the beat"). Optional (ADR 0085).
+variable "sample_reel_labels" {
+  type    = string
+  default = ""
+}
+
+# Images of the raw clips each sample was cut from, same order, shown as "Your clips"; an empty entry for none. Optional.
+variable "sample_reel_raw_urls" {
+  type    = string
+  default = ""
+}
+
 # How often EventBridge runs the scheduled Instagram post publisher
 # (scheduled_posts.tf). Posts go out within one interval of their time.
 variable "scheduled_posts_rate" {

@@ -778,3 +778,76 @@
   font-weight: 700;
   text-decoration: none;
 }
+
+/* One sample: what it shows, an optional raw/finished switch, the phone (ADR 0085). */
+.sample {
+  display: grid;
+  flex: none;
+  gap: 8px;
+  align-content: start;
+  scroll-snap-align: center;
+}
+
+.sampleLabel {
+  margin: 0;
+  font-family: var(--display);
+  font-weight: 500;
+  font-size: 22px;
+  line-height: 1.2;
+}
+
+.sampleSwitch {
+  display: inline-flex;
+  justify-self: start;
+  margin: 0;
+  padding: 3px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--ink-deep);
+}
+
+.sampleSwitch label {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.sampleSwitch input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.sampleSwitch label:has(input:checked) {
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.sampleSwitch label:has(input:focus-visible) {
+  outline: 2px solid var(--paper);
+  outline-offset: 2px;
+}
+
+/* The raw clips sit over the video and show only while "Your clips" is picked. */
+.raw {
+  position: absolute;
+  inset: 0;
+  display: none;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: #000;
+}
+
+.sample:has(input[value="raw"]:checked) .raw {
+  display: block;
+}

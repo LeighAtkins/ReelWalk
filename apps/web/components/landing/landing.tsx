@@ -289,10 +289,14 @@ export function SiteFooter() {
 }
 
 /**
- * Finished reels in phone frames: the proof that the output is real. The
- * first plays on its own, muted; the others wait with their poster and
- * controls. With no SAMPLE_REEL_URL set, one frame shows a still from a
- * reel instead, so the hero is finished either way.
+ * Finished reels in phone frames: the proof that the output is real, and
+ * that the editing is (ADR 0085). Each is labelled by what it shows ("From 9
+ * phone clips", "Cut to the beat"), not by the listing. A sample with an
+ * image of its raw clips gets a "Your clips / Your reel" switch: two radios
+ * and a :has() rule, like the pricing switch, so no script runs. The first
+ * plays on its own, muted; the others wait with their poster and controls.
+ * With no SAMPLE_REEL_URL set, one frame shows a still from a reel instead,
+ * so the hero is finished either way.
  */
 function SampleReels({ samples }: { samples: SampleReel[] }) {
   const count = samples.length;
@@ -304,26 +308,50 @@ function SampleReels({ samples }: { samples: SampleReel[] }) {
             <ReelStill />
           </div>
         ) : (
-          samples.map((sample, index) => (
-            <div key={sample.src} className={styles.phone}>
-              <video
-                src={sample.src}
-                poster={sample.poster ?? undefined}
-                autoPlay
-                muted
-                loop
-                playsInline
-                preload="auto"
-                aria-label={`Sample reel ${index + 1}`}
-              />
-            </div>
-          ))
+          samples.map((sample, index) => <Sample key={sample.src} sample={sample} index={index} />)
         )}
       </div>
       <figcaption className={styles.samplesCaption}>
         <strong>Made with ReelWalk.</strong>{" "}
-        {count > 0 ? "Finished reels, as they came out of the export. Sound is off." : "A frame from a finished listing reel."}
+        {count > 0 ? "Finished reels, as they came out of the export, nothing edited elsewhere. Sound is off." : "A frame from a finished listing reel."}
       </figcaption>
     </figure>
+  );
+}
+
+function Sample({ sample, index }: { sample: SampleReel; index: number }) {
+  const name = `sample-${index}-view`;
+  return (
+    <div className={styles.sample} data-testid="sample-reel">
+      {sample.label ? <p className={styles.sampleLabel}>{sample.label}</p> : null}
+      {sample.raw ? (
+        <fieldset className={styles.sampleSwitch}>
+          <legend className="visually-hidden">Show the raw clips or the finished reel</legend>
+          <label>
+            <input type="radio" name={name} value="raw" />
+            <span>Your clips</span>
+          </label>
+          <label>
+            <input type="radio" name={name} value="reel" defaultChecked />
+            <span>Your reel</span>
+          </label>
+        </fieldset>
+      ) : null}
+      <div className={styles.phone}>
+        <video
+          src={sample.src}
+          poster={sample.poster ?? undefined}
+          autoPlay
+          muted
+          loop
+          playsInline
+          preload="auto"
+          aria-label={sample.label ? `Sample reel: ${sample.label}` : `Sample reel ${index + 1}`}
+        />
+        {sample.raw ? (
+          <img className={styles.raw} src={sample.raw} alt="The phone clips this reel was cut from, as they were shot" loading="lazy" />
+        ) : null}
+      </div>
+    </div>
   );
 }

@@ -61,6 +61,10 @@ RUN node_modules/.bin/tsx src/ensure-browser.ts
 # (src/transcribe.ts), cached here so a render task never downloads it.
 RUN node_modules/.bin/tsx scripts/fetch-whisper.ts /workspace/models
 
+# The shot-analysis models (about 75 MB: MobileCLIP-S0 image tower, Depth Anything V2 small int8) for
+# src/shot-analysis.ts (ADR 0086), cached in the same directory.
+RUN node_modules/.bin/tsx scripts/fetch-shot-models.ts /workspace/models
+
 ## ── Stage 3: runner ───────────────────────────────────────────
 FROM runtime AS runner
 
@@ -72,6 +76,7 @@ COPY --from=build /workspace /workspace
 WORKDIR /workspace/apps/worker
 
 ENV TRANSCRIBE_MODEL_DIR=/workspace/models
+ENV SHOT_MODEL_DIR=/workspace/models
 
 USER node
 EXPOSE 8081

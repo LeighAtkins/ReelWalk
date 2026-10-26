@@ -599,6 +599,9 @@ model MediaAsset {
   instagramArtist  String?
   // What a video says, with word timings, made by the worker after upload (transcriptSchema in @reelwalk/core).
   transcript  Json?
+  // What is in the picture per moment (shotAnalysisSchema in @reelwalk/core, ADR 0086): best windows, motion,
+  // attention, depth, occluders and the 9:16 reframe, measured by the worker from the 720p preview.
+  shotAnalysis Json?
   createdAt   DateTime    @default(now())
   renderJobs  RenderJob[]
 

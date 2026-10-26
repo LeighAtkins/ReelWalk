@@ -31,8 +31,11 @@ export const SHOT_SAMPLE_MS = 250;
 export const WINDOW_LENGTHS_MS = [800, 1500, 2500, 4000] as const;
 export type WindowLengthMs = (typeof WINDOW_LENGTHS_MS)[number];
 
-/** Content motion, named the way the eye follows it. push = the picture expands (dolly or zoom in), pull = it shrinks. */
-export const FLOW_DIRECTIONS = ["left", "right", "up", "down", "push", "pull", "static"] as const;
+/**
+ * Content motion, named the way the eye follows it. push = the picture expands (dolly or zoom in), pull = it shrinks,
+ * rotate = the picture turns about a point (a roll, or a drone orbit that the frame-wide fit reads as one).
+ */
+export const FLOW_DIRECTIONS = ["left", "right", "up", "down", "push", "pull", "rotate", "static"] as const;
 export const flowDirectionSchema = z.enum(FLOW_DIRECTIONS);
 export type FlowDirection = z.infer<typeof flowDirectionSchema>;
 
@@ -51,14 +54,19 @@ export type FrameBox = z.infer<typeof box>;
 
 /** Global flow at one sample, from an affine fit over the frames either side of it. Rates per second. */
 export const sampleFlowSchema = z.object({
-  /** Content velocity in frame widths a second (dx > 0 moves right) and frame heights a second (dy > 0 moves down). */
+  /** Content velocity, both in frame WIDTHS a second so speeds compare: dx > 0 moves right, dy > 0 moves down. */
   dx: z.number(),
   dy: z.number(),
   /** Scale growth a second: > 0 push, < 0 pull. */
   zoom: z.number(),
-  /** Edge speed of the dominant motion, frame widths a second (>= 0): pan speed, or half the zoom rate. */
+  /** Turn in radians a second, > 0 clockwise. Absent reads as 0. */
+  rotate: z.number().optional(),
+  /** Edge speed of the dominant motion, frame widths a second (>= 0): pan speed, or half the zoom or turn rate. */
   magnitude: z.number().min(0),
-  /** Share of the picture's change the global flow does NOT explain, 0..1: high means something moves on its own. */
+  /**
+   * Localised change the global flow does NOT explain, 0..1: high when one part of the picture moves on its own (a
+   * person, a door, a car) against the rest; low for a still frame and for parallax spread over the whole picture.
+   */
   residual: unit,
 });
 export type SampleFlow = z.infer<typeof sampleFlowSchema>;
@@ -153,7 +161,7 @@ export const occluderSchema = z.object({
   direction: z.enum(["left", "right", "up", "down"]),
   /** Most of the frame width it covers at the peak, 0..1. */
   coverage: unit,
-  /** Leading-edge position (frame fraction, along `direction`) at start and end: a wipe follows it. */
+  /** Position (frame fraction, along `direction`) at start and end of the band's edge that moves most: an entering post's leading edge, a leaving wall's inner edge. A wipe follows it. */
   edgeFrom: z.number().min(-0.5).max(1.5),
   edgeTo: z.number().min(-0.5).max(1.5),
   /** Read as near (parallax faster than the background, or confirmed by a depth sample) rather than merely dark. */
@@ -180,13 +188,16 @@ export const closeUpSchema = z.object({
 });
 export type CloseUp = z.infer<typeof closeUpSchema>;
 
-/** The reframe for a landscape (or square) source: a smooth, subject-following 9:16 crop. Null for a portrait source. */
+/**
+ * The reframe: for a source wider than 9:16, a smooth, subject-following 9:16 crop (`path`); for any source with enough
+ * real pixels, virtual close-ups. `path` is empty for a portrait source; the whole field is null when there is neither.
+ */
 export const reframeSchema = z.object({
   /** Source width / height (from the original, not the proxy). */
   aspect: z.number().positive(),
   /** Width of the 9:16 crop as a fraction of the source width. */
   cropWidth: unit,
-  /** Keyframes, about every 500 ms, already smoothed (critically damped, dead-banded, speed-limited): render them as they are. */
+  /** Keyframes, every 500 ms, already smoothed (critically damped, dead-banded, speed-limited): render them as they are. `y` is 0.5 (the crop is full height). */
   path: z.array(cropKeySchema).max(600),
   closeUps: z.array(closeUpSchema).max(12),
 });
@@ -242,14 +253,17 @@ export function parseShotAnalysis(value: unknown): ShotAnalysis | null {
 // Flow direction
 // ---------------------------------------------------------------------------
 
-/** Below this edge speed (frame widths a second) a window reads as static: the still threshold of motion-kind.ts. */
-export const STATIC_FW_PER_S = 0.02;
+/** Below this edge speed (frame widths a second) a window reads as static: a 2 %/s push (gimbal footage) still counts as motion. */
+export const STATIC_FW_PER_S = 0.01;
 /** A push or pull wins over a slide when its edge speed is at least this share of the slide's (the bias of motion-kind.ts). */
 const ZOOM_LEAD = 1 / 1.33;
 
 /** The direction of content motion `flow` (rates per second), as the eye reads it. */
-export function flowDirection(flow: Pick<SampleFlow, "dx" | "dy" | "zoom">, still = STATIC_FW_PER_S): FlowDirection {
-  const slide = Math.hypot(flow.dx, flow.dy), zoomEdge = Math.abs(flow.zoom) * 0.5;
+export function flowDirection(flow: Pick<SampleFlow, "dx" | "dy" | "zoom" | "rotate">, still = STATIC_FW_PER_S): FlowDirection {
+  const slide = Math.hypot(flow.dx, flow.dy), zoomEdge = Math.abs(flow.zoom) * 0.5, turnEdge = Math.abs(flow.rotate ?? 0) * 0.5;
+  if (Math.max(slide, zoomEdge, turnEdge) < still) return "static";
+  // A turn must lead plainly and be well clear of still: a frame-wide fit finds a little roll in any slow drift.
+  if (turnEdge >= 2 * still && turnEdge >= slide * 2 && turnEdge >= zoomEdge * 2) return "rotate";
   if (Math.max(slide, zoomEdge) < still) return "static";
   if (zoomEdge >= slide * ZOOM_LEAD) return flow.zoom > 0 ? "push" : "pull";
   if (Math.abs(flow.dx) >= Math.abs(flow.dy)) return flow.dx > 0 ? "right" : "left";
@@ -257,25 +271,26 @@ export function flowDirection(flow: Pick<SampleFlow, "dx" | "dy" | "zoom">, stil
 }
 
 /** Edge speed of a flow, frame widths a second. */
-export function flowMagnitude(flow: Pick<SampleFlow, "dx" | "dy" | "zoom">): number {
-  return Math.max(Math.hypot(flow.dx, flow.dy), Math.abs(flow.zoom) * 0.5);
+export function flowMagnitude(flow: Pick<SampleFlow, "dx" | "dy" | "zoom" | "rotate">): number {
+  return Math.max(Math.hypot(flow.dx, flow.dy), Math.abs(flow.zoom) * 0.5, Math.abs(flow.rotate ?? 0) * 0.5);
 }
 
-/** Who moves, from how fast the whole frame moves and how much change it leaves unexplained. */
-export function moverOf(magnitude: number, residual: number): Mover {
-  const camera = magnitude >= STATIC_FW_PER_S, subject = residual >= 0.35;
+/** Who moves, from how fast the whole frame moves (and, when known, whether its direction reads as static) and how much change it leaves unexplained. */
+export function moverOf(magnitude: number, residual: number, direction?: FlowDirection): Mover {
+  const camera = magnitude >= STATIC_FW_PER_S && direction !== "static", subject = residual >= 0.3;
   return camera && subject ? "both" : camera ? "camera" : subject ? "subject" : "none";
 }
 
 /** The mean flow over the samples in [startMs, endMs), and its direction. */
-export function meanFlow(samples: readonly ShotSample[], startMs: number, endMs: number): { dx: number; dy: number; zoom: number; residual: number; direction: FlowDirection; magnitude: number } {
+export function meanFlow(samples: readonly ShotSample[], startMs: number, endMs: number): { dx: number; dy: number; zoom: number; rotate: number; residual: number; direction: FlowDirection; magnitude: number } {
   const inside = samples.filter((s) => s.t >= startMs && s.t < endMs);
   const n = Math.max(1, inside.length);
   const dx = inside.reduce((sum, s) => sum + s.flow.dx, 0) / n;
   const dy = inside.reduce((sum, s) => sum + s.flow.dy, 0) / n;
   const zoom = inside.reduce((sum, s) => sum + s.flow.zoom, 0) / n;
+  const rotate = inside.reduce((sum, s) => sum + (s.flow.rotate ?? 0), 0) / n;
   const residual = inside.reduce((sum, s) => sum + s.flow.residual, 0) / n;
-  return { dx, dy, zoom, residual, direction: flowDirection({ dx, dy, zoom }), magnitude: flowMagnitude({ dx, dy, zoom }) };
+  return { dx, dy, zoom, rotate, residual, direction: flowDirection({ dx, dy, zoom, rotate }), magnitude: flowMagnitude({ dx, dy, zoom, rotate }) };
 }
 
 /** Whether two directions carry across a cut: the same way, or both static (a held frame into a held frame is not a carry). */
@@ -287,8 +302,8 @@ export function directionsAgree(a: FlowDirection, b: FlowDirection): boolean {
 // Best windows
 // ---------------------------------------------------------------------------
 
-/** Edge speed that counts as full motion for scoring (a brisk walk or a steady pan); faster stops adding. */
-const BRISK_FW_PER_S = 0.18;
+/** Edge speed that counts as full motion for scoring (a steady walk or pan); faster stops adding. */
+const BRISK_FW_PER_S = 0.12;
 /** Above this a window is a whip, not a shot: motion starts to count against it. */
 const WHIP_FW_PER_S = 0.6;
 /** The first and last 300 ms of a phone clip are the start/stop wobble: a window may not include them. */
@@ -358,7 +373,8 @@ export function bestWindows(samples: readonly ShotSample[], durationMs: number, 
   if (!samples.length || durationMs <= 0) return [];
   const step = stepMs ?? Math.max(1, samples.length > 1 ? samples[1].t - samples[0].t : SHOT_SAMPLE_MS);
   const guard = durationMs >= lengthMs + 2 * guardMs ? guardMs : Math.max(0, (durationMs - lengthMs) / 2);
-  const first = guard, last = durationMs - guard - lengthMs;
+  // Starts on the sample grid, so a window begins on a measured frame.
+  const first = Math.ceil(guard / step - 1e-9) * step, last = durationMs - guard - lengthMs;
   if (last < first) {
     const whole = scoreWindow(samples, 0, durationMs);
     return whole ? [{ ...whole, startMs: 0, endMs: Math.round(durationMs) }] : [];
@@ -426,7 +442,7 @@ export function motionSegments(samples: readonly ShotSample[], minMs = 500, dura
     const startMs = inside[0].t, endMs = Math.round(Math.min(durationMs, inside[inside.length - 1].t + step));
     const flow = meanFlow(inside, startMs, endMs);
     const agree = inside.filter((s) => flowDirection(s.flow) === run.direction).length / inside.length;
-    return { startMs, endMs, direction: run.direction, magnitude: round4(flow.magnitude), mover: moverOf(flow.magnitude, flow.residual), consistency: round3(agree) };
+    return { startMs, endMs, direction: run.direction, magnitude: round4(flow.magnitude), mover: moverOf(flow.magnitude, flow.residual, run.direction), consistency: round3(agree) };
   });
 }
 
@@ -452,7 +468,8 @@ export function flowPeaks(samples: readonly ShotSample[], { gapMs = 700, max = 1
     .sort((a, b) => a.i - b.i)
     .map(({ i }) => {
       const s = samples[i];
-      return { t: s.t, magnitude: round4(s.flow.magnitude), direction: flowDirection(s.flow), mover: moverOf(s.flow.magnitude, s.flow.residual) };
+      const direction = flowDirection(s.flow);
+      return { t: s.t, magnitude: round4(s.flow.magnitude), direction, mover: moverOf(s.flow.magnitude, s.flow.residual, direction) };
     });
 }
 

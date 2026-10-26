@@ -9,6 +9,7 @@ import { prisma } from "@reelwalk/db";
 import { probe, run } from "./library/tools";
 import { createAttemptScope, killDescendants, REMOTION_PROCESSES, type AttemptScope } from "./lifecycle";
 import { measureExportAudio, normaliseLoudness } from "./loudness";
+import { analyseShot, shotAnalysisEnabled } from "./shot-analysis";
 import { transcribeVideo, transcriptionAvailable } from "./transcribe";
 import { verifyRender } from "./verify";
 
@@ -173,8 +174,22 @@ export async function renderJob(
           console.warn(`[${job.id}] transcript not made: ${error instanceof Error ? error.message : error}`);
         }
       }
+      // What is in the picture, moment by moment (ADR 0086), read from the proxy just made: the cut planner's in-points,
+      // motion, attention, depth, occluders and the 9:16 reframe. Sizes are the original's, so close-ups count real pixels.
+      let shotAnalysis = null;
+      if (shotAnalysisEnabled()) {
+        try {
+          const asset = await prisma.mediaAsset.findUnique({ where: { id: job.mediaAssetId }, select: { width: true, height: true, durationMs: true } });
+          const size = asset?.width && asset.height ? { width: asset.width, height: asset.height } : await probe(inputPath, attempt);
+          shotAnalysis = await analyseShot({ input: outputPath, durationMs: asset?.durationMs ?? 0, width: size.width, height: size.height }, { scope: attempt, log: (line) => console.log(`[${job.id}] ${line}`) });
+          console.log(`[${job.id}] shot analysis: ${shotAnalysis.samples.length} samples, ${shotAnalysis.cost?.cpuMs ?? "?"} ms cpu`);
+        } catch (error) {
+          attempt.throwIfStopped();
+          console.warn(`[${job.id}] shot analysis not made: ${error instanceof Error ? error.message : error}`);
+        }
+      }
       attempt.throwIfStopped();
-      await prisma.mediaAsset.update({ where: { id: job.mediaAssetId }, data: { previewKey: job.previewKey, ...(thumbKey ? { thumbKey } : {}), ...(transcript ? { transcript: transcript as never } : {}) } });
+      await prisma.mediaAsset.update({ where: { id: job.mediaAssetId }, data: { previewKey: job.previewKey, ...(thumbKey ? { thumbKey } : {}), ...(transcript ? { transcript: transcript as never } : {}), ...(shotAnalysis ? { shotAnalysis: shotAnalysis as never } : {}) } });
       // While the original is here, make the copy an export will need, so the
       // first export of phone footage does not spend minutes re-encoding.
       // An export makes it itself if this fails.

@@ -91,8 +91,46 @@ POST /api/reels/:id/commands
 
 ## What was verified
 
-(filled in below with the reel, the export and the checks)
+- Unit tests (all in `pnpm check`, which passed locally, and CI on the PR):
+  - `packages/core/tests/wall-text.test.ts` (18):
+    - `lineOnPlane`: the centre and the cap height; perspective (shorter far end, an upright rectangle in the wall's own
+      coordinates); two-line height; the off-plane and safe-area refusals.
+    - `wallPlane`: verticals stay vertical, edges are collinear with the vanishing point; it carries a line in the same
+      perspective.
+    - Alignment: normalisation, words left free around the line, a one-letter difference, unheard words placed
+      between their neighbours, null under 60% heard.
+    - `spokenWordsOfClip` through trim and J-cuts.
+    - `speechSync` timing, the clamp to the shot and the 1.2 s minimum.
+    - The command: in the registry, applies as one change, `wordReveal` brings each word in on its time, refusals say
+      what the clip says.
+    - The fallback to even spacing when the times do not match the words.
+  - `apps/web/lib/reel-command.test.ts` (2): the route fills in transcripts, alone and inside a batch, and keeps
+    transcripts an agent sent.
+  - `apps/web/lib/surface-command.test.ts` (+1): `fit` reaches the finder; malformed fits answer 400.
+- `pnpm --filter @reelwalk/web build` passed locally.
+- **Production reel** `cmvon36vt000g01adkhqh7we2`, final export `cmvoo30jm000k01adpsml3v8s` (14.93 s), built in the
+  owner's workspace with the deployed app. Two voiced Maya takes (`voice: "veo"`) from kit `cmvi0he2d000201admjnm9g4e`,
+  corner plate `ai-cmvomd1ky000501addfs39tcj`, `mode: "static"`.
+  - Planes: `wallPlane` from vanishing points measured on the plate (left (1.362, 0.894), right (−0.168, 0.882) in take
+    fractions after the close crop).
+  - Lines: `lineOnPlane` at 2.1–2.5% cap height.
+  - Timing: `speechSync` from the takes' transcripts, sent as `placeOnSurface` corners and `updateText`.
+  - `get_checks`: gate not blocked. Opening title legible at 100 ms; no zone reach.
+  - `get_audio_trace`: the cut is 0 ms off the beat; no problems.
+  - Frames at 16 points show the words arriving in time with her speech on both walls, her hair over line 1 through
+    the person matte, and no jitter (the text is placed fixed and the camera holds).
+  - Contact sheet, MP4 and notes: `ReelWalk-hybrid/output/wall-text/`.
 
 ## What failed or is not done
 
-(filled in below)
+- Not deployed. Production staggers evenly, so the reel uses one title per row (even spacing is 0–200 ms off the
+  speech there). `syncTextToSpeech`, `fit` and `wordsMs` have only been run in unit tests, not on the live route.
+- `placeOnSurface`'s finder returned rough boxes for the blank plaster walls (Opus vision, $0.03 a look). `wallPlane`
+  needs the vanishing point measured by hand; finding it automatically (fitting the ceiling edge and skirting) is the
+  next step.
+- A blank wall cannot be tracked, so the text is placed fixed. That works only because `mode: "static"` held Veo's
+  camera; `mode: "custom"` takes pushed and panned.
+- Voiced takes are composed "close" (a 1.6× crop of the plate centre, ADR 0069), so a plate's wall geometry must sit
+  in its central 60%. One plate (a single receding wall) was lost to this.
+- The person matte leaves a faint light fringe on hair against the wall.
+- trackIn (PR #244) is not on main, so it was not compared with the word reveal.

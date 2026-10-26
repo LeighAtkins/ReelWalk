@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { evaluateTitle, parseTimeline, type Measure, type SurfacePlacement } from "@reelwalk/core";
+import { evaluateTitle, parseTimeline, wordReveal, WORD_SETTLE_SCALE, type Measure, type SurfacePlacement } from "@reelwalk/core";
 import { textCss } from "../src/reel/look";
 import { textExit, titleFont } from "../src/reel/title-motion";
 
@@ -23,6 +23,28 @@ describe("kinetic type keeps the way out (ADR 0061)", () => {
       expect(textExit({ animation, style: "headline" }, 0, fps, duration)).toEqual({ scale: 1, opacity: 1, rise: 0, chars: null });
       expect(textExit({ animation, style: "headline" }, 89, fps, duration).opacity).toBe(1);
     }
+  });
+});
+
+describe("spoken words and the track-in default compose (ADR 0084 on ADR 0082)", () => {
+  it("the words bring themselves in and settle; track-in keeps only the title's way out, at scale 1", () => {
+    const fps = 30, duration = 90;
+    // An elegant title timed to speech: "auto" reads as track-in, and the words carry their own arrival.
+    const title = { animation: "auto" as const, style: "elegant" as const };
+    const kinetic = { preset: "words" as const, startMs: 0, durationMs: 1500, wordsMs: [0, 600, 1100] };
+    // While the words land, the whole title is untouched: no title-level scale or fade fights the per-word settle.
+    for (const frame of [0, 3, 18, 33]) expect(textExit(title, frame, fps, duration)).toEqual({ scale: 1, opacity: 1, rise: 0, chars: null });
+    // Each word lands slightly large and settles to 1 on its own time, never below 1 (no bounce).
+    const first = wordReveal("Done before home.", kinetic, 0).filter((p) => !p.space);
+    expect(first[0].scale).toBeCloseTo(WORD_SETTLE_SCALE, 4);
+    expect(first[1].scale).toBe(1);
+    const landed = wordReveal("Done before home.", kinetic, 1300).filter((p) => !p.space);
+    expect(landed.every((p) => p.scale >= 1 && p.scale < WORD_SETTLE_SCALE)).toBe(true);
+    // The way out is track-in's: the words are at rest (scale 1) while the title fades over its last frames.
+    const late = wordReveal("Done before home.", kinetic, 2900).filter((p) => !p.space);
+    expect(late.every((p) => p.scale === 1 && p.opacity === 1)).toBe(true);
+    expect(textExit(title, 86, fps, duration).opacity).toBeLessThan(1);
+    expect(textExit(title, 86, fps, duration).scale).toBe(1);
   });
 });
 

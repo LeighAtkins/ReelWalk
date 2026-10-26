@@ -44,7 +44,7 @@ Three small pure additions in `packages/core/src/wall-text.ts`, one schema field
   from the sound under it for a J-cut (ADR 0069).
 - `speechSync(timeline, textId, speech, { clipId?, holdMs = 700, leadMs = 60 })`: the patch. The title starts 60 ms
   before its first word, each word arrives 60 ms before it is said, and the title ends `holdMs` after its last word
-  (never past its shot, at least 1.2 s on screen). The elegant style's own fade (`textExit`, ADR 0061) takes it out.
+  (never past its shot, at least 1.2 s on screen). The elegant style's own way out takes it off: since ADR 0082 that is track-in's 0.25 s exit (`textExit`).
   Errors say what the clip does say: `The words of l3 ("…") are not what clip a says: it says "…".`
 - Command **`syncTextToSpeech { textId, clipId?, holdMs?, leadMs? }`** in the registry, so the HTTP commands route and
   the MCP `apply_commands` tool accept it. The route fills `speech` from the library's transcripts
@@ -137,4 +137,8 @@ POST /api/reels/:id/commands
 - Voiced takes are composed "close" (a 1.6× crop of the plate centre, ADR 0069), so a plate's wall geometry must sit
   in its central 60%. One plate (a single receding wall) was lost to this.
 - The person matte leaves a faint light fringe on hair against the wall.
-- trackIn (PR #244) is not on main, so it was not compared with the word reveal.
+- Track-in (ADR 0082, the elegant default since #244) and spoken words compose rather than compete: a word-timed
+  title's words bring themselves in (fade, rise, unblur, then the 140 ms settle, per word), and track-in supplies only
+  the title's exit at scale 1 (`textExit`). Track-in's letter-spacing close is not applied per word: widening one word
+  would reflow the words already on the wall. Pinned by `packages/render/tests/title-motion.test.ts`. Not seen in a
+  production render (neither is deployed together yet).

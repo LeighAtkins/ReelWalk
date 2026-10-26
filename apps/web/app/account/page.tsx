@@ -6,6 +6,7 @@ import { changePassword, deleteAccount, signOut, updateProfile } from "@/app/aut
 import { buyAiCredits, openBillingPortal, startCheckout } from "@/app/billing-actions";
 import { getAiBalance } from "@/lib/ai-video";
 import { aiTopUpPrice } from "@/lib/billing-ai";
+import { confirmCheckoutReturn } from "@/lib/billing-return";
 import { disconnectInstagram } from "@/app/instagram-actions";
 import { disconnectApp } from "@/app/mcp-actions";
 import { listGrants } from "@/lib/mcp/oauth-store";
@@ -32,10 +33,12 @@ export const metadata: Metadata = { title: "Account · ReelWalk" };
 export default async function AccountPage({
   searchParams,
 }: {
-  searchParams: Promise<{ workspace?: string; saved?: string; error?: string; instagram?: string; billing?: string; feedback?: string; message?: string; replies?: string }>;
+  searchParams: Promise<{ workspace?: string; saved?: string; error?: string; instagram?: string; billing?: string; session?: string; feedback?: string; message?: string; replies?: string }>;
 }) {
-  const { workspace: workspaceNote, saved, error, instagram: igStatus, billing, feedback, message, replies: repliesStatus } = await searchParams;
+  const { workspace: workspaceNote, saved, error, instagram: igStatus, billing, session: checkoutSession, feedback, message, replies: repliesStatus } = await searchParams;
   const user = await getCurrentUser();
+  // Back from Checkout: confirm the plan or credits with Stripe before reading them, rather than waiting for the webhook (ADR 0088).
+  const checkoutConfirmed = billing === "welcome" || billing === "credits" ? await confirmCheckoutReturn(user.workspaceId, checkoutSession, billing) : false;
   const aiBalance = await getAiBalance(user.workspaceId);
   const workspaces = await listWorkspaces(user, user.workspaceId);
   const aiOff = user.workspace.aiGeneration === "off";
@@ -150,7 +153,7 @@ export default async function AccountPage({
           </dl>
           {billing === "welcome" ? (
             <p className="toast" role="status">
-              Thank you. Your plan updates within a few seconds; reload if it has not.
+              {checkoutConfirmed ? "Thank you. Your plan is active." : "Thank you. Your plan updates within a few seconds; reload if it has not."}
             </p>
           ) : null}
           {billing === "unavailable" ? (
@@ -233,7 +236,7 @@ export default async function AccountPage({
           <p className="muted small">{aiBalance.monthly} monthly · {aiBalance.trial} trial · {aiBalance.topUp} purchased</p>
           {aiBalance.resetsAt ? <p className="muted small">Monthly allowance resets <LocalTime date={new Date(aiBalance.resetsAt)} />.</p> : null}
           <p className="muted small">One credit creates a 4-second clip; an 8-second clip uses 2. Agent includes 20 a month; Studio includes 60. Monthly credits reset without rollover, including on yearly plans. Purchased credits do not expire.</p>
-          {billing === "credits" ? <p className="toast" role="status">Thank you. Your credits appear once payment is confirmed.</p> : null}
+          {billing === "credits" ? <p className="toast" role="status">{checkoutConfirmed ? "Thank you. Your credits are added." : "Thank you. Your credits appear once payment is confirmed."}</p> : null}
           {aiOff ? null : <Link className="btn btn-block" href="/ai-video">Generate AI video</Link>}
           {billingOn && aiTopUpPrice(currency) && !aiOff && owner ? <form action={buyAiCredits} style={{ marginTop: 12 }}>
             <SubmitButton className="btn btn-quiet btn-block" pendingLabel="Opening checkout…">{topUp.credits} extra AI credits · {formatCharge(topUp.priceCents / 100, currency)}</SubmitButton>

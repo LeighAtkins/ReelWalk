@@ -77,12 +77,14 @@ describe("presenter kit compose (ADR 0056)", () => {
   const png = () => execute.mockResolvedValue({ stdout: Buffer.concat([Buffer.from([0x89, 0x50]), Buffer.alloc(200)]) });
   it("locates her face in Gemini's box_2d format, crops it, compares the crop with the kit's face, and records the locate", async () => {
     png();
-    const fetcher = vi.fn().mockResolvedValueOnce(answer({ box_2d: [300, 400, 400, 500] })).mockResolvedValueOnce(answer(match));
+    // The third answer is the second look (ADR 0089 round 3), in a 576 px square around the first box.
+    const fetcher = vi.fn().mockResolvedValueOnce(answer({ box_2d: [300, 400, 400, 500] })).mockResolvedValueOnce(answer(match))
+      .mockResolvedValueOnce(answer({ box_2d: [300, 300, 700, 700] }));
     vi.stubGlobal("fetch", fetcher);
     const verdict = await new VertexImages("test-project").checkIdentity(composite, face);
     expect(verdict).toEqual({ samePerson: true, confidence: 0.77, eyesAndMouthRendered: true, faceHeightPx: 192,
-      locate: [{ mode: "grid", box: [300, 400, 400, 500], crop: { x: 275, y: 432, size: 422 }, faceHeightPx: 192 }] });
-    expect(fetcher).toHaveBeenCalledTimes(2);
+      locate: [{ mode: "grid", box: [300, 400, 400, 500], crop: { x: 275, y: 432, size: 422 }, faceHeightPx: 192, refined: [290, 343.3, 410, 556.7] }] });
+    expect(fetcher).toHaveBeenCalledTimes(3);
     const locate = JSON.parse(fetcher.mock.calls[0]![1].body);
     expect(locate.contents[0].parts[0].text).toContain("box_2d");
     expect(locate.generationConfig.responseSchema).toBeUndefined(); // Gemini's own detection format, not a forced schema

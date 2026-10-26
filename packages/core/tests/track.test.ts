@@ -200,7 +200,8 @@ describe("drift correction", () => {
     expect(diff / n).toBeLessThan(1);
   });
 
-  it("keeps a long push-in on the truth", () => {
+  // A 24-frame track of a full-size scene: 4.3 s on a CI runner already, so the 5 s default is too tight under load.
+  it("keeps a long push-in on the truth", { timeout: 20_000 }, () => {
     const push = scenarios(W, H, 24).find((s) => s.name === "push-in")!;
     const result = trackSurface(push.frames, [{ index: 0, quad: push.quad }]);
     expect(result.ok).toBe(true);

@@ -26,7 +26,7 @@ import { RoomPhoto } from "./room-photo";
 
 const LISTING = {
   title: "14 Banksia Avenue",
-  price: "$1,850,000",
+  price: "A$1,850,000",
   facts: ["4 bed", "3 bath", "270 m²"],
   address: "14 Banksia Avenue, Bronte NSW",
   contact: "Harbourside Listing Media",

@@ -6,7 +6,7 @@
 #     beds, each looped to 20 s the way a reel plays it (SFX_SOUNDS loops them; ADR 0066).
 # Usage: render-qa.sh <dir with MP4s>   Exit 1 if any check fails, 2 if a tool could not run. Writes qa-report.md there.
 set -uo pipefail
-DIR="${1:?dir with MP4s}"
+DIR="$(cd "${1:?dir with MP4s}" && pwd)"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SFX="$HERE/../../public/sfx"
 WORK="$(mktemp -d)"

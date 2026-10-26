@@ -28,6 +28,7 @@
     "@reelwalk/db": "workspace:*",
     "@reelwalk/render": "workspace:*",
     "@remotion/player": "4.0.538",
+    "@t3-oss/env-nextjs": "^0.13.11",
     "google-auth-library": "^11.3.1",
     "mediabunny": "1.62.0",
     "next": "^16.4.2",

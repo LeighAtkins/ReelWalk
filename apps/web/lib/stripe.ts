@@ -1,5 +1,6 @@
 import Stripe from "stripe";
-import { BILLING_INTERVALS, CURRENCIES, type BillingInterval, type Currency, type PlanId } from "@reelwalk/core";
+import { BILLING_INTERVALS, CURRENCIES, formatCharge, isCurrency, type BillingInterval, type Currency, type PlanId } from "@reelwalk/core";
+import { env, type ServerEnvName } from "../env";
 
 /**
  * Stripe is optional: without keys the account page shows plans but no
@@ -21,16 +22,14 @@ import { BILLING_INTERVALS, CURRENCIES, type BillingInterval, type Currency, typ
  * monthly prices are set (`isCurrencyAvailable`).
  */
 export function isBillingConfigured(): boolean {
-  return ["STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", ...PAID.map((plan) => priceEnvName(plan, "month"))].every(isSet);
+  // env.ts reads Terraform's "unset" (Parameter Store refuses empty values) as absent.
+  return (["STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", ...PAID.map((plan) => priceEnvName(plan, "month"))] as const).every((name) => Boolean(env[name]));
 }
-
-// Terraform stores an absent secret as "unset" (Parameter Store refuses empty values).
-const isSet = (name: string) => Boolean(process.env[name]) && process.env[name] !== "unset";
 
 let client: Stripe | null = null;
 
 export function stripe(): Stripe {
-  const key = process.env.STRIPE_SECRET_KEY;
+  const key = env.STRIPE_SECRET_KEY;
   if (!key) throw new Error("STRIPE_SECRET_KEY is not set");
   client ??= new Stripe(key, { appInfo: { name: "ReelWalk", url: "https://reelwalking.com" } });
   return client;
@@ -39,14 +38,13 @@ export function stripe(): Stripe {
 const PAID: Exclude<PlanId, "FREE">[] = ["AGENT", "OFFICE"];
 
 /** The env var holding the Stripe price id for a plan at an interval, in A$ unless US$ is named. */
-export function priceEnvName(plan: Exclude<PlanId, "FREE">, interval: BillingInterval, currency: Currency = "aud"): string {
-  return `STRIPE_PRICE_${plan}_${interval === "year" ? "YEARLY" : "MONTHLY"}${currency === "usd" ? "_USD" : ""}`;
+export function priceEnvName(plan: Exclude<PlanId, "FREE">, interval: BillingInterval, currency: Currency = "aud"): ServerEnvName {
+  return `STRIPE_PRICE_${plan}_${interval === "year" ? "YEARLY" : "MONTHLY"}${currency === "usd" ? "_USD" : ""}` as ServerEnvName;
 }
 
 export function priceForPlan(plan: PlanId, interval: BillingInterval = "month", currency: Currency = "aud"): string | null {
   if (plan === "FREE") return null;
-  const id = process.env[priceEnvName(plan, interval, currency)];
-  return id && id !== "unset" ? id : null;
+  return env[priceEnvName(plan, interval, currency)] ?? null;
 }
 
 /** Whether every paid plan can be bought at this interval (yearly prices may be left out). */
@@ -91,7 +89,7 @@ export const PRICE_LOOKUP_KEYS: Record<string, Exclude<PlanId, "FREE">> = {
 };
 
 /** The env var holding a plan's Stripe product id (optional): its prices in any currency sell that plan. */
-export function productEnvName(plan: Exclude<PlanId, "FREE">): string {
+export function productEnvName(plan: Exclude<PlanId, "FREE">): ServerEnvName {
   return `STRIPE_PRODUCT_${plan}`;
 }
 
@@ -115,8 +113,8 @@ export function planForPrice(price: string | PriceRef | null | undefined): PlanI
   if (product) {
     return (
       PAID.find((plan) => {
-        const id = process.env[productEnvName(plan)];
-        return Boolean(id) && id !== "unset" && id === product;
+        const id = env[productEnvName(plan)];
+        return Boolean(id) && id === product;
       }) ?? null
     );
   }
@@ -144,4 +142,10 @@ export function periodEnd(subscription: Pick<Stripe.Subscription, "items">): Dat
 export function customerId(value: string | Stripe.Customer | Stripe.DeletedCustomer | null | undefined): string | null {
   if (!value) return null;
   return typeof value === "string" ? value : value.id;
+}
+
+/** "A$39", "US$29.50": the app's own price format with the currency named; any other currency as "12.00 EUR". */
+export function invoiceAmount(cents: number, currency: string | null | undefined): string {
+  const code = (currency ?? "").toLowerCase();
+  return isCurrency(code) ? formatCharge(cents / 100, code) : `${(cents / 100).toFixed(2)} ${code.toUpperCase()}`.trim();
 }

@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { transcriptSchema, type Transcript } from "@reelwalk/core";
+import { levelsDb, snapWordsToVoice, transcriptSchema, voicedStretches, type Transcript } from "@reelwalk/core";
 import { run } from "./library/tools";
 import type { AttemptScope } from "./lifecycle";
 
@@ -52,13 +52,15 @@ export async function transcribeVideo(input: string, workdir: string, maxSeconds
   const samples = new Int16Array(Uint8Array.from(bytes).buffer, 0, bytes.length >> 1);
   const audio = Float32Array.from(samples, (value) => value / 32768);
   const result = await (await loadRecogniser())(audio, { return_timestamps: "word", chunk_length_s: 30, stride_length_s: 5 });
-  const words = (result.chunks ?? [])
+  const heard = (result.chunks ?? [])
     .map((chunk) => ({
       w: chunk.text.trim(),
       s: Math.round((chunk.timestamp[0] ?? 0) * 1000),
       e: Math.round((chunk.timestamp[1] ?? chunk.timestamp[0] ?? 0) * 1000),
     }))
     .filter((word) => word.w.length > 0 && word.e >= word.s);
+  // Whisper's word starts drift off the voice (ADR 0089 round 3): each phrase's first word goes back onto it.
+  const words = snapWordsToVoice(heard, voicedStretches(levelsDb(audio, SAMPLE_RATE)));
   const text = (result.text ?? "").trim();
   if (!words.length || !/[a-z0-9]/i.test(text)) return null;
   return transcriptSchema.parse({ text, words, language: "en", model: MODEL });

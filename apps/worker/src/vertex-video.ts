@@ -98,6 +98,9 @@ export class VertexVideo {
     if (result.error) return { done: true, error: "Google could not generate this shot. Your credit was returned." };
     const video = result.response?.videos?.[0];
     if (!video?.bytesBase64Encoded || video.mimeType !== "video/mp4") {
+      // Google's own filter codes say why (a safety filter on people, audio or the prompt); they carry no request data.
+      const filtered = result.response?.raiMediaFilteredReasons;
+      console.warn(`vertex-video: no video in ${operationName.split("/").pop()}: filtered ${result.response?.raiMediaFilteredCount ?? "?"}${Array.isArray(filtered) ? `, ${filtered.join(" | ")}` : ""}`);
       return { done: true, error: "No video was returned. Try a different prompt; your credit was returned." };
     }
     const buffer = Buffer.from(video.bytesBase64Encoded, "base64");

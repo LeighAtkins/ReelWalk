@@ -26,8 +26,15 @@ import type { TranscriptWord } from "./transcript";
 
 export type TextFill = NonNullable<TextOverlay["fill"]>;
 
-/** The presenter's face on a take, as the identity gate found it (source fractions of a `width`×`height` source). */
-export type FaceInput = { x0: number; y0: number; x1: number; y1: number; width: number; height: number };
+/** The face box at one source time of a take (source ms; source fractions). */
+export type FaceSample = { ms: number; x0: number; y0: number; x1: number; y1: number };
+
+/**
+ * The presenter's face on a take, as the identity gate found it (source fractions of a `width`×`height` source), and,
+ * when the take was tracked (ADR 0089 round 3), where it went: `track` samples in source time, in order. Without a
+ * track the box holds for the whole take.
+ */
+export type FaceInput = { x0: number; y0: number; x1: number; y1: number; width: number; height: number; track?: readonly FaceSample[] };
 
 export type LockupOptions = {
   /** The clips to compose; default every clip whose sound has words. Lockups already on these clips are replaced. */
@@ -62,6 +69,12 @@ export type LockupOptions = {
   speech: Readonly<Record<string, readonly TranscriptWord[]>>;
   /** The presenter's face by asset id (the route fills these in from the identity gate). Absent: the reference's place. */
   faces?: Readonly<Record<string, FaceInput>>;
+  /**
+   * Each lockup follows the presenter's head through its phrase (default on): where her face goes (its track, the clip's
+   * zoom and camera move), the keyword, its companions and the caption track go, smoothed. `false` holds each where it
+   * lands, as before round 3.
+   */
+  follow?: boolean;
 };
 
 // ---------------------------------------------------------------- measured constants (reel 3)
@@ -280,21 +293,126 @@ const round4 = (v: number) => Number(v.toFixed(4));
 
 type Box = { x0: number; y0: number; x1: number; y1: number };
 
+/** The face box at a source time: the track's samples interpolated (held past either end), else the gate's one box. */
+export function faceBoxAt(face: FaceInput, sourceMs: number): Box {
+  const track = face.track;
+  if (!track?.length) return { x0: face.x0, y0: face.y0, x1: face.x1, y1: face.y1 };
+  if (sourceMs <= track[0].ms) return track[0];
+  const next = track.findIndex((sample) => sample.ms >= sourceMs);
+  if (next < 0) return track[track.length - 1];
+  const a = track[next - 1], b = track[next];
+  const mix = b.ms === a.ms ? 0 : (sourceMs - a.ms) / (b.ms - a.ms);
+  const lerp = (from: number, to: number) => from + (to - from) * mix;
+  return { x0: lerp(a.x0, b.x0), y0: lerp(a.y0, b.y0), x1: lerp(a.x1, b.x1), y1: lerp(a.y1, b.y1) };
+}
+
 /**
- * The face box in composition fractions at `reelMs` (through the clip's fit, zoom and camera move then), or null. The
- * box is where the gate found the face on the take's first frame: a presenter take is a locked-off talking head.
+ * The face box in composition fractions at `reelMs` (through the clip's fit, zoom and camera move then), or null: the
+ * take's tracked face at the source time on screen then, or the gate's box on the take's first frame when it has no track.
  */
 function faceOnScreen(timeline: Timeline, clipIndex: number, faces: LockupOptions["faces"], reelMs: number): Box | null {
   const clip = timeline.clips[clipIndex];
   const face = faces?.[clip.assetId];
   if (!face || !(face.width > 0 && face.height > 0)) return null;
   const at = onScreenAt(timeline, reelMs);
-  const moment = at && at.index === clipIndex ? at.moment : { progress: 0, seconds: 0, opening: clipIndex === 0 };
+  const here = at && at.index === clipIndex;
+  const moment = here ? at.moment : { progress: 0, seconds: 0, opening: clipIndex === 0 };
+  const box = faceBoxAt(face, here ? at.sourceMs : clip.sourceStartMs);
   const picture = clipPicture(clip, { width: face.width, height: face.height }, moment);
-  const [x0, y0] = sourceToComposition(picture, face.x0 * face.width, face.y0 * face.height);
-  const [x1, y1] = sourceToComposition(picture, face.x1 * face.width, face.y1 * face.height);
+  const [x0, y0] = sourceToComposition(picture, box.x0 * face.width, box.y0 * face.height);
+  const [x1, y1] = sourceToComposition(picture, box.x1 * face.width, box.y1 * face.height);
   return { x0, y0, x1, y1 };
 }
+
+// ---------------------------------------------------------------- following the head (ADR 0089 round 3)
+
+/** The follow is worked out a frame at a time (30 fps). */
+const FOLLOW_STEP_MS = 1000 / REEL_FORMAT.fps;
+/**
+ * The follow's stiffness, rad/s, critically damped: it settles without overshoot and lags a steady walk by about
+ * 2/ω (0.2 s), which smooths a tracker's frame-to-frame wobble out of the type.
+ */
+export const FOLLOW_OMEGA = 10;
+/** A lockup that would move less than this (frame fractions) keeps no path: a locked-off take stays exactly as before. */
+const FOLLOW_MIN_MOVE = 0.002;
+/** The schema's most keyframes on one path. */
+const PATH_POINTS_MAX = 64;
+
+/**
+ * A critically damped follow of `targets` sampled every `stepMs`: starts on the first target at rest. Its step response
+ * never overshoots, so a path that follows clamped targets stays inside the clamp.
+ */
+export function criticallyDamped(targets: readonly number[], stepMs: number, omega = FOLLOW_OMEGA): number[] {
+  if (!targets.length) return [];
+  const substeps = 4, h = stepMs / 1000 / substeps;
+  let x = targets[0], v = 0;
+  return targets.map((target) => {
+    for (let k = 0; k < substeps; k++) {
+      v += (omega * omega * (target - x) - 2 * omega * v) * h;
+      x += v * h;
+    }
+    return x;
+  });
+}
+
+/** A title's room to move, as the offsets from its own x/y that keep it inside the safe area (half its width and height in from each edge). */
+type Room = { dx0: number; dx1: number; dy0: number; dy1: number };
+const roomFor = (x: number, y: number, halfW: number, top: number, bottom: number): Room => ({
+  dx0: SAFE_AREA.left + AIR + halfW - x, dx1: BUTTON_COLUMN_X - AIR - halfW - x, dy0: top - y, dy1: bottom - y,
+});
+
+/** The frame times a span `startMs`–`endMs` is followed on: every frame, the last one on its end. */
+function followTimes(startMs: number, endMs: number): number[] {
+  const steps = Math.max(1, Math.round((endMs - startMs) / FOLLOW_STEP_MS));
+  return Array.from({ length: steps + 1 }, (_, i) => startMs + ((endMs - startMs) * i) / steps);
+}
+
+/** A title of a group that moves as one block, and its room to move. */
+export type FollowMember = { startMs: number; endMs: number; room: Room };
+
+/**
+ * How a group of titles (a keyword and its companions, or a caption track) moves with the head: `targets[i]` is where
+ * the group's anchor wants to be at `times[i]`, as an offset from where its titles were set. The targets are held inside
+ * every member's room (so the block moves together and stays in the safe area) and followed critically damped; each
+ * member gets the `path` for its own life, at most 64 keyframes. Undefined for a member, or for all, when the group
+ * would hardly move.
+ */
+export function followPaths(times: readonly number[], targets: readonly { x: number; y: number }[], members: readonly FollowMember[]): (NonNullable<TextOverlay["path"]> | undefined)[] {
+  if (times.length < 2 || !members.length) return members.map(() => undefined);
+  // Inside every member's room, and inside the path schema's ±0.5 offsets.
+  const dx0 = Math.max(-0.5, Math.min(0, Math.max(...members.map((m) => m.room.dx0)))), dx1 = Math.min(0.5, Math.max(0, Math.min(...members.map((m) => m.room.dx1))));
+  const dy0 = Math.max(-0.5, Math.min(0, Math.max(...members.map((m) => m.room.dy0)))), dy1 = Math.min(0.5, Math.max(0, Math.min(...members.map((m) => m.room.dy1))));
+  const step = times.length > 1 ? times[1] - times[0] : FOLLOW_STEP_MS;
+  const xs = criticallyDamped(targets.map((t) => clamp(t.x, dx0, dx1)), step).map((x) => clamp(x, dx0, dx1));
+  const ys = criticallyDamped(targets.map((t) => clamp(t.y, dy0, dy1)), step).map((y) => clamp(y, dy0, dy1));
+  if (Math.max(...xs.map(Math.abs), ...ys.map(Math.abs)) < FOLLOW_MIN_MOVE) return members.map(() => undefined);
+  const at = (ms: number) => {
+    if (ms <= times[0]) return { x: xs[0], y: ys[0] };
+    const next = times.findIndex((t) => t >= ms);
+    if (next < 0) return { x: xs[xs.length - 1], y: ys[ys.length - 1] };
+    const mix = (ms - times[next - 1]) / (times[next] - times[next - 1]);
+    return { x: xs[next - 1] + (xs[next] - xs[next - 1]) * mix, y: ys[next - 1] + (ys[next] - ys[next - 1]) * mix };
+  };
+  return members.map(({ startMs, endMs }) => {
+    const own = followTimes(startMs, endMs);
+    const count = Math.min(PATH_POINTS_MAX, own.length);
+    const picks = Array.from({ length: count }, (_, i) => own[Math.round((i * (own.length - 1)) / (count - 1))]);
+    return picks.map((ms, i) => {
+      const d = at(ms);
+      return { t: i === 0 ? 0 : i === count - 1 ? 1 : round4((ms - startMs) / (endMs - startMs)), x: round4(d.x), y: round4(d.y) };
+    });
+  });
+}
+
+/** Half the caption track's drawn width: its widest word (one word shows at a time), Archivo 600 italic at size 1. */
+const captionHalfWidth = (text: string) =>
+  Math.max(...text.split(/\s+/).map((word) => estimateLineWidth(word, { fontFamily: "Archivo Variable", fontWeight: 600, fontSize: CAPTION_SIZE * PLAIN_PX_PER_SIZE }))) * 1.05 / 2 / REEL_FORMAT.width;
+/** Half the caption track's line box (1.2 em at size 1), frame fractions. */
+const CAPTION_HALF_BOX = (0.6 * CAPTION_SIZE * PLAIN_PX_PER_SIZE) / REEL_FORMAT.height;
+/** The vertical room of a keyword (its capitals under the header, its line box above the caption zone), as placeKeyword clamps it. */
+const keywordRows = (cap: number) => ({ top: SAFE_AREA.top + 0.75 * cap, bottom: TEXT_SAFE_BOTTOM - cap });
+/** The vertical room of a small line (its 1.2 em box inside the safe area). */
+const lineRows = (halfBox: number) => ({ top: SAFE_AREA.top + halfBox, bottom: TEXT_SAFE_BOTTOM - halfBox });
 
 export type KeywordPlacement = { x: number; y: number; size: number; capHeight: number; widthFraction: number };
 
@@ -425,6 +543,10 @@ export function composeKeywordLockups(timeline: Timeline, options: LockupOptions
   const placements = new Map(Object.entries(options.placements ?? {}).map(([word, at]) => [normaliseWord(word), at] as const));
   const added: TextOverlay[] = [];
   const touched = new Set<string>();
+  // Groups of titles that follow the head together: where the group's anchor goes for a face on screen.
+  const follows: { clipIndex: number; ids: string[]; anchor: (face: Box) => { x: number; y: number }; base: { x: number; y: number } }[] = [];
+  const room = (title: TextOverlay, halfW: number, rows: { top: number; bottom: number }) => roomFor(title.x, title.y, halfW, rows.top, rows.bottom);
+  const rooms = new Map<string, Room>();
   let lastClip: { index: number; endMs: number; face: Box | null; lastEnd: number } | null = null;
 
   timeline.clips.forEach((clip, index) => {
@@ -452,11 +574,16 @@ export function composeKeywordLockups(timeline: Timeline, options: LockupOptions
         // Too short to read before the clip ends: no keyword, and the word goes back into the captions.
         if (phraseEnd - startMs < 300) k = -1;
         else {
-          added.push(textSchema.parse({
+          const keyword = textSchema.parse({
             id: `kw-${id}`, text: word, startMs, endMs: phraseEnd, x: placed.x, y: placed.y, style: "elegant", size: placed.size, color: options.color ?? "#ffffff",
             weight: KEYWORD_WEIGHT, shadow: "soft", animation: "blurQuick", behind: true, byApp: true, lockup: { id, role: "keyword" },
             ...(options.fill ? { fill: options.fill } : {}),
-          }));
+          });
+          added.push(keyword);
+          rooms.set(keyword.id, room(keyword, placed.widthFraction / 2, keywordRows(placed.capHeight)));
+          // A keyword the author placed stays put; one placed from her face follows it, its companions with it.
+          const group = at ? null : { clipIndex: index, ids: [keyword.id], anchor: (f: Box) => placeKeyword(word, capHeight, f), base: { x: placed.x, y: placed.y } };
+          if (group) follows.push(group);
           // A short phrase interlocks: its other words are tucked into the keyword's block (ADR 0089 addendum).
           if (options.interlock !== false && options.captions !== false && phrase.words.length > 1 && phrase.words.length <= INTERLOCK_MAX_WORDS) {
             const setAs = (list: SpokenWord[]) => list.map((w) => keywordText(w.text) || w.text).join(" ");
@@ -471,7 +598,10 @@ export function composeKeywordLockups(timeline: Timeline, options: LockupOptions
             if (companions && lines.every(({ lineStart }) => phraseEnd - lineStart >= 200)) {
               for (const { line, words, lineStart } of lines) {
                 const wordsMs = words.map((w) => Math.max(0, Math.round(w.startMs - CAPTION_LEAD_MS - lineStart)));
-                added.push(companionTitle(id, line, lineStart, phraseEnd, wordsMs));
+                const title = companionTitle(id, line, lineStart, phraseEnd, wordsMs);
+                added.push(title);
+                rooms.set(title.id, room(title, line.widthFraction / 2, lineRows((0.6 * line.capHeight) / ARCHIVO_CAP_EM)));
+                group?.ids.push(title.id);
               }
               return;
             }
@@ -493,11 +623,14 @@ export function composeKeywordLockups(timeline: Timeline, options: LockupOptions
         // A pause inside the phrase: the word goes after its hold rather than sitting through the silence.
         return Math.max(wordsMs[j] + 1, Math.min(wordsMs[j + 1], Math.round(word.endMs + CAPTION_HOLD_MS - startMs)));
       });
-      added.push(textSchema.parse({
+      const track = textSchema.parse({
         id: `kc-${id}`, text: companions.map(({ word }) => keywordText(word.text) || word.text).join(" "), startMs, endMs, x: captionAt.x, y: captionAt.y,
         style: "plain", size: CAPTION_SIZE, color: "#ffffff", shadow: "soft", italic: true, animation: "none", byApp: true, lockup: { id, role: "captions" },
         kinetic: { preset: "caption", startMs: 0, durationMs: Math.max(100, endMs - startMs), wordsMs, wordsOffMs },
-      }));
+      });
+      added.push(track);
+      rooms.set(track.id, room(track, captionHalfWidth(track.text), lineRows(CAPTION_HALF_BOX)));
+      follows.push({ clipIndex: index, ids: [track.id], anchor: placeCaptions, base: captionAt });
     });
     lastClip = { index, endMs: clipEnd, face: faceOnScreen(timeline, index, options.faces, Math.max(clipStart, clipEnd - 500)), lastEnd: phrases[phrases.length - 1].endMs };
   });
@@ -511,30 +644,62 @@ export function composeKeywordLockups(timeline: Timeline, options: LockupOptions
     const startMs = Math.max(shown.length ? Math.max(...shown) : close.lastEnd, close.endMs - 4000);
     if (close.endMs - startMs < 500) throw new Error("There is no time after the last phrase for a closing keyword: the last clip ends as she finishes speaking.");
     const word = options.cta.keyword.trim();
-    const placed = placeKeyword(word, capHeight, close.face, placements.get(normaliseWord(word)));
-    added.push(textSchema.parse({
+    const fixed = placements.get(normaliseWord(word));
+    const face = faceOnScreen(timeline, close.index, options.faces, startMs) ?? close.face;
+    const placed = placeKeyword(word, capHeight, face, fixed);
+    const keyword = textSchema.parse({
       id: `kw-${id}`, text: word, startMs, endMs: close.endMs, x: placed.x, y: placed.y, style: "elegant", size: placed.size, color: options.color ?? "#ffffff",
       weight: KEYWORD_WEIGHT, shadow: "soft", animation: "blurQuick", behind: true, byApp: true, lockup: { id, role: "keyword" },
       ...(options.cta.fill ?? options.fill ? { fill: options.cta.fill ?? options.fill } : {}),
-    }));
+    });
+    added.push(keyword);
+    rooms.set(keyword.id, room(keyword, placed.widthFraction / 2, keywordRows(placed.capHeight)));
+    const group = fixed ? null : { clipIndex: close.index, ids: [keyword.id], anchor: (f: Box) => placeKeyword(word, capHeight, f), base: { x: placed.x, y: placed.y } };
+    if (group) follows.push(group);
     const caption = options.cta.caption?.trim();
     // A short closing line interlocks under the keyword, its words following at a speaking pace once the keyword has landed.
     const tucked = caption && options.interlock !== false && caption.split(/\s+/).length < INTERLOCK_MAX_WORDS ? placeCompanions({ ...placed, text: word }, "", caption) : null;
     if (caption && tucked?.length) {
       const span = close.endMs - startMs;
       const wordsMs = caption.split(/\s+/).map((_, i) => Math.min(span - 100, 250 + i * 300));
-      added.push(companionTitle(id, tucked[0], startMs, close.endMs, wordsMs));
+      const title = companionTitle(id, tucked[0], startMs, close.endMs, wordsMs);
+      added.push(title);
+      rooms.set(title.id, room(title, tucked[0].widthFraction / 2, lineRows((0.6 * tucked[0].capHeight) / ARCHIVO_CAP_EM)));
+      group?.ids.push(title.id);
     } else if (caption) {
-      const at = placeCaptions(close.face);
+      const at = placeCaptions(face);
       const words = caption.split(/\s+/);
       const span = close.endMs - startMs;
       // Read after the keyword lands: the words follow at a speaking pace (about 300 ms each), the last one held to the end.
       const wordsMs = words.map((_, i) => Math.min(span - 100, 250 + i * 300));
-      added.push(textSchema.parse({
+      const track = textSchema.parse({
         id: `kc-${id}`, text: caption, startMs, endMs: close.endMs, x: at.x, y: at.y, style: "plain", size: CAPTION_SIZE, color: "#ffffff", shadow: "soft", italic: true,
         animation: "none", byApp: true, lockup: { id, role: "captions" }, kinetic: { preset: "caption", startMs: 0, durationMs: Math.max(100, span), wordsMs },
-      }));
+      });
+      added.push(track);
+      rooms.set(track.id, room(track, captionHalfWidth(caption), lineRows(CAPTION_HALF_BOX)));
+      follows.push({ clipIndex: close.index, ids: [track.id], anchor: placeCaptions, base: at });
     }
+  }
+  // Every group follows the head through its titles' lives (round 3): the face on screen each frame, through the clip's
+  // track, zoom and camera move, sets where the group's anchor would be placed; the group moves by that, smoothed.
+  if (options.follow !== false) {
+    const byId = new Map(added.map((title) => [title.id, title] as const));
+    for (const group of follows) {
+      const titles = group.ids.map((id) => byId.get(id)!).filter(Boolean);
+      if (!titles.length) continue;
+      const startMs = Math.min(...titles.map((t) => t.startMs)), endMs = Math.max(...titles.map((t) => t.endMs));
+      const times = followTimes(startMs, endMs);
+      const faces = times.map((ms) => faceOnScreen(timeline, group.clipIndex, options.faces, ms));
+      if (faces.some((face) => !face)) continue;
+      const targets = faces.map((face) => {
+        const p = group.anchor(face!);
+        return { x: p.x - group.base.x, y: p.y - group.base.y };
+      });
+      const paths = followPaths(times, targets, titles.map((t) => ({ startMs: t.startMs, endMs: t.endMs, room: rooms.get(t.id)! })));
+      titles.forEach((title, i) => { if (paths[i]) byId.set(title.id, textSchema.parse({ ...title, path: paths[i] })); });
+    }
+    added.splice(0, added.length, ...added.map((title) => byId.get(title.id)!));
   }
   // Lockups on the composed clips are replaced; everything else (other titles, other clips' lockups) is kept.
   const ours = (text: TextOverlay) => text.lockup && [...touched].some((clipId) => onClip(text.lockup!.id, clipId));

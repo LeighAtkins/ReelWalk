@@ -3,9 +3,9 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import { feetInFrame, framingInstruction, type PresenterFraming } from "@reelwalk/core";
+import { FACE_CROP_PX, feetInFrame, framingInstruction, type PresenterFraming } from "@reelwalk/core";
 import { VertexError, vertexAuth, type AwsCredentials } from "./vertex-video";
-import { FIND_FACE_PROMPT, IDENTITY_PROMPT, IDENTITY_RESPONSE_SCHEMA, MIN_GATE_FACE_PX, compareVerdictSchema, cropFacePng, faceCropRect, findFacePixelsPrompt, plausibleFace, readLocate, type IdentityVerdict, type LocateAttempt, type Located } from "./identity";
+import { FIND_FACE_PROMPT, IDENTITY_MIN_CONFIDENCE, IDENTITY_PROMPT, boxFromCrop, refineCropRect, IDENTITY_RESPONSE_SCHEMA, MIN_GATE_FACE_PX, compareVerdictSchema, cropFacePng, faceCropRect, findFacePixelsPrompt, plausibleFace, readLocate, type IdentityVerdict, type LocateAttempt, type Located } from "./identity";
 
 const run = promisify(execFile);
 
@@ -177,11 +177,27 @@ export class VertexImages {
       const verdict = compareVerdictSchema.parse(jsonFromResponse(result));
       // A crop with no face means the box missed her, not that she is someone else: never score it as identity.
       if (!verdict.faceVisible) { attempt.rejected = "face-not-in-crop"; continue; }
+      // Where the face really is, for placing type on the take (ADR 0089 round 3); best effort, never part of the verdict.
+      const refined = verdict.samePerson && verdict.confidence >= IDENTITY_MIN_CONFIDENCE ? await this.refineFace(bytes, located.box, size, model).catch(() => null) : null;
+      if (refined) attempt.refined = refined;
       return { samePerson: verdict.samePerson, confidence: verdict.confidence, eyesAndMouthRendered: verdict.eyesAndMouthRendered, faceHeightPx: rect.faceHeightPx, locate };
     }
     const small = locate.filter(attempt => attempt.rejected === "face-too-small").map(attempt => attempt.faceHeightPx!);
     if (small.length) return { samePerson: false, confidence: 0, faceHeightPx: Math.max(...small), reason: "face-too-small", locate };
     return { samePerson: false, confidence: 0, faceHeightPx: null, reason: locate.some(attempt => attempt.box) ? "locate-failed" : "no-face", locate };
+  }
+
+  /**
+   * The face looked for again inside a square three times the first box (ADR 0089 round 3): on a wide composite the
+   * first box can sit above her head and be twice her face, and a picture where the face is large gets a tight box. The
+   * box on the composite's grid, or null when the second look finds no plausible face.
+   */
+  async refineFace(composite: Buffer, box: number[], size: { width: number; height: number }, model = AI_IDENTITY_MODEL): Promise<number[] | null> {
+    const rect = refineCropRect(box, size.width, size.height);
+    const crop = await cropFacePng(composite, rect);
+    const square = { width: FACE_CROP_PX, height: FACE_CROP_PX };
+    const located = await this.locateFace({ bytesBase64Encoded: crop.toString("base64"), mimeType: "image/png" }, square, "grid", model);
+    return located.box && plausibleFace(located, square) ? boxFromCrop(located.box, rect, size.width, size.height) : null;
   }
 
   /** One locate call: on the 0–1000 grid, or in pixels of the stated size (read back onto the grid). */

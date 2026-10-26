@@ -206,6 +206,8 @@ export function withMotionCut(clip: Clip, verdict: Extract<MotionCutVerdict, { o
   for (; rampFrom >= 1.5; rampFrom = Math.round((rampFrom - 0.25) * 100) / 100) {
     const planned = entryRamp(durationInFrames, rampFrom, rampFrames, baseSpeed);
     if (!planned) throw new Error(`The incoming shot is too short for a motion cut (it needs at least ${rampFrames + 8} frames).`);
+    // A gentler start must still enter as fast as the gate asks.
+    if (vectorSpeed(verdict.in) * rampFrom < MOTION_CUT.minEntrySpeed) break;
     const sourceEndMs = Math.round(clip.sourceStartMs + onScreenMs * planned.speed);
     if (sourceDurationMs != null && sourceEndMs > sourceDurationMs) continue;
     return {

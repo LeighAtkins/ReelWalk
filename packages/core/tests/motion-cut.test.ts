@@ -158,6 +158,27 @@ describe("the setMotionCut command", () => {
     expect(result.timeline.clips[1].transitionIn).toBe("motionCut");
   });
 
+  it("refuses a turn read from the analyses, however fast its pan", () => {
+    const samples = (rotate: number) => [0, 250, 500, 750, 1000, 1250, 1500, 1750, 2000, 2250, 2500, 2750, 3000, 3250].map((t) => ({ t, flow: { dx: 0.9, dy: 0, zoom: 0, rotate } }));
+    const result = applyCommand(base, { type: "setMotionCut", clipId: "b", analyses: { "a-a": { samples: samples(1), width: 1080, height: 1920 }, "a-b": { samples: samples(0), width: 1080, height: 1920 } } }, { generation: 1, sourceDurationsMs: durations });
+    expect(result.rejected).toMatch(/turns/);
+  });
+
+  it("never eases the start below the entry speed the gate asks for, to fit short footage", () => {
+    const clip = video("b", 2000, 4000);
+    const verdict = judgeMotionCut({ dx: 0, dy: 1, zoom: 0 }, { dx: 0, dy: 0.3, zoom: 0 });
+    if (!verdict.ok) throw new Error("expected ok");
+    // 0.3 × 2.5 = 0.75 passes, but the footage only fits a gentler start, where 0.3 × r falls under 0.6: refused.
+    expect(() => withMotionCut(clip, verdict, 60, 4060)).toThrow(/too little footage/);
+  });
+
+  it("gives a duplicate the clip's own speed back, since the copy enters by a plain cut", () => {
+    const made = applyCommand(base, { type: "setMotionCut", clipId: "b", motion: fast }, { generation: 1, sourceDurationsMs: durations }).timeline;
+    const copy = applyCommand(made, { type: "duplicateClip", clipId: "b", newId: "c" }, { generation: 2 }).timeline.clips[2];
+    expect(copy).toMatchObject({ id: "c", transitionIn: "cut", speed: 1, sourceEndMs: 4000, ramp: null });
+    expect(copy.motionCut).toBeUndefined();
+  });
+
   it("refuses slow footage with the reason, and refuses motionCut through setTransition or updateClip", () => {
     const slow = applyCommand(base, { type: "setMotionCut", clipId: "b", motion: { out: { dx: 0.02, dy: 0, zoom: 0 }, in: fast.in } }, { generation: 1, sourceDurationsMs: durations });
     expect(slow.rejected).toMatch(/barely moves/);

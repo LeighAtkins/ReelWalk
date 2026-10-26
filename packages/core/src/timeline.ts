@@ -2,7 +2,7 @@ import { walkInto } from "./walk";
 import { z } from "zod";
 import { cameraSchema } from "./camera";
 import { rampSchema, rampUnwarp, rampWarp, sliceRamp } from "./ramp";
-import { motionCutSchema } from "./motion-cut";
+import { motionCutSchema, withoutMotionCut } from "./motion-cut";
 import { planOverlaySchema, roomTitle, spotSchema, type PlanOverlay } from "./plan";
 import { colorMatchSchema, colorStatsSchema, lookSchema } from "./look";
 import { textTreatmentSchema } from "./brand-fonts";
@@ -762,7 +762,8 @@ export function moveClip(timeline: Timeline, id: string, toIndex: number): Timel
 export function duplicateClip(timeline: Timeline, id: string, newId: string): Timeline {
   const index = timeline.clips.findIndex((clip) => clip.id === id);
   if (index === -1) return timeline;
-  return addClips(timeline, [{ ...withoutCutRecord(timeline.clips[index]), id: newId, transitionIn: "cut" }], index + 1);
+  // A copy enters by a plain cut, so it gets the clip's own speed back, not the motion cut's speed-up (ADR 0090).
+  return addClips(timeline, [{ ...withoutMotionCut(timeline.clips[index]), id: newId, transitionIn: "cut" }], index + 1);
 }
 
 /** A clip entering by a plain cut keeps no motion-cut record (ADR 0090): a copy or a second piece is not joined by one. */

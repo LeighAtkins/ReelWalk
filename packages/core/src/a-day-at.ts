@@ -223,8 +223,13 @@ export function planDayAt(base: Timeline, shots: readonly DayShot[], music: DayM
     const startMs = Math.round(at), endMs = Math.round(at + entry.beats * beat);
     at += entry.beats * beat;
     const window = windowOf(entry.shot, endMs - startMs);
-    return { ...entry.shot.clip, id: i === 0 || !plan.slice(0, i).some((other) => other.shot.clip.id === entry.shot.clip.id) ? entry.shot.clip.id : newId(),
+    const clip = { ...entry.shot.clip, id: i === 0 || !plan.slice(0, i).some((other) => other.shot.clip.id === entry.shot.clip.id) ? entry.shot.clip.id : newId(),
       ...window, speed: 1, filter: "warm", motion: "none", transitionIn: "cut", volume: 0, ramp: null, camera: null } as Clip;
+    // Music only, one grade: no borrowed sound (a J-cut), no colour match pulling dusk toward daylight, no motion cut.
+    delete clip.audio;
+    delete clip.colorMatch;
+    delete clip.motionCut;
+    return clip;
   });
   // Day→dusk blends (gap #7, lite): only between neighbours filmed from the same place.
   plan.forEach((entry, i) => {
@@ -240,12 +245,21 @@ export function planDayAt(base: Timeline, shots: readonly DayShot[], music: DayM
   } as TextOverlay);
   if (lines.credit) texts.push(line(lines.credit, 500, Math.min(revealReelMs || totalMs, Math.max(3000, 4 * beat)), DAY_AT.creditSize));
   if (lines.place) {
-    const from = Math.max(6000, Math.round(totalMs * 0.15 / beat) * beat) - 700;
-    texts.push(line(lines.place, from, Math.min(from + 4000, (revealReelMs || totalMs) - 300), DAY_AT.placeSize));
+    // Over the land, before the reveal: from about 6 s or 15 % in, for up to 4 s; on a short opening, as late as still
+    // leaves 1.5 s before the reveal, and never under the credit.
+    const until = (revealReelMs || totalMs) - 300;
+    const wanted = Math.max(6000, Math.round((totalMs * 0.15) / beat) * beat) - 700;
+    const from = Math.max(texts.length ? texts[0].endMs + 300 : 500, Math.min(wanted, until - 1500));
+    if (from + 1500 > until) notes.push("Too little before the reveal for the place line: left out.");
+    else texts.push(line(lines.place, from, Math.min(from + 4000, until), DAY_AT.placeSize));
   }
+
 
   const timeline: Timeline = {
     ...base,
+    // Music only: no sound design and no reel-wide colour match from the cut it replaces.
+    sfx: [],
+    look: undefined,
     clips,
     texts,
     music: { assetId: music.assetId, sourceStartMs: songStartMs, volume: music.volume ?? 0.9, bpm: music.bpm, beatOffsetMs: gridOffsetMs, onBeat: false } as Timeline["music"],

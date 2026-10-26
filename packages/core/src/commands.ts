@@ -536,18 +536,23 @@ function setMotionCut(timeline: Timeline, command: Extract<Command, { type: "set
   if (before.kind !== "VIDEO" || clip.kind !== "VIDEO") throw new Error("A motion cut needs moving video on both sides of the cut.");
   const plain = withoutMotionCut(clip, clip.transitionIn);
   let motion = command.motion ?? null;
+  // A turn (an orbit, a roll) has no single blur direction: the analyses' rotation is judged too.
+  let rotation: { rotateOut: number; rotateIn: number } = { rotateOut: 0, rotateIn: 0 };
   if (!motion && command.analyses) {
     const read = (assetId: string, atMs: number, side: "out" | "in", speed: number, zoom: number) => {
       const analysis = command.analyses?.[assetId];
       const flow = analysis ? flowNear(analysis.samples, atMs, side) : null;
-      return flow ? reelFlow(flow, analysis?.width && analysis.height ? analysis.width / analysis.height : null, zoom, speed) : null;
+      return flow ? { vector: reelFlow(flow, analysis?.width && analysis.height ? analysis.width / analysis.height : null, zoom, speed), rotate: flow.rotate ?? 0 } : null;
     };
     const out = read(before.assetId, before.sourceEndMs, "out", before.speed, before.zoom);
     const into = read(plain.assetId, plain.sourceStartMs, "in", plain.speed, plain.zoom);
-    if (out && into) motion = { out, in: into };
+    if (out && into) {
+      motion = { out: out.vector, in: into.vector };
+      rotation = { rotateOut: out.rotate, rotateIn: into.rotate };
+    }
   }
   if (!motion) throw new Error("setMotionCut needs the measured motion either side of the cut: pass motion { out, in } or analyses (the clips' shot-analysis samples) by asset id.");
-  const verdict = judgeMotionCut(motion.out, motion.in, { rampFrom: command.rampFrom });
+  const verdict = judgeMotionCut(motion.out, motion.in, { rampFrom: command.rampFrom, ...rotation });
   if (!verdict.ok) throw new Error(verdict.reason);
   const frames = msToFrame(clipDurationMs(plain));
   const next = withMotionCut(plain, verdict, frames, durations[clip.assetId], { rampFrom: command.rampFrom, rampFrames: command.rampFrames });

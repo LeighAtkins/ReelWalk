@@ -109,6 +109,23 @@ describe("the a-day-at planner (recipe 5)", () => {
     expect(timeline.clips.every((entry) => entry.transitionIn === "cut" && entry.volume === 0)).toBe(true);
   });
 
+  it("drops borrowed sound, sound design and colour matches from the cut it replaces", () => {
+    const loud = shots.map((entry) => ({ ...entry, clip: { ...entry.clip, audio: { assetId: "voice", sourceStartMs: 0, volume: 1 }, colorMatch: { m: [1.2, 0, 0, 0, 1.2, 0, 0, 0, 1.2], o: [0, 0, 0] } } }));
+    const withSfx = { ...base, sfx: [{ id: "s1", sound: "whoosh", atMs: 1000 }] } as unknown as Timeline;
+    const { timeline } = planDayAt(withSfx, loud, song(120, 40), {}, newId);
+    expect(timeline.clips.every((entry) => entry.audio === undefined && entry.colorMatch === undefined)).toBe(true);
+    expect(timeline.sfx).toEqual([]);
+  });
+
+  it("keeps the place line inside the time before an early reveal, or leaves it out", () => {
+    const few = [shot("d1", "detail", "day"), shot("w1", "wide", "day"), shot("sky", "wide", "golden", { sky: true }), shot("hero", "wide", "dusk", { reveal: true }), shot("n1", "detail", "dusk"), shot("n2", "wide", "dusk")];
+    const planned = planDayAt(base, few, song(120, 40), { credit: "Coastal & Co", place: "Byron Bay" }, newId);
+    for (const text of planned.timeline.texts) expect(text.endMs).toBeGreaterThan(text.startMs);
+    const placeLine = planned.timeline.texts.find((text) => text.text === "BYRON BAY");
+    if (placeLine) expect(placeLine.endMs).toBeLessThanOrEqual(planned.report.revealReelMs!);
+    else expect(planned.report.notes.join(" ")).toMatch(/place line/);
+  });
+
   it("makes the daylight variant without dusk footage and says so", () => {
     const daylight = shots.map((entry) => ({ ...entry, phase: entry.phase === "dusk" ? ("golden" as const) : entry.phase, reveal: false }));
     const { report } = planDayAt(base, daylight, song(120, 40), {}, newId);

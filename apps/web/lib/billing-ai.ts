@@ -1,6 +1,7 @@
 import type Stripe from "stripe";
 import { aiTopUp, CURRENCIES, type Currency, type PlanId } from "@reelwalk/core";
 import { lockBillingAccount, prisma } from "@reelwalk/db";
+import { env } from "../env";
 import { customerId, planForPrice, stripe } from "./stripe";
 
 /**
@@ -49,8 +50,7 @@ export async function applyAiInvoice(invoice: Stripe.Invoice, subscription: Stri
  * STRIPE_PRICE_AI_TOP_UP_USD the US$12 one (ADR 0085). Null when unset, which hides the button.
  */
 export function aiTopUpPrice(currency: Currency = "aud"): string | null {
-  const value = process.env[currency === "usd" ? "STRIPE_PRICE_AI_TOP_UP_USD" : "STRIPE_PRICE_AI_TOP_UP"];
-  return value && value !== "unset" ? value : null;
+  return env[currency === "usd" ? "STRIPE_PRICE_AI_TOP_UP_USD" : "STRIPE_PRICE_AI_TOP_UP"] ?? null;
 }
 
 // Stripe retries deliveries in bursts; a duplicate waits for the workspace lock instead of failing on

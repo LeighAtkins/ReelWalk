@@ -60,7 +60,8 @@ export async function startCheckout(formData: FormData): Promise<void> {
     automatic_tax: { enabled: true },
     // Tags the session in the Dashboard so this flow can be told apart from later ones.
     integration_identifier: "reelwalk_plan_checkout_qmxvtkhe",
-    success_url: `${base}/account?billing=welcome`,
+    // The session id lets the account page confirm the plan straight away (ADR 0088); Stripe fills it in.
+    success_url: `${base}/account?billing=welcome&session={CHECKOUT_SESSION_ID}`,
     cancel_url: `${base}/account`,
   });
   if (!session.url) redirect("/account?billing=unavailable");
@@ -85,7 +86,7 @@ export async function buyAiCredits(): Promise<void> {
     billing_address_collection: "auto",
     customer_update: { name: "auto", address: "auto" },
     automatic_tax: { enabled: true },
-    success_url: `${base}/account?billing=credits`, cancel_url: `${base}/account`,
+    success_url: `${base}/account?billing=credits&session={CHECKOUT_SESSION_ID}`, cancel_url: `${base}/account`,
   });
   if (!session.url) redirect("/account?billing=unavailable");
   redirect(session.url);

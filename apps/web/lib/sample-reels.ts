@@ -11,6 +11,8 @@
  * it was cut from (SAMPLE_REEL_RAW_URLS), which the page offers as "Your
  * clips" beside "Your reel". An empty entry leaves that sample without one.
  */
+import { env as serverEnv } from "../env";
+
 export type SampleReel = { src: string; poster: string | null; label: string | null; raw: string | null };
 
 const MAX_SAMPLES = 3;
@@ -28,7 +30,7 @@ const label = (value: string | undefined) => {
   return text ? text.slice(0, 40) : null;
 };
 
-export function sampleReels(env: NodeJS.ProcessEnv = process.env): SampleReel[] {
+export function sampleReels(env: { readonly [name: string]: string | undefined } = serverEnv): SampleReel[] {
   const posters = entries(env.SAMPLE_REEL_POSTER_URL);
   const labels = entries(env.SAMPLE_REEL_LABELS);
   const raws = entries(env.SAMPLE_REEL_RAW_URLS);

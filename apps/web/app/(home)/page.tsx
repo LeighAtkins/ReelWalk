@@ -12,6 +12,8 @@ import { formatAgo, formatDuration } from "@/lib/format";
 import { getSessionUser } from "@/lib/auth";
 import { coverUrls, durationOf, readTimeline } from "@/lib/reels";
 import { sampleReels } from "@/lib/sample-reels";
+import { requestCurrency } from "@/lib/request-currency";
+import { offeredCurrencies } from "@/lib/stripe";
 import { getCurrentUser, mediaScope } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
@@ -21,7 +23,9 @@ export const dynamic = "force-dynamic";
  * reels. The proxy lets / through without a session cookie for this reason.
  */
 export default async function HomePage({ searchParams }: { searchParams: Promise<{ welcome?: string } & Record<string, string | string[] | undefined>> }) {
-  if (!(await getSessionUser())) return <Landing samples={sampleReels()} attribution={pickAttribution(await searchParams)} />;
+  if (!(await getSessionUser())) {
+    return <Landing samples={sampleReels()} attribution={pickAttribution(await searchParams)} currency={await requestCurrency()} offered={offeredCurrencies()} />;
+  }
   return <ReelsHome searchParams={searchParams} />;
 }
 

@@ -1,6 +1,8 @@
 import Link from "next/link";
-import { BILLING_INTERVALS, formatAud, PLAN_IDS, PLANS, planPrice, PRICE_SMALL_PRINT, yearlyPerMonth, type BillingInterval, type PlanDef, type PlanId } from "@reelwalk/core";
+import { BILLING_INTERVALS, formatCharge, PLAN_IDS, PLANS, planPrice, priceSmallPrint, yearlyPerMonth, type BillingInterval, type Currency, type PlanDef, type PlanId } from "@reelwalk/core";
 import { startCheckout } from "@/app/billing-actions";
+import { InCurrency } from "@/components/currency";
+import { CurrencyToggle } from "@/components/currency-toggle";
 import { CheckIcon } from "@/components/icons";
 import { SubmitButton } from "@/components/submit-button";
 import { signupHrefFor, type Attribution } from "@/lib/attribution";
@@ -12,7 +14,8 @@ import styles from "./landing.module.css";
  *
  * Signed out, every button leads to sign-up (never to checkout): a paid plan's
  * button remembers the pick, so the first export can offer it (ADR 0081).
- * Prices are Australian dollars, GST included. Signed in (the /pricing page),
+ * Prices are A$ with GST for Australia and US$ plus tax elsewhere (ADR 0085): both are written, the
+ * enclosing `CurrencyScope` shows one, and "Prices in AUD · USD" switches it. Signed in (the /pricing page),
  * paid plans open Stripe Checkout at the chosen interval, and the plan the
  * studio is on says so.
  */
@@ -20,7 +23,18 @@ export type PricingViewer =
   | { signedIn: false; /** The visitor's utm and click ids (ADR 0080), carried on to sign-up. */ attribution?: Attribution | null }
   | { signedIn: true; currentPlan: PlanId; billingOn: boolean; yearlyOn: boolean };
 
-export function PricingSection({ viewer, id = "pricing" }: { viewer: PricingViewer; id?: string }) {
+export function PricingSection({
+  viewer,
+  id = "pricing",
+  currency,
+  offered,
+}: {
+  viewer: PricingViewer;
+  id?: string;
+  /** The currency the scope starts on, and the ones on sale (the toggle shows only with two). */
+  currency: Currency;
+  offered: Currency[];
+}) {
   const yearlyOn = viewer.signedIn ? viewer.yearlyOn : true;
   return (
     <section className={styles.pricing} id={id} aria-labelledby={`${id}-title`} data-testid="pricing">
@@ -38,6 +52,7 @@ export function PricingSection({ viewer, id = "pricing" }: { viewer: PricingView
             ))}
           </fieldset>
         ) : null}
+        {offered.length > 1 ? <CurrencyToggle initial={currency} className={styles.currency} /> : null}
       </div>
       <ul className={styles.plans}>
         {PLAN_IDS.map((planId) => (
@@ -45,9 +60,12 @@ export function PricingSection({ viewer, id = "pricing" }: { viewer: PricingView
         ))}
       </ul>
       <p className={styles.founding} data-testid="founding-note">
-        Founding agents: half price for your first 3 months with code FOUNDING50.
+        Founding agents: half price for your first 3 months with code FOUNDING50, Agent at{" "}
+        <InCurrency aud={`${formatCharge(PLANS.AGENT.priceAud / 2, "aud")} a month`} usd={`${formatCharge(PLANS.AGENT.priceUsd / 2, "usd")} a month`} />.
       </p>
-      <p className={styles.smallPrint} data-testid="price-small-print">{PRICE_SMALL_PRINT}</p>
+      <p className={styles.smallPrint} data-testid="price-small-print">
+        <InCurrency aud={priceSmallPrint("aud")} usd={priceSmallPrint("usd")} />
+      </p>
     </section>
   );
 }
@@ -66,7 +84,9 @@ function PlanCard({ plan, viewer, yearlyOn }: { plan: PlanDef; viewer: PricingVi
         </>
       ) : (
         <p className={styles.price}>
-          <span className={styles.amount}>{formatAud(0)}</span>
+          <span className={styles.amount}>
+            <InCurrency aud={formatCharge(0, "aud")} usd={formatCharge(0, "usd")} />
+          </span>
           <span className={styles.per}>for as long as you like</span>
         </p>
       )}
@@ -84,11 +104,16 @@ function PlanCard({ plan, viewer, yearlyOn }: { plan: PlanDef; viewer: PricingVi
 }
 
 function Price({ plan, interval, className }: { plan: PlanDef; interval: BillingInterval; className: string }) {
-  const amount = planPrice(plan, interval);
+  const amount = (currency: Currency) => formatCharge(interval === "year" ? yearlyPerMonth(plan, currency) : planPrice(plan, interval, currency), currency);
+  const per = (currency: Currency) => (interval === "year" ? `a month, ${formatCharge(planPrice(plan, "year", currency), currency)} billed yearly` : "a month, billed monthly");
   return (
     <p className={`${styles.price} ${className}`}>
-      <span className={styles.amount}>{formatAud(interval === "year" ? yearlyPerMonth(plan) : amount)}</span>
-      <span className={styles.per}>{interval === "year" ? `a month, ${formatAud(amount)} billed yearly` : "a month, billed monthly"}</span>
+      <span className={styles.amount}>
+        <InCurrency aud={amount("aud")} usd={amount("usd")} />
+      </span>
+      <span className={styles.per}>
+        <InCurrency aud={per("aud")} usd={per("usd")} />
+      </span>
     </p>
   );
 }

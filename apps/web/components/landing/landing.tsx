@@ -1,7 +1,9 @@
 import Link from "next/link";
-import { formatAud, PLANS } from "@reelwalk/core";
+import { formatCharge, PLANS, taxNote, type Currency } from "@reelwalk/core";
+import { CurrencyScope, InCurrency } from "@/components/currency";
 import { BrandMark, InstagramIcon } from "@/components/icons";
 import { withAttribution, type Attribution } from "@/lib/attribution";
+import type { CurrencyResolution } from "@/lib/currency";
 import type { SampleReel } from "@/lib/sample-reels";
 import { EditorMock, ExportMock, MediaSheetMock, ReelStill, ShareMock } from "./mocks";
 import { PricingSection } from "./pricing";
@@ -18,12 +20,23 @@ export const INSTAGRAM_URL = "https://www.instagram.com/reelwalking";
  * app's own visual system (globals.css): the same navy, type and controls,
  * so the drawn screens (mocks.tsx) sit in it rather than on it.
  */
-export function Landing({ samples, attribution = null }: { samples: SampleReel[]; attribution?: Attribution | null }) {
+export function Landing({
+  samples,
+  attribution = null,
+  currency,
+  offered,
+}: {
+  samples: SampleReel[];
+  attribution?: Attribution | null;
+  /** Where the visitor was placed and the currencies on sale (ADR 0085): A$ for Australia, US$ elsewhere. */
+  currency: CurrencyResolution;
+  offered: Currency[];
+}) {
   const paid = PLANS.AGENT;
   // utm_* and click ids from the ad link travel on to sign-up in the URL (ADR 0080).
   const signup = withAttribution("/signup", attribution);
   return (
-    <div className={styles.page}>
+    <CurrencyScope className={styles.page} resolution={currency} offered={offered}>
       <SiteHeader attribution={attribution} />
 
       <main className={styles.main}>
@@ -175,7 +188,7 @@ export function Landing({ samples, attribution = null }: { samples: SampleReel[]
           </ul>
         </section>
 
-        <PricingSection viewer={{ signedIn: false, attribution }} />
+        <PricingSection viewer={{ signedIn: false, attribution }} currency={offered.length === 1 ? offered[0]! : currency.currency} offered={offered} />
 
         <section className={styles.faq} aria-labelledby="faq-title">
           <h2 id="faq-title">Questions</h2>
@@ -216,7 +229,12 @@ export function Landing({ samples, attribution = null }: { samples: SampleReel[]
         <section className={styles.closing} aria-labelledby="closing-title">
           <h2 id="closing-title">Try it on the next listing</h2>
           <p className={styles.lede}>
-            Make a reel from a shoot you have already done. If it earns its keep, the Agent plan is {formatAud(paid.priceAud)} a month, GST included.
+            Make a reel from a shoot you have already done. If it earns its keep, the Agent plan is{" "}
+            <InCurrency
+              aud={`${formatCharge(paid.priceAud, "aud")} a month, ${taxNote("aud")}`}
+              usd={`${formatCharge(paid.priceUsd, "usd")} a month, ${taxNote("usd")}`}
+            />
+            .
           </p>
           <Link href={signup} className="btn">
             Start free, no card
@@ -225,7 +243,7 @@ export function Landing({ samples, attribution = null }: { samples: SampleReel[]
       </main>
 
       <SiteFooter />
-    </div>
+    </CurrencyScope>
   );
 }
 
@@ -271,10 +289,14 @@ export function SiteFooter() {
 }
 
 /**
- * Finished reels in phone frames: the proof that the output is real. The
- * first plays on its own, muted; the others wait with their poster and
- * controls. With no SAMPLE_REEL_URL set, one frame shows a still from a
- * reel instead, so the hero is finished either way.
+ * Finished reels in phone frames: the proof that the output is real, and
+ * that the editing is (ADR 0085). Each is labelled by what it shows ("From 9
+ * phone clips", "Cut to the beat"), not by the listing. A sample with an
+ * image of its raw clips gets a "Your clips / Your reel" switch: two radios
+ * and a :has() rule, like the pricing switch, so no script runs. The first
+ * plays on its own, muted; the others wait with their poster and controls.
+ * With no SAMPLE_REEL_URL set, one frame shows a still from a reel instead,
+ * so the hero is finished either way.
  */
 function SampleReels({ samples }: { samples: SampleReel[] }) {
   const count = samples.length;
@@ -286,26 +308,50 @@ function SampleReels({ samples }: { samples: SampleReel[] }) {
             <ReelStill />
           </div>
         ) : (
-          samples.map((sample, index) => (
-            <div key={sample.src} className={styles.phone}>
-              <video
-                src={sample.src}
-                poster={sample.poster ?? undefined}
-                autoPlay
-                muted
-                loop
-                playsInline
-                preload="auto"
-                aria-label={`Sample reel ${index + 1}`}
-              />
-            </div>
-          ))
+          samples.map((sample, index) => <Sample key={sample.src} sample={sample} index={index} />)
         )}
       </div>
       <figcaption className={styles.samplesCaption}>
         <strong>Made with ReelWalk.</strong>{" "}
-        {count > 0 ? "Finished reels, as they came out of the export. Sound is off." : "A frame from a finished listing reel."}
+        {count > 0 ? "Finished reels, as they came out of the export, nothing edited elsewhere. Sound is off." : "A frame from a finished listing reel."}
       </figcaption>
     </figure>
+  );
+}
+
+function Sample({ sample, index }: { sample: SampleReel; index: number }) {
+  const name = `sample-${index}-view`;
+  return (
+    <div className={styles.sample} data-testid="sample-reel">
+      {sample.label ? <p className={styles.sampleLabel}>{sample.label}</p> : null}
+      <div className={styles.phone}>
+        <video
+          src={sample.src}
+          poster={sample.poster ?? undefined}
+          autoPlay
+          muted
+          loop
+          playsInline
+          preload="auto"
+          aria-label={sample.label ? `Sample reel: ${sample.label}` : `Sample reel ${index + 1}`}
+        />
+        {sample.raw ? (
+          <img className={styles.raw} src={sample.raw} alt="The phone clips this reel was cut from, as they were shot" loading="lazy" />
+        ) : null}
+      </div>
+      {sample.raw ? (
+        <fieldset className={styles.sampleSwitch}>
+          <legend className="visually-hidden">Show the raw clips or the finished reel</legend>
+          <label>
+            <input type="radio" name={name} value="raw" />
+            <span>Your clips</span>
+          </label>
+          <label>
+            <input type="radio" name={name} value="reel" defaultChecked />
+            <span>Your reel</span>
+          </label>
+        </fieldset>
+      ) : null}
+    </div>
   );
 }

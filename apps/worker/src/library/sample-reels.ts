@@ -133,17 +133,17 @@ export function sampleReels(index: AssetIndex): SampleReel[] {
       id: "sample-country-house",
       title: "Country house tour",
       caption:
-        "Just listed: a light-filled lake country home with a garden lounge, wood-burning fireplace and wraparound porch.\n\nOpen house Saturday 11–1. Schedule a private showing through the link in bio.\n\n#justlisted #hometour #lakewaytx #austinrealestate #dreamhome",
+        "Just listed: a light-filled Southern Highlands home with a garden lounge, wood fire and a wraparound verandah.\n\nOpen home Saturday 11 to 11:30. Book a private inspection through the link in bio.\n\n#justlisted #hometour #bowral #southernhighlands #nswrealestate",
       timeline: build({
         durations,
         music: music(index, "carefree"),
         details: listingDetailsSchema.parse({
-          price: "$1,295,000",
+          price: "A$1,295,000",
           beds: "4",
           baths: "3",
           area: "297 m²",
-          address: "Lakeway, TX",
-          contact: "Open house Sat 11–1",
+          address: "Bowral NSW",
+          contact: "Open home Sat 11–11:30",
           placement: "end",
         }),
         clips: [
@@ -170,17 +170,17 @@ export function sampleReels(index: AssetIndex): SampleReel[] {
       id: "sample-city-apartment",
       title: "City apartment",
       caption:
-        "A modern condo with a chef's kitchen, a calm bedroom, a spa bathroom and its own private terrace.\n\nTour this weekend: DM @demo_realty to reserve a time.\n\n#condotour #modernliving #capitolhill #seattlerealestate #newlisting",
+        "A modern apartment with a chef's kitchen, a calm bedroom, a spa bathroom and its own private terrace.\n\nInspect this weekend: DM @demo_realty to book a time.\n\n#apartmentliving #modernliving #fitzroy #melbournerealestate #newlisting",
       timeline: build({
         durations,
         music: music(index, "bossa-antigua"),
         details: listingDetailsSchema.parse({
-          price: "$849,000",
+          price: "A$849,000",
           beds: "2",
           baths: "1",
           area: "72 m²",
-          address: "Capitol Hill, Seattle, WA",
-          contact: "Tour this weekend",
+          address: "Fitzroy VIC",
+          contact: "Inspect this weekend",
           placement: "end",
         }),
         clips: [
@@ -206,16 +206,16 @@ export function sampleReels(index: AssetIndex): SampleReel[] {
     {
       id: "sample-sea-view",
       title: "Ocean-view retreat (360)",
-      caption: "Wake up to the ocean. Four rooms, one deck, all in 360.\n\nBook direct and save: link in bio.\n\n#oceanview #vacationrental #outerbanks #obx #360tour #coastalliving",
+      caption: "Wake up to the ocean. Four rooms, one deck, all in 360.\n\nBook direct and save: link in bio.\n\n#oceanview #holidayrental #byronbay #northernrivers #360tour #coastalliving",
       timeline: build({
         durations,
         music: music(index, "inspired"),
         details: listingDetailsSchema.parse({
-          price: "$395 a night",
+          price: "A$395 a night",
           beds: "1",
           baths: "1",
           area: "",
-          address: "Outer Banks, NC",
+          address: "Byron Bay NSW",
           contact: "Book direct: link in bio",
           placement: "end",
         }),

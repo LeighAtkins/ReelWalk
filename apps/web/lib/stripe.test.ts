@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { invoiceLinePlan } from "./billing-ai";
-import { planForPrice, planForSubscription } from "./stripe";
+import { chargeableCurrency, isCurrencyAvailable, offeredCurrencies, planForPrice, planForSubscription, priceEnvName, priceForPlan } from "./stripe";
 
 // The AUD prices (ADR 0081) replace the USD ones in env. A subscription bought in USD keeps pointing at
 // its old price, so plans must still resolve from the price's lookup key or its product.
-const ENV = ["STRIPE_PRICE_AGENT_MONTHLY", "STRIPE_PRICE_AGENT_YEARLY", "STRIPE_PRICE_OFFICE_MONTHLY", "STRIPE_PRICE_OFFICE_YEARLY", "STRIPE_PRODUCT_AGENT", "STRIPE_PRODUCT_OFFICE"] as const;
+const ENV = ["STRIPE_PRICE_AGENT_MONTHLY", "STRIPE_PRICE_AGENT_YEARLY", "STRIPE_PRICE_OFFICE_MONTHLY", "STRIPE_PRICE_OFFICE_YEARLY", "STRIPE_PRODUCT_AGENT", "STRIPE_PRODUCT_OFFICE",
+  "STRIPE_PRICE_AGENT_MONTHLY_USD", "STRIPE_PRICE_AGENT_YEARLY_USD", "STRIPE_PRICE_OFFICE_MONTHLY_USD", "STRIPE_PRICE_OFFICE_YEARLY_USD", "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET"] as const;
 let saved: Record<string, string | undefined>;
 
 beforeEach(() => {
@@ -14,6 +15,7 @@ beforeEach(() => {
     STRIPE_PRICE_OFFICE_MONTHLY: "price_office_aud_m", STRIPE_PRICE_OFFICE_YEARLY: "price_office_aud_y",
     STRIPE_PRODUCT_AGENT: "prod_agent", STRIPE_PRODUCT_OFFICE: "prod_office",
   });
+  for (const name of ENV.filter((name) => name.endsWith("_USD") || name.startsWith("STRIPE_SECRET") || name.startsWith("STRIPE_WEBHOOK"))) delete process.env[name];
 });
 afterEach(() => {
   for (const name of ENV) {
@@ -86,5 +88,49 @@ describe("invoiceLinePlan", () => {
 
   it("is null for a line that is neither plan", () => {
     expect(invoiceLinePlan(line("price_ai", "prod_ai_top_up"), subscription({ id: "price_agent_aud_m" }))).toBeNull();
+  });
+});
+
+describe("prices by currency (ADR 0085)", () => {
+  const usd = () => Object.assign(process.env, {
+    STRIPE_PRICE_AGENT_MONTHLY_USD: "price_agent_usd_m", STRIPE_PRICE_AGENT_YEARLY_USD: "price_agent_usd_y",
+    STRIPE_PRICE_OFFICE_MONTHLY_USD: "price_office_usd_m", STRIPE_PRICE_OFFICE_YEARLY_USD: "price_office_usd_y",
+  });
+  const billingOn = () => Object.assign(process.env, { STRIPE_SECRET_KEY: "sk_test_x", STRIPE_WEBHOOK_SECRET: "whsec_x" });
+
+  it("names the US$ env vars beside the A$ ones", () => {
+    expect(priceEnvName("AGENT", "month")).toBe("STRIPE_PRICE_AGENT_MONTHLY");
+    expect(priceEnvName("OFFICE", "year", "usd")).toBe("STRIPE_PRICE_OFFICE_YEARLY_USD");
+  });
+
+  it("picks the price for the resolved currency", () => {
+    usd();
+    expect(priceForPlan("AGENT", "month", "aud")).toBe("price_agent_aud_m");
+    expect(priceForPlan("AGENT", "month", "usd")).toBe("price_agent_usd_m");
+    expect(priceForPlan("OFFICE", "year", "usd")).toBe("price_office_usd_y");
+    expect(priceForPlan("FREE", "month", "usd")).toBeNull();
+  });
+
+  it("knows a US$ price by id, and the original US$ prices by their lookup keys", () => {
+    usd();
+    expect(planForPrice("price_office_usd_m")).toBe("OFFICE");
+    expect(planForPrice({ id: "price_gone", lookup_key: "studio_yearly" })).toBe("OFFICE");
+    expect(planForPrice({ id: "price_gone", lookup_key: "agent_monthly" })).toBe("AGENT");
+  });
+
+  it("shows A$ to everyone while billing is on without US$ prices, so nothing shown is unbuyable", () => {
+    billingOn();
+    expect(isCurrencyAvailable("usd")).toBe(false);
+    expect(chargeableCurrency("usd")).toBe("aud");
+    expect(offeredCurrencies()).toEqual(["aud"]);
+    usd();
+    expect(isCurrencyAvailable("usd")).toBe(true);
+    expect(chargeableCurrency("usd")).toBe("usd");
+    expect(offeredCurrencies()).toEqual(["aud", "usd"]);
+  });
+
+  it("leaves the resolved currency alone with billing off (development, previews)", () => {
+    expect(chargeableCurrency("usd")).toBe("usd");
+    expect(offeredCurrencies()).toEqual(["aud", "usd"]);
   });
 });

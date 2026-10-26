@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CURRENCY, effectivePlan, formatAud, isBillingInterval, monthStart, outputSize, PLAN_IDS, planPrice, PLANS, PRICE_SMALL_PRINT, yearlyMonthsFree, yearlyPerMonth } from "../src/plans";
+import { CURRENCY, effectivePlan, formatAud, formatCharge, formatUsd, isCurrency, priceSmallPrint, taxNote, isBillingInterval, monthStart, outputSize, PLAN_IDS, planPrice, PLANS, PRICE_SMALL_PRINT, yearlyMonthsFree, yearlyPerMonth } from "../src/plans";
 
 const day = (iso: string) => new Date(iso);
 
@@ -88,5 +88,35 @@ describe("Australian dollars (ADR 0081)", () => {
     expect(formatAud(1234)).toBe("A$1,234");
     expect(formatAud(yearlyPerMonth(PLANS.AGENT))).toBe("A$32.50");
     expect(formatAud(yearlyPerMonth(PLANS.OFFICE))).toBe("A$82.50");
+  });
+});
+
+describe("prices in two currencies (ADR 0085)", () => {
+  it("matches the live Stripe prices: A$ GST included, US$ before tax", () => {
+    expect([PLANS.AGENT.priceUsd, PLANS.AGENT.priceUsdYearly, PLANS.OFFICE.priceUsd, PLANS.OFFICE.priceUsdYearly]).toEqual([29, 290, 79, 790]);
+    expect(planPrice(PLANS.AGENT, "month", "usd")).toBe(29);
+    expect(planPrice(PLANS.OFFICE, "year", "usd")).toBe(790);
+    expect(planPrice(PLANS.AGENT, "month")).toBe(39);
+    expect(planPrice(PLANS.FREE, "year", "usd")).toBe(0);
+  });
+
+  it("writes each currency with its own prefix", () => {
+    expect(formatCharge(29, "usd")).toBe("US$29");
+    expect(formatCharge(yearlyPerMonth(PLANS.AGENT, "usd"), "usd")).toBe("US$24.17");
+    expect(formatCharge(39, "aud")).toBe("A$39");
+    expect(formatUsd(1234.5)).toBe("US$1,234.50");
+  });
+
+  it("says how tax sits in the price", () => {
+    expect(priceSmallPrint("aud")).toBe(PRICE_SMALL_PRINT);
+    expect(priceSmallPrint("usd")).toMatch(/US dollars, plus applicable tax/);
+    expect(taxNote("aud")).toBe("GST included");
+    expect(taxNote("usd")).toBe("plus tax");
+  });
+
+  it("knows its currencies", () => {
+    expect(isCurrency("usd")).toBe(true);
+    expect(isCurrency("USD")).toBe(false);
+    expect(isCurrency(undefined)).toBe(false);
   });
 });

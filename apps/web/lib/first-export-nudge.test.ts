@@ -22,4 +22,9 @@ describe("firstExportNudge", () => {
     expect(firstExportNudge({ intent_plan: "FREE" }, { yearlyAvailable: true }).plan).toBe("AGENT");
     expect(firstExportNudge("nonsense", { yearlyAvailable: true }).plan).toBe("AGENT");
   });
+
+  it("speaks US dollars outside Australia (ADR 0085)", () => {
+    expect(firstExportNudge(null, { yearlyAvailable: true, currency: "usd" }).price).toBe("US$29 a month, plus tax.");
+    expect(firstExportNudge({ intent_plan: "OFFICE", intent_interval: "year" }, { yearlyAvailable: true, currency: "usd" }).price).toBe("US$790 a year, plus tax.");
+  });
 });

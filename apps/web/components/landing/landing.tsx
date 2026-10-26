@@ -324,19 +324,6 @@ function Sample({ sample, index }: { sample: SampleReel; index: number }) {
   return (
     <div className={styles.sample} data-testid="sample-reel">
       {sample.label ? <p className={styles.sampleLabel}>{sample.label}</p> : null}
-      {sample.raw ? (
-        <fieldset className={styles.sampleSwitch}>
-          <legend className="visually-hidden">Show the raw clips or the finished reel</legend>
-          <label>
-            <input type="radio" name={name} value="raw" />
-            <span>Your clips</span>
-          </label>
-          <label>
-            <input type="radio" name={name} value="reel" defaultChecked />
-            <span>Your reel</span>
-          </label>
-        </fieldset>
-      ) : null}
       <div className={styles.phone}>
         <video
           src={sample.src}
@@ -352,6 +339,19 @@ function Sample({ sample, index }: { sample: SampleReel; index: number }) {
           <img className={styles.raw} src={sample.raw} alt="The phone clips this reel was cut from, as they were shot" loading="lazy" />
         ) : null}
       </div>
+      {sample.raw ? (
+        <fieldset className={styles.sampleSwitch}>
+          <legend className="visually-hidden">Show the raw clips or the finished reel</legend>
+          <label>
+            <input type="radio" name={name} value="raw" />
+            <span>Your clips</span>
+          </label>
+          <label>
+            <input type="radio" name={name} value="reel" defaultChecked />
+            <span>Your reel</span>
+          </label>
+        </fieldset>
+      ) : null}
     </div>
   );
 }

@@ -17,9 +17,13 @@ import {
 // OffthreadVideo here, and it falls back to it for files it cannot decode.
 import { Video as RenderVideo } from "@remotion/media";
 import { TransitionSeries } from "@remotion/transitions";
-import { behindInPlane, BRAND_FONTS, calloutGeometry, calloutSvg, cameraAt, colorMatchFilterId, colorMatrixValues, countUpText, duckGain, evaluateTitle, flareCss, framePlan, hasSpeedRamps, hasSpeech, mediaWindow, glintLetter, glintSvg, INSTAGRAM, isInstagramMusic, kineticProgress, matrix3d, particleField, particleSvg, personLayerOpacity, REEL_FORMAT, sceneLayers, SFX_DUCK, SFX_SOUNDS, sfxAssetKey, sfxEndMs, sfxGainAt, shineAt, shineBandCss, shineSpec, slideFromBehind, planSpeedRamps, speechWindows, speedPlanOf, speedRampMediaWindow, TITLE_LEADING, timelineDurationMs, walkInto, withSpeedPlans, wordReveal, type Clip, type Logo, type ParticleField, type PersonPass, type Plan, type SfxClip, type ShineFlare, type ShineGlint, type TextOverlay, type Timeline } from "@reelwalk/core";
+import { behindInPlane, BRAND_FONTS, calloutGeometry, calloutSvg, cameraAt, colorMatchFilterId, colorMatrixValues, countUpText, duckGain, evaluateTitle, flareCss, framePlan, hasSpeedRamps, hasSpeech, mediaWindow, glintLetter, glintSvg, INSTAGRAM, isInstagramMusic, kineticProgress, matrix3d, particleField, particleSvg, personLayerOpacity, REEL_FORMAT, sceneLayers, SFX_DUCK, SFX_SOUNDS, sfxAssetKey, sfxEndMs, sfxGainAt, shineAt, shineBandCss, shineSpec, slideFromBehind, planSpeedRamps, speechWindows, speedPlanOf, speedRampMediaWindow, TITLE_LEADING, timelineDurationMs, walkInto, wrapTitleLines, withSpeedPlans, wordReveal, type Clip, type Logo, type ParticleField, type PersonPass, type Plan, type SfxClip, type ShineFlare, type ShineGlint, type TextOverlay, type Timeline } from "@reelwalk/core";
 import { layoutMeasure } from "./measure";
 import { textExit, titleFont } from "./title-motion";
+import { revealStyle } from "./toolbox/title-reveal";
+import { isTitleReveal, RevealFace } from "./toolbox/RevealFace";
+import { lightLeakOverlays } from "./toolbox/cut-overlays";
+import { LightLeakOverlay } from "./toolbox/LightLeak";
 import { zoomFilterSpec, zoomStageId } from "./zoom-blur";
 import { clipPresentation } from "./presentation";
 import { clipSpans, mediaHandles, planCuts, type CutPlan } from "./transition-plan";
@@ -278,6 +282,14 @@ function textMotion(text: TextOverlay, frame: number, fps: number, durationInFra
     }
     case "none":
       return still;
+    case "fadeQuick":
+    case "maskUp":
+    case "trackIn":
+    case "blurIn": {
+      // The toolbox's quiet reveals (ADR 0082): the fade and the settle here; tracking, blur and the mask on the face (RevealFace).
+      const reveal = revealStyle(animation, frame, fps, durationInFrames);
+      return { ...still, opacity: reveal.opacity, rise: reveal.offsetY / 40 };
+    }
     default: {
       // A short pop on entry, the way Instagram animates text in.
       const pop = spring({ frame, fps, config: { damping: 14, stiffness: 180 }, durationInFrames: 10 });
@@ -588,7 +600,10 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
         {moving ? (
           <span style={{ ...motionFace, ...(slide ? { transform: `translateX(${slide.dx.toFixed(2)}px)${lean}` } : {}) }}>{letters(0.25)}</span>
         ) : chars === null ? (
-          <span style={face}>{text.text}</span>
+          isTitleReveal(arrives.animation) ? (
+            <RevealFace face={face} text={text.text} reveal={revealStyle(arrives.animation, frame, fps, durationInFrames)} masked={arrives.animation === "maskUp"}
+              lines={arrives.animation === "trackIn" && wrap.mode === "wrap" ? wrapTitleLines(text.text, font, measure, wrap.width) : null} />
+          ) : <span style={face}>{text.text}</span>
         ) : (
           <span style={{ ...css, position: "relative" }}>
             <span style={{ visibility: "hidden" }}>{text.text}</span>
@@ -758,6 +773,12 @@ export const ReelComposition: React.FC<ReelProps> = ({ timeline: saved, assets, 
           ];
         })}
       </TransitionSeries>
+      {/* Light leaks over their hard cuts (ADR 0082): above the footage, under the plan, the titles and the cards. */}
+      {lightLeakOverlays(plan.clips, fps, plan.totalFrames).map((leak) => (
+        <Sequence key={`leak-${leak.clipId}`} from={leak.from} durationInFrames={leak.durationInFrames} name="light leak">
+          <LightLeakOverlay />
+        </Sequence>
+      ))}
       <PlanOverlayView timeline={timeline} />
       {/* Titles and what stands in front of them, bottom to top (ADR 0046): each title's occluders draw above
           that title only; the presenter above the "behind" titles, a plain caption above every matte. */}

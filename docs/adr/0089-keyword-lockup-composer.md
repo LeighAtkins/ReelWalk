@@ -232,3 +232,62 @@ wall, one spot for 13 s) are about footage and were addressed in the proof below
   leaves the safe area falls back to the caption track as before.
 - **Brand kit keywords keep the caption track.** `brandStyle` replaces the keyword's face, tracking and case after
   composing, so the measured fit no longer holds; a branded lockup is composed with `interlock: false`.
+
+## Addendum (2026-10-26, round 3): lockups that follow her head, and the two inputs that were wrong
+
+### Context
+
+The owner, on round 2: "the frozen plate and frozen person are the giveaway; reel 3's look is mostly the walking
+shot." Reel 3's two moving shots (3.5–6 s: she walks toward the lens while the camera drifts sideways; 13.5–16 s: a
+long walk under a pergola as the camera pulls back) carry their type with them. Our composer placed each keyword once,
+from one face box on the take's first frame, so on a moving take (or under the opening scale-out) the type stayed put
+while she moved. Round 2 also had to pass two inputs by hand because the stored ones were wrong: the identity gate's
+face boxes on wide takes, and whisper-small's word times.
+
+### What was wrong with the stored inputs (measured)
+
+- **Face boxes.** On the round-2 pier take the gate's box was [287, 380, 487, 620] (grid): x right, but y 0.29–0.49
+  when her face is at 0.51–0.62, and 1.7× its height; it sits in the sky above her head (`diag/box-pair.jpg` in the
+  proof folder). Not a coordinate bug: Gemini's grid box is loose in y for a small face on a tall frame. The worker log
+  of tonight's moving take shows the same: the first box missed her face entirely (`face-not-in-crop`) and the second
+  was 447 px tall for a face of about 300.
+- **Word times.** Measured against the audio's loudness, whisper-small put "Before you list," about 0.25 s late (the
+  voice starts at 0.80 s, whisper says 1.08 s), not 1 s: round 2's "1 s late" was measured against faster-whisper,
+  which was itself 0.8 s early (it put "Before" at 0). Whisper's offset is about constant through a phrase.
+
+### Decision
+
+- **Follow the head (`follow`, default on).** For every lockup group (a keyword and its companions move as one block;
+  a caption track on its own) the composer works out, each frame of the group's life, where its anchor would be placed
+  for the face on screen then: the take's face track at that source time, through the clip's fit, zoom and camera move
+  (`clipPicture`), so an opening scale-out or a punch-in is followed too. The offsets are held inside every member's
+  safe-area room (under the header, above y 0.72, left of the button column at x 960 px), followed with a critically
+  damped spring (ω 10 rad/s: no overshoot, about 0.2 s of lag, a tracker's wobble smoothed out), and written as each
+  title's `path` (offsets, at most 64 keyframes). The keyword is still placed so her head covers 35 % of its capitals,
+  and it keeps `behind`, so the person matte keeps its base behind her hair as she moves. A keyword the author placed
+  (`placements`) stays put; a group that would move less than 0.2 % of the frame gets no path, so a locked-off take
+  composes exactly as before. Player and export draw `path` through the shared scene evaluator (`textPositionAt`); no
+  renderer change.
+- **Face tracks (`FaceInput.track`).** `trackFace` (core, pure) follows the middle of the face box (inset 18 % / 12 %,
+  so hair edges and the background stay out) with the ADR 0052 surface tracker; frames it is unsure of (her mouth
+  moving drops single frames' confidence) are skipped and interpolated over; the track ends where the tracker loses
+  her. The worker runs it on every finished presenter take (10 fps, 360×640 grey, about 1 s for 8 s) from the gate's
+  box and stores it with the gate's record as `{ end: "track", fps, seed, samples }` in `identityChecks` (no
+  migration). The library's face hint reads it; the commands route passes it with the box.
+- **The gate looks again.** After a passing check the gate cuts a square three times the first box around it and
+  locates the face again there, where it is large; the box, read back onto the composite's grid, is stored as
+  `locate[].refined`. It is used for placing type and seeding the track, never for the gate's own verdict. Best effort:
+  a failure leaves the first box.
+- **Word starts on the voice.** The transcriber measures the audio's loudness in 10 ms frames, finds the voiced
+  stretches (10 dB over the quiet floor, 150 ms gaps bridged), moves each phrase's first word to the start of the
+  stretch it lies in and the rest of the phrase by the same amount, then moves any word still starting in a silence
+  forward to the voice (`snapWordsToVoice`, never more than 1.2 s, order kept). Applies to new transcripts.
+- **Veo's filter reasons are logged** when Google returns no video (two of tonight's three attempts), so the next one
+  can be diagnosed.
+
+### Consequences
+
+- Takes made before this deploys have no track and an unrefined box: their lockups follow the camera only, and the
+  box may still be high; pass `faces` by hand for them as in round 2, or re-make the take.
+- A refined box costs one more Gemini Flash call per passing gate check.
+- The follow lags a fast move by about 0.2 s; a whip of the head is not chased.

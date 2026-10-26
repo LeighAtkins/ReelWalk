@@ -34,7 +34,7 @@ export const dynamic = "force-dynamic";
  * under it: it appears with the first word, each word arrives as it is said, and it fades `holdMs` after the last.
  * The transcripts are read from the library here.
  *
- * `composeKeywordLockup { clipIds?, keywords?, keywordsOnly?, capHeight?, fill?, cta?, interlock?, brandStyle?, remove? }` (ADR 0089)
+ * `composeKeywordLockup { clipIds?, keywords?, keywordsOnly?, capHeight?, fill?, cta?, interlock?, follow?, brandStyle?, remove? }` (ADR 0089)
  * turns the clips' speech into keyword lockups: per phrase a huge serif keyword behind the presenter's head and the
  * other words in a one-word caption track. The transcripts and the presenter's face boxes are read from the library
  * here; the answer carries `lockups` (each phrase's keyword, place and caption words), with `dryRun` too.

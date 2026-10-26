@@ -60,6 +60,13 @@ export type LocateAttempt = {
   rejected?: "no-face" | "implausible-box" | "face-not-in-crop" | "face-too-small" | "unparseable";
   crop?: { x: number; y: number; size: number };
   faceHeightPx?: number;
+  /**
+   * The box found again inside a square cut around this one (`refineCropRect`), read back onto the composite's grid
+   * (ADR 0089 round 3). On a wide 1080×1920 composite with a small face the first box can sit well above her head and be
+   * nearly twice her face; the second look, on a picture where the face is large, lands on it. Used for placing type,
+   * never for the gate's own decision.
+   */
+  refined?: number[];
 };
 
 export type IdentityVerdict = {
@@ -208,6 +215,26 @@ export function faceCropRect(faceBox: number[], width: number, height: number): 
   const centreX = (left + right) / 2, centreY = (top + bottom) / 2 - (bottom - top) * 0.15;
   const clamp = (value: number, max: number) => Math.max(0, Math.min(max, Math.round(value)));
   return { x: clamp(centreX - size / 2, width - size), y: clamp(centreY - size / 2, height - size), size, faceHeightPx };
+}
+
+/**
+ * The square the face is looked for again in (ADR 0089 round 3): three times the first box's larger side, centred on
+ * it, inside the image. Wide enough that a first box off by its own height still has the face in it. Pixels of the source.
+ */
+export function refineCropRect(faceBox: number[], width: number, height: number): { x: number; y: number; size: number } {
+  const [ymin, xmin, ymax, xmax] = faceBox;
+  const top = ymin / 1000 * height, bottom = ymax / 1000 * height, left = xmin / 1000 * width, right = xmax / 1000 * width;
+  const size = Math.min(width, height, Math.max(64, Math.round(3 * Math.max(bottom - top, right - left))));
+  const clamp = (value: number, max: number) => Math.max(0, Math.min(max, Math.round(value)));
+  return { x: clamp((left + right) / 2 - size / 2, width - size), y: clamp((top + bottom) / 2 - size / 2, height - size), size };
+}
+
+/** A box found on the 0–1000 grid of a square cut (`rect`, pixels of a `width`×`height` image) read back onto that image's grid. */
+export function boxFromCrop(cropBox: number[], rect: { x: number; y: number; size: number }, width: number, height: number): number[] {
+  const [ymin, xmin, ymax, xmax] = cropBox;
+  const toY = (v: number) => Math.round(((rect.y + (v / 1000) * rect.size) / height) * 10000) / 10;
+  const toX = (v: number) => Math.round(((rect.x + (v / 1000) * rect.size) / width) * 10000) / 10;
+  return [toY(ymin), toX(xmin), toY(ymax), toX(xmax)];
 }
 
 /** ffmpeg arguments that cut the face square from an image on disk and write a 768×768 PNG. */

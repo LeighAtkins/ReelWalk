@@ -10,6 +10,7 @@ import { aiFrames, decodeFrame, keyframes, type DecodedFrame } from "./ai-frames
 import { VertexImages, type InlineImage } from "./vertex-images";
 import { fetchVideo, lipsyncConfigured, pollLipsync, startLipsync, synthesiseLine, voicedPrompt } from "./voice";
 import { transcribeVideo, transcriptionAvailable } from "./transcribe";
+import { faceTrackOfTake } from "./take-face";
 import { clipSchema, escalateFraming, insertAiShot, lineTrim, parseStoredAiShot, speakingFraming, timelineSchema, type AiShot, type PresenterFraming } from "@reelwalk/core";
 import { identityDecision, identityRejectionMessage, minFacePx, speakingEnd, type IdentityVerdict, type LocateAttempt } from "./identity";
 
@@ -394,9 +395,12 @@ async function finish(s3: S3Client, bucket: string, job: Job, video: Buffer, sho
   const take = voice && words ? lineTrim(words, voice.line, job.durationSeconds * 1000) : null;
   const transcriptRecord = words ? { ...words, ...(take ? { take } : {}) } : null;
   if (take) console.log(`ai-video: ${job.id}: line trim ${take.startMs}-${take.endMs} ms, distance ${take.distance}${take.wrongWords ? `, WRONG WORDS: heard "${take.heard}"` : ""}`);
+  // Where her face goes through a presenter take, so keyword lockups follow her head (ADR 0089 round 3).
+  const faceTrack = shot?.compose ? await faceTrackOfTake(video, job.identityChecks, job.id) : null;
   await prisma.$transaction(async tx => {
     const changed = await tx.aiGeneration.updateMany({ where: { id: job.id, leaseToken: job.leaseToken, status: "RUNNING" }, data: {
       status: "SUCCEEDED", assetId: `ai-${job.id}`, finishedAt: new Date(), leaseToken: null, leaseUntil: null,
+      ...(faceTrack && Array.isArray(job.identityChecks) ? { identityChecks: [...job.identityChecks, faceTrack] as never } : {}),
       ...(note === "silent" ? { error: "The voice could not be added to this take; it is saved silent." } : {}),
     } });
     if (!changed.count) return;

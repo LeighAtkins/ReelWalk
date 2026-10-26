@@ -52,13 +52,14 @@ export function hookInputsFromLibrary(library: Record<string, LibraryAsset>): Pi
 
 /**
  * The presenter's face on each take the identity gate checked (ADR 0056), in source fractions with the take's size,
- * for the keyword lockup's placement (ADR 0089). Takes without a stored box are left out: the lockup then uses the
- * reference's place.
+ * for the keyword lockup's placement (ADR 0089), with the worker's face track when the take has one (round 3: the
+ * lockup follows her head). Takes without a stored box are left out: the lockup then uses the reference's place.
  */
 export function facesFromLibrary(library: Record<string, LibraryAsset>): Record<string, FaceInput> {
   return Object.fromEntries(Object.values(library).flatMap((asset) => {
     const box = asset.face?.box;
-    return box && asset.width && asset.height ? [[asset.id, { ...box, width: asset.width, height: asset.height }]] : [];
+    const track = asset.face?.track;
+    return box && asset.width && asset.height ? [[asset.id, { ...box, width: asset.width, height: asset.height, ...(track ? { track } : {}) }]] : [];
   }));
 }
 

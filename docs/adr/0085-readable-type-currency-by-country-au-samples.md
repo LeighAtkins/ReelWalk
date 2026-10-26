@@ -112,9 +112,12 @@ The owner's brief changed while this was built: the samples should show off **th
 
 The sample reels themselves are content, not code: they are made in the owner's workspace through the product,
 uploaded to `samples/` in the media bucket, and switched on by the Terraform lists above, which can change after
-this ships. The first pass (three tidy default cuts of three houses, the footage stock from outside Australia
-because Pexels has no Australian house with a full interior set) is recorded in the licence file; the showpiece
-pass, judged against the cut-grammar spec, is a follow-up.
+this ships. Two showpieces were made, hand-directed with commands against the research spec and the cut-grammar
+plan: "Cut to the beat" and "From 12 clips" (raw to reel, with its raw-clips grid). The wall-text reel (ADR 0084)
+was judged not ready for a stranger's phone (the payoff words fall behind the presenter's head; low contrast on a
+sunlit wall). A first pass of three default cuts of three houses was withdrawn. The footage is Pexels stock from
+outside Australia: Pexels has no Australian house with a full interior set. `docs/licences/sample-reels.md` holds the
+sources, the per-cut technique log, and what the editor still lacks for continuous cuts.
 
 ## Consequences
 

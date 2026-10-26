@@ -110,7 +110,11 @@ export function findBreaks(energy: readonly number[], stepMs: number, range: { f
     }
     i = j + 1;
   }
-  return found.sort((a, b) => b.score - a.score).map(({ score: _score, ...rest }) => rest);
+  return found.sort((a, b) => b.score - a.score).map((entry) => {
+    const rest: Reentry & { score?: number } = { ...entry };
+    delete rest.score;
+    return rest;
+  });
 }
 
 /** The biggest step into a drop among the song's sections (ADR 0059): the start of the drop after the quietest section before it. */

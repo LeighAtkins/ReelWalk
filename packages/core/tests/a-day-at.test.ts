@@ -133,7 +133,7 @@ describe("the a-day-at planner (recipe 5)", () => {
   });
 
   it("is reachable as the dayAt command", () => {
-    const result = applyCommand(base, { type: "dayAt", shots: shots.map(({ clip: c, sourceDurationMs: _d, ...facts }) => ({ ...facts, clipId: c.id })), music: song(120, 40), lines: { credit: "Coastal & Co" } },
+    const result = applyCommand(base, { type: "dayAt", shots: shots.map((entry) => ({ role: entry.role, phase: entry.phase, reveal: entry.reveal, sky: entry.sky, clipId: entry.clip.id })), music: song(120, 40), lines: { credit: "Coastal & Co" } },
       { generation: 1, sourceDurationsMs: Object.fromEntries(shots.map((entry) => [entry.clip.assetId, 12_000])) });
     expect(result.rejected).toBeUndefined();
     expect(result.timeline.music?.assetId).toBe("song");

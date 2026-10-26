@@ -58,7 +58,7 @@ import { canExport, fixAllCommand, safeFixes, type CriticFinding, type CriticFix
   hookTextRequest,
 } from "@reelwalk/core";
 import { ELEGANT_FADE_S, sfxAssets, type ReelAsset } from "@reelwalk/render/reel";
-import { surfacePatch, musicFieldsFromAnalysis, musicWithGrid, parseAudioAnalysis, type AudioAnalysis as TrackAnalysis, type MoveId } from "@reelwalk/core";
+import { surfacePatch, withoutMotionCut, musicFieldsFromAnalysis, musicWithGrid, parseAudioAnalysis, type AudioAnalysis as TrackAnalysis, type MoveId } from "@reelwalk/core";
 import { SoundControl } from "./sound-control";
 import { deleteReel, exportReel, readyPreviews, saveCaption } from "@/app/actions";
 import { deleteBrief, saveBrief } from "@/app/ai-actions";
@@ -1862,7 +1862,9 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         <TransitionSheet
           clip={selectedClip}
           canWalkHere={canWalk(timeline.clips[timeline.clips.indexOf(selectedClip) - 1], selectedClip)}
-          onChange={(transitionIn) => apply((current) => updateClip(current, selectedClip.id, { transitionIn }))}
+          onChange={(transitionIn) => transitionIn === "motionCut" ? undefined : apply((current) => updateClip(
+            // Leaving a motion cut (ADR 0090) gives the clip back its own speed first.
+            { ...current, clips: current.clips.map((entry) => (entry.id === selectedClip.id ? withoutMotionCut(entry, transitionIn) : entry)) }, selectedClip.id, { transitionIn }))}
           looping={cutLoop !== null}
           onPlayCut={() => {
             if (cutLoop) {

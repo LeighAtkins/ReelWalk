@@ -409,7 +409,8 @@ function run(timeline: Timeline, command: Command, context: CommandContext): Tim
         if (!clip) throw new Error(`There is no clip called ${shot.clipId} in the reel.`);
         const sourceDurationMs = durations[clip.assetId];
         if (sourceDurationMs == null) throw new Error(`The length of the source of ${shot.clipId} is not known.`);
-        const { clipId: _clipId, ...facts } = shot;
+        const facts: Omit<DayShot, "clip" | "sourceDurationMs" | "colorStats"> & { clipId?: string } = { ...shot };
+        delete facts.clipId;
         return { ...facts, clip, sourceDurationMs, colorStats: clip.colorStats };
       });
       let n = 0;

@@ -467,7 +467,7 @@ const COMMAND_SHEET = [
   "setEndCard{endCard:{text,durationMs 1000-5000,reveal:cut|leak}|null}",
   "applyTextStyle{textId,style:<kit style name>|null}",
   "syncTextToSpeech{textId,clipId?,holdMs?} (the title appears with the first word it repeats from the clip's speech, each word as it is said, and fades after the last)",
-  "composeKeywordLockup{clipIds?,keywords?:[word],keywordsOnly?,capHeight? 0.05-0.14,fill?:{kind:gradient,colors:[#hex x2-4],angle?}|{kind:image,assetId},cta?:{keyword,caption?},brandStyle?,remove?} (talking-head type from the clips' speech, ADR 0089: per phrase one huge white serif keyword behind the presenter's head, the other words a one-word-at-a-time caption under her chin, each on its spoken onset, and a dryRun answers `lockups` with the picks and places)",
+  "composeKeywordLockup{clipIds?,keywords?:[word],keywordsOnly?,capHeight? 0.05-0.14,fill?:{kind:gradient,colors:[#hex x2-4],angle?}|{kind:image,assetId},cta?:{keyword,caption?},interlock? (default true),brandStyle?,remove?} (talking-head type from the clips' speech, ADR 0089: per phrase one huge white serif keyword behind the presenter's head, the other words a one-word-at-a-time caption under her chin, each on its spoken onset; a phrase of 4 words or fewer instead tucks its other words into the keyword as small italic companions (interlock); a dryRun answers `lockups` with the picks, places and layout)",
   "setRamp{clipId,ramp}",
   "setCamera{clipId,camera}",
   "cutaways{everyMs|null}",

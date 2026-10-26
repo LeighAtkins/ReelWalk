@@ -8,7 +8,10 @@
  *     8 px blur in 200 ms ("blurQuick", the measured arrival) and gone when the phrase ends;
  *   - every other word in a CAPTION track: small (capitals about 2.75 %), white, soft shadow, italic, one word at a time,
  *     each cut on 40 ms before it is said and replaced by the next (kinetic "caption"), kept under her chin, inside
- *     the app's Instagram safe area (under the header, above y 0.72, left of the like/share column at x 960 px).
+ *     the app's Instagram safe area (under the header, above y 0.72, left of the like/share column at x 960 px);
+ *   - or, for a short phrase (four words or fewer), the other words INTERLOCKED with the keyword (ADR 0089 addendum):
+ *     small italic COMPANIONS tucked into the keyword's block, the words said before it over its top-left, the words
+ *     after it under its right half, overlapping its capitals the way reel 3 sets "you hire" under "Before".
  *
  * Pure: `composeKeywordLockups(timeline, options)` returns the timeline with the lockups of the chosen clips replaced,
  * and `describeLockups(timeline)` what a dry run shows. The `composeKeywordLockup` command (commands.ts) runs it; the
@@ -43,9 +46,17 @@ export type LockupOptions = {
   color?: string;
   /** The caption track (default on). */
   captions?: boolean;
+  /**
+   * Short phrases (INTERLOCK_MAX_WORDS words or fewer, the keyword included) set their other words as companions
+   * interlocked with the keyword instead of the caption track (default on). Longer phrases keep the caption track.
+   */
+  interlock?: boolean;
   /** Where a keyword's centre goes, by keyword (lower case), frame fractions; overrides the placement found from the face. */
   placements?: Record<string, { x: number; y: number }>;
-  /** A closing keyword after the last phrase, held to the end of the last composed clip, with optional caption words. */
+  /**
+   * A closing keyword after the last phrase, held to the end of the last composed clip, with optional caption words
+   * (interlocked under the keyword when they are three words or fewer and `interlock` is not off).
+   */
   cta?: { keyword: string; caption?: string; fill?: TextFill };
   /** Word-timed transcripts by asset id (the route fills these in). */
   speech: Readonly<Record<string, readonly TranscriptWord[]>>;
@@ -92,6 +103,44 @@ const KEYWORD_FONT = { fontFamily: "Playfair Display Variable", fontWeight: KEYW
  * (hhea ascent 1.082, descent 0.251: half-leading −0.0665, baseline 1.0155 em from the top, the centre at 0.6).
  */
 const BASELINE_BELOW_CENTRE_EM = 0.4155;
+
+/*
+ * The interlocked lockup (ADR 0089 addendum), measured on reel 3's "Before" + "you hire" (stills/DerRQWgo8yn-text-0.6.jpg,
+ * 720x1280): "Before" capitals 95 px (7.4 %), top 460, baseline 555, x 150-537; "you hire" capitals about 31 px (2.4 %,
+ * a third of the keyword's), their top at y 540 (15 px, 0.16 of the keyword's capitals, above the keyword's baseline),
+ * its right edge at x 530, 7 px (0.02 of the keyword's width) in from the keyword's. The words said before a keyword
+ * ("ask" over "yourself", "Do I" over "trust") sit over its top-left the same way.
+ */
+/** A phrase this short, keyword included, is interlocked; a longer one keeps the one-word caption track. */
+export const INTERLOCK_MAX_WORDS = 4;
+/** Companion capitals as a share of the keyword's ("you hire" 2.4 % under "Before" 7.4 %). */
+export const COMPANION_CAP_RATIO = 0.33;
+const COMPANION_CAP_MIN = 0.022;
+const COMPANION_CAP_MAX = 0.04;
+/** How far a line under the keyword reaches up into its capitals, as a share of the keyword's cap height. */
+export const COMPANION_OVERLAP = 0.16;
+/**
+ * A line over the keyword sits on its cap line instead: reaching down into the capitals put it on the keyword's
+ * ascenders ("Try it" on the f of "free" in the first local render) and it stopped reading; the ascenders still rise
+ * beside it, so the two stay locked together.
+ */
+export const COMPANION_OVER_OVERLAP = 0;
+/** A companion's edge sits this share of the keyword's width in from the keyword's edge. */
+const COMPANION_INSET = 0.02;
+/** A companion line wider than this many keyword widths does not interlock: it would stop reading as one block. */
+const COMPANION_MAX_WIDTH_RATIO = 1.6;
+/** Archivo's capitals in em (the caption track's size 1, 76 px, has capitals of about 52.8 px: 2.75 % of 1920). */
+const ARCHIVO_CAP_EM = 0.695;
+/** The plain style's px per size (look.ts BASE_TEXT_PX). */
+const PLAIN_PX_PER_SIZE = 76;
+/** Companions are a lighter italic than the caption track's 600 (reel 3's companions are a regular italic). */
+const COMPANION_WEIGHT = 500;
+const COMPANION_FONT = { fontFamily: "Archivo Variable", fontWeight: COMPANION_WEIGHT };
+/**
+ * Where Archivo's capitals centre against its line box, in em above the box's centre (hhea ascent 0.878, descent 0.21:
+ * the baseline 0.334 em below the centre, the capitals' middle 0.0135 em above it).
+ */
+const ARCHIVO_CAP_MID_ABOVE_CENTRE_EM = 0.0135;
 
 // ---------------------------------------------------------------- phrases and keywords
 
@@ -226,14 +275,74 @@ export function placeCaptions(face: { x0: number; y0: number; x1: number; y1: nu
   return { x: round4(clamp((face.x0 + face.x1) / 2, 0.22, BUTTON_COLUMN_X - 0.2)), y: round4(clamp(below, 0.3, TEXT_SAFE_BOTTOM - 0.03)) };
 }
 
+export type CompanionPlacement = { text: string; position: "over" | "under"; x: number; y: number; size: number; capHeight: number; widthFraction: number };
+
+/**
+ * The companions of an interlocked keyword (ADR 0089 addendum): the words before the keyword as one line over its
+ * top-left, the words after it as one line under its right half, each with capitals COMPANION_CAP_RATIO of the
+ * keyword's; the line under reaches COMPANION_OVERLAP of the keyword's capitals up into it, the line over sits on its cap
+ * line. Null when they do not fit as one block
+ * (a line wider than the keyword allows, or one that would leave the safe area): the caption track is used instead.
+ */
+export function placeCompanions(keyword: { x: number; y: number; size: number; widthFraction: number }, before: string, after: string): CompanionPlacement[] | null {
+  const W = REEL_FORMAT.width, H = REEL_FORMAT.height;
+  const fontPx = keyword.size * ELEGANT_PX_PER_SIZE;
+  const cap = (fontPx * SERIF_CAP_EM) / H;
+  const baseline = keyword.y + (BASELINE_BELOW_CENTRE_EM * fontPx) / H;
+  const capTop = baseline - cap;
+  const left = keyword.x - keyword.widthFraction / 2, right = keyword.x + keyword.widthFraction / 2;
+  const c = clamp(COMPANION_CAP_RATIO * cap, COMPANION_CAP_MIN, COMPANION_CAP_MAX);
+  const px = (c * H) / ARCHIVO_CAP_EM;
+  const size = px / PLAIN_PX_PER_SIZE;
+  const roomLeft = SAFE_AREA.left + AIR, roomRight = BUTTON_COLUMN_X - AIR;
+  const maxWidth = Math.min(roomRight - roomLeft, Math.max(keyword.widthFraction, 0.18) * COMPANION_MAX_WIDTH_RATIO);
+  const inset = COMPANION_INSET * keyword.widthFraction;
+  const placed: CompanionPlacement[] = [];
+  for (const [text, position] of [[before, "over"], [after, "under"]] as const) {
+    if (!text) continue;
+    // Italic leans right a little past its advances: an em-twentieth of air.
+    const width = (estimateLineWidth(text, { ...COMPANION_FONT, fontSize: px }) + 0.05 * px) / W;
+    if (width > maxWidth) return null;
+    // Over: left-aligned in from the keyword's left edge, its baseline inside the top of the capitals.
+    // Under: right-aligned in from the keyword's right edge, its capitals' top inside the bottom of the capitals.
+    const x = position === "over" ? left + inset + width / 2 : right - inset - width / 2;
+    const capMid = position === "over" ? capTop + COMPANION_OVER_OVERLAP * cap - c / 2 : baseline - COMPANION_OVERLAP * cap + c / 2;
+    const y = capMid + (ARCHIVO_CAP_MID_ABOVE_CENTRE_EM * px) / H;
+    // The line's own box (about 1.2 em tall) inside the safe area, or it does not interlock.
+    const halfBox = (0.6 * px) / H;
+    if (y - halfBox < SAFE_AREA.top || y + halfBox > TEXT_SAFE_BOTTOM) return null;
+    placed.push({ text, position, x: round4(clamp(x, roomLeft + width / 2, roomRight - width / 2)), y: round4(y), size: round4(size), capHeight: round4(c), widthFraction: round4(width) });
+  }
+  return placed;
+}
+
 // ---------------------------------------------------------------- composing
 
-export type LockupReport = { lockupId: string; clipId: string; phrase: string; keyword: string | null; startMs: number; endMs: number; keywordAt?: { x: number; y: number; capHeight: number }; captions: string[]; captionAt?: { x: number; y: number } };
+export type LockupReport = {
+  lockupId: string; clipId: string; phrase: string; keyword: string | null; startMs: number; endMs: number; keywordAt?: { x: number; y: number; capHeight: number };
+  /** "interlock": the other words are companions tucked into the keyword; "captions": the one-word caption track. */
+  layout: "interlock" | "captions";
+  captions: string[]; captionAt?: { x: number; y: number };
+  companions?: { text: string; x: number; y: number; capHeight: number }[];
+};
 
 /** A lockup's id: the clip's whole id and the phrase's number, so two clips never share one (ids like `script-ai-…` share long prefixes). */
 const lockupIdFor = (clipId: string, n: number) => `${clipId}-${n}`;
 /** Whether a lockup was made on this clip: its id is the clip's id, a dash and a number (not merely a prefix: clip "a" is not clip "a-b"). */
 const onClip = (lockupId: string, clipId: string) => lockupId.startsWith(`${clipId}-`) && /^\d+$/.test(lockupId.slice(clipId.length + 1));
+
+/**
+ * One companion line as a title: its words arrive as they are said (`wordsMs`, kinetic "words": each fades up out of a
+ * small blur, building the line), and it leaves with the keyword. In front of the presenter, so her hair never eats a
+ * small word (reel 3 loses the "y" of "you hire" behind hers); the keyword stays behind her.
+ */
+function companionTitle(id: string, placed: CompanionPlacement, startMs: number, endMs: number, wordsMs: number[]): TextOverlay {
+  return textSchema.parse({
+    id: `kp-${placed.position}-${id}`, text: placed.text, startMs, endMs, x: placed.x, y: placed.y, style: "plain", size: placed.size, color: "#ffffff",
+    weight: COMPANION_WEIGHT, italic: true, shadow: "soft", animation: "blurQuick", byApp: true, lockup: { id, role: "companion" },
+    kinetic: { preset: "words", startMs: 0, durationMs: Math.max(100, Math.min(10_000, endMs - startMs)), wordsMs },
+  });
+}
 
 /** The timeline with keyword lockups on the chosen clips (any earlier lockups on them replaced). Throws a plain error when there is nothing to compose. */
 export function composeKeywordLockups(timeline: Timeline, options: LockupOptions): Timeline {
@@ -277,6 +386,22 @@ export function composeKeywordLockups(timeline: Timeline, options: LockupOptions
             weight: KEYWORD_WEIGHT, shadow: "soft", animation: "blurQuick", behind: true, byApp: true, lockup: { id, role: "keyword" },
             ...(options.fill ? { fill: options.fill } : {}),
           }));
+          // A short phrase interlocks: its other words are tucked into the keyword's block (ADR 0089 addendum).
+          if (options.interlock !== false && options.captions !== false && phrase.words.length > 1 && phrase.words.length <= INTERLOCK_MAX_WORDS) {
+            const setAs = (list: SpokenWord[]) => list.map((w) => keywordText(w.text) || w.text).join(" ");
+            const before = phrase.words.slice(0, k), after = phrase.words.slice(k + 1);
+            const companions = placeCompanions(placed, setAs(before), setAs(after));
+            if (companions) {
+              for (const line of companions) {
+                const words = line.position === "over" ? before : after;
+                const lineStart = Math.max(clipStart, words[0].startMs - CAPTION_LEAD_MS);
+                if (phraseEnd - lineStart < 200) continue;
+                const wordsMs = words.map((w) => Math.max(0, Math.round(w.startMs - CAPTION_LEAD_MS - lineStart)));
+                added.push(companionTitle(id, line, lineStart, phraseEnd, wordsMs));
+              }
+              return;
+            }
+          }
         }
       }
       if (options.captions === false) return;
@@ -319,7 +444,13 @@ export function composeKeywordLockups(timeline: Timeline, options: LockupOptions
       ...(options.cta.fill ?? options.fill ? { fill: options.cta.fill ?? options.fill } : {}),
     }));
     const caption = options.cta.caption?.trim();
-    if (caption) {
+    // A short closing line interlocks under the keyword, its words following at a speaking pace once the keyword has landed.
+    const tucked = caption && options.interlock !== false && caption.split(/\s+/).length < INTERLOCK_MAX_WORDS ? placeCompanions(placed, "", caption) : null;
+    if (caption && tucked?.length) {
+      const span = close.endMs - startMs;
+      const wordsMs = caption.split(/\s+/).map((_, i) => Math.min(span - 100, 250 + i * 300));
+      added.push(companionTitle(id, tucked[0], startMs, close.endMs, wordsMs));
+    } else if (caption) {
       const at = placeCaptions(close.face);
       const words = caption.split(/\s+/);
       const span = close.endMs - startMs;
@@ -344,16 +475,21 @@ export function describeLockups(timeline: Timeline): LockupReport[] {
   return [...groups.entries()].map(([lockupId, texts]) => {
     const keyword = texts.find((text) => text.lockup!.role === "keyword");
     const captions = texts.find((text) => text.lockup!.role === "captions");
+    // Companions in reading order: the line over the keyword, then the line under it.
+    const companions = texts.filter((text) => text.lockup!.role === "companion").sort((a, b) => a.y - b.y);
+    const over = companions.filter((text) => keyword && text.y < keyword.y), under = companions.filter((text) => !over.includes(text));
     const startMs = Math.min(...texts.map((text) => text.startMs)), endMs = Math.max(...texts.map((text) => text.endMs));
     const clipIndex = timeline.clips.findIndex((clip, i) => startMs >= starts[i] && startMs < starts[i] + clipDurationMs(clip));
     const capHeight = keyword ? round4((keyword.size * ELEGANT_PX_PER_SIZE * SERIF_CAP_EM) / REEL_FORMAT.height) : 0;
     return {
       lockupId, clipId: timeline.clips[clipIndex]?.id ?? "",
-      phrase: [captions?.text, keyword?.text].filter(Boolean).join(" / "),
+      phrase: (companions.length ? [...over.map((t) => t.text), keyword?.text, ...under.map((t) => t.text)] : [captions?.text, keyword?.text]).filter(Boolean).join(" / "),
       keyword: keyword?.text ?? null, startMs, endMs,
       ...(keyword ? { keywordAt: { x: keyword.x, y: keyword.y, capHeight } } : {}),
+      layout: companions.length ? ("interlock" as const) : ("captions" as const),
       captions: captions ? captions.text.split(/\s+/) : [],
       ...(captions ? { captionAt: { x: captions.x, y: captions.y } } : {}),
+      ...(companions.length ? { companions: companions.map((t) => ({ text: t.text, x: t.x, y: t.y, capHeight: round4((t.size * PLAIN_PX_PER_SIZE * ARCHIVO_CAP_EM) / REEL_FORMAT.height) })) } : {}),
     };
   });
 }

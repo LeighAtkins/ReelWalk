@@ -90,8 +90,11 @@ export type ShinePreset = (typeof SHINE_PRESETS)[number];
  * caption track of a keyword lockup.
  */
 export const KINETIC_PRESETS = ["words", "behind", "count", "caption"] as const;
-/** The roles of a keyword lockup's titles (ADR 0089): the big hero word, and the small one-word caption track around it. */
-export const LOCKUP_ROLES = ["keyword", "captions"] as const;
+/**
+ * The roles of a keyword lockup's titles (ADR 0089): the big hero word, the small one-word caption track around it, and
+ * (the addendum) a companion line interlocked with the keyword in a short phrase.
+ */
+export const LOCKUP_ROLES = ["keyword", "captions", "companion"] as const;
 /** Largest `size` of a lockup's keyword (ADR 0089): the elegant serif's capitals at about 14 % of the frame's height. */
 export const KEYWORD_SIZE_MAX = 7.2;
 export type KineticPreset = (typeof KINETIC_PRESETS)[number];

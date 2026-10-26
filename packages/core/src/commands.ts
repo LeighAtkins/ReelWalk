@@ -163,7 +163,8 @@ export type Command =
   | { type: "applyTextStyle"; textId: string; style: string | null }
   /**
    * Keyword lockups from the clips' speech (ADR 0089): per spoken phrase one huge keyword behind the presenter's head
-   * and the other words in a one-word caption track, timed to the words. `keywords` names the words to use (a phrase
+   * and the other words in a one-word caption track, timed to the words; a phrase of four words or fewer tucks its other
+   * words into the keyword as small italic companions instead (`interlock: false` keeps the caption track). `keywords` names the words to use (a phrase
    * that says none gets the default pick, or none with `keywordsOnly`); `capHeight` 0.05–0.14 (default 0.085); `fill`
    * a gradient or picture for the keyword; `cta` a closing keyword after the last phrase; `brandStyle` a brand kit
    * style for the keyword's face. Composing again replaces the lockups on those clips; `remove: true` takes every

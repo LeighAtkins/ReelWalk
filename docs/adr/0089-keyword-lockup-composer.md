@@ -193,4 +193,24 @@ wall, one spot for 13 s) are about footage and were addressed in the proof below
 - `packages/core/tests/keyword-interlock.test.ts` covers placement against the measured geometry, the fallbacks (too
   wide, out of the safe area, more than four words, `interlock: false`), timing, the role, the closer, and
   re-composing. The round-1 tests that check the caption track now pass `interlock: false`.
-- The proof is below.
+- **Proof on new wide takes.** Two Maya takes were generated from the presenter kit's portrait, not from a prior
+  output. Each was composed `wide` (no close crop) onto a free Pexels photo used as the plate: a Queensland pier with
+  rainforest hills (Pexels 36782071) and a Townsville park gazebo with palms (36792910). Both are `mode: "static"`
+  with `voice: "veo"`. She came out about half the frame's height, against reel 3's 45 %, with forest or palms behind
+  her head where the keyword sits. The production reel `cmvp8by39000301ad2t1e2ctd` uses the reel-3 cut: an opening
+  1.15 → 1 scale-out, a 1.12 punch-in that also cuts out Veo's garbled words, and a hard cut to the second spot. One
+  `composeKeywordLockup { keywords: [Before, yourself, stop, free], cta: { keyword: ReelWalk, caption: reelwalking.com } }`
+  call, with `speech` and `faces` passed in (see below). Exported as `cmvp8dwwq000401adtj7jobgs`: the gate is not
+  blocked, and the only warning is the loop seam. Production does not have the addendum yet, so that export shows the
+  caption layout.
+- **Local render with the interlock** (`renderReel` at 720p, person matte on): "Before / you list",
+  "Ask / yourself / one thing", "Try it / free" and "ReelWalk / reelwalking.com" interlock. "Will your reel stop the
+  scroll?" (six words) keeps the caption track. Files:
+  `https://dh5xvp6apljoh.cloudfront.net/samples/recipes-2026-10-26/one-question-maya-720-v2.mp4`, `…-side-by-side-v2.jpg`
+  and `.mp4` (seven moments matched with reel 3), `…-frame-sheet-v2.jpg`, and `…-production-v2.mp4`.
+- The first local render put the over-line inside the keyword's capitals: "Try it" sat on the f of "free" and stopped
+  reading. Now it sits on the cap line. It still touches a tall ascender (the f), which is the remaining rough edge.
+- Two inputs had to be passed by hand on these takes. The identity gate's stored face boxes were about twice the real
+  face, which pushed every keyword up to the top of the safe area; the boxes were measured with OpenCV instead. The
+  stored whisper-small transcript put "Before" a second late; faster-whisper medium word times were used instead. Both
+  are fields the command already accepts.

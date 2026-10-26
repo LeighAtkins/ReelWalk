@@ -18,7 +18,7 @@ export function lipsyncConfigured(): boolean {
   return voiceConfigured() && Boolean(process.env.SYNC_API_KEY);
 }
 
-/** PRESENTER_VOICE: "melotts:en" (default) or "aura-1:luna". The voice is the same for every take, which is the point. */
+/** PRESENTER_VOICE: "melotts:en" (default), "aura-1:luna" or "aura-2:theia" (Australian). The voice is the same for every take, which is the point. */
 export function presenterVoice(value = process.env.PRESENTER_VOICE || "melotts:en"): PresenterVoice {
   const [model, option] = value.split(":");
   if (model === "aura-1" || model === "aura-2") return { model, speaker: option || "luna" };

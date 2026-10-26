@@ -353,7 +353,7 @@ variable "sync_api_key" {
   default   = ""
   sensitive = true
 }
-# "melotts:<lang>" or "aura-1:<speaker>"; the same voice on every take.
+# "melotts:<lang>", "aura-1:<speaker>" or "aura-2:<speaker>" (e.g. aura-2:theia, Australian); the same voice on every take.
 variable "presenter_voice" {
   type    = string
   default = "melotts:en"

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { invoiceLinePlan } from "./billing-ai";
-import { chargeableCurrency, isCurrencyAvailable, offeredCurrencies, planForPrice, planForSubscription, priceEnvName, priceForPlan } from "./stripe";
+import { chargeableCurrency, invoiceAmount, isCurrencyAvailable, offeredCurrencies, planForPrice, planForSubscription, priceEnvName, priceForPlan } from "./stripe";
 
 // The AUD prices (ADR 0081) replace the USD ones in env. A subscription bought in USD keeps pointing at
 // its old price, so plans must still resolve from the price's lookup key or its product.
@@ -132,5 +132,14 @@ describe("prices by currency (ADR 0085)", () => {
   it("leaves the resolved currency alone with billing off (development, previews)", () => {
     expect(chargeableCurrency("usd")).toBe("usd");
     expect(offeredCurrencies()).toEqual(["aud", "usd"]);
+  });
+});
+
+describe("invoiceAmount", () => {
+  it("names the currency in the failed-payment email, in the app's own price format", () => {
+    expect(invoiceAmount(3900, "aud")).toBe("A$39");
+    expect(invoiceAmount(2900, "usd")).toBe("US$29");
+    expect(invoiceAmount(3250, "AUD")).toBe("A$32.50");
+    expect(invoiceAmount(1200, "eur")).toBe("12.00 EUR");
   });
 });

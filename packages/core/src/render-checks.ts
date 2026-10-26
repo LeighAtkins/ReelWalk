@@ -17,6 +17,7 @@
  * Spaces: frames are gamma luma 0..1 row-major (CriticFrame); times are
  * reel ms; boxes are composition fractions.
  */
+import { cutGrammarReport, hasCutGrammar } from "./cut-grammar";
 import { beatPeriodMs } from "./beats";
 import { CRITIC, frameDifference, titleGeometry, type CriticBox, type CriticFrame } from "./critic";
 import { HOOK_FRAME_MS, titleLegibleAtMs } from "./hook";
@@ -129,6 +130,8 @@ export type RenderChecks = {
      * drawn box's edges (px) so a reach can be read against the zone's edge.
      */
     zoneReach: { textId: string; text: string; left: number; right: number; top: number; bottom: number; edges: BoxEdges }[];
+    /** The cut grammar's numbers (ADR 0087), on a reel that records it; absent otherwise. */
+    cutGrammar?: { pass: boolean; nakedCuts: number; repeats: number; longestStaticMs: number; longestNoSurpriseMs: number; worstEyeTrace: number | null };
   };
   checks: RenderCheck[];
   blocked: boolean;
@@ -475,9 +478,21 @@ export function renderChecks(input: RenderChecksInput): RenderChecks {
     checks.push({ id: "off-bar", level: "warn", impact: "finish", atMs: Math.max(0, durationMs - FRAME_MS), title: "Ends mid-bar", detail: `The reel ends ${offBar} ms off a bar line of the song.` });
   }
 
-  const result = sealChecks({ version: 1, durationMs, facts: { ...facts, offBarMs: offBar, titleLegibleByMs, zoneReach: reach }, checks, blocked: false, blockReasons: [], audio: { available: false, problems: [] } });
+  // The cut grammar (ADR 0087): reported, never a block (a post is the person's call; the planner's own gate is the hard one).
+  let cutGrammar: RenderChecks["facts"]["cutGrammar"];
+  if (timeline && hasCutGrammar(timeline)) {
+    const report = cutGrammarReport(timeline);
+    cutGrammar = { pass: report.pass, nakedCuts: report.nakedCuts, repeats: report.repeats, longestStaticMs: report.longestStaticMs, longestNoSurpriseMs: report.longestNoSurpriseMs, worstEyeTrace: report.worstEyeTrace };
+    for (const failure of report.failures) {
+      checks.push({ id: `cut-grammar:${failure.kind}:${Math.round(failure.atMs)}`, level: "warn", impact: impactAt(failure.atMs), atMs: failure.atMs, title: CUT_GRAMMAR_TITLES[failure.kind], detail: failure.detail });
+    }
+  }
+
+  const result = sealChecks({ version: 1, durationMs, facts: { ...facts, offBarMs: offBar, titleLegibleByMs, zoneReach: reach, ...(cutGrammar ? { cutGrammar } : {}) }, checks, blocked: false, blockReasons: [], audio: { available: false, problems: [] } });
   return input.audio === undefined || input.audio === null ? result : withAudioProblems(result, input.audio);
 }
+
+const CUT_GRAMMAR_TITLES = { "naked-cut": "Naked cut", repeat: "Same technique twice", static: "Static span", "no-surprise": "No surprise", "hook-contrast": "Hook hard to read" } as const;
 
 /** Checks in order (blocks first, then by time) and the verdict that follows from them. */
 function sealChecks(result: RenderChecks): RenderChecks {

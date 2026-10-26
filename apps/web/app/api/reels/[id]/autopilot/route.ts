@@ -1,5 +1,5 @@
 import { aiOffResponse } from "@/lib/ai-gate";
-import { parseTimeline, referencedAssetIds, type ListingInfo } from "@reelwalk/core";
+import { CUT_FEELS, LISTING_KINDS, parseTimeline, referencedAssetIds, type CutBrief, type ListingInfo } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
 import { getSessionUser } from "@/lib/auth";
 import { newAssets } from "@/lib/ai-edit";
@@ -27,7 +27,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (!user) return Response.json({ ok: false, message: "You were signed out. Sign in again." }, { status: 401 });
   { const off = await aiOffResponse(user.workspaceId); if (off) return off; }
 
-  let body: { timeline?: unknown; style?: unknown; info?: Record<string, unknown>; quick?: unknown; requestId?: unknown };
+  let body: { timeline?: unknown; style?: unknown; info?: Record<string, unknown>; quick?: unknown; requestId?: unknown; feel?: unknown; listing?: unknown };
   try {
     body = (await request.json()) as typeof body;
   } catch {
@@ -55,7 +55,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const styleId = typeof body.style === "string" ? body.style : "just-listed";
   // The first cut, by rule, straight away (ADR 0024); the model's cut is asked for separately.
   if (body.quick === true) {
-    const result = await quickDraft({ user, timeline, styleId, info });
+    // The answers to "what is this?" and "feel" (ADR 0087), when the person gave them; else the style decides.
+    const brief: Partial<CutBrief> = {
+      ...((CUT_FEELS as readonly unknown[]).includes(body.feel) ? { feel: body.feel as CutBrief["feel"] } : {}),
+      ...((LISTING_KINDS as readonly unknown[]).includes(body.listing) ? { listing: body.listing as CutBrief["listing"] } : {}),
+    };
+    const result = await quickDraft({ user, timeline, styleId, info, brief });
     return Response.json(result.ok ? { ...result, assets: await newAssets(user.workspaceId, timeline, result.timeline) } : result);
   }
   const payload = { timeline, styleId, info: info as Record<string, string> };

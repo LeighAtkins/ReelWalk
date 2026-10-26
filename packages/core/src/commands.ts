@@ -31,6 +31,8 @@ import { matchLook, type ColorStats } from "./look";
 import { attachedAnchors, retimeTexts } from "./text-timing";
 import { placementProblem, surfacePatch, type SurfacePick, type TitleOnSurface } from "./surface-place";
 import { speechSync } from "./wall-text";
+import { carryOpeningTitle, planCutOnTimeline, type CutBrief } from "./cut-planner";
+import type { PlannerAnalysis } from "./shot-facts";
 import type { TranscriptWord } from "./transcript";
 import {
   clipDurationMs,
@@ -181,6 +183,13 @@ export type Command =
    * drawn over the last `durationMs` of the reel, so nothing is retimed.
    */
   | { type: "setEndCard"; endCard: EndCard | null }
+  /**
+   * The whole cut planned to the cut grammar (ADR 0087) from the reel's own clips: order along the walk, shot windows
+   * from the shot analysis, varied lengths on the beat, and a named technique with its reason on every shot change.
+   * `analyses` are the clips' shot analyses (ADR 0086) by asset id; the HTTP commands route fills them in from the
+   * media library when they are left out. `dryRun` on the route shows the plan line by line with its reasons.
+   */
+  | { type: "planCut"; brief?: Partial<CutBrief>; targetMs?: number; analyses?: Record<string, PlannerAnalysis | null>; audioAssetIds?: string[] }
   /** Several commands as one step and one undo ("Fix all", ADR 0062): all of them land, or none. */
   | { type: "batch"; commands: BatchableCommand[] };
 
@@ -198,7 +207,7 @@ const COMMAND_TYPE_REGISTRY: Record<Command["type"], true> = {
   trimClip: true, moveClip: true, splitClip: true, deleteClip: true, duplicateClip: true, setSpeed: true, setMusic: true, snapToBeat: true, pace: true, setOnBeat: true,
   retime: true, retimeToLength: true, insertPresenterTakes: true, cutaways: true, applyFinish: true, hook: true, applyProposal: true,
   setRamp: true, setCamera: true, applyMove: true, matchCuts: true, setTransition: true, updateText: true, placeOnSurface: true, syncTextToSpeech: true, applyTextStyle: true, updateClip: true, matchLook: true, addText: true,
-  autoSfx: true, setSfx: true, dropOnCut: true, setEndCard: true, batch: true,
+  autoSfx: true, setSfx: true, dropOnCut: true, setEndCard: true, planCut: true, batch: true,
 };
 /** The type of every command, in registry order. */
 export const COMMAND_TYPES = Object.keys(COMMAND_TYPE_REGISTRY) as Command["type"][];
@@ -442,6 +451,10 @@ function run(timeline: Timeline, command: Command, context: CommandContext): Tim
       const placed = placeDropOnCut(timeline, command.cut, command.dropSongMs, durations);
       if (placed === timeline) throw new Error("The shots before that cut cannot be stretched or squeezed enough to put the drop on it.");
       return trimSfxToReel(cut(placed));
+    }
+    case "planCut": {
+      const planned = planCutOnTimeline(timeline, { brief: command.brief, targetMs: command.targetMs, analyses: command.analyses ?? {}, sourceDurationsMs: durations, audioAssetIds: command.audioAssetIds });
+      return carryOpeningTitle(cut(planned.timeline), planned.plan.carryUntilMs);
     }
     case "batch":
       // Each step runs against the result of the one before; a failing step throws, so the whole batch is rejected.

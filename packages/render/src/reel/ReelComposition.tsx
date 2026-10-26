@@ -26,7 +26,7 @@ import { lightLeakOverlays } from "./toolbox/cut-overlays";
 import { LightLeakOverlay } from "./toolbox/LightLeak";
 import { LocationLowerThird } from "./toolbox/LocationLowerThird";
 import { clipPresentation } from "./presentation";
-import { clipSpans, mediaHandles, planCuts, type CutPlan } from "./transition-plan";
+import { clipSpans, mediaHandles, planCuts, soundBridges, type CutPlan } from "./transition-plan";
 import { AtCuts, presentationOf, timingOf } from "./transitions";
 import { useFontsFor } from "./fonts";
 import { clipFilterCss, ELEGANT_FADE_S, FILTER_GRADES, textTreatmentCss, whiteBalanceId, whiteBalanceValues } from "./look";
@@ -729,6 +729,17 @@ export const ReelComposition: React.FC<ReelProps> = ({ timeline, assets, waterma
           ];
         })}
       </TransitionSeries>
+      {/* J and L cuts (ADR 0087): a clip's own sound leading or trailing its picture across a cut, faded. */}
+      {soundBridges(plan.clips, fps, Object.fromEntries(Object.entries(assets).map(([id, asset]) => [id, asset.durationMs]))).map((bridge) => {
+        const asset = assets[bridge.assetId];
+        if (asset?.kind !== "VIDEO") return null;
+        return (
+          <Sequence key={bridge.key} from={bridge.from} durationInFrames={bridge.durationInFrames} layout="none" name={`sound ${bridge.key}`}>
+            <Audio src={resolveSrc(asset.src)} trimBefore={Math.round((bridge.sourceStartMs * fps) / 1000)}
+              volume={(frame) => bridge.volume * interpolate(frame, [0, bridge.durationInFrames], bridge.fade === "in" ? [0, 1] : [1, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" })} />
+          </Sequence>
+        );
+      })}
       {/* Light leaks over their hard cuts (ADR 0082): above the footage, under the plan, the titles and the cards. */}
       {lightLeakOverlays(plan.clips, fps, plan.totalFrames).map((leak) => (
         <Sequence key={`leak-${leak.clipId}`} from={leak.from} durationInFrames={leak.durationInFrames} name="light leak">

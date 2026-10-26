@@ -26,7 +26,8 @@ import { prisma } from "@reelwalk/db";
 import { MAX_COMMANDS, inBatch, isCommand } from "../command-types";
 import { toLibraryAssets } from "../library";
 import { workspaceBrandKit } from "../brand-kit";
-import { applyReelCommand, loadReel } from "../reel-command";
+import { applyReelCommand, hookInputsFromLibrary, loadReel } from "../reel-command";
+import { planSummary, resolvePlanCut } from "../cut-plan-server";
 import { readTimeline } from "../reels";
 import { saveReelFor } from "../save-reel";
 import { mediaScope } from "../media-scope";
@@ -76,7 +77,7 @@ const NO_REEL = "No reel with that id in this account. Call list_reels for the i
 
 /** House style, repeated in the tools where it matters, so an agent that never reads the server instructions still sees it. */
 export const STYLE_HINTS =
-  "House style unless the owner says otherwise: no boxed or backgrounded text (use unboxed serif, style 'elegant', with a soft shadow; a workspace with a brand kit, see get_brand_kit, uses the kit's named styles instead, which may have plates and hard shadows); no whoosh sounds (a quiet riser or impact only if clearly under the music); the first cut or visual change inside the first second; hard cuts by default (a dissolve, soft dissolve, focus pull or light leak only when asked, on two cuts at most); a title on screen from frame 0, under seven words, kept above y 0.72 (Instagram's caption zone) and off the centre of the frame.";
+  "House style unless the owner says otherwise: no boxed or backgrounded text (use unboxed serif, style 'elegant', with a soft shadow; a workspace with a brand kit, see get_brand_kit, uses the kit's named styles instead, which may have plates and hard shadows); no whoosh sounds (a quiet riser or impact only if clearly under the music); the first cut or visual change inside the first second; hard cuts by default (a dissolve, soft dissolve, focus pull or light leak only when asked, on two cuts at most), except in a cut made by planCut, where every shot change is a technique chosen for the two shots and its reason is recorded; a title on screen from frame 0, under seven words, kept above y 0.72 (Instagram's caption zone) and off the centre of the frame.";
 
 export const SERVER_INSTRUCTIONS = [
   "ReelWalk makes short vertical reels (1080x1920, up to 90 s) for property listings and venues. You drive the signed-in person's own account, in the one workspace this connection was bound to when they connected it (list_workspaces names it; it cannot be switched from here).",
@@ -474,6 +475,7 @@ const COMMAND_SHEET = [
   "autoSfx{}",
   "setSfx{sfx}",
   "applyFinish{finish}",
+  "planCut{brief?:{listing:for-sale|just-sold|open-home|for-rent|not-listing,feel:quiet|classic|lively},targetMs?} (plans the whole cut to the cut grammar from the clips' shot analyses: walk order, best windows, varied lengths on the beat, a named technique with its reason on every shot change, so dryRun first and read `plan`)",
 ].join("; ");
 
 /** Every command type but the two a batch cannot hold (a batch inside a batch, a proposal that carries its own generation check). */
@@ -505,9 +507,11 @@ const applyCommands: ToolSpec = {
     const command: Command = accepted.length === 1 ? accepted[0] : { type: "batch", commands: accepted as never };
     const loaded = await loadReel(ctx.user, reelId);
     if (!loaded) return failure(NO_REEL);
-    const outcome = await applyReelCommand(ctx.user, loaded, command, revision ?? loaded.revision, { dryRun });
+    const resolved = await resolvePlanCut(command, loaded.timeline, ctx.user.workspaceId);
+    const outcome = await applyReelCommand(ctx.user, loaded, resolved, revision ?? loaded.revision, { dryRun });
     if (!outcome.ok) return failure(outcome.message, { status: outcome.status, changes: outcome.result?.changes ?? [], currentRevision: outcome.status === 409 ? loaded.revision : undefined });
     const { timeline, changes, warning } = outcome.result;
+    const plan = planSummary(resolved, loaded.timeline, timeline, hookInputsFromLibrary(loaded.library).sourceDurationsMs ?? {});
     return ok({
       dryRun,
       revision: outcome.revision,
@@ -516,6 +520,7 @@ const applyCommands: ToolSpec = {
       durationMs: timelineDurationMs(timeline),
       clipCount: timeline.clips.length,
       opening: timeline.opening ?? null,
+      ...(plan ? { plan } : {}),
       ...(returnTimeline ? { timeline } : {}),
     });
   },

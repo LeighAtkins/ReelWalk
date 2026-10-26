@@ -4,6 +4,7 @@ import { linearTiming, type TransitionPresentation, type TransitionTiming } from
 import { fade } from "@remotion/transitions/fade";
 import type { CutPlan } from "./transition-plan";
 import { focusPull, softDissolve } from "./toolbox/presentations";
+import { depthFocusPull, occlusionWipe, zoomThrough } from "./toolbox/grammar-presentations";
 
 /**
  * The Remotion presentation and timing of each cut kind (ADR 0083; the mapping is in transition-plan.ts).
@@ -15,12 +16,15 @@ import { focusPull, softDissolve } from "./toolbox/presentations";
 type AnyPresentation = TransitionPresentation<Record<string, unknown>>;
 
 /** The crossfades ease in and out (a linear crossfade dips in the middle on bright footage); the focus pull eases itself. */
-const EASING = { fade: Easing.inOut(Easing.quad), softDissolve: Easing.inOut(Easing.quad), focusPull: Easing.linear } as const;
+const EASING = { fade: Easing.inOut(Easing.quad), softDissolve: Easing.inOut(Easing.quad), focusPull: Easing.linear, occlusionWipe: Easing.linear, zoomThrough: Easing.linear } as const;
 
 export function presentationOf(cut: Exclude<CutPlan, { kind: "none" }>): AnyPresentation {
   // The toolbox's two (ADR 0082): CSS, so the phone Player draws them too.
   if (cut.kind === "softDissolve") return softDissolve();
-  if (cut.kind === "focusPull") return focusPull();
+  if (cut.kind === "focusPull") return cut.params?.depth && (cut.params.depth.a || cut.params.depth.b) ? depthFocusPull(cut.params.depth) : focusPull();
+  // The cut grammar's two (ADR 0087): without their parameters (a hand-set kind) they fall back to the crossfade.
+  if (cut.kind === "occlusionWipe" && cut.params?.wipe) return occlusionWipe(cut.params.wipe);
+  if (cut.kind === "zoomThrough" && cut.params?.zoom) return zoomThrough(cut.params.zoom);
   return fade() as AnyPresentation;
 }
 

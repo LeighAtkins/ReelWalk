@@ -779,7 +779,7 @@ export function PanoSheet({
 }
 
 /** The transitions the sheet offers (ADR 0082, the owner's choice of the gallery), with their names. A cut is no transition. */
-const TRANSITION_NAMES = { cut: "Cut", fade: "Dissolve", softDissolve: "Soft dissolve", focusPull: "Focus pull", lightLeak: "Light leak", walk: "Walk there" } as const satisfies Record<Clip["transitionIn"], string>;
+const TRANSITION_NAMES = { cut: "Cut", fade: "Dissolve", softDissolve: "Soft dissolve", focusPull: "Focus pull", lightLeak: "Light leak", walk: "Walk there", occlusionWipe: "Wipe behind", zoomThrough: "Zoom through" } as const satisfies Record<Clip["transitionIn"], string>;
 
 export function TransitionSheet({
   clip,
@@ -798,7 +798,9 @@ export function TransitionSheet({
   onPlayCut?: () => void;
   onClose(): void;
 }) {
-  const offered = [...(["cut", "fade", "softDissolve", "focusPull", "lightLeak"] as const), ...(canWalkHere ? (["walk"] as const) : [])];
+  // The planner's two (ADR 0087) need what it measured, so they are only shown on a cut it drew, never offered.
+  const planned = clip.transitionIn === "occlusionWipe" || clip.transitionIn === "zoomThrough" ? [clip.transitionIn] : [];
+  const offered = [...(["cut", "fade", "softDissolve", "focusPull", "lightLeak"] as const), ...(canWalkHere ? (["walk"] as const) : []), ...planned];
   return (
     <Sheet title="Transition in" onClose={onClose}>
       <Segmented

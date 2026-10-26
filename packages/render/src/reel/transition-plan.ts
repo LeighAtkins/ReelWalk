@@ -1,4 +1,4 @@
-import type { Clip, Transition } from "@reelwalk/core";
+import type { Clip, CutIn, Transition } from "@reelwalk/core";
 
 /**
  * How each cut of a reel is drawn with Remotion's TransitionSeries (ADR 0083). Pure, so it is tested without a browser.
@@ -11,6 +11,10 @@ import type { Clip, Transition } from "@reelwalk/core";
  *   softDissolve  softDissolve()  a crossfade with a 3 % breath of scale (ADR 0082, toolbox/presentations.tsx)
  *   focusPull     focusPull()     a rack focus through a soft blur (ADR 0082)
  *   lightLeak     none     a hard cut with a light leak drawn over it (ADR 0082, toolbox/cut-overlays.ts)
+ *   occlusionWipe occlusionWipe()  the incoming shot revealed behind an edge that follows the occluder (ADR 0087)
+ *   zoomThrough   zoomThrough()    a push into a region of the outgoing shot, the incoming one out of the matching region (ADR 0087)
+ * The cut grammar's record on the incoming clip (`clip.cut`, ADR 0087) carries what those two need, and the depth maps
+ * that make the focus pull rack through depth; it rides on the plan as `params`.
  * (The whip pan and the speed ramp were retired, ADR 0082: saved ones read as a cut.)
  *
  * Timing is unchanged. A Remotion transition overlaps the two clips and shortens the timeline, which would move every
@@ -33,18 +37,26 @@ export type CutPlan =
       before: number;
       /** Frames after it (the outgoing clip's overrun). */
       after: number;
+      /** The cut grammar's drawing parameters (ADR 0087): the wipe's edge, the zoom's regions, depth maps. */
+      params?: CutParams;
     };
 
-/** The kinds drawn as an overlap of the two clips. */
-export type OverlapKind = "fade" | "softDissolve" | "focusPull";
+export type CutParams = Pick<CutIn, "wipe" | "zoom" | "depth">;
 
-/** Remotion's transitions guidance: about a third of a second, never more than 12 frames at 30 fps. */
-export const TRANSITION_SECONDS: Record<OverlapKind, number> = { fade: 10 / 30, softDissolve: 12 / 30, focusPull: 12 / 30 };
+/** The kinds drawn as an overlap of the two clips. */
+export type OverlapKind = "fade" | "softDissolve" | "focusPull" | "occlusionWipe" | "zoomThrough";
+
+/**
+ * Remotion's transitions guidance: about a third of a second, never more than 12 frames at 30 fps. The cut grammar's
+ * two (ADR 0087) keep to the cap: an occluder crosses a phone frame in about that, and a zoom-through longer than
+ * 0.4 s reads as a zoom, not a cut.
+ */
+export const TRANSITION_SECONDS: Record<OverlapKind, number> = { fade: 10 / 30, softDissolve: 12 / 30, focusPull: 12 / 30, occlusionWipe: 12 / 30, zoomThrough: 12 / 30 };
 export const MAX_TRANSITION_FRAMES_30 = 12;
 
 /** The presentation a saved kind maps to. */
 export function presentationFor(kind: Transition): "none" | OverlapKind {
-  return kind === "fade" || kind === "softDissolve" || kind === "focusPull" ? kind : "none";
+  return kind === "fade" || kind === "softDissolve" || kind === "focusPull" || kind === "occlusionWipe" || kind === "zoomThrough" ? kind : "none";
 }
 
 /** A transition's length in frames at `fps` for a kind: rounded, at least 2, and capped at 12 frames' worth at 30 fps. */
@@ -58,7 +70,7 @@ export function transitionFrames(kind: OverlapKind, fps: number): number {
  * Each half of a transition takes at most half of the clip on its side, so a clip's two transitions never overlap and
  * a very short clip shortens (or drops to a cut) the transitions around it rather than breaking the series.
  */
-export function planCuts(clips: readonly { clip: Pick<Clip, "transitionIn">; durationInFrames: number }[], fps: number): CutPlan[] {
+export function planCuts(clips: readonly { clip: Pick<Clip, "transitionIn" | "cut">; durationInFrames: number }[], fps: number): CutPlan[] {
   return clips.map((entry, index) => {
     if (index === 0) return { kind: "none" };
     const kind = presentationFor(entry.clip.transitionIn);
@@ -68,8 +80,15 @@ export function planCuts(clips: readonly { clip: Pick<Clip, "transitionIn">; dur
     const before = Math.min(Math.floor(wanted / 2), Math.floor(outgoing / 2));
     const after = Math.min(wanted - Math.floor(wanted / 2), Math.floor(incoming / 2));
     if (before + after < 2) return { kind: "none" };
-    return { kind, frames: before + after, before, after };
+    const params = cutParams(entry.clip.cut);
+    return params ? { kind, frames: before + after, before, after, params } : { kind, frames: before + after, before, after };
   });
+}
+
+/** The drawing parameters a clip's cut record carries, or undefined when it has none. */
+function cutParams(cut: CutIn | undefined): CutParams | undefined {
+  if (!cut || (!cut.wipe && !cut.zoom && !cut.depth)) return undefined;
+  return { ...(cut.wipe ? { wipe: cut.wipe } : {}), ...(cut.zoom ? { zoom: cut.zoom } : {}), ...(cut.depth ? { depth: cut.depth } : {}) };
 }
 
 /**
@@ -112,3 +131,37 @@ export function mediaHandles(
   return { pre, post };
 }
 
+
+/**
+ * J and L cuts (ADR 0087): a clip's own sound heard across a cut. A J-cut (`cut.jMs` on the incoming clip) starts the
+ * incoming clip's sound that long before the cut, from the footage before its in-point; an L-cut (`cut.lMs`) lets the
+ * outgoing clip's sound run on that long after the cut, from the footage after its out-point. Each bridge fades
+ * (in for a J, out for an L) and is clipped to the source and the clips either side. Pure, so tested without a renderer.
+ */
+export type SoundBridge = { key: string; assetId: string; from: number; durationInFrames: number; sourceStartMs: number; volume: number; fade: "in" | "out" };
+
+export function soundBridges(
+  clips: readonly { clip: Pick<Clip, "id" | "assetId" | "kind" | "volume" | "speed" | "sourceStartMs" | "sourceEndMs" | "audio" | "cut">; from: number; durationInFrames: number }[],
+  fps: number, sourceDurationsMs: Record<string, number | null | undefined> = {},
+): SoundBridge[] {
+  const bridges: SoundBridge[] = [];
+  const plays = (clip: (typeof clips)[number]["clip"]) => clip.kind === "VIDEO" && !clip.audio && clip.volume > 0 && (clip.speed || 1) === 1;
+  clips.forEach((entry, index) => {
+    if (index === 0 || !entry.clip.cut) return;
+    const before = clips[index - 1];
+    const { jMs, lMs } = entry.clip.cut;
+    if (jMs && plays(entry.clip) && before.clip.assetId !== entry.clip.assetId) {
+      const ms = Math.min(jMs, entry.clip.sourceStartMs, (before.durationInFrames * 1000) / fps);
+      const frames = Math.floor((ms * fps) / 1000);
+      if (frames >= 2) bridges.push({ key: `j-${entry.clip.id}`, assetId: entry.clip.assetId, from: entry.from - frames, durationInFrames: frames, sourceStartMs: Math.round(entry.clip.sourceStartMs - (frames * 1000) / fps), volume: entry.clip.volume, fade: "in" });
+    }
+    if (lMs && plays(before.clip) && before.clip.assetId !== entry.clip.assetId) {
+      const source = sourceDurationsMs[before.clip.assetId];
+      const room = source == null ? lMs : Math.max(0, source - before.clip.sourceEndMs);
+      const ms = Math.min(lMs, room, (entry.durationInFrames * 1000) / fps);
+      const frames = Math.floor((ms * fps) / 1000);
+      if (frames >= 2) bridges.push({ key: `l-${entry.clip.id}`, assetId: before.clip.assetId, from: entry.from, durationInFrames: frames, sourceStartMs: before.clip.sourceEndMs, volume: before.clip.volume, fade: "out" });
+    }
+  });
+  return bridges;
+}

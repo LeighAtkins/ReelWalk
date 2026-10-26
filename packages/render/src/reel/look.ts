@@ -209,7 +209,7 @@ export function brandCss(brand: TextTreatment, fontSize: number): CSSProperties 
   };
 }
 
-export function textTreatmentCss(text: Pick<TextOverlay, "style" | "color" | "size" | "font" | "tracking" | "shadow" | "brand">): CSSProperties {
+export function textTreatmentCss(text: Pick<TextOverlay, "style" | "color" | "size" | "font" | "tracking" | "shadow" | "brand"> & { weight?: TextOverlay["weight"] }): CSSProperties {
   const fonts = { auto: undefined, serif: CORMORANT_FONT_FAMILY, sans: REEL_FONT_FAMILY, editorial: BODONI_FONT_FAMILY };
   // The elegant style set in Cormorant by name keeps Cormorant's own size, weight and tracking (its look before ADR 0083).
   const cormorant = text.style === "elegant" && text.font === "serif"
@@ -217,6 +217,7 @@ export function textTreatmentCss(text: Pick<TextOverlay, "style" | "color" | "si
   const base: CSSProperties = { ...textCss(text.style, text.color, text.size),
     ...(text.font && text.font !== "auto" ? { fontFamily: fonts[text.font] } : {}),
     ...cormorant,
+    ...(text.weight ? { fontWeight: text.weight } : {}),
     ...(text.tracking !== undefined ? { letterSpacing: `${text.tracking}em` } : {}),
     ...textContrastCss(text),
   };

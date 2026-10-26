@@ -8,8 +8,9 @@ FROM node:22-bookworm-slim AS runtime
 # fixes that CI's cached layer lacks (2026-10-21: libssh 0.10.6-0+deb12u3;
 # 2026-10-23: libexpat1 2.5.0-1+deb12u5 for CVE-2025-59375 / CVE-2026-77214;
 # 2026-10-24: libbrotli1 1.0.9-2+deb12u1 for CVE-2026-111497;
-# 2026-10-25: fonts-noto-color-emoji added, so emoji in titles are not tofu).
-ARG BASE_REFRESH=2026-10-25
+# 2026-10-25: fonts-noto-color-emoji added, so emoji in titles are not tofu;
+# 2026-10-26: libssl3/openssl 3.0.22-1~deb12u2 for CVE-2026-84782).
+ARG BASE_REFRESH=2026-10-26
 RUN apt-get update \
   && apt-get upgrade -y \
   && apt-get install -y --no-install-recommends ca-certificates curl \

@@ -13,7 +13,7 @@ const m = vi.hoisted(() => ({
 vi.mock("./oauth-store", () => ({ verifyAccessToken: m.verify }));
 vi.mock("../throttle", () => ({ overLimit: async () => m.over, countAttempt: async () => undefined }));
 vi.mock("@reelwalk/db", () => ({ prisma: { reel: { count: m.count, findMany: async () => [] } } }));
-vi.mock("../reel-command", () => ({ loadReel: async () => null, applyReelCommand: async () => null }));
+vi.mock("../reel-command", () => ({ loadReel: async () => null, applyReelCommand: async () => null, hookInputsFromLibrary: () => ({ sourceDurationsMs: {} }) }));
 vi.mock("../save-reel", () => ({ saveReelFor: async () => null }));
 vi.mock("../library", () => ({ toLibraryAssets: async () => [] }));
 vi.mock("../reels", () => ({ readTimeline: (value: unknown) => value }));

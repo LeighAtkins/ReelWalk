@@ -16,5 +16,5 @@ export const EndCardView: React.FC<{ timeline: Timeline }> = ({ timeline }) => {
   if (!card) return null;
   const reveal = card.reveal ?? "cut";
   const length = Math.min(durationInFrames, Math.max(1, Math.round((card.durationMs * fps) / 1000)));
-  return <EndCardWithReveal text={card.text} reveal={reveal} length={length} fontFamily={ELEGANT_FONT_FAMILY} />;
+  return <EndCardWithReveal text={card.text} reveal={reveal} length={length} fontFamily={ELEGANT_FONT_FAMILY} size={card.size} />;
 };

@@ -78,7 +78,12 @@ export function kineticProgress(spec: KineticSpec, titleMs: number): number {
   return clamp01((titleMs - startMs) / Math.max(1, durationMs));
 }
 
-export type WordPart = { text: string; space: boolean; opacity: number; rise: number; blur: number };
+/** A spoken word's settle (ADR 0084): it lands 2% large and settles to its size over this long, easing out, no overshoot. */
+export const WORD_SETTLE_MS = 140;
+export const WORD_SETTLE_SCALE = 1.02;
+
+/** `scale` is 1 except while a speech-timed word (`wordsMs`) settles as it lands. */
+export type WordPart = { text: string; space: boolean; opacity: number; rise: number; blur: number; scale: number };
 
 /** "words": each word's state on this frame. Spaces and line breaks are kept as parts of their own. */
 export function wordReveal(text: string, spec: KineticSpec, titleMs: number): WordPart[] {
@@ -92,9 +97,12 @@ export function wordReveal(text: string, spec: KineticSpec, titleMs: number): Wo
   const arrivesAt = (index: number) => (timed ? timed[index] : startMs + index * stagger);
   let index = 0;
   return parts.map((part) => {
-    if (/^\s+$/.test(part)) return { text: part, space: true, opacity: 1, rise: 0, blur: 0 };
-    const e = easeOutCubic((titleMs - arrivesAt(index++)) / arrive);
-    return { text: part, space: false, opacity: Number(e.toFixed(4)), rise: Number(((1 - e) * WORD_RISE_EM).toFixed(4)), blur: Number(((1 - e) * WORD_BLUR_PX).toFixed(3)) };
+    if (/^\s+$/.test(part)) return { text: part, space: true, opacity: 1, rise: 0, blur: 0, scale: 1 };
+    const since = titleMs - arrivesAt(index++);
+    const e = easeOutCubic(since / arrive);
+    // Spoken words pop: they land a touch large and settle, so each one reads as said (only with spoken times; saved reels are unchanged).
+    const scale = timed && since >= 0 ? 1 + (WORD_SETTLE_SCALE - 1) * (1 - easeOutCubic(since / WORD_SETTLE_MS)) : 1;
+    return { text: part, space: false, opacity: Number(e.toFixed(4)), rise: Number(((1 - e) * WORD_RISE_EM).toFixed(4)), blur: Number(((1 - e) * WORD_BLUR_PX).toFixed(3)), scale: Number(scale.toFixed(4)) };
   });
 }
 

@@ -192,6 +192,19 @@ describe("speechSync and the syncTextToSpeech command", () => {
 });
 
 describe("wordReveal with spoken times", () => {
+  it("settles each spoken word from 2% large to its size over 140 ms, with no overshoot; untimed words never scale", () => {
+    const spec = { preset: "words" as const, startMs: 0, durationMs: 1000, wordsMs: [0, 500] };
+    const at = (ms: number) => wordReveal("a b", spec, ms).filter((p) => !p.space);
+    expect(at(0)[0].scale).toBeCloseTo(1.02, 4);
+    const series = [0, 20, 40, 70, 100, 140, 200].map((ms) => at(ms)[0].scale);
+    for (let i = 1; i < series.length; i++) expect(series[i]).toBeLessThanOrEqual(series[i - 1]);
+    expect(series.every((v) => v >= 1)).toBe(true);
+    expect(at(140)[0].scale).toBe(1);
+    // The second word has not landed yet: no scale before its time.
+    expect(at(100)[1].scale).toBe(1);
+    expect(wordReveal("a b", { preset: "words", startMs: 0, durationMs: 900 }, 0).every((p) => p.scale === 1)).toBe(true);
+  });
+
   it("falls back to the even stagger when the times do not match the words", () => {
     const even = wordReveal("a b c", { preset: "words", startMs: 0, durationMs: 900 }, 300);
     const mismatched = wordReveal("a b c", { preset: "words", startMs: 0, durationMs: 900, wordsMs: [0, 10] }, 300);

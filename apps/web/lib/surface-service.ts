@@ -1,5 +1,5 @@
 import {
-  clipDurationMs, clipSourceMsAt, findSurfaces, pickCandidate, presentGray, titleAspect, trackSampling, trackTitleFromFrames,
+  clipDurationMs, clipSourceMsAt, findSurfaces, lineOnPlane, pickCandidate, presentGray, titleAspect, trackSampling, trackTitleFromFrames,
   type Clip, type SurfaceCandidate, type SurfaceHints, type SurfacePick, type SurfaceSearch, type TextOverlay, type TitleOnSurface, type TrackQuality,
 } from "@reelwalk/core";
 import { presentedJpeg, readSourceFrame, readTrackingFrames, type SurfaceSource } from "@/lib/surface-server";
@@ -74,7 +74,7 @@ const centre = (corners: readonly number[]): [number, number] => [(corners[0] + 
  * Find a surface of the kind asked for, lay the title on it and, when it can be followed, track it through
  * the whole shot. Never drops the title: when nothing can be tracked the placement is fixed and says so.
  */
-export async function placeOnSurface(target: SurfaceTarget, options: { pick?: SurfacePick; track?: boolean; look?: SurfaceLook | null } = {}): Promise<PlaceOutcome> {
+export async function placeOnSurface(target: SurfaceTarget, options: { pick?: SurfacePick; track?: boolean; look?: SurfaceLook | null; /** A line laid at a spot and size on the surface (ADR 0084) rather than filling it. */ fit?: { at: { x: number; y: number }; capHeight?: number } } = {}): Promise<PlaceOutcome> {
   const { search, vision, sourceMs } = await searchSurfaces(target, { look: options.look, top: 6 });
   const candidate = pickCandidate(search.candidates, options.pick ?? "auto");
   if (!candidate) {
@@ -87,7 +87,15 @@ export async function placeOnSurface(target: SurfaceTarget, options: { pick?: Su
     };
   }
   const notes: string[] = [];
-  let placement: TitleOnSurface = { corners: candidate.placement, ink: { color: candidate.ink.color, shadow: candidate.ink.shadow } };
+  // At a spot and size (ADR 0084): the same plane, a smaller rectangle where it was asked for.
+  let corners = candidate.placement;
+  if (options.fit) {
+    const line = lineOnPlane(candidate.plane, titleAspect(target.text.text, target.text.tracking !== undefined ? { tracking: target.text.tracking } : {}), { ...options.fit, lines: target.text.text.split("\n").length });
+    if ("error" in line) return { ok: false, search, vision, message: `${line.error} The ${candidate.label.toLowerCase()} found runs ${candidate.plane.map((v) => v.toFixed(3)).join(", ")} (tl, tr, br, bl).` };
+    corners = line.quad;
+    notes.push(`Laid at (${options.fit.at.x}, ${options.fit.at.y}) with capitals ${(line.capHeight * 100).toFixed(1)}% of the frame tall.`);
+  }
+  let placement: TitleOnSurface = { corners, ink: { color: candidate.ink.color, shadow: candidate.ink.shadow } };
   let tracking: "tracked" | "fixed" | "failed" = "fixed";
   let quality: TrackQuality | undefined;
   const clip = target.clip;
@@ -98,9 +106,9 @@ export async function placeOnSurface(target: SurfaceTarget, options: { pick?: Su
   } else if (candidate.tracking === "fixed") {
     notes.push(`The ${candidate.label.toLowerCase()} has too little detail for the tracker to hold on to (${candidate.texture.points} points, spread over ${Math.round(candidate.texture.coverage * 100)}% of the title), so the title is placed in perspective but does not follow the camera.`);
   } else {
-    const [x, y] = centre(candidate.placement);
+    const [x, y] = centre(corners);
     const spanEnd = target.clipStartMs + clipDurationMs(clip);
-    const title = { x, y, startMs: target.clipStartMs, endMs: spanEnd, surface: candidate.placement, support: candidate.plane };
+    const title = { x, y, startMs: target.clipStartMs, endMs: spanEnd, surface: corners, support: candidate.plane };
     const sampling = trackSampling(clip, target.clipStartMs, title);
     if ("error" in sampling) {
       notes.push(sampling.error + " The title is placed without tracking.");

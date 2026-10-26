@@ -465,6 +465,7 @@ const COMMAND_SHEET = [
   "updateText{textId,patch} (patch.animation auto|fadeQuick|maskUp|trackIn|blurIn, auto on style elegant tracks in, style location is a location lower third)",
   "setEndCard{endCard:{text,durationMs 1000-5000,reveal:cut|leak}|null}",
   "applyTextStyle{textId,style:<kit style name>|null}",
+  "syncTextToSpeech{textId,clipId?,holdMs?} (the title appears with the first word it repeats from the clip's speech, each word as it is said, and fades after the last)",
   "setRamp{clipId,ramp}",
   "setCamera{clipId,camera}",
   "cutaways{everyMs|null}",

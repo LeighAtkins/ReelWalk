@@ -360,7 +360,7 @@ const MotionLetters: React.FC<{ text: TextOverlay; titleMs: number; face: React.
       offset += [...part.text].length;
       if (part.space) return part.text;
       return (
-        <span key={i} style={{ display: "inline-block", whiteSpace: "pre", opacity: part.opacity, transform: part.rise ? `translateY(${part.rise}em)` : undefined, filter: part.blur > 0.01 ? `blur(${part.blur}px)` : undefined }}>
+        <span key={i} style={{ display: "inline-block", whiteSpace: "pre", opacity: part.opacity, transform: part.rise || part.scale !== 1 ? `${part.rise ? `translateY(${part.rise}em)` : ""}${part.scale !== 1 ? ` scale(${part.scale})` : ""}`.trim() : undefined, filter: part.blur > 0.01 ? `blur(${part.blur}px)` : undefined }}>
           {glinted(part.text, at, glints, glintColour)}
         </span>
       );

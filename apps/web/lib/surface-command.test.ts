@@ -72,6 +72,15 @@ describe("resolveSurfaceCommands", () => {
     expect(result.command.commands[1]).toMatchObject({ placement: placed.placement });
   });
 
+  it("passes a spot and size on the surface to the finder, and refuses a malformed one (ADR 0084)", async () => {
+    const fit = { at: { x: 0.3, y: 0.38 }, capHeight: 0.025 };
+    await resolveSurfaceCommands(loaded, { type: "placeOnSurface", textId: "u", clipId: "a", atMs: 1000, fit }, { look: null });
+    expect(place.mock.calls[0][1]).toMatchObject({ fit });
+    for (const bad of [{ at: { x: "a", y: 0.3 } }, { at: { x: 0.3, y: 0.3 }, capHeight: 0.5 }, { capHeight: 0.02 }]) {
+      expect(await resolveSurfaceCommands(loaded, { type: "placeOnSurface", textId: "u", clipId: "a", atMs: 1000, fit: bad as never }, { look: null })).toMatchObject({ ok: false, status: 400, message: expect.stringMatching(/fit must be/) });
+    }
+  });
+
   it("says plainly what is wrong with the request", async () => {
     expect(await resolveSurfaceCommands(loaded, { type: "placeOnSurface", textId: "nope" }, { look: null })).toMatchObject({ ok: false, status: 400, message: expect.stringMatching(/no text called nope/) });
     expect(await resolveSurfaceCommands(loaded, { type: "placeOnSurface", textId: "u", clipId: "zzz" }, { look: null })).toMatchObject({ ok: false, status: 400, message: expect.stringMatching(/no clip called zzz/) });

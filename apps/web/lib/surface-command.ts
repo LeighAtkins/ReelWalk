@@ -52,6 +52,10 @@ export async function resolveSurfaceCommands(loaded: LoadedReel, command: Comman
     const clip = loaded.timeline.clips[index], clipStartMs = starts[index];
     const atMs = typeof item.atMs === "number" && Number.isFinite(item.atMs) ? item.atMs : Math.max(clipStartMs, Math.min(text.startMs, clipStartMs + clipDurationMs(clip) - 1));
     if (atMs < clipStartMs || atMs >= clipStartMs + clipDurationMs(clip)) return { ok: false, status: 400, message: `atMs ${Math.round(atMs)} is outside clip ${clip.id}, which runs ${clipStartMs}–${clipStartMs + clipDurationMs(clip)} ms in the reel.` };
+    const fit = item.fit;
+    if (fit !== undefined && !(fit && typeof fit === "object" && fit.at && Number.isFinite(fit.at.x) && Number.isFinite(fit.at.y) && (fit.capHeight === undefined || (Number.isFinite(fit.capHeight) && fit.capHeight >= 0.008 && fit.capHeight <= 0.12)))) {
+      return { ok: false, status: 400, message: "fit must be { at: { x, y } (frame fractions, on the surface), capHeight?: 0.008–0.12 of the frame's height }." };
+    }
     const asset = loaded.library[clip.assetId];
     if (!asset || !asset.width || !asset.height) return { ok: false, status: 404, message: `The media of clip ${clip.id} is not in the library or has no size.` };
     const target = { source: { src: asset.url, width: asset.width, height: asset.height }, clip, clipStartMs, text, atMs };
@@ -60,7 +64,7 @@ export async function resolveSurfaceCommands(loaded: LoadedReel, command: Comman
       reports.push({ textId: text.id, clipId: clip.id, atMs, candidates: found.search.candidates, rejected: found.search.rejected, horizonY: found.search.horizonY, vision: found.vision });
       return { ok: true, command: item };
     }
-    const placed = await placeOnSurface(target, { pick: item.pick, look });
+    const placed = await placeOnSurface(target, { pick: item.pick, look, fit: item.fit });
     if (!placed.ok) return { ok: false, status: 400, message: placed.message };
     reports.push({
       textId: text.id, clipId: clip.id, atMs, candidates: placed.search.candidates, rejected: placed.search.rejected, horizonY: placed.search.horizonY, vision: placed.vision,

@@ -89,11 +89,37 @@ price. Nothing in Stripe was created or changed.
 
 ### 3. Australian samples
 
-<!-- SAMPLES -->
+The owner's brief changed while this was built: the samples should show off **the editing**, not the houses
+("the finished product is fine but doesn't stack up to modern editing"). What this PR changes in code:
+
+- **Labelled samples with a raw-clips switch.** `lib/sample-reels.ts` reads, beside `SAMPLE_REEL_URL` and
+  `SAMPLE_REEL_POSTER_URL`, two more comma lists in the same order: `SAMPLE_REEL_LABELS` (what each sample shows:
+  "From 9 phone clips", "Your words on the walls", "Cut to the beat"; plain text, at most 40 characters) and
+  `SAMPLE_REEL_RAW_URLS` (an image of the raw clips a sample was cut from). Positions are kept, so an empty entry
+  leaves that sample without one. The landing page labels each phone in the display serif and, when a raw image is
+  set, offers "Your clips / Your reel" under the phone: two radios and a `:has()` rule, like the pricing switch, so
+  the page still runs no script. Terraform: `sample_reel_labels`, `sample_reel_raw_urls`. The caption says the
+  reels are "as they came out of the export, nothing edited elsewhere": the honesty rule is that every sample is
+  made in ReelWalk with its real tools.
+- **The drawn screens** (`components/landing/mocks.tsx`) show ten frames of one coastal house from Pexels (clips by
+  Alef Morais, Pexels License) instead of Poly Haven panoramas, so the page's pictures and its first sample reel
+  come from the same shoot. The mock's price card reads A$.
+- **The starter samples** a new studio gets (`apps/worker/src/library/sample-reels.ts`) are Bowral NSW, Fitzroy VIC
+  and Byron Bay NSW in A$, with open homes and inspections, instead of Lakeway TX, Seattle and the Outer Banks.
+- **Licence trail:** `docs/licences/sample-reels.md` records every stock clip (Pexels id, photographer, page), the
+  music and the reel and export ids of each sample, and the frames used by the drawn screens.
+
+The sample reels themselves are content, not code: they are made in the owner's workspace through the product,
+uploaded to `samples/` in the media bucket, and switched on by the Terraform lists above, which can change after
+this ships. The first pass (three tidy default cuts of three houses, the footage stock from outside Australia
+because Pexels has no Australian house with a full interior set) is recorded in the licence file; the showpiece
+pass, judged against the cut-grammar spec, is a follow-up.
 
 ## Consequences
 
 - **No migration.**
+- The landing samples and their labels change by Terraform (`sample_reel_urls`, `sample_reel_poster_urls`,
+  `sample_reel_labels`, `sample_reel_raw_urls`), not by a code change.
 - **Set at deploy** (the orchestrator): `stripe_price_agent_monthly_usd = "price_1UPiyz96AWCJOOvnmGnYqxjz"`,
   `stripe_price_agent_yearly_usd = "price_1UPiz096AWCJOOvnLg0CGJ7q"`, `stripe_price_office_monthly_usd =
   "price_1UPiz196AWCJOOvnaESWzSoe"`, `stripe_price_office_yearly_usd = "price_1UPiz296AWCJOOvn3GNpfvt5"`,

@@ -1,6 +1,7 @@
 import type { CSSProperties } from "react";
-import { letterSpacingEm, type TextOverlay, type TitleFont } from "@reelwalk/core";
+import { letterSpacingEm, titleArrival, type TextOverlay, type TitleFont } from "@reelwalk/core";
 import { ELEGANT_FADE_S } from "./look";
+import { revealFrames, revealStyle, TITLE_REVEALS } from "./toolbox/title-reveal";
 
 /**
  * Small pure pieces of TextView (ADR 0061), apart so they are tested without a browser.
@@ -26,8 +27,14 @@ export function titleFont(text: Pick<TextOverlay, "tracking" | "kinetic">, css: 
 }
 
 export function textExit(text: Pick<TextOverlay, "animation" | "style">, frame: number, fps: number, durationInFrames: number): { scale: number; opacity: number; rise: number; chars: number | null } {
-  const animation = text.animation === "auto" ? (text.style === "elegant" ? "fade" : "pop") : text.animation;
+  const animation = titleArrival(text);
   const still = { scale: 1, opacity: 1, rise: 0, chars: null };
+  // A toolbox reveal (the elegant serif's own track-in since ADR 0082) keeps only its way out: the words came in themselves.
+  if ((TITLE_REVEALS as readonly string[]).includes(animation)) {
+    const reveal = animation as (typeof TITLE_REVEALS)[number];
+    if (frame < durationInFrames - revealFrames(reveal, fps, durationInFrames).exit) return still;
+    return { ...still, opacity: revealStyle(reveal, frame, fps, durationInFrames).opacity };
+  }
   if (animation !== "fade") return still;
   // The same length as the entrance fade's way out (textMotion's "fade").
   const fade = Math.max(1, Math.min(Math.round(ELEGANT_FADE_S * fps), Math.floor(durationInFrames / 2)));

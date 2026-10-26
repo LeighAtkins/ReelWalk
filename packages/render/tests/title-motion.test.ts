@@ -5,12 +5,16 @@ import { textExit, titleFont } from "../src/reel/title-motion";
 
 describe("kinetic type keeps the way out (ADR 0061)", () => {
   const fps = 30, duration = 90;
-  it("an elegant title revealed word by word still fades out over its last 0.6 s", () => {
+  it("an elegant title revealed word by word keeps its track-in's way out (its last 8 frames, ADR 0082); a named fade its 0.6 s", () => {
     const elegant = { animation: "auto" as const, style: "elegant" as const };
     expect(textExit(elegant, 0, fps, duration).opacity).toBe(1);
-    expect(textExit(elegant, 71, fps, duration).opacity).toBe(1);
-    expect(textExit(elegant, 81, fps, duration).opacity).toBeCloseTo(0.5);
+    expect(textExit(elegant, 81, fps, duration).opacity).toBe(1);
+    expect(textExit(elegant, 86, fps, duration).opacity).toBeGreaterThan(0);
+    expect(textExit(elegant, 86, fps, duration).opacity).toBeLessThan(1);
     expect(textExit(elegant, 90, fps, duration).opacity).toBe(0);
+    const fade = { animation: "fade" as const, style: "elegant" as const };
+    expect(textExit(fade, 71, fps, duration).opacity).toBe(1);
+    expect(textExit(fade, 81, fps, duration).opacity).toBeCloseTo(0.5);
     expect(textExit({ animation: "fade", style: "headline" }, 90, fps, duration).opacity).toBe(0);
   });
 

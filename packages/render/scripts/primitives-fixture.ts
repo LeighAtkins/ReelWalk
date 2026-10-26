@@ -16,9 +16,9 @@ export function primitivesTimeline(): Timeline {
   const transitions = [
     { transitionIn: "fade" as const },
     { transitionIn: "fade" as const },
-    { transitionIn: "whip" as const, whipDirection: "right" as const },
-    { transitionIn: "whip" as const, whipDirection: "up" as const },
-    { transitionIn: "speedRamp" as const },
+    { transitionIn: "softDissolve" as const },
+    { transitionIn: "focusPull" as const },
+    { transitionIn: "lightLeak" as const },
     { transitionIn: "cut" as const },
   ];
   const clips = transitions.map((transition, i) => ({

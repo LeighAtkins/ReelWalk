@@ -219,21 +219,22 @@ describe("an ask for speed ramps or whips", () => {
     assetId: null, order: null, pieces: null, atClip: null, animation: null, zoom: null, corner: null, yaw: null, sweep: null,
   };
   const run = (ops: Partial<AiEditOp> & { op: AiEditOp["op"] }, namedCuts = false) => applyAiEditPlan(reel(), { ops: [{ ...blank, ...ops }], note: "" }, { assets, songs: [], namedCuts });
-  const effects = (timeline: Timeline) => timeline.clips.filter((clip) => clip.transitionIn === "speedRamp" || clip.transitionIn === "whip");
+  const effects = (timeline: Timeline) => timeline.clips.filter((clip) => clip.transitionIn === "focusPull" || clip.transitionIn === "softDissolve" || clip.transitionIn === "lightLeak");
 
-  it("puts a speed ramp on at most two cuts, the rest stay cuts", () => {
-    const { timeline, skipped } = run({ op: "transition", clip: 0, transition: "speedRamp" });
+  it("puts a focus pull on at most two cuts, the rest stay cuts", () => {
+    const { timeline, skipped } = run({ op: "transition", clip: 0, transition: "focusPull" });
     expect(effects(timeline).length).toBe(2);
     expect(timeline.clips[0].transitionIn).toBe("cut");
     expect(skipped.join(" ")).toMatch(/only 2 cuts/);
   });
 
-  it("does the same for a whip", () => {
-    expect(effects(run({ op: "transition", clip: 0, transition: "whip" }).timeline).length).toBe(2);
+  it("does the same for a soft dissolve and a light leak", () => {
+    expect(effects(run({ op: "transition", clip: 0, transition: "softDissolve" }).timeline).length).toBe(2);
+    expect(effects(run({ op: "transition", clip: 0, transition: "lightLeak" }).timeline).length).toBe(2);
   });
 
   it("applies one to every cut when the user names them", () => {
-    expect(effects(run({ op: "transition", clip: 0, transition: "whip" }, true).timeline).length).toBe(7);
+    expect(effects(run({ op: "transition", clip: 0, transition: "softDissolve" }, true).timeline).length).toBe(7);
   });
 
   it("leaves fades alone", () => {
@@ -241,7 +242,7 @@ describe("an ask for speed ramps or whips", () => {
   });
 
   it("counts several single-clip ops against the same limit", () => {
-    const ops = [2, 3, 4, 5].map((clip) => ({ ...blank, op: "transition" as const, clip, transition: "speedRamp" as const }));
+    const ops = [2, 3, 4, 5].map((clip) => ({ ...blank, op: "transition" as const, clip, transition: "focusPull" as const }));
     const { timeline } = applyAiEditPlan(reel(), { ops, note: "" }, { assets, songs: [] });
     expect(effects(timeline).length).toBe(2);
   });

@@ -6,11 +6,11 @@ import { DEFAULT_ENERGY, ENERGY_STOPS, type Music } from "@reelwalk/core";
 /**
  * Editing to the beat (ADR 0059), where the studio taps the music: one
  * Energy control (chill to hype) that cuts the whole reel to the song, and
- * "On the beat", which puts title entrances, bursts, whips and the
+ * "On the beat", which puts title entrances, bursts and the
  * presenter's pass on the bar. Nothing else: the plan's details (shot
  * lengths per section, the hero on the drop) are the engine's job.
  */
-export function BeatControl({ music, measuring, onEnergy, onOnBeat, onRamps, onSpeedRamps }: {
+export function BeatControl({ music, measuring, onEnergy, onOnBeat, onRamps }: {
   music: Music;
   /** Set while the clips' motion or the song's bars are still being measured. */
   measuring: boolean;
@@ -19,8 +19,6 @@ export function BeatControl({ music, measuring, onEnergy, onOnBeat, onRamps, onS
   onOnBeat(on: boolean): void;
   /** "Ramp into cuts" (ADR 0067): shots in the build and the drop speed up into their cuts. */
   onRamps?: (on: boolean) => void;
-  /** "Speed-ramp the strong cuts" (ADR 0073): the cuts on the build's and the drop's downbeats become speed-ramp transitions. Off by default. */
-  onSpeedRamps?: (on: boolean) => void;
 }) {
   const id = useId();
   const energy = music.energy ?? DEFAULT_ENERGY;
@@ -57,12 +55,6 @@ export function BeatControl({ music, measuring, onEnergy, onOnBeat, onRamps, onS
       {onRamps ? (
         <button type="button" role="switch" aria-checked={music.ramps === true} className="beat-switch" onClick={() => onRamps(music.ramps !== true)} data-testid="beat-ramps">
           <span>Ramp into cuts</span>
-          <span className="beat-switch-track" aria-hidden="true" />
-        </button>
-      ) : null}
-      {onSpeedRamps ? (
-        <button type="button" role="switch" aria-checked={music.speedRamps === true} className="beat-switch" onClick={() => onSpeedRamps(music.speedRamps !== true)} data-testid="beat-speed-ramps">
-          <span>Speed-ramp the strong cuts</span>
           <span className="beat-switch-track" aria-hidden="true" />
         </button>
       ) : null}

@@ -23,7 +23,7 @@ import { CRITIC, criticSamples, momentAt, type CriticFinding, type CriticFix, ty
 import { heldByPace, reelGrid, reelSections } from "./pacing";
 import { isGeneratedAssetId } from "./presenter";
 import { analyseSeries, frameStats, isEmptyFrame, isNearBlack, motionEnergyProfile, titleEntranceMs, RENDER_CHECKS, type FrameSeries, type HookFacts } from "./render-checks";
-import { clipDurationMs, clipStartsMs, MIN_CLIP_MS, REEL_FORMAT, SPEEDS, timelineDurationMs, type Clip, type SectionKind, type TextOverlay, type Timeline } from "./timeline";
+import { clipDurationMs, clipStartsMs, MIN_CLIP_MS, REEL_FORMAT, SPEEDS, timelineDurationMs, titleArrival, type Clip, type SectionKind, type TextOverlay, type Timeline } from "./timeline";
 import { sourceToReelMs, transcriptWindow, type Transcript } from "./transcript";
 
 export const RETENTION = {
@@ -398,7 +398,7 @@ function openingFindings(input: RetentionInput): CriticFinding[] {
   if (opener && legibleBy !== null && legibleBy > RENDER_CHECKS.legibleByMs) {
     const moment = momentAt(timeline, RENDER_CHECKS.legibleByMs);
     // A slow entrance is made a pop; a pop that starts too late is started earlier, so it is in by 300 ms.
-    const animation = opener.animation === "auto" ? (opener.style === "elegant" ? "fade" : "pop") : opener.animation;
+    const animation = titleArrival(opener);
     const earlier = Math.max(0, RENDER_CHECKS.legibleByMs - titleEntranceMs(opener));
     const fixes: CriticFix[] = opener.kinetic
       ? []

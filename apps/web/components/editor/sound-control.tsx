@@ -4,7 +4,7 @@ import { clipStartsMs, reelDropMs, timelineDurationMs, type AudioAnalysis, type 
 
 /**
  * Sound design (ADR 0066), where the studio taps the music: one switch that
- * places the bundled sounds by rule (a whoosh under every whip, a riser and
+ * places the bundled sounds by rule (a riser and
  * soft impact into the reveal, ambience under the rooms that call for it)
  * and, when the song has been analysed and a shot is selected, one button
  * that puts the song's drop on the cut into that shot. Nothing else: which
@@ -34,7 +34,7 @@ export function SoundControl({ timeline, analysis, cut, onSoundDesign, onDropOnC
         <span>
           Sound design
           <span className="muted small" style={{ display: "block", fontWeight: 400 }}>
-            {on ? `${count} sound${count === 1 ? "" : "s"}: whooshes, riser, ambience` : "Whooshes on whips, a riser into the reveal, ambience"}
+            {on ? `${count} sound${count === 1 ? "" : "s"}: riser, ambience` : "A riser into the reveal, ambience"}
           </span>
         </span>
         <span className="beat-switch-track" aria-hidden="true" />

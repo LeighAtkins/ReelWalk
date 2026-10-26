@@ -5,7 +5,7 @@ import type { Clip } from "@reelwalk/core";
  * cut on its saved frame (the leak only hides it at its brightest), so the reel's length, titles and beats do not
  * move. A leak never runs past the reel's ends and is shortened to fit between the cuts either side of it.
  */
-export const LIGHT_LEAK_FRAMES_30 = 24;
+export const LIGHT_LEAK_FRAMES_30 = 18;
 
 export type CutOverlay = { clipId: string; from: number; durationInFrames: number };
 

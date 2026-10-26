@@ -74,9 +74,10 @@ export function smokeTimeline(): Timeline {
     version: 1,
     clips: [
       { id: "c1", assetId: "walk", kind: "VIDEO", sourceStartMs: 0, sourceEndMs: 2500, transitionIn: "cut" },
-      { id: "c2", assetId: "room", kind: "VIDEO", sourceStartMs: 200, sourceEndMs: 2600, transitionIn: "whip", whipDirection: "left", filter: "golden" },
+      { id: "c2", assetId: "room", kind: "VIDEO", sourceStartMs: 200, sourceEndMs: 2600, transitionIn: "softDissolve", filter: "golden" },
       { id: "c3", assetId: "photo", kind: "IMAGE", sourceStartMs: 0, sourceEndMs: 2000, motion: "zoom-in", transitionIn: "cut" },
-      { id: "c4", assetId: "walk", kind: "VIDEO", sourceStartMs: 1000, sourceEndMs: 3000, speed: 1.5, zoom: 1.2, transitionIn: "cut" },
+      // The light leak over a hard cut (ADR 0082): WebGL2 in the worker's Chrome.
+      { id: "c4", assetId: "walk", kind: "VIDEO", sourceStartMs: 1000, sourceEndMs: 3000, speed: 1.5, zoom: 1.2, transitionIn: "lightLeak" },
       // A 360 photo with its sweep.
       { id: "c5", assetId: "pano", kind: "IMAGE", sourceStartMs: 0, sourceEndMs: 2000, pano: { yawStart: -30, yawEnd: 30, pitch: 0, fov: 90 }, transitionIn: "fade" },
     ],

@@ -140,6 +140,7 @@ export const TEXT_STYLE_LABELS: Record<TextStyle, string> = {
   headline: "Headline",
   elegant: "Elegant",
   tag: "Sticker",
+  location: "Location",
 };
 
 export const TEXT_ANIMATION_LABELS: Record<TextAnimation, string> = {

@@ -252,17 +252,20 @@ describe("nothing hides behind the details card", () => {
   });
 });
 
-describe("whip transitions (ADR 0028)", () => {
-  it("puts a whip pan on every cut, never on the first clip", () => {
-    const result = run([op({ op: "transition", clip: 0, transition: "whip" })]);
-    expect(result.timeline.clips.map((clip) => clip.transitionIn)).toEqual(["cut", "whip", "whip"]);
-    expect(parseTimeline(result.timeline).clips[1].transitionIn).toBe("whip");
+describe("transitions from an ask (whips retired, ADR 0082)", () => {
+  it("puts a soft dissolve on the cuts, never on the first clip", () => {
+    const result = run([op({ op: "transition", clip: 0, transition: "softDissolve" })]);
+    expect(result.timeline.clips.map((clip) => clip.transitionIn)).toEqual(["cut", "softDissolve", "softDissolve"]);
+    expect(parseTimeline(result.timeline).clips[1].transitionIn).toBe("softDissolve");
   });
 
-  it("the stand-in hears whoosh and swipe", () => {
-    for (const ask of ["add whoosh transitions", "swipe between the shots", "smooth transitions please"]) {
+  it("the stand-in hears smooth transitions as a soft dissolve, and offers nothing for a whoosh or a swipe", () => {
+    for (const ask of ["smooth transitions please", "blend the shots"]) {
       const plan = fakeAiEditPlan(ask, reel(), songs);
-      expect(plan.ops.find((o) => o.op === "transition")?.transition).toBe("whip");
+      expect(plan.ops.find((o) => o.op === "transition")?.transition).toBe("softDissolve");
+    }
+    for (const ask of ["add whoosh transitions", "swipe between the shots"]) {
+      expect(fakeAiEditPlan(ask, reel(), songs).ops.find((o) => o.op === "transition")).toBeUndefined();
     }
   });
 });

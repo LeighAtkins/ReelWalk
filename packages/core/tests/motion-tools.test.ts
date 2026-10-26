@@ -280,18 +280,17 @@ describe("match cuts from measured motion", () => {
     expect(whipDirectionFor(still)).toBeNull();
   });
 
-  it("suggests pairs, a chain from the opening shot, and whip directions that follow the footage", () => {
+  it("suggests pairs and a chain from the opening shot", () => {
     const motion: Record<string, ClipMotion> = { a: left, b: right, c: left, d: still };
-    const timeline = reel([video("a", 0, 2000), video("b", 0, 2000, { transitionIn: "whip", whipDirection: "up" }), video("c", 0, 2000), video("d", 0, 2000)]);
+    const timeline = reel([video("a", 0, 2000), video("b", 0, 2000), video("c", 0, 2000), video("d", 0, 2000)]);
     const suggestions = suggestMatchCuts(timeline, motion);
     expect(suggestions.pairs[0]).toMatchObject({ fromId: "a", toId: "c", whip: "right" });
     expect(suggestions.pairs.some((pair) => pair.fromId === "a" && pair.toId === "b")).toBe(false);
     expect(suggestions.order).toEqual(["a", "c", "b", "d"]);
-    expect(suggestions.whips).toEqual([{ clipId: "b", direction: "right" }]);
     // A held clip keeps its slot.
     expect(suggestMatchCuts(timeline, motion, { heldClipIds: ["b"] }).order).toEqual(["a", "b", "c", "d"]);
     // Nothing measured: the order is kept and nothing is suggested.
-    expect(suggestMatchCuts(timeline, {})).toEqual({ pairs: [], order: ["a", "b", "c", "d"], whips: [], footage: [] });
+    expect(suggestMatchCuts(timeline, {})).toEqual({ pairs: [], order: ["a", "b", "c", "d"] });
   });
 
   it("tells the Add media flow after which shots a candidate cuts well", () => {
@@ -300,20 +299,17 @@ describe("match cuts from measured motion", () => {
     expect(cutsWellAfter(timeline, { a: left, b: right }, down)).toEqual([]);
   });
 
-  it("reorders and matches whips through one command, as one step", () => {
+  it("reorders through one command, as one step, and refuses a retired transition", () => {
     const motion: Record<string, ClipMotion> = { a: left, b: right, c: left };
-    const timeline = reel([video("a", 0, 2000), video("b", 0, 2000, { transitionIn: "whip", whipDirection: "down" }), video("c", 0, 2000, { transitionIn: "whip" })]);
+    const timeline = reel([video("a", 0, 2000), video("b", 0, 2000), video("c", 0, 2000, { transitionIn: "softDissolve" })]);
     const result = applyCommand(timeline, { type: "matchCuts", motion }, { generation: 0 });
     expect(result.rejected).toBeUndefined();
     expect(result.timeline.clips.map((clip) => clip.id)).toEqual(["a", "c", "b"]);
-    // c now follows a (content left → camera right); b follows c, whose content also leaves left.
-    expect(result.timeline.clips[1].whipDirection).toBe("right");
-    expect(result.timeline.clips[2].whipDirection).toBe("right");
-    const whipsOnly = applyCommand(timeline, { type: "matchCuts", motion, reorder: false }, { generation: 0 });
-    expect(whipsOnly.timeline.clips.map((clip) => clip.id)).toEqual(["a", "b", "c"]);
-    expect(whipsOnly.timeline.clips[1].whipDirection).toBe("right");
-    const transition = applyCommand(timeline, { type: "setTransition", clipId: "c", transition: "whip", whipDirection: "up" }, { generation: 0 });
-    expect(transition.timeline.clips[2]).toMatchObject({ transitionIn: "whip", whipDirection: "up" });
+    expect(applyCommand(timeline, { type: "matchCuts", motion, reorder: false }, { generation: 0 }).timeline).toBe(timeline);
+    const transition = applyCommand(timeline, { type: "setTransition", clipId: "c", transition: "focusPull" }, { generation: 0 });
+    expect(transition.timeline.clips[2].transitionIn).toBe("focusPull");
+    const retired = applyCommand(timeline, { type: "setTransition", clipId: "c", transition: "whip" as never }, { generation: 0 });
+    expect(retired.rejected).toMatch(/retired/);
   });
 });
 
@@ -343,14 +339,14 @@ describe("ramp into cuts with Energy, and the commands over HTTP", () => {
     const result = applyCommand(timeline, { type: "batch", commands: [
       { type: "setRamp", clipId: "c0", ramp: "hold-snap" },
       { type: "setCamera", clipId: "c1", camera: "drift" },
-      { type: "setTransition", clipId: "c1", transition: "whip" },
+      { type: "setTransition", clipId: "c1", transition: "softDissolve" },
       { type: "matchCuts", motion, reorder: false },
     ] }, context);
     expect(result.rejected).toBeUndefined();
     const byId = Object.fromEntries(result.timeline.clips.map((clip) => [clip.id, clip]));
     expect(byId.c0.ramp?.preset).toBe("hold-snap");
     expect(byId.c1.camera?.preset).toBe("drift");
-    expect(byId.c1).toMatchObject({ transitionIn: "whip", whipDirection: "right" });
+    expect(byId.c1.transitionIn).toBe("softDissolve");
     expect(result.changes).toEqual(expect.arrayContaining([{ kind: "clip", id: "c0" }, { kind: "clip", id: "c1" }]));
     // One bad step refuses the whole batch; an unknown command is refused rather than passed as "no change".
     const bad = applyCommand(timeline, { type: "batch", commands: [{ type: "setRamp", clipId: "c0", ramp: "hit" }, { type: "setCamera", clipId: "nope", camera: "push" }] }, context);

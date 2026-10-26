@@ -10,14 +10,12 @@ describe("moves fixture", () => {
 
   it("writes the three moves onto their shots and nothing onto the others", () => {
     expect(clip("c2").camera?.keys[1].scale).toBeGreaterThan(1.6);
-    expect(clip("c2").transitionIn).toBe("speedRamp");
-    expect(clip("c2").speedRamp?.direction).toBe("zoom");
+    // The speed-ramp cut the crash zoom also wrote was retired (ADR 0082): the cut stays a cut.
+    expect(clip("c2").transitionIn).toBe("cut");
     expect(cameraKeysAt(clip("c3").camera!, 0).x).toBeLessThan(0);
     expect(cameraKeysAt(clip("c3").camera!, 1).x).toBeGreaterThan(0);
     expect(cameraKeysAt(clip("c4").camera!, 1).scale).toBeGreaterThan(1.9);
-    // The push through ends on a zoom blur into the next shot.
-    expect(clip("c5").transitionIn).toBe("speedRamp");
-    expect(clip("c5").speedRamp?.direction).toBe("zoom");
+    expect(clip("c5").transitionIn).toBe("cut");
     expect(clip("c1").camera ?? null).toBeNull();
     expect(clip("c1").transitionIn).toBe("cut");
     // The moves change how the shots look, never how long they are.

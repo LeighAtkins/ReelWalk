@@ -208,12 +208,12 @@ export const PersonMatteView: React.FC<{
 
   if (asset.kind !== "VIDEO") return null;
   if (warning) return isRendering ? null : <AbsoluteFill style={{ pointerEvents: "none" }}><MatteWarning text={warning} /></AbsoluteFill>;
-  // The same motion and ramp blur as the footage underneath, so the person stays on their own body (a transition's
+  // The same motion as the footage underneath, so the person stays on their own body (a transition's
   // slide or crossfade is the composition's AtCuts around this layer, ADR 0083).
   const shown = clipPresentation(clip, frame, fps, durationInFrames, opening);
   return (
     <AbsoluteFill style={{ pointerEvents: "none", opacity: shown.opacity, overflow: "hidden" }}>
-      <AbsoluteFill style={shown.blur}>
+      <AbsoluteFill>
         <canvas ref={canvas} width={width} height={height} data-matte-version={MATTE_VERSION} style={{ width: "100%", height: "100%", transform: shown.transform, filter: clipFilterCss(clip) }} />
       </AbsoluteFill>
     </AbsoluteFill>

@@ -364,8 +364,7 @@ Rules:
 - Refer to clips and texts by the numbers in the description. Those numbers never change during a plan: after an order, remove or add operation, clip 3 still means the third clip in the description, so number every operation from the description, not from the result of earlier operations. Never invent clips, assets or songs; the only songs you may switch to are in the list.
 - Times are milliseconds. A clip must be at least ${MIN_CLIP_MS} ms. A video clip cannot show more than its source has; a photo can be any length.
 - "Longer" without a number means about 1.5x the current length; "shorter" about 0.7x; "much" doubles the change. "Slower" halves speed, "faster" doubles it, within 0.5 to 3.
-- Transitions (op transition, clip 0 for every cut): cut; fade (through black, slow and soft); whip (a fast whip pan with motion blur and a whoosh: "whoosh", "swipe", "whip", "smooth transitions", "make it flow", "transitions like the house-tour reels"); speedRamp (the shot before speeds up into the cut and the next one settles out of it, with a blur and a small push in, silent: "speed ramp", "ramp the cut", "speed cut", "zoom blur transition"; the reel does not get longer); walk (only between two 360 photos with known positions). Whip and speedRamp are events, not a default: put them on at most two cuts of a reel from one ask, the rest stay hard cuts, unless the user names the cuts. Even "smooth transitions" or "speed ramps where appropriate" means two good cuts, not every cut.
-- Quieter transitions for a softer or more luxurious feel, never unless asked: softDissolve (a soft crossfade with a slight breath of scale: "dissolve", "soft transition", "blend the shots"), focusPull (a rack focus through a soft blur: "focus pull", "rack focus", "dreamy"), lightLeak (a warm light leak over the cut: "light leak", "film light", "warm flash").
+- Transitions (op transition, clip 0 for every cut): cut (no transition, the default and the house style); fade (a soft crossfade: "dissolve", "crossfade", "smooth transitions", "make it flow"); softDissolve (a crossfade with a slight breath of scale: "soft dissolve", "soft transition", "blend the shots"); focusPull (a rack focus through a soft blur: "focus pull", "rack focus", "dreamy"); lightLeak (a soft warm glint of light over the cut: "light leak", "film light", "warm flash"); walk (only between two 360 photos with known positions). There are no whip pans, swipes, whooshes or speed-ramp transitions: for those asks say they are not offered and leave the cuts. softDissolve, focusPull and lightLeak are events, not a default: put them on at most two cuts of a reel from one ask, the rest stay hard cuts, unless the user names the cuts. Even "smooth transitions where appropriate" means two good cuts, not every cut.
 - Looks: warm, cool, vivid, mono (black and white), fade (soft, filmic), golden (golden hour, late low sun), dusk (twilight, blue hour), crisp (bright, clean, the look of listing photography), none. Use clip 0 to apply to every clip when the user means the whole reel.
 - 360 photos (the clips marked "360 photo") are a camera turning inside the picture; each one's description gives its turn ("turns 90° clockwise"). op turn (clip) aims it: content names what to face (door, window, the view, the bed, the pool) and it is found in the picture; sweep is how far it turns on the way, 90 a quarter turn, 180 a half, 360 a full spin, 0 to hold still, negative to turn the other way (so "the other way" is the clip's turn with the sign flipped); null keeps the sweep it has. A sweep alone, with content and yaw null, keeps the direction the shot ends on. "Turn slower" or "faster" on a 360 photo is op trim with a longer or shorter lengthMs (the same sweep over more or less time), never speed. A 360 photo has no speed and no motion.
 - Zoom: op zoom (clip, zoom) crops closer into a shot about its centre: 1.3 is "a bit closer", 1.6 "much closer", 1 is the whole picture; clip 0 is every clip. It adds to any motion a photo has.
@@ -503,12 +502,12 @@ type ApplyOptions = {
   /** Media the reel may add (op add), by id. */
   unused?: AiAsset[];
   newId?: () => string;
-  /** The user named the cuts for an effect transition (`namesCuts`): the two-per-reel limit on whips and speed ramps does not apply. */
+  /** The user named the cuts for an effect transition (`namesCuts`): the two-per-reel limit on soft dissolves, focus pulls and light leaks does not apply. */
   namedCuts?: boolean;
 };
 
 /** Transitions that are an event rather than a hard cut. A reel of them on every cut reads as a template, so one ask gets at most `EFFECT_TRANSITION_LIMIT`. */
-const EFFECT_TRANSITIONS: ReadonlySet<string> = new Set(["whip", "speedRamp"]);
+const EFFECT_TRANSITIONS: ReadonlySet<string> = new Set(["softDissolve", "focusPull", "lightLeak"]);
 export const EFFECT_TRANSITION_LIMIT = 2;
 
 /** Whether a request points at particular cuts ("the cut into the kitchen", "between clips 2 and 3", "the last cut") rather than asking for them in general. */
@@ -568,7 +567,7 @@ export function applyAiEditPlan(timeline: Timeline, plan: Pick<AiEditPlan, "ops"
   // Clips added by this plan get numbers after the ones the model was shown.
   const added: string[] = [];
   const numberOf = (n: number) => clipIds[n - 1] ?? added[n - 1 - clipIds.length];
-  // Cuts this plan gave a whip or speed ramp, counted against the limit.
+  // Cuts this plan gave an effect transition, counted against the limit.
   const effectCuts = new Set<string>();
   const structural = () => plan.ops.some((op) => STRUCTURAL_OPS.has(op.op));
 
@@ -710,7 +709,7 @@ export function applyAiEditPlan(timeline: Timeline, plan: Pick<AiEditPlan, "ops"
           const fresh = eligible.filter((clip) => !effectCuts.has(clip.id));
           const take = Math.min(room, fresh.length);
           chosen = [...kept, ...Array.from({ length: take }, (_, k) => fresh[Math.min(fresh.length - 1, Math.floor(((k + 1) * fresh.length) / (take + 1)))])];
-          if (chosen.length < eligible.length) skipped.push(`transition ${op.transition}: only ${EFFECT_TRANSITION_LIMIT} cuts get a whip or speed ramp unless you name them; the rest stay cuts`);
+          if (chosen.length < eligible.length) skipped.push(`transition ${op.transition}: only ${EFFECT_TRANSITION_LIMIT} cuts get a ${op.transition} unless you name them; the rest stay cuts`);
           if (chosen.length === 0) break;
           for (const clip of chosen) effectCuts.add(clip.id);
         } else if (EFFECT_TRANSITIONS.has(op.transition)) for (const clip of eligible) effectCuts.add(clip.id);
@@ -1153,9 +1152,9 @@ export function fakeAiEditPlan(request: string, timeline: Timeline, songs: AiSon
     ops.push({ ...blank, op: "turn", clip: panoIndex + 1, yaw: timeline.clips[panoIndex].pano!.yawEnd, sweep: 360 });
     notes.push("The 360 shot does a full spin.");
   }
-  if (/\b(whoosh|whip|swipe|smooth transitions?)\b/.test(text) && timeline.clips.length > 1) {
-    ops.push({ ...blank, op: "transition", clip: 0, transition: "whip" });
-    notes.push("A couple of cuts are now a whip pan with a whoosh; name the cuts to add more.");
+  if (/\b(soft dissolves?|smooth transitions?|blend the shots)\b/.test(text) && timeline.clips.length > 1) {
+    ops.push({ ...blank, op: "transition", clip: 0, transition: "softDissolve" });
+    notes.push("A couple of cuts are now a soft dissolve; name the cuts to add more.");
   }
   const look = FILTERS.filter((name) => name !== "none").find((name) => text.includes(name)) ?? (/black and white/.test(text) ? "mono" : /golden hour/.test(text) ? "golden" : null);
   if (look) {

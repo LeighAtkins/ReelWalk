@@ -1,38 +1,30 @@
 import { describe, expect, it } from "vitest";
 import { TRANSITIONS, type Clip } from "@reelwalk/core";
-import { clipSpans, cutProgressAt, mediaHandles, planCuts, presentationFor, slideFrom, transitionFrames, whipAmountAt, type CutPlan } from "../src/reel/transition-plan";
+import { clipSpans, cutProgressAt, mediaHandles, planCuts, presentationFor, transitionFrames, type CutPlan } from "../src/reel/transition-plan";
 
-const entry = (transitionIn: Clip["transitionIn"], durationInFrames = 60, whipDirection?: Clip["whipDirection"]) => ({ clip: { transitionIn, whipDirection }, durationInFrames });
+const entry = (transitionIn: Clip["transitionIn"], durationInFrames = 60) => ({ clip: { transitionIn }, durationInFrames });
 
 describe("the schema's transition kinds as Remotion presentations (ADR 0083)", () => {
   it("maps every kind the schema has", () => {
     const mapped = Object.fromEntries(TRANSITIONS.map((kind) => [kind, presentationFor(kind)]));
-    expect(mapped).toEqual({ cut: "none", fade: "fade", whip: "whip", walk: "none", speedRamp: "none", softDissolve: "softDissolve", focusPull: "focusPull", lightLeak: "none" });
+    expect(mapped).toEqual({ cut: "none", fade: "fade", walk: "none", softDissolve: "softDissolve", focusPull: "focusPull", lightLeak: "none" });
   });
 
-  it("enters a whip from the side the camera pans towards", () => {
-    expect(slideFrom("right")).toBe("from-right");
-    expect(slideFrom("left")).toBe("from-left");
-    expect(slideFrom("up")).toBe("from-top");
-    expect(slideFrom("down")).toBe("from-bottom");
-    expect(slideFrom(undefined)).toBe("from-right");
-  });
-
-  it("keeps transitions short: 10 frames for a fade and 8 for a whip at 30 fps, never over 12 frames' worth", () => {
+  it("keeps transitions short: 10 frames for a fade and 12 for a soft dissolve at 30 fps, never over 12 frames' worth", () => {
     expect(transitionFrames("fade", 30)).toBe(10);
-    expect(transitionFrames("whip", 30)).toBe(8);
+    expect(transitionFrames("softDissolve", 30)).toBe(12);
     expect(transitionFrames("fade", 60)).toBe(20);
     expect(transitionFrames("fade", 24)).toBeLessThanOrEqual(Math.round((12 * 24) / 30));
-    expect(transitionFrames("whip", 1)).toBe(2);
+    expect(transitionFrames("focusPull", 1)).toBe(2);
   });
 });
 
 describe("planCuts", () => {
   it("centres each transition on the saved cut", () => {
-    const cuts = planCuts([entry("cut"), entry("fade"), entry("whip", 60, "up"), entry("speedRamp"), entry("cut")], 30);
+    const cuts = planCuts([entry("cut"), entry("fade"), entry("focusPull"), entry("lightLeak"), entry("cut")], 30);
     expect(cuts[0]).toEqual({ kind: "none" });
     expect(cuts[1]).toEqual({ kind: "fade", frames: 10, before: 5, after: 5 });
-    expect(cuts[2]).toEqual({ kind: "whip", frames: 8, before: 4, after: 4, direction: "from-top" });
+    expect(cuts[2]).toEqual({ kind: "focusPull", frames: 12, before: 6, after: 6 });
     expect(cuts[3]).toEqual({ kind: "none" });
     expect(cuts[4]).toEqual({ kind: "none" });
   });
@@ -51,7 +43,7 @@ describe("planCuts", () => {
 
   it("never lets a clip's two transitions overlap, so the series is always valid", () => {
     for (const d of [1, 2, 3, 5, 8, 9, 13, 30]) {
-      const plan = [entry("cut", d), entry("fade", d), entry("whip", d), entry("fade", d)];
+      const plan = [entry("cut", d), entry("fade", d), entry("softDissolve", d), entry("fade", d)];
       const cuts = planCuts(plan, 30);
       const spans = clipSpans(cuts);
       plan.forEach((clip, i) => {
@@ -69,7 +61,7 @@ describe("planCuts", () => {
 
 describe("clipSpans", () => {
   it("adds back exactly what the transitions overlap, so the reel's length and every cut stay put", () => {
-    const plan = [entry("cut", 61), entry("fade", 45), entry("whip", 90), entry("cut", 30), entry("fade", 75)];
+    const plan = [entry("cut", 61), entry("fade", 45), entry("softDissolve", 90), entry("cut", 30), entry("fade", 75)];
     const cuts = planCuts(plan, 30);
     const spans = clipSpans(cuts);
     const sequences = plan.map((clip, i) => spans[i].lead + clip.durationInFrames + spans[i].tail);
@@ -102,36 +94,20 @@ describe("cutProgressAt", () => {
 describe("mediaHandles", () => {
   const video = { kind: "VIDEO" as const, speed: 1, sourceStartMs: 1000, ramp: undefined };
   it("plays real footage either side when the source reaches that far", () => {
-    expect(mediaHandles(video, false, 10_000, 60, 5, 4, 30)).toEqual({ pre: 5, post: 4 });
+    expect(mediaHandles(video, 10_000, 60, 5, 4, 30)).toEqual({ pre: 5, post: 4 });
   });
   it("holds a frame where the source has nothing to lend", () => {
-    expect(mediaHandles({ ...video, sourceStartMs: 0 }, false, 10_000, 60, 5, 4, 30)).toEqual({ pre: 0, post: 4 });
-    expect(mediaHandles(video, false, 3000, 60, 5, 4, 30)).toEqual({ pre: 5, post: 0 });
-    expect(mediaHandles(video, false, null, 60, 5, 4, 30)).toEqual({ pre: 5, post: 0 });
+    expect(mediaHandles({ ...video, sourceStartMs: 0 }, 10_000, 60, 5, 4, 30)).toEqual({ pre: 0, post: 4 });
+    expect(mediaHandles(video, 3000, 60, 5, 4, 30)).toEqual({ pre: 5, post: 0 });
+    expect(mediaHandles(video, null, 60, 5, 4, 30)).toEqual({ pre: 5, post: 0 });
   });
-  it("never borrows for a photo, a ramp or a speed-planned clip", () => {
-    expect(mediaHandles({ ...video, kind: "IMAGE" }, false, 10_000, 60, 5, 4, 30)).toEqual({ pre: 0, post: 0 });
-    expect(mediaHandles(video, true, 10_000, 60, 5, 4, 30)).toEqual({ pre: 0, post: 0 });
+  it("never borrows for a photo or a ramp", () => {
+    expect(mediaHandles({ ...video, kind: "IMAGE" }, 10_000, 60, 5, 4, 30)).toEqual({ pre: 0, post: 0 });
+    expect(mediaHandles({ ...video, ramp: { preset: "hit" } as never }, 10_000, 60, 5, 4, 30)).toEqual({ pre: 0, post: 0 });
   });
   it("counts source time at the clip's speed", () => {
     // At 2× five frames are 333 ms of source: a 300 ms start cannot lend them.
-    expect(mediaHandles({ ...video, speed: 2, sourceStartMs: 300 }, false, 10_000, 60, 5, 0, 30).pre).toBe(0);
-    expect(mediaHandles({ ...video, speed: 2, sourceStartMs: 400 }, false, 10_000, 60, 5, 0, 30).pre).toBe(5);
-  });
-});
-
-describe("whipAmountAt", () => {
-  it("whips the outgoing shot away over the first half and the incoming one in over the second, never both", () => {
-    expect(whipAmountAt("exiting", 0)).toBe(0);
-    expect(whipAmountAt("exiting", 0.25)).toBe(-0.5);
-    expect(whipAmountAt("exiting", 0.5)).toBeNull();
-    expect(whipAmountAt("entering", 0.25)).toBeNull();
-    expect(whipAmountAt("entering", 0.5)).toBe(1);
-    expect(whipAmountAt("entering", 1)).toBe(0);
-    for (let p = 0; p <= 1; p += 0.05) expect([whipAmountAt("exiting", p), whipAmountAt("entering", p)].filter((a) => a !== null)).toHaveLength(1);
-  });
-  it("is at rest where the mattes' AtCuts wraps a layer outside its window (entering 1, exiting 0)", () => {
-    expect(whipAmountAt("entering", 1)).toBe(0);
-    expect(whipAmountAt("exiting", 0)).toBe(0);
+    expect(mediaHandles({ ...video, speed: 2, sourceStartMs: 300 }, 10_000, 60, 5, 0, 30).pre).toBe(0);
+    expect(mediaHandles({ ...video, speed: 2, sourceStartMs: 400 }, 10_000, 60, 5, 0, 30).pre).toBe(5);
   });
 });

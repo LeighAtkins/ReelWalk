@@ -127,11 +127,11 @@ function setFinishLook(timeline: Timeline, finish: Finish): Timeline {
 }
 
 /** A song set the way the setMusic command sets one (commands.ts `withMusic`): snapped to, then onto the bar when On the beat is on. */
-function withSong(timeline: Timeline, choice: MusicChoice, durations: Record<string, number | null | undefined>, speechAssetIds: readonly string[]): Timeline {
+function withSong(timeline: Timeline, choice: MusicChoice, durations: Record<string, number | null | undefined>): Timeline {
   const set = setMusic(timeline, { ...choice, volume: choice.volume ?? timeline.music?.volume ?? 0.8, onBeat: choice.onBeat ?? timeline.music?.onBeat ?? true });
   if (!set.music?.bpm || set.clips.length < 2) return set;
   const snapped = retimeTexts(timeline, snapCutsToBeats(set, durations));
-  return snapped.music?.onBeat ? putOnTheBeat(snapped, durations, speechAssetIds) : snapped;
+  return snapped.music?.onBeat ? putOnTheBeat(snapped) : snapped;
 }
 
 /** Without a tempo there is nothing to pace to: every shot about `shotMs`, except the held ones, which keep their windows. */
@@ -182,7 +182,7 @@ export function applyFinish(timeline: Timeline, id: FinishId, options: FinishOpt
   const speech = options.speechAssetIds ?? [];
   let current = setFinishLook(timeline, finish);
   // A song a finish picks is its own pick: the next finish may replace it, as it may any automatic pick.
-  if (options.music) current = withSong(current, { ...options.music, autoPicked: true }, durations, speech);
+  if (options.music) current = withSong(current, { ...options.music, autoPicked: true }, durations);
   if (current.music?.bpm) {
     const map = options.songMap && !current.music.downbeats?.length ? { downbeats: options.songMap.downbeats, sections: options.songMap.sections } : {};
     current = paceTimeline({ ...current, music: { ...current.music, ...map, energy: finish.energy } }, { energy: finish.energy, clipEnergy: options.clipEnergy, speechAssetIds: speech, sourceDurationsMs: durations });

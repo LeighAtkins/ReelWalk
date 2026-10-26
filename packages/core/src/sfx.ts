@@ -156,11 +156,10 @@ export function autoPlaceSfx(timeline: Timeline, options: AutoSfxOptions = {}): 
     placed.push({ id: `sfx-auto-whoosh-${placed.length + 1}`, sound, atMs: Math.max(0, atMs), ...(atMs < 0 ? { offsetMs: -atMs } : {}), auto: true, reason });
   };
 
-  // 1. Whooshes: every whip; hard cuts inside a quick-cut run when asked.
+  // 1. Whooshes: hard cuts inside a quick-cut run, when asked (the whip they used to go on was retired, ADR 0082).
   const quick = clips.map((clip) => clipDurationMs(clip) <= QUICK_CUT_MS);
   for (let i = 1; i < clips.length; i++) {
-    if (clips[i].transitionIn === "whip") whoosh(starts[i], `whoosh on the whip into clip ${i + 1}`);
-    else if (options.whooshHardCuts && clips[i].transitionIn === "cut" && quick[i - 1] && quick[i] && (quick[i - 2] || quick[i + 1])) whoosh(starts[i], `whoosh on the quick cut into clip ${i + 1}`);
+    if (options.whooshHardCuts && clips[i].transitionIn === "cut" && quick[i - 1] && quick[i] && (quick[i - 2] || quick[i + 1])) whoosh(starts[i], `whoosh on the quick cut into clip ${i + 1}`);
   }
 
   // 2. The reveal: a riser ending on it, a soft impact on it.

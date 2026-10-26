@@ -286,7 +286,9 @@ describe("the hook rules", () => {
   it("knows how long each entrance takes", () => {
     expect(titleLegibleAtMs({ text: "Hi", style: "plain", animation: "none" })).toBe(0);
     expect(titleLegibleAtMs({ text: "Hi", style: "plain", animation: "auto" })).toBe(150);
-    expect(titleLegibleAtMs({ text: "Hi", style: "elegant", animation: "auto" })).toBe(600);
+    // The elegant serif tracks in since ADR 0082 (readable by 250 ms); its old fade, asked for by name, still takes 600.
+    expect(titleLegibleAtMs({ text: "Hi", style: "elegant", animation: "auto" })).toBe(250);
+    expect(titleLegibleAtMs({ text: "Hi", style: "elegant", animation: "fade" })).toBe(600);
     expect(titleLegibleAtMs({ text: "Hi", style: "plain", animation: "rise" })).toBe(500);
     expect(titleLegibleAtMs({ text: "fourteen chars", style: "plain", animation: "type" })).toBe(1000);
     expect(titleLegibleAtMs({ text: "Hi", style: "plain", animation: "pop", kinetic: { preset: "words" } })).toBe(900);

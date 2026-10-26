@@ -102,7 +102,8 @@ describe("footage anchored AI edits", () => {
     expect(clipDurationMs(next.clips[1])).toBe(2000);
     expect(next.clips[2].transitionIn).toBe("cut");
     expect(next.texts[0]).toMatchObject({ startMs: 5000, endMs: 7000 });
-    expect(timeline.clips[1].transitionIn).toBe("whip");
+    // A whip saved before ADR 0082 reads as a cut.
+    expect(timeline.clips[1].transitionIn).toBe("cut");
     expect(parseTimeline(next)).toEqual(next);
   });
   it("refuses changed or moved boundaries, and ignores a repeated application", () => {

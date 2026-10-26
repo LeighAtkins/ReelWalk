@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { END_CARD_REVEALS, framePlan, parseTimeline, TEXT_ANIMATIONS, TRANSITIONS } from "@reelwalk/core";
+import { END_CARD_REVEALS, framePlan, parseTimeline, TEXT_ANIMATIONS, titleArrival, TRANSITIONS } from "@reelwalk/core";
 import { maskCss, REST, revealAmount, revealFrames, revealStyle, TITLE_REVEALS } from "../src/reel/toolbox/title-reveal";
 import { FOCUS_PULL_BLUR, focusPullStyle, SOFT_DISSOLVE_SCALE, softDissolveStyle } from "../src/reel/toolbox/presentations";
 import { LIGHT_LEAK_FRAMES_30, lightLeakOverlays } from "../src/reel/toolbox/cut-overlays";
-import { ENTER_FRAMES, plateOpacity } from "../src/reel/toolbox/EndCards";
+import { lineReveal } from "../src/reel/toolbox/EndCards";
+import { leakProgress, LIGHT_LEAK_LOOK } from "../src/reel/toolbox/LightLeak";
+import { lowerThirdAt } from "../src/reel/toolbox/LocationLowerThird";
 import { isTitleReveal } from "../src/reel/toolbox/RevealFace";
 
 /**
@@ -13,24 +15,27 @@ import { isTitleReveal } from "../src/reel/toolbox/RevealFace";
 const FPS = 30;
 
 describe("the schema", () => {
-  it("lists every new kind and keeps the old ones (saved reels parse unchanged)", () => {
-    expect(TRANSITIONS).toEqual(expect.arrayContaining(["cut", "fade", "whip", "walk", "speedRamp", "softDissolve", "focusPull", "lightLeak"]));
+  it("offers only the owner's kinds (2026-10-26)", () => {
+    expect(TRANSITIONS).toEqual(["cut", "fade", "walk", "softDissolve", "focusPull", "lightLeak"]);
     expect(TEXT_ANIMATIONS).toEqual(expect.arrayContaining(["auto", "pop", "fade", "rise", "type", "none", ...TITLE_REVEALS]));
-    expect(END_CARD_REVEALS).toEqual(["fade", "cut", "over", "leak"]);
+    expect(END_CARD_REVEALS).toEqual(["cut", "leak"]);
     for (const reveal of TITLE_REVEALS) expect(isTitleReveal(reveal)).toBe(true);
     expect(isTitleReveal("fade")).toBe(false);
   });
 
-  it("keeps the defaults: a cut, the style's own arrival, and a card with no reveal reads as the plate's fade", () => {
+  it("defaults: a cut, the elegant serif tracks in (the owner's pick), and a card with no reveal is the hard cut", () => {
     const timeline = parseTimeline({
       version: 1,
       clips: [{ id: "a", assetId: "x", kind: "VIDEO", sourceStartMs: 0, sourceEndMs: 2000 }],
-      texts: [{ id: "t", text: "Live above it all", startMs: 0, endMs: 2000 }],
+      texts: [{ id: "t", text: "Live above it all", startMs: 0, endMs: 2000, style: "elegant" }],
       music: null,
       endCard: { text: "ReelWalk", durationMs: 2000 },
     });
     expect(timeline.clips[0].transitionIn).toBe("cut");
     expect(timeline.texts[0].animation).toBe("auto");
+    expect(titleArrival(timeline.texts[0])).toBe("trackIn");
+    expect(titleArrival({ ...timeline.texts[0], style: "headline" })).toBe("pop");
+    expect(titleArrival({ ...timeline.texts[0], animation: "fadeQuick" })).toBe("fadeQuick");
     expect(timeline.endCard?.reveal).toBeUndefined();
   });
 
@@ -138,12 +143,41 @@ describe("light leaks over cuts", () => {
 });
 
 describe("end card reveals", () => {
-  it("the fade fades over ENTER_FRAMES; cut and leak are there on the first frame; over has no plate", () => {
-    expect(plateOpacity("fade", 0)).toBe(0);
-    expect(plateOpacity("fade", ENTER_FRAMES)).toBe(1);
-    expect(plateOpacity("cut", 0)).toBe(1);
-    expect(plateOpacity("leak", 0)).toBe(1);
-    expect(plateOpacity("over", 30)).toBe(0);
+  it("the cut's line is simply there; the leak's resolves out of a blur after the glint peaks", () => {
+    expect(lineReveal("cut", 0, FPS)).toBeNull();
+    expect(lineReveal("leak", 0, FPS)?.opacity).toBe(0);
+    expect(lineReveal("leak", 40, FPS)).toEqual(REST);
+  });
+  it("the glint is toned down: under half strength, amber, and never opened to a full-frame wash", () => {
+    expect(LIGHT_LEAK_LOOK.strength).toBeLessThanOrEqual(0.5);
+    expect(LIGHT_LEAK_LOOK.hueShift).toBeGreaterThan(0);
+    expect(LIGHT_LEAK_LOOK.hueShift).toBeLessThan(25);
+    expect(LIGHT_LEAK_LOOK.peak).toBeLessThan(1);
+    // It opens to peak × 0.5 in the middle and closes again; the effect's full sweep (0 to 1) only when peak is 1.
+    expect(leakProgress(0, 19, 0.75)).toBe(0);
+    expect(leakProgress(9, 19, 0.75)).toBeCloseTo(0.375, 9);
+    expect(leakProgress(18, 19, 0.75)).toBe(0);
+    expect(leakProgress(18, 19, 1)).toBe(1);
+  });
+});
+
+describe("the location lower third (Remotion Elements' curves)", () => {
+  it("draws the pin first, reveals the line from the left, and leaves in reverse", () => {
+    const D = 90;
+    expect(lowerThirdAt(0, D)).toMatchObject({ pinOpacity: 0, dashOffset: 1, cropRight: 1, textOpacity: 0 });
+    const mid = lowerThirdAt(45, D);
+    expect(mid).toMatchObject({ pinOpacity: 1, pinY: 0, pinScale: 1, fillOpacity: 1, dashOffset: 0, dotR: 9, textOpacity: 1 });
+    // The overdamped spring is all but settled by the middle.
+    expect(mid.cropRight).toBeLessThan(0.01);
+    // The line starts after the pin has begun (frame 14): before it nothing of the text shows.
+    expect(lowerThirdAt(10, D).textOpacity).toBe(0);
+    expect(lowerThirdAt(D - 1, D).pinOpacity).toBe(0);
+  });
+  it("compresses its timings on a short title instead of breaking", () => {
+    for (const D of [10, 30, 45, 71]) {
+      expect(() => lowerThirdAt(0, D)).not.toThrow();
+      expect(lowerThirdAt(Math.round(D / 2), D).textOpacity).toBeGreaterThan(0.9);
+    }
   });
 });
 

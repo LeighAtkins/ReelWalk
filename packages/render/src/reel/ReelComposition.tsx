@@ -17,14 +17,14 @@ import {
 // OffthreadVideo here, and it falls back to it for files it cannot decode.
 import { Video as RenderVideo } from "@remotion/media";
 import { TransitionSeries } from "@remotion/transitions";
-import { behindInPlane, BRAND_FONTS, calloutGeometry, calloutSvg, cameraAt, colorMatchFilterId, colorMatrixValues, countUpText, duckGain, evaluateTitle, flareCss, framePlan, hasSpeedRamps, hasSpeech, mediaWindow, glintLetter, glintSvg, INSTAGRAM, isInstagramMusic, kineticProgress, matrix3d, particleField, particleSvg, personLayerOpacity, REEL_FORMAT, sceneLayers, SFX_DUCK, SFX_SOUNDS, sfxAssetKey, sfxEndMs, sfxGainAt, shineAt, shineBandCss, shineSpec, slideFromBehind, planSpeedRamps, speechWindows, speedPlanOf, speedRampMediaWindow, TITLE_LEADING, timelineDurationMs, walkInto, wrapTitleLines, withSpeedPlans, wordReveal, type Clip, type Logo, type ParticleField, type PersonPass, type Plan, type SfxClip, type ShineFlare, type ShineGlint, type TextOverlay, type Timeline } from "@reelwalk/core";
+import { behindInPlane, BRAND_FONTS, calloutGeometry, calloutSvg, cameraAt, colorMatchFilterId, colorMatrixValues, countUpText, duckGain, evaluateTitle, flareCss, framePlan, mediaWindow, glintLetter, glintSvg, INSTAGRAM, isInstagramMusic, kineticProgress, matrix3d, particleField, particleSvg, personLayerOpacity, REEL_FORMAT, sceneLayers, SFX_DUCK, SFX_SOUNDS, sfxAssetKey, sfxEndMs, sfxGainAt, shineAt, shineBandCss, shineSpec, slideFromBehind, speechWindows, TITLE_LEADING, timelineDurationMs, titleArrival, walkInto, wrapTitleLines, wordReveal, type Clip, type Logo, type ParticleField, type PersonPass, type Plan, type SfxClip, type ShineFlare, type ShineGlint, type TextOverlay, type Timeline } from "@reelwalk/core";
 import { layoutMeasure } from "./measure";
 import { textExit, titleFont } from "./title-motion";
 import { revealStyle } from "./toolbox/title-reveal";
 import { isTitleReveal, RevealFace } from "./toolbox/RevealFace";
 import { lightLeakOverlays } from "./toolbox/cut-overlays";
 import { LightLeakOverlay } from "./toolbox/LightLeak";
-import { zoomFilterSpec, zoomStageId } from "./zoom-blur";
+import { LocationLowerThird } from "./toolbox/LocationLowerThird";
 import { clipPresentation } from "./presentation";
 import { clipSpans, mediaHandles, planCuts, type CutPlan } from "./transition-plan";
 import { AtCuts, presentationOf, timingOf } from "./transitions";
@@ -39,41 +39,6 @@ import { Watermark } from "./Watermark";
 import { PersonMatteView } from "./PersonMatte";
 import { ObjectMatteView } from "./ObjectMatte";
 import { HookView } from "./HookView";
-
-/**
- * The speed-ramp transition's blur: a directional Gaussian (ADR 0073), σ along x and y in px, edges duplicated so the
- * frame's border does not go clear; or a zoom blur (ADR 0074), a stack of copies scaled about the focus (zoom-blur.ts).
- */
-const SpeedBlur: React.FC<{ id: string; x: number; y: number; zoom: number; fx: number; fy: number }> = ({ id, x, y, zoom, fx, fy }) => {
-  if (zoom > 0) return <ZoomBlur id={id} spread={zoom} fx={fx} fy={fy} />;
-  return (
-    <svg width="0" height="0" style={{ position: "absolute" }} aria-hidden="true">
-      <filter id={id} x="-20%" y="-20%" width="140%" height="140%">
-        <feGaussianBlur stdDeviation={`${x.toFixed(2)} ${y.toFixed(2)}`} edgeMode="duplicate" />
-      </filter>
-    </svg>
-  );
-};
-
-/**
- * Zoom blur (ADR 0074) as one SVG filter per stage (zoom-blur.ts): the `feImage` ramp is the displacement map, the stage
- * displaces its input (the layer so far) and averages it with the original. The CSS `filter` chains the stages. sRGB so
- * the map is read as written, not as linear light.
- */
-const ZoomBlur: React.FC<{ id: string; spread: number; fx: number; fy: number }> = ({ id, spread, fx, fy }) => {
-  const spec = zoomFilterSpec(spread, fx, fy);
-  return (
-    <svg width="0" height="0" style={{ position: "absolute" }} aria-hidden="true">
-      {spec.stages.map((stage, s) => (
-        <filter key={s} id={zoomStageId(id, s)} x="0" y="0" width="100%" height="100%" colorInterpolationFilters="sRGB">
-          <feImage href={spec.map} x="0" y="0" width={spec.width} height={spec.height} preserveAspectRatio="none" result="zmap" />
-          <feDisplacementMap in="SourceGraphic" in2="zmap" scale={stage.scale.toFixed(2)} xChannelSelector="R" yChannelSelector="G" result="zc" />
-          <feComposite in="SourceGraphic" in2="zc" operator="arithmetic" k1="0" k2={stage.keep.toFixed(4)} k3={stage.add.toFixed(4)} k4="0" />
-        </filter>
-      ))}
-    </svg>
-  );
-};
 
 /**
  * The clip's colour match (ADR 0070) as an SVG filter the CSS `filter: url(#…)`
@@ -133,10 +98,8 @@ const Media: React.FC<{
   if (asset.kind === "IMAGE") return <Img src={resolveSrc(asset.src)} style={style} />;
   // Frame-exact cuts (ADR 0067): the window covers the whole sequence, never one frame short of the cut; a ramp
   // moves the rate per frame and fades the clip's own sound where the picture runs far from its mean speed.
-  // A clip on a speed-ramp cut (ADR 0073) plays along its plan, which the composition attached; every other clip as before.
-  const speedPlan = speedPlanOf(clip);
   const borrowed = pre > 0 ? { ...clip, sourceStartMs: clip.sourceStartMs - (pre * 1000 * (clip.speed || 1)) / fps } : clip;
-  const window = speedPlan ? speedRampMediaWindow(clip, speedPlan, frame, fps) : mediaWindow(borrowed, frame, durationInFrames + pre + post, fps);
+  const window = mediaWindow(borrowed, frame, durationInFrames + pre + post, fps);
   const gain = clip.volume * window.gain;
   const timing = {
     src: resolveSrc(asset.src),
@@ -190,7 +153,7 @@ const ClipView: React.FC<{
 
   // Clamped: a clip is mounted a second early (premount) with negative frames, and draws its handles past either end.
   const progress = durationInFrames > 1 ? Math.min(1, Math.max(0, frame / (durationInFrames - 1))) : 0;
-  const { transform, opacity: shown, blur, speedBlur } = clipPresentation(clip, Math.min(frame, durationInFrames - 1), fps, durationInFrames, opening);
+  const { transform, opacity: shown } = clipPresentation(clip, Math.min(frame, durationInFrames - 1), fps, durationInFrames, opening);
 
   if (clip.pano && asset.kind === "IMAGE") {
     const clipMs = (durationInFrames * 1000) / fps;
@@ -200,8 +163,7 @@ const ClipView: React.FC<{
       ? cameraAt(plan, from.clip, clip, (Math.max(0, Math.min(frame, durationInFrames)) * 1000) / fps, clipMs)
       : cameraAt(plan, undefined, clip, progress, 1);
     return (
-      <AbsoluteFill style={{ opacity: shown, backgroundColor: "#000", ...blur }}>
-        {speedBlur ? <SpeedBlur {...speedBlur} /> : null}
+      <AbsoluteFill style={{ opacity: shown, backgroundColor: "#000" }}>
         <ColorMatchFilter clip={clip} />
         <PanoView
           src={resolveSrc(asset.src)}
@@ -216,7 +178,7 @@ const ClipView: React.FC<{
   }
 
   // The handles: footage borrowed from either side of the clip, or the end frame held where the source has none.
-  const { pre, post } = mediaHandles(clip, Boolean(speedPlanOf(clip)), asset.durationMs, durationInFrames, lead, tail, fps);
+  const { pre, post } = mediaHandles(clip, asset.durationMs, durationInFrames, lead, tail, fps);
   const liveFrom = lead - pre, liveTo = lead + durationInFrames + post;
   const held = sequenceFrame < liveFrom ? liveFrom : sequenceFrame >= liveTo ? liveTo - 1 : null;
   // Always mounted the same way (Freeze toggled, never added), so a handle never remounts the video mid-transition.
@@ -230,9 +192,8 @@ const ClipView: React.FC<{
 
   return (
     <AbsoluteFill style={{ opacity: shown, overflow: "hidden" }}>
-      {speedBlur ? <SpeedBlur {...speedBlur} /> : null}
       <ColorMatchFilter clip={clip} />
-      <AbsoluteFill style={blur}>
+      <AbsoluteFill>
       {clip.fit === "contain" ? (
         // Letterboxed: the same picture, blurred and enlarged, fills the 9:16 frame behind it.
         <AbsoluteFill style={{ filter: "blur(48px) brightness(0.7)", transform: "scale(1.25)" }}>
@@ -259,7 +220,7 @@ const TYPE_CHARS_PER_S = 14;
  * way in: the slow fade of the elegant serif, a pop for everything else.
  */
 function textMotion(text: TextOverlay, frame: number, fps: number, durationInFrames: number): { scale: number; opacity: number; rise: number; chars: number | null } {
-  const animation = text.animation === "auto" ? (text.style === "elegant" ? "fade" : "pop") : text.animation;
+  const animation = titleArrival(text);
   const clamp = { extrapolateLeft: "clamp", extrapolateRight: "clamp" } as const;
   const still = { scale: 1, opacity: 1, rise: 0, chars: null };
   switch (animation) {
@@ -470,6 +431,8 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
   // Word-by-word and from-behind type bring the words in themselves but keep the way out (an elegant fade) (ADR 0061);
   // a callout has its own reveal and exit; a count replaces the typewriter.
   const arrives = text.callout || (text.kinetic?.preset === "count" && text.animation === "type") ? { ...text, animation: "none" as const } : text;
+  // The arrival as drawn, "auto" read as the style's own (the elegant serif tracks in, ADR 0082).
+  const arrival = titleArrival(arrives);
   const { scale, opacity, rise, chars } = text.kinetic && text.kinetic.preset !== "count" && !text.callout ? textExit(text, frame, fps, durationInFrames) : textMotion(arrives, frame, fps, durationInFrames);
   /** The golden-hour streak on this frame; `aspect` is the words' box height / width, for where the tilted band crosses its middle. */
   const flareAt = (aspect: number) => (text.shine ? shineAt(text.shine, (frame * 1000) / fps, aspect).flare : null);
@@ -600,9 +563,9 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
         {moving ? (
           <span style={{ ...motionFace, ...(slide ? { transform: `translateX(${slide.dx.toFixed(2)}px)${lean}` } : {}) }}>{letters(0.25)}</span>
         ) : chars === null ? (
-          isTitleReveal(arrives.animation) ? (
-            <RevealFace face={face} text={text.text} reveal={revealStyle(arrives.animation, frame, fps, durationInFrames)} masked={arrives.animation === "maskUp"}
-              lines={arrives.animation === "trackIn" && wrap.mode === "wrap" ? wrapTitleLines(text.text, font, measure, wrap.width) : null} />
+          isTitleReveal(arrival) ? (
+            <RevealFace face={face} text={text.text} reveal={revealStyle(arrival, frame, fps, durationInFrames)} masked={arrival === "maskUp"}
+              lines={arrival === "trackIn" && wrap.mode === "wrap" ? wrapTitleLines(text.text, font, measure, wrap.width) : null} />
           ) : <span style={face}>{text.text}</span>
         ) : (
           <span style={{ ...css, position: "relative" }}>
@@ -721,15 +684,8 @@ const NO_CUT: CutPlan = { kind: "none" };
  * The whole reel. Used by the Player in the editor and by the worker for the
  * final MP4, so the export always matches the preview.
  */
-export const ReelComposition: React.FC<ReelProps> = ({ timeline: saved, assets, watermark = false }) => {
+export const ReelComposition: React.FC<ReelProps> = ({ timeline, assets, watermark = false }) => {
   const { fps } = useVideoConfig();
-  // Speed-ramp cuts (ADR 0073) are planned here, once, from the frame plan and the assets' lengths, and each clip they
-  // touch carries its plan: the media, the mattes and the blur all read the same frames, in the preview and the export.
-  const timeline = React.useMemo(() => {
-    if (!hasSpeedRamps(saved)) return saved;
-    const frames = framePlan(saved, fps).clips;
-    return withSpeedPlans(saved, planSpeedRamps(frames.map(({ clip, durationInFrames }) => ({ clip, durationInFrames, sourceDurationMs: assets[clip.assetId]?.durationMs ?? null, speech: hasSpeech(assets[clip.assetId]?.transcript) })), fps));
-  }, [saved, assets, fps]);
   const plan = framePlan(timeline, fps);
   // Every cut as a Remotion transition centred on its saved frame (ADR 0083): the series' sequences are each clip's
   // saved span plus the halves of the transitions either side, so every cut, title and sound stays where it was.
@@ -787,7 +743,7 @@ export const ReelComposition: React.FC<ReelProps> = ({ timeline: saved, assets, 
           const { text, from, durationInFrames } = layer;
           return (
             <Sequence key={text.id} from={from} durationInFrames={durationInFrames} name={`text ${text.text.slice(0, 12)}`}>
-              <TextView text={text} durationInFrames={durationInFrames} timeline={timeline} from={from} />
+              {text.style === "location" ? <LocationLowerThird text={text} /> : <TextView text={text} durationInFrames={durationInFrames} timeline={timeline} from={from} />}
             </Sequence>
           );
         }

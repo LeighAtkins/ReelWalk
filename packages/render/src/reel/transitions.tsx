@@ -1,60 +1,23 @@
-import React, { useId } from "react";
-import { AbsoluteFill, Easing, useCurrentFrame, useVideoConfig } from "remotion";
-import { linearTiming, type TransitionPresentation, type TransitionPresentationComponentProps, type TransitionTiming } from "@remotion/transitions";
+import React from "react";
+import { Easing, useCurrentFrame, useVideoConfig } from "remotion";
+import { linearTiming, type TransitionPresentation, type TransitionTiming } from "@remotion/transitions";
 import { fade } from "@remotion/transitions/fade";
-import type { Clip } from "@reelwalk/core";
-import { whipAmountAt, type CutPlan, type SlideFrom } from "./transition-plan";
-import { whipGeometry } from "./whip";
+import type { CutPlan } from "./transition-plan";
 import { focusPull, softDissolve } from "./toolbox/presentations";
 
 /**
  * The Remotion presentation and timing of each cut kind (ADR 0083; the mapping is in transition-plan.ts).
  *
- * The fade is Remotion's `fade()`. The whip is our own presentation (the transitions skill's custom-presentation
- * pattern) because, side by side, Remotion's were clearly worse for it (ADR 0083): `slide()` pushes a sharp seam
- * across the frame with no motion blur, and `blur-slide` draws through HTML-in-canvas, which a phone's browser lacks
- * (the Player falls back to a hard cut at the midpoint) and which drew a plain cut in our local render too. Both are
- * CSS and SVG, so the editor's Player on a phone draws exactly what the worker exports.
+ * The fade is Remotion's `fade()`; the soft dissolve and the focus pull are the toolbox's (ADR 0082). All three are
+ * CSS, so the editor's Player on a phone draws exactly what the worker exports. The whip pan that was drawn here was
+ * retired (ADR 0082); Remotion's shader transitions draw through HTML-in-canvas, which a phone's browser lacks.
  */
 type AnyPresentation = TransitionPresentation<Record<string, unknown>>;
 
-/** The fade eases in and out (a linear crossfade dips in the middle on bright footage); the whip is fast through its middle. */
-const EASING = { fade: Easing.inOut(Easing.quad), whip: Easing.inOut(Easing.cubic), softDissolve: Easing.inOut(Easing.quad), focusPull: Easing.linear } as const;
-
-/** The camera pan a whip's slide direction came from (transition-plan's slideFrom, inverted). */
-const PAN: Record<SlideFrom, NonNullable<Clip["whipDirection"]>> = { "from-right": "right", "from-left": "left", "from-top": "up", "from-bottom": "down" };
-
-type WhipProps = { pan: NonNullable<Clip["whipDirection"]> };
-
-/**
- * The whip pan (whip.ts's geometry, ADR 0083): the outgoing shot streaks away over the first half of the transition
- * and the incoming one streaks in over the second, each displaced, stretched and blurred along the pan, exactly as
- * the clip-level whip drew them before (4 frames out, 4 in), now as a TransitionSeries presentation on Remotion's timing.
- * The blur filter is always mounted, so the footage under it is never remounted as the whip starts or ends.
- */
-const WhipPresentation: React.FC<TransitionPresentationComponentProps<WhipProps>> = ({ children, presentationDirection, presentationProgress, passedProps }) => {
-  const id = `whip-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
-  const at = whipAmountAt(presentationDirection, presentationProgress);
-  const shown = at !== null, amount = at ?? 0;
-  const g = whipGeometry(amount, passedProps.pan);
-  return (
-    <AbsoluteFill style={{ visibility: shown ? "visible" : "hidden", overflow: "hidden" }}>
-      <svg width="0" height="0" style={{ position: "absolute" }} aria-hidden="true">
-        <filter id={id} x="-20%" y="-20%" width="140%" height="140%">
-          <feGaussianBlur stdDeviation={`${g.blurX} ${g.blurY}`} edgeMode="duplicate" />
-        </filter>
-      </svg>
-      <AbsoluteFill style={amount === 0 ? undefined : { transform: `translate(${g.x}%, ${g.y}%) scale(${g.scaleX}, ${g.scaleY})`, filter: `url(#${id})` }}>{children}</AbsoluteFill>
-    </AbsoluteFill>
-  );
-};
-
-export function whipPan(pan: NonNullable<Clip["whipDirection"]>): TransitionPresentation<WhipProps> {
-  return { component: WhipPresentation, props: { pan } };
-}
+/** The crossfades ease in and out (a linear crossfade dips in the middle on bright footage); the focus pull eases itself. */
+const EASING = { fade: Easing.inOut(Easing.quad), softDissolve: Easing.inOut(Easing.quad), focusPull: Easing.linear } as const;
 
 export function presentationOf(cut: Exclude<CutPlan, { kind: "none" }>): AnyPresentation {
-  if (cut.kind === "whip") return whipPan(PAN[cut.direction ?? "from-right"]) as unknown as AnyPresentation;
   // The toolbox's two (ADR 0082): CSS, so the phone Player draws them too.
   if (cut.kind === "softDissolve") return softDissolve();
   if (cut.kind === "focusPull") return focusPull();

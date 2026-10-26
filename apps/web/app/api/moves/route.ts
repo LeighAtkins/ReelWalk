@@ -13,7 +13,7 @@ export function GET() {
       id: move.id, label: move.label, group: move.group, groupLabel: MOVE_GROUP_LABELS[move.group], blurb: move.blurb,
       aiOnly: move.real === null, aiOnlyBecause: move.aiOnly ?? null,
       real: move.real ? { camera: move.real.camera === undefined ? "unchanged" : move.real.camera === null ? "cleared" : typeof move.real.camera === "string" ? move.real.camera : "keys",
-        speedRamp: move.real.ramp ?? null, zoomBlurIntoClip: move.real.cutIn ?? null, zoomBlurIntoNextClip: move.real.cutOut ?? null } : null,
+        speedRamp: move.real.ramp ?? null } : null,
       ai: { lens: move.ai.lens, hands: move.ai.hands, seconds: move.ai.seconds, best: move.ai.best, prompt: movePrompt(move.id) },
     })),
     draft: { model: AI_DRAFT_MODEL, credits: AI_DRAFT_CREDITS, reservedCentsPerSecond: aiDraftCostCents(4) / 4 },

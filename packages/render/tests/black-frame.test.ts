@@ -46,9 +46,9 @@ describe("black-frame fixture", () => {
     expect(Math.max(...points.map((p) => p.frame))).toBeLessThan(plan.totalFrames);
   });
 
-  it("exercises the new motion too: a ramp into the first cut, an eased move, a whip", () => {
+  it("exercises the new motion too: a ramp into the first cut, an eased move, a soft dissolve", () => {
     expect(timeline.clips[0].ramp?.preset).toBe("into-cut");
     expect(timeline.clips[1].camera?.preset).toBe("push-settle");
-    expect(timeline.clips[2]).toMatchObject({ transitionIn: "whip", whipDirection: "left" });
+    expect(timeline.clips[2].transitionIn).toBe("softDissolve");
   });
 });

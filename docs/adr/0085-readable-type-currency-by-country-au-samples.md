@@ -25,8 +25,7 @@ unreadable. We want people to read."
 
 - `--display` is **Playfair Display** (OFL 1.1, `@fontsource-variable/playfair-display` 5.3.0, already the
   renderer's serif since ADR 0083) at weight 500–600. Bodoni's optical-size settings go with it. Display
-  headings are never below 22 px (the account cards' and the Judge view's h2 move from 17 px to 22 px; the
-  first-export message from 19 px to 22 px).
+  headings are never below 22 px (the account cards' h2 move from 17 px to 22 px).
 - Body stays Archivo at 16 px, line-height 1.5. On the landing and pricing pages nothing is below 15 px, and
   only small print (`.fine`, the sample caption, "a month, billed monthly", the price small print) is at
   15 px; the top bar, the interval switch, plan descriptions and features, the footer are 16 px; feature
@@ -38,10 +37,12 @@ unreadable. We want people to read."
   tokens in `globals.css` (ivory on noir 16.99:1, stone on noir 7.59:1, ivory on soot 15.80:1, stone on soot
   7.05:1, noir on ivory buttons 16.99:1; all above 4.5:1, so the colours stay) and reads the stylesheets for
   the size, weight and line-height rules above.
-- A missing `}` after `.hook-drawn > summary` (since #214, ADR 0068) had nested every later rule in
-  `globals.css` under that selector: the render checks, the Judge view and the first-export message were
-  unstyled in production. The brace is closed and the readability test fails if the stylesheet's blocks do
-  not balance.
+- **Found, not fixed here:** `globals.css` has had an unclosed `.hook-drawn > summary {` since #214 (ADR 0068),
+  so CSS nesting puts every later rule (about 400 lines: the render checks, the Judge view, the mix strip, the
+  move cards, the workspace switcher, the first-export message) under that selector, where none of it matches.
+  Closing the brace was tried on this branch. It switched all of that on at once, and the editor's
+  make-and-export e2e then never reached "saved" (it failed twice). So the fix is left for its own change with
+  its own checks. This branch's rules sit above the block, and the readability test checks they are at the top level.
 
 ### 2. A$ in Australia, US$ everywhere else
 

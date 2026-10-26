@@ -137,8 +137,9 @@ const PLAIN_PX_PER_SIZE = 76;
  * Glyph extents, measured from the bundled fonts at the weights drawn (fontTools on playfair-display-latin-wght-normal
  * at wght 600, archivo-latin-wdth-italic at wght 500 wdth 100): each glyph's top and bottom in em from the baseline.
  * Used to keep a companion line's ink off the keyword's (round-1 review: "Try" over "free" put the y's tail on the f;
- * round 2: Playfair's old-style figures 3 4 5 7 9 hang below the line and its $ rises above the ascenders). A character
- * not measured is taken as the font's tallest and deepest.
+ * round 2: Playfair's old-style figures 3 4 5 7 9 hang below the line and its $ rises above the ascenders). A keyword
+ * or companion with a character not measured (an accented capital, a symbol) does not interlock: its extents are not
+ * known, so the phrase keeps the caption track (round 3).
  */
 type Ink = { glyphs: Map<string, [number, number]>; top: number; bottom: number };
 const inkTable = (groups: [string, number, number][]): Ink => {
@@ -161,6 +162,8 @@ const ARCHIVO_ITALIC_INK = inkTable([
 ]);
 /** Clear space kept between a companion's ink and the keyword's, as a share of the companion's capitals. */
 const INK_GAP = 0.25;
+/** Whether every character of `text` has measured extents in both fonts (spaces have no ink). */
+const measured = (text: string) => [...text].every((ch) => /\s/.test(ch) || (PLAYFAIR_INK.glyphs.has(ch) && ARCHIVO_ITALIC_INK.glyphs.has(ch)));
 const inkTop = (ch: string, ink: Ink) => (/\s/.test(ch) ? 0 : ink.glyphs.get(ch)?.[0] ?? ink.top);
 const inkBottom = (ch: string, ink: Ink) => (/\s/.test(ch) ? 0 : ink.glyphs.get(ch)?.[1] ?? ink.bottom);
 /** The base of letters that sit on the line (a round letter's overshoot): below it, a tail is in the way. */
@@ -349,6 +352,8 @@ export function placeCompanions(keyword: { x: number; y: number; size: number; w
   const roomLeft = SAFE_AREA.left + AIR, roomRight = BUTTON_COLUMN_X - AIR;
   const maxWidth = Math.min(roomRight - roomLeft, Math.max(keyword.widthFraction, 0.18) * COMPANION_MAX_WIDTH_RATIO);
   const inset = COMPANION_INSET * keyword.widthFraction;
+  // Only glyphs whose ink was measured can be kept clear of each other; anything else keeps the caption track.
+  if (!measured(`${keyword.text ?? ""}${before}${after}`)) return null;
   const placed: CompanionPlacement[] = [];
   for (const [text, position] of [[before, "over"], [after, "under"]] as const) {
     if (!text) continue;

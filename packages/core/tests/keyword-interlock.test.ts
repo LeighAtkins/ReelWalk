@@ -134,6 +134,12 @@ describe("composeKeywordLockups with interlock", () => {
     expect(lineBaseline(under) - 0.723 * em(under)).toBeGreaterThan(baseline(three) + 0.151 * fontH(three));
   });
 
+  it("keeps the caption track for a character whose ink was not measured, such as an accented capital (round-3 review)", () => {
+    const elite = placeKeyword("Élite", KEYWORD_CAP, { x0: 0.45, y0: 0.52, x1: 0.58, y1: 0.61 });
+    expect(placeCompanions({ ...elite, text: "Élite" }, "Visit", "")).toBeNull();
+    expect(placeCompanions({ ...elite, text: "Elite" }, "Visit", "")).not.toBeNull();
+  });
+
   it("keeps the caption track when a companion would be on too briefly to read, so no word is dropped (round-1 review)", () => {
     const quick: Record<string, TranscriptWord[]> = { [PIER]: [{ w: "Do", s: 0, e: 300 }, { w: "this", s: 400, e: 700 }, { w: "now.", s: 800, e: 940 }] };
     const short = parseTimeline({ version: 1, music: null, texts: [], clips: [{ id: "pier", assetId: PIER, kind: "VIDEO", sourceStartMs: 0, sourceEndMs: 950 }] });

@@ -222,8 +222,9 @@ wall, one spot for 13 s) are about footage and were addressed in the proof below
   whole phrase keeps the caption track.
 - **Ink never touches ink.** The over-line on the cap line still hit tall letters ("Try" over "free": the y's tail on
   the f). Every glyph's top and bottom was measured from the bundled fonts with fontTools at the drawn weights
-  (Playfair Display 600, Archivo italic 500) into a per-character table; a character not in it counts as the font's
-  tallest and deepest. Round 2 of the review found why a table and not letter classes: Playfair's figures are
+  (Playfair Display 600, Archivo italic 500) into a per-character table (Latin letters, figures, common punctuation);
+  a keyword or companion with a character not in it (an accented capital such as É reaches 0.94 em) keeps the caption
+  track rather than guess. Round 2 of the review found why a table and not letter classes: Playfair's figures are
   old-style (3 4 5 7 9 hang to −0.15 em) and its $ rises to 0.84 em, past the ascenders (0.783). `placeCompanions`
   takes the keyword's text, finds the keyword's glyphs under each line's span, and moves the line clear by a quarter
   of its capitals: the over-line up past the tallest glyph and its own tails, the under-line down only when a keyword

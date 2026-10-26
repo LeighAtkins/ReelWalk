@@ -8,7 +8,8 @@
  * right), named the way the eye follows it.
  */
 
-export type FlowDirection = "left" | "right" | "up" | "down" | "push" | "pull" | "static";
+/** Content motion as the eye follows it; "rotate" is a turn (a drone orbit), ADR 0086's second version. */
+export type FlowDirection = "left" | "right" | "up" | "down" | "push" | "pull" | "rotate" | "static";
 export type FacetPoint = { x: number; y: number };
 export type FacetBox = { x: number; y: number; w: number; h: number };
 
@@ -17,7 +18,8 @@ export type PlannerSample = {
   sharpness: number;
   steady: number;
   luma: number;
-  flow: { dx: number; dy: number; zoom: number; magnitude: number; residual: number };
+  /** dx and dy both in frame widths a second; `rotate` rad/s (optional); `residual` is localised unexplained change. */
+  flow: { dx: number; dy: number; zoom: number; magnitude: number; residual: number; rotate?: number };
   saliency: FacetPoint & { strength: number };
 };
 
@@ -42,13 +44,14 @@ export type PlannerAnalysis = {
   };
 };
 
-/** Below this edge speed (frame widths a second) a window reads as static (the contract's STATIC_FW_PER_S). */
-export const STATIC_FW_PER_S = 0.02;
+/** Below this edge speed (frame widths a second) a window reads as static (the contract's STATIC_FW_PER_S, 0.01 since its second version). */
+export const STATIC_FW_PER_S = 0.01;
 const REEL_ASPECT = 9 / 16;
 
-export function flowDirection(flow: { dx: number; dy: number; zoom: number }, still = STATIC_FW_PER_S): FlowDirection {
-  const slide = Math.hypot(flow.dx, flow.dy), zoomEdge = Math.abs(flow.zoom) * 0.5;
-  if (Math.max(slide, zoomEdge) < still) return "static";
+export function flowDirection(flow: { dx: number; dy: number; zoom: number; rotate?: number }, still = STATIC_FW_PER_S): FlowDirection {
+  const slide = Math.hypot(flow.dx, flow.dy), zoomEdge = Math.abs(flow.zoom) * 0.5, turn = Math.abs(flow.rotate ?? 0) * 0.5;
+  if (Math.max(slide, zoomEdge, turn) < still) return "static";
+  if (turn > slide && turn > zoomEdge) return "rotate";
   if (zoomEdge >= slide / 1.33) return flow.zoom > 0 ? "push" : "pull";
   if (Math.abs(flow.dx) >= Math.abs(flow.dy)) return flow.dx > 0 ? "right" : "left";
   return flow.dy > 0 ? "down" : "up";
@@ -69,8 +72,8 @@ export function meanFlow(samples: readonly PlannerSample[], startMs: number, end
   const inside = samples.filter((s) => s.t >= startMs && s.t < endMs);
   if (!inside.length) return { dx: 0, dy: 0, zoom: 0, direction: "static", magnitude: 0 };
   const mean = (pick: (s: PlannerSample) => number) => inside.reduce((sum, s) => sum + pick(s), 0) / inside.length;
-  const dx = mean((s) => s.flow.dx), dy = mean((s) => s.flow.dy), zoom = mean((s) => s.flow.zoom);
-  return { dx, dy, zoom, direction: flowDirection({ dx, dy, zoom }, still), magnitude: Math.max(Math.hypot(dx, dy), Math.abs(zoom) * 0.5) };
+  const dx = mean((s) => s.flow.dx), dy = mean((s) => s.flow.dy), zoom = mean((s) => s.flow.zoom), rotate = mean((s) => s.flow.rotate ?? 0);
+  return { dx, dy, zoom, direction: flowDirection({ dx, dy, zoom, rotate }, still), magnitude: Math.max(Math.hypot(dx, dy), Math.abs(zoom) * 0.5, Math.abs(rotate) * 0.5) };
 }
 
 export function sampleAt(samples: readonly PlannerSample[], t: number): PlannerSample | null {

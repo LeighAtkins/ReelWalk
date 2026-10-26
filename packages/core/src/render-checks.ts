@@ -492,7 +492,7 @@ export function renderChecks(input: RenderChecksInput): RenderChecks {
   return input.audio === undefined || input.audio === null ? result : withAudioProblems(result, input.audio);
 }
 
-const CUT_GRAMMAR_TITLES = { "naked-cut": "Naked cut", repeat: "Same technique twice", static: "Static span", "no-surprise": "No surprise" } as const;
+const CUT_GRAMMAR_TITLES = { "naked-cut": "Naked cut", repeat: "Same technique twice", static: "Static span", "no-surprise": "No surprise", "hook-contrast": "Hook hard to read" } as const;
 
 /** Checks in order (blocks first, then by time) and the verdict that follows from them. */
 function sealChecks(result: RenderChecks): RenderChecks {

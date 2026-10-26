@@ -10,7 +10,7 @@
  *   a surprise every 3–5 s  a pattern break (a reveal, a scale jump, a zoom-through) at least every 6 s
  *
  * The gate fails on a naked cut, two identical techniques in a row, a static span over 1.5 s or no surprise for over
- * 6 s. Pure: the planner checks its own cut with it, the critic reports it, the commands route returns it.
+ * 6 s, or an opening title under 4.5:1 against what is measured under it (when it was measured). Pure: the planner checks its own cut with it, the critic reports it, the commands route returns it.
  */
 import { clipDurationMs, clipStartsMs, timelineDurationMs, type Clip, type Timeline } from "./timeline";
 import type { CutTechnique } from "./cut-schema";
@@ -95,7 +95,7 @@ export function staticSpans(timeline: Timeline, stillClipIds: ReadonlySet<string
   return spans;
 }
 
-export type CutGrammarFailure = { kind: "naked-cut" | "repeat" | "static" | "no-surprise"; atMs: number; detail: string };
+export type CutGrammarFailure = { kind: "naked-cut" | "repeat" | "static" | "no-surprise" | "hook-contrast"; atMs: number; detail: string };
 export type CutGrammarWarning = { kind: "overused" | "eye-jump"; atMs: number; detail: string };
 
 export type CutGrammarReport = {
@@ -122,7 +122,8 @@ const seconds = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
  * The reel against the cut grammar. `signature` is a technique the reel is built on (a background-swap walk) and may
  * repeat; `stillClipIds` names video clips the caller measured as still.
  */
-export function cutGrammarReport(timeline: Timeline, options: { stillClipIds?: ReadonlySet<string>; signature?: CutTechnique | null } = {}): CutGrammarReport {
+/** `hookContrast`: the opening title's measured contrast (legibility.ts), when frames were read; under 4.5 fails. */
+export function cutGrammarReport(timeline: Timeline, options: { stillClipIds?: ReadonlySet<string>; signature?: CutTechnique | null; hookContrast?: number | null } = {}): CutGrammarReport {
   const cuts = readCuts(timeline);
   const total = timelineDurationMs(timeline);
   const failures: CutGrammarFailure[] = [];
@@ -163,6 +164,9 @@ export function cutGrammarReport(timeline: Timeline, options: { stillClipIds?: R
     const gap = marks[i] - marks[i - 1];
     longestNoSurpriseMs = Math.max(longestNoSurpriseMs, gap);
     if (gap > CUT_GRAMMAR.surpriseGapMaxMs) failures.push({ kind: "no-surprise", atMs: marks[i - 1], detail: `No surprise from ${seconds(marks[i - 1])} to ${seconds(marks[i])}.` });
+  }
+  if (options.hookContrast != null && options.hookContrast < 4.5) {
+    failures.push({ kind: "hook-contrast", atMs: 0, detail: `The opening title reads at ${options.hookContrast.toFixed(1)}:1 against what is behind it; it needs 4.5:1 (move it, darken its shadow or change its ink).` });
   }
   return {
     cuts, nakedCuts: cuts.filter((cut) => !cut.technique).length, repeats, uses, worstEyeTrace, longestStaticMs, longestNoSurpriseMs,

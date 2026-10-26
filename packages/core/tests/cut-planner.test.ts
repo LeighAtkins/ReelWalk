@@ -45,7 +45,7 @@ export const REEL_91_SHOOT: PlanSource[] = [
   source("exterior", "exterior", 9877, { dx: 0.07, peaks: [4200] }),
   source("view", "view", 8242, { dx: 0.05, depthSpread: 0.6 }),
   source("stairs", "stairs", 7841, { hd: true, dx: -0.06, occluderAt: 5200 }),
-  source("bedroom", "primary bedroom", 6306, { dx: 0.004 }),
+  source("bedroom", "primary bedroom", 6306, { dx: 0.001 }),
   source("balcony", "balcony", 5906, { dx: 0.05 }),
 ];
 const SHOOT = REEL_91_SHOOT;
@@ -69,9 +69,18 @@ describe("planCut", () => {
     expect(stages.at(-1)).toBe("leaving");
   });
 
-  it("lands between 30 and 45 s with varied lengths in each role's range", () => {
-    expect(plan.totalMs).toBeGreaterThanOrEqual(25_000);
-    expect(plan.totalMs).toBeLessThanOrEqual(45_000);
+  it("takes its length from the footage: no clip more than twice, no scene over 3.5 s, varied lengths", () => {
+    expect(plan.totalMs).toBeGreaterThanOrEqual(12_000);
+    expect(plan.totalMs).toBeLessThanOrEqual(30_000);
+    const counts = new Map<string, number>();
+    for (const shot of plan.shots) counts.set(shot.sourceClipId, (counts.get(shot.sourceClipId) ?? 0) + 1);
+    expect(Math.max(...counts.values())).toBeLessThanOrEqual(2);
+    // A scene: the same clip's shots in a row.
+    for (let i = 0; i < plan.shots.length; i++) {
+      let scene = plan.shots[i].sourceEndMs - plan.shots[i].sourceStartMs;
+      for (let j = i + 1; j < plan.shots.length && plan.shots[j].sourceClipId === plan.shots[i].sourceClipId; j++) scene += plan.shots[j].sourceEndMs - plan.shots[j].sourceStartMs;
+      expect(scene).toBeLessThanOrEqual(3600);
+    }
     const lengths = plan.shots.map((s) => s.sourceEndMs - s.sourceStartMs);
     expect(lengths[0]).toBeGreaterThanOrEqual(1500);
     expect(lengths[0]).toBeLessThanOrEqual(2500);
@@ -143,9 +152,18 @@ describe("planCut", () => {
     expect(oneTake.totalMs).toBeGreaterThanOrEqual(25_000);
   });
 
-  it("says when the footage is too short for 30 s", () => {
-    const short = planCut({ sources: SHOOT.slice(4), brief: { listing: "for-sale", feel: "classic" } });
+  it("says when the footage is too short for the 12 s floor", () => {
+    const short = planCut({ sources: [source("x", "living", 2500, { dx: 0.05 }), source("y", "kitchen", 2500, { dx: 0.05 })], brief: { listing: "for-sale", feel: "classic" } });
     expect(short.notes.join(" ")).toMatch(/usable footage/);
+  });
+
+  it("keeps visible effects to the feel's cap and never fills with a glint or a dissolve", () => {
+    for (const [feel, cap] of [["quiet", 1], ["classic", 2], ["lively", 3]] as const) {
+      const p = planCut({ sources: SHOOT, brief: { listing: "for-sale", feel }, beats: { bpm: 111.9, beatOffsetMs: 120 } });
+      const visible = p.shots.filter((s) => s.cut && (["zoomThrough", "rackFocus", "lightLeak", "dissolve"].includes(s.cut.technique) || s.transitionIn === "occlusionWipe"));
+      expect(visible.length, feel).toBeLessThanOrEqual(cap);
+      if (feel !== "quiet") expect(p.shots.some((s) => s.cut?.technique === "dissolve" || s.cut?.technique === "lightLeak")).toBe(false);
+    }
   });
 });
 
@@ -272,6 +290,15 @@ describe("the first cut by the planner", () => {
     expect(hook.endMs).toBe(result.plan.carryUntilMs);
     expect(result.timeline.clips.map((c) => c.sourceEndMs - c.sourceStartMs)).toEqual(result.plan.shots.map((s) => s.sourceEndMs - s.sourceStartMs));
     expect(cutGrammarReport(result.timeline).pass).toBe(true);
+  });
+
+  it("sets the hook in readable type, closes on a short readable card and keeps the style's grade", () => {
+    const result = plannedCut(timelineOf(SHOOT), context)!;
+    const hook = openingTitle(result.timeline)!;
+    expect(hook).toMatchObject({ style: "elegant", weight: 600, size: 2.45, shadow: "strong", color: "#ffffff" });
+    expect(result.timeline.endCard).toMatchObject({ text: "For sale", reveal: "cut", size: 2.45 });
+    expect(result.timeline.endCard!.durationMs).toBeLessThanOrEqual(1500);
+    expect(result.timeline.clips.every((clip) => clip.filter === autopilotStyle("walkthrough").filter)).toBe(true);
   });
 
   it("reads the feel from the style unless the person chose one", () => {

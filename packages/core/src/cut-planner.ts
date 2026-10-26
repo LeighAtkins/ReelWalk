@@ -21,7 +21,7 @@ import { customCamera, type Camera } from "./camera";
 import { CUT_GRAMMAR, cutGrammarReport, SURPRISING, type CutGrammarReport } from "./cut-grammar";
 import type { CutIn, CutTechnique, WipeSide } from "./cut-schema";
 import {
-  attentionAt, directionsAgree, eyeTraceDistance, reelFlow, spanQuality, windowsNear,
+  attentionAt, directionsAgree, eyeTraceDistance, reelFlow, reelMotionScale, spanQuality, windowsNear,
   type FlowDirection, type PlannerAnalysis,
 } from "./shot-facts";
 import { MIN_CLIP_MS, type Clip, type Timeline, type Transition } from "./timeline";
@@ -105,12 +105,24 @@ export function stageOf(room: string | null): WalkStage {
 }
 
 type Range = { min: number; target: number; max: number };
-const LENGTHS: Record<CutFeel, Record<ShotRole, Range> & { totalMs: number }> = {
-  lively: { opener: { min: 1500, target: 1700, max: 2000 }, hero: { min: 2000, target: 2400, max: 2800 }, detail: { min: 800, target: 900, max: 1100 }, closer: { min: 2000, target: 2600, max: 3200 }, totalMs: 30_000 },
-  classic: { opener: { min: 1500, target: 2000, max: 2500 }, hero: { min: 2400, target: 3000, max: 3600 }, detail: { min: 900, target: 1200, max: 1500 }, closer: { min: 2400, target: 3000, max: 3600 }, totalMs: 36_000 },
-  quiet: { opener: { min: 1800, target: 2400, max: 2500 }, hero: { min: 3000, target: 3600, max: 4000 }, detail: { min: 1200, target: 1400, max: 1500 }, closer: { min: 3000, target: 3600, max: 4000 }, totalMs: 42_000 },
+/**
+ * Shot lengths by feel (owner, 2026-10-26 review of v1): the length of the reel comes from the footage, not a fixed
+ * 30–45 s. A hero is `target`, and up to `max` (never over 3.5 s) only while the camera is visibly travelling; a scene
+ * (a wide and its close-up) holds no longer than 3.5 s unless the camera is travelling.
+ */
+const LENGTHS: Record<CutFeel, Record<ShotRole, Range>> = {
+  lively: { opener: { min: 1200, target: 1500, max: 2000 }, hero: { min: 1400, target: 1800, max: 2500 }, detail: { min: 800, target: 900, max: 1100 }, closer: { min: 1400, target: 1800, max: 2500 } },
+  classic: { opener: { min: 1500, target: 2000, max: 2500 }, hero: { min: 1800, target: 2200, max: 3500 }, detail: { min: 900, target: 1200, max: 1500 }, closer: { min: 1800, target: 2200, max: 3000 } },
+  quiet: { opener: { min: 1800, target: 2400, max: 2500 }, hero: { min: 2400, target: 3000, max: 3500 }, detail: { min: 1200, target: 1400, max: 1500 }, closer: { min: 2400, target: 3000, max: 3500 } },
 };
-export const REEL_MS = { min: 30_000, max: 45_000, floor: 25_000 } as const;
+/** The reel's length is what the footage gives, inside these. */
+export const REEL_MS = { floor: 12_000, max: 45_000 } as const;
+/** A scene (one clip's shots in a row) longer than this needs the camera travelling. */
+export const SCENE_MAX_MS = 3500;
+/** A clip appears at most this many times. */
+export const MAX_APPEARANCES = 2;
+/** Reel-frame speed (frame widths a second) at which the camera is "visibly travelling". */
+const TRAVELLING_RW_PER_S = 0.08;
 /** A walk this long and steady ships as one take. */
 export const ONE_TAKE_MS = 25_000;
 /** Phone clips wobble at their start and stop. */
@@ -261,47 +273,64 @@ function available(source: PlanSource): number {
   return Math.max(0, source.durationMs - (source.kind === "VIDEO" ? 2 * GUARD_MS : 0));
 }
 
-function buildSlots(sources: readonly PlanSource[], feel: CutFeel, targetMs: number): Slot[] {
+/**
+ * A hero's length from how its best stretch moves: a locked or slow shot at the role's shortest, a camera visibly
+ * travelling at its longest (3.5 s at most), in between by speed. Footage decides, so neighbouring shots differ.
+ */
+function heroLength(source: PlanSource, range: Range): number {
+  const analysis = source.analysis;
+  const best = analysis ? windowsNear(analysis, range.max)[0] : undefined;
+  if (!analysis || !best) return range.target;
+  const speed = reelFlow(analysis, best.startMs, best.endMs).magnitude * reelMotionScale(analysis);
+  const t = Math.max(0, Math.min(1, speed / (TRAVELLING_RW_PER_S * 1.5)));
+  return Math.round(range.min + (range.max - range.min) * t);
+}
+
+/**
+ * The shots the footage can give: every clip once (the opener's clip twice when it can close the loop), a virtual
+ * close-up where the source has the pixels, each clip at most twice. Heroes run to their target, longer only while the
+ * camera travels. Nothing is padded to reach a length: a short shoot makes a short reel (12 s floor, where second
+ * looks at long clips fill in).
+ */
+function buildSlots(sources: readonly PlanSource[], feel: CutFeel, ceilingMs: number): Slot[] {
   const L = LENGTHS[feel];
   const ordered = orderSources(sources);
   const opener = ordered[0];
-  const slots: Slot[] = [{ source: opener, stage: stageOf(opener.room), role: "opener", lengthMs: L.opener.target }];
+  const appearances = (source: PlanSource) => slots.filter((slot) => slot.source === source).length;
+  const slots: Slot[] = [{ source: opener, stage: stageOf(opener.room), role: "opener", lengthMs: Math.min(L.opener.target, Math.max(MIN_CLIP_MS, available(opener))) }];
   for (const source of ordered.slice(1)) {
-    slots.push({ source, stage: stageOf(source.room), role: "hero", lengthMs: Math.min(L.hero.target, Math.max(MIN_CLIP_MS, available(source))) });
+    const length = heroLength(source, L.hero);
+    slots.push({ source, stage: stageOf(source.room), role: "hero", lengthMs: Math.min(length, Math.max(MIN_CLIP_MS, available(source))) });
   }
   // The closer: the opener's clip again when it is long enough to give the frames just before the opening (the loop).
-  const closerFits = opener.kind === "VIDEO" && available(opener) >= L.opener.target + L.closer.min + 400;
-  if (closerFits) slots.push({ source: opener, stage: "leaving", role: "closer", lengthMs: L.closer.target });
+  if (opener.kind === "VIDEO" && available(opener) >= L.opener.target + L.closer.min + 400) slots.push({ source: opener, stage: "leaving", role: "closer", lengthMs: L.closer.target });
   const total = () => slots.reduce((sum, slot) => sum + slot.lengthMs, 0);
   const used = (source: PlanSource) => slots.filter((slot) => slot.source === source).reduce((sum, slot) => sum + slot.lengthMs, 0);
 
-  // Short of the target: heroes first run to their longest, then virtual close-ups (scale jumps) of the clips that
-  // can give them, then a second look at the longest clips.
-  for (const slot of slots) if (total() < targetMs && slot.role === "hero") slot.lengthMs = Math.min(L.hero.max, Math.max(slot.lengthMs, Math.min(L.hero.max, available(slot.source) - used(slot.source) + slot.lengthMs)));
-  const heroes = slots.filter((slot) => slot.role === "hero" && closeUpScale(slot.source.analysis));
-  for (const hero of heroes) {
-    // At most two scale jumps a reel (the grammar's limit for any one technique).
-    if (total() >= targetMs || slots.filter((slot) => slot.closeUpOf !== undefined).length >= CUT_GRAMMAR.maxUsesPerReel) break;
+  // Virtual close-ups (scale jumps) where the source has real pixels: at most two a reel, the clip's second appearance.
+  // The wide and its close-up are one scene: together no longer than 3.5 s (the close-up does not travel).
+  for (const hero of slots.filter((slot) => slot.role === "hero" && closeUpScale(slot.source.analysis))) {
+    if (slots.filter((slot) => slot.closeUpOf !== undefined).length >= CUT_GRAMMAR.maxUsesPerReel || appearances(hero.source) >= MAX_APPEARANCES) continue;
     if (available(hero.source) - used(hero.source) < L.detail.min) continue;
     const index = slots.indexOf(hero);
+    hero.lengthMs = Math.max(L.hero.min, Math.min(hero.lengthMs, SCENE_MAX_MS - L.detail.target));
     slots.splice(index + 1, 0, { source: hero.source, stage: hero.stage, role: "detail", lengthMs: L.detail.target, closeUpOf: index });
-    // Indices after the insert moved: re-point later close-ups.
     slots.forEach((slot, i) => { if (slot.closeUpOf !== undefined && i > index + 1 && slot.closeUpOf > index) slot.closeUpOf++; });
   }
+  // Under the floor only: a second look at the longest clips that still appear once.
   let guard = 0;
-  while (total() < targetMs && guard++ < 20) {
-    const candidates = slots.filter((slot) => slot.role === "hero" && !slot.second && available(slot.source) - used(slot.source) >= L.detail.target + SAME_CLIP_GAP_MS)
-      .sort((a, b) => (available(b.source) - used(b.source)) - (available(a.source) - used(a.source)));
-    const hero = candidates.find((slot) => !slots.some((other) => other.second && other.source === slot.source));
+  while (total() < REEL_MS.floor && guard++ < 20) {
+    const hero = slots.filter((slot) => slot.role === "hero" && appearances(slot.source) < MAX_APPEARANCES && available(slot.source) - used(slot.source) >= L.detail.target + SAME_CLIP_GAP_MS)
+      .sort((a, b) => (available(b.source) - used(b.source)) - (available(a.source) - used(a.source)))[0];
     if (!hero) break;
-    const index = slots.indexOf(hero) + (slots[slots.indexOf(hero) + 1]?.closeUpOf === slots.indexOf(hero) ? 2 : 1);
+    const index = slots.indexOf(hero) + 1;
     const room = available(hero.source) - used(hero.source) - SAME_CLIP_GAP_MS;
     slots.splice(index, 0, { source: hero.source, stage: hero.stage, role: room >= L.hero.min ? "hero" : "detail", lengthMs: room >= L.hero.min ? Math.min(L.hero.target, room) : L.detail.target, second: true });
     slots.forEach((slot, i) => { if (slot.closeUpOf !== undefined && i > index && slot.closeUpOf >= index) slot.closeUpOf++; });
   }
-  // Over the ceiling: trim heroes toward their shortest, then drop second looks from the end.
-  for (const slot of slots) if (total() > REEL_MS.max && slot.role === "hero") slot.lengthMs = Math.max(L.hero.min, slot.lengthMs - (total() - REEL_MS.max));
-  for (let i = slots.length - 1; i > 0 && total() > REEL_MS.max; i--) if (slots[i].second || slots[i].closeUpOf !== undefined) slots.splice(i, 1);
+  // Over the ceiling: heroes toward their shortest, then close-ups and second looks from the end.
+  for (const slot of slots) if (total() > ceilingMs && slot.role === "hero") slot.lengthMs = Math.max(L.hero.min, slot.lengthMs - (total() - ceilingMs));
+  for (let i = slots.length - 1; i > 0 && total() > ceilingMs; i--) if (slots[i].second || slots[i].closeUpOf !== undefined) slots.splice(i, 1);
   return slots;
 }
 
@@ -385,6 +414,22 @@ function placeWindows(slots: Slot[], feel: CutFeel): void {
 
 // ── Lengths onto the beat ───────────────────────────────────────
 
+/**
+ * No two shots in a row the same length (fixed-interval cuts are the slideshow tell): where a shot matches the one
+ * before within 120 ms, it gains a beat (or 400 ms without a song) when its role and its clip allow, else loses one.
+ */
+function varyLengths(slots: Slot[], beats: PlanBeats | undefined, feel: CutFeel): void {
+  const step = beats?.bpm ? Math.round(60_000 / beats.bpm) : 400;
+  for (let i = 1; i < slots.length; i++) {
+    const slot = slots[i], before = slots[i - 1];
+    if (Math.abs(slot.lengthMs - before.lengthMs) > 120 || slot.closeUpOf !== undefined || slot.role === "closer") continue;
+    const range = LENGTHS[feel][slot.role];
+    const room = slot.source.kind === "IMAGE" ? Infinity : slot.source.durationMs - GUARD_MS - (slot.startMs ?? 0) - slot.lengthMs;
+    if (slot.lengthMs + step <= Math.min(range.max, SCENE_MAX_MS) && step <= room && !slots.some((o, k) => o.closeUpOf === i && k)) slot.lengthMs += step;
+    else if (slot.lengthMs - step >= range.min) slot.lengthMs -= step;
+  }
+}
+
 function snapToBeats(slots: Slot[], beats: PlanBeats | undefined, feel: CutFeel): number {
   if (feel === "quiet" || !beats?.bpm) return 0;
   const period = 60_000 / beats.bpm;
@@ -397,8 +442,9 @@ function snapToBeats(slots: Slot[], beats: PlanBeats | undefined, feel: CutFeel)
     const shift = nearest - end;
     const range = LENGTHS[feel][slot.role];
     const room = slot.source.kind === "IMAGE" ? Infinity : slot.source.durationMs - (slot.startMs ?? 0) - slot.lengthMs;
-    const tolerance = feel === "lively" ? period / 2 : period * 0.3;
-    if (Math.abs(shift) <= tolerance && slot.lengthMs + shift >= range.min * 0.9 && slot.lengthMs + shift <= range.max * 1.1 && shift <= room && slot.closeUpOf === undefined && slot.role !== "closer") {
+    // Classic and Lively put every cut they can on the beat: a hard cut on the beat is the fallback technique.
+    const tolerance = period / 2;
+    if (Math.abs(shift) <= tolerance && slot.lengthMs + shift >= range.min * 0.9 && slot.lengthMs + shift <= Math.min(range.max * 1.1, SCENE_MAX_MS) && shift <= room && slot.closeUpOf === undefined && slot.role !== "closer") {
       slot.lengthMs = Math.round(slot.lengthMs + shift);
       snapped++;
     }
@@ -423,6 +469,12 @@ function hexDistance(a: string, b: string): number {
   const [x, y] = [p(a), p(b)];
   return Math.hypot(x[0] - y[0], x[1] - y[1], x[2] - y[2]) / 441.7;
 }
+
+function rgbOf(hex: string): [number, number, number] {
+  return [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255) as [number, number, number];
+}
+const chroma = (hex: string) => { const c = rgbOf(hex); return Math.max(...c) - Math.min(...c); };
+const lightness = (hex: string) => { const c = rgbOf(hex); return (Math.max(...c) + Math.min(...c)) / 2; };
 
 const WIPE_FROM: Record<"left" | "right" | "up" | "down", WipeSide> = { right: "left", left: "right", down: "top", up: "bottom" };
 
@@ -459,7 +511,7 @@ export function cutCandidates(ctx: CutContext): Candidate[] {
   if (eye !== null && eye <= CUT_GRAMMAR.eyeTraceMax) out.push({ technique: "eyeTrace", strength: 0.82 - eye, transition: "cut", extra: { eyeTrace: eye }, reason: `the eye stays put: attention moves ${Math.round(eye * 100)} % of the frame across the cut` });
   // Direction carried across, real or by a drift added to a still incoming shot.
   if (exit && entry && directionsAgree(exit.direction, entry.direction)) out.push({ technique: "matchDirection", strength: 0.72, transition: "cut", reason: `the ${exit.direction} movement carries straight into the next shot` });
-  else if (exit && exit.direction !== "static" && (!entry || entry.direction === "static")) out.push({ technique: "matchDirection", strength: 0.45, transition: "cut", extra: { motion: "virtual" }, reason: `the ${exit.direction} movement carries on as a drift added to the still next shot` });
+  else if (exit && exit.direction !== "static" && exit.direction !== "rotate" && (!entry || entry.direction === "static")) out.push({ technique: "matchDirection", strength: 0.45, transition: "cut", extra: { motion: "virtual" }, reason: `the ${exit.direction} movement carries on as a drift added to the still next shot` });
   // Zoom through: a forward move into a window, door or the brightest region, the next room out of the matching region.
   const due = ctx.reveal || ctx.mustSurprise || ctx.sinceSurpriseMs >= 3000;
   if (A && B && exit && (exit.direction === "push" || due)) {
@@ -485,15 +537,21 @@ export function cutCandidates(ctx: CutContext): Candidate[] {
   }
   // Shape or colour carried across.
   if (A?.scene.round && B?.scene.round && A.scene.round.score >= 0.5 && B.scene.round.score >= 0.5) out.push({ technique: "shapeMatch", strength: 0.66, transition: "cut", reason: "a round shape here becomes a round shape there" });
-  else if (A?.scene.palette[0] && B?.scene.palette[0] && hexDistance(A.scene.palette[0].hex, B.scene.palette[0].hex) <= 0.12) out.push({ technique: "shapeMatch", strength: 0.55, transition: "cut", reason: `the same colour (${A.scene.palette[0].hex}) carries across the cut` });
+  else {
+    // A colour match is a real colour both shots are full of: not the near-black of shadows, the white of walls or a grey.
+    const colourOf = (palette: PlannerAnalysis["scene"]["palette"]) => palette.find((c) => c.share >= 0.15 && chroma(c.hex) >= 0.12 && lightness(c.hex) >= 0.15 && lightness(c.hex) <= 0.9);
+    const ca = A ? colourOf(A.scene.palette) : undefined, cb = B ? colourOf(B.scene.palette) : undefined;
+    if (ca && cb && hexDistance(ca.hex, cb.hex) <= 0.12) out.push({ technique: "shapeMatch", strength: 0.55, transition: "cut", reason: `the same colour (${ca.hex}) fills both shots across the cut` });
+  }
   // Light coming up at the cut.
   const ramp = [...(A?.scene.brightnessRamps.filter((r) => r.kind === "up" && Math.abs(r.endMs - outMs) <= 1000) ?? []), ...(B?.scene.brightnessRamps.filter((r) => r.kind === "up" && Math.abs(r.startMs - inMs) <= 1000) ?? [])][0];
-  // A glint is a light change: the pattern break of last resort when one is due and nothing else is possible.
-  out.push({ technique: "lightLeak", strength: ramp ? 0.6 : due ? 0.15 : 0.2, transition: "lightLeak", ...(ramp ? { surprise: "light change" } : due ? { surprise: "glint" } : {}), reason: ramp ? "the light comes up on the cut and a soft glint carries it" : "a soft glint carries the cut" });
+  // A glint only where the light really changes (owner, v1 review: no glints or dissolves as fillers).
+  if (ramp) out.push({ technique: "lightLeak", strength: 0.6, transition: "lightLeak", surprise: "light change", reason: "the light comes up on the cut and a soft glint carries it" });
   // A downbeat.
   const beat = ctx.beats.find((t) => Math.abs(t - ctx.atMs) <= 40);
-  if (beat !== undefined) out.push({ technique: "beatCut", strength: ctx.feel === "lively" ? 0.62 : 0.5, transition: "cut", reason: "a hard cut on the downbeat after the build" });
-  out.push({ technique: "dissolve", strength: ctx.feel === "quiet" ? 0.4 : 0.12, transition: ctx.feel === "quiet" ? "softDissolve" : "fade", reason: "a soft dissolve lets time pass between the rooms" });
+  if (beat !== undefined) out.push({ technique: "beatCut", strength: eye !== null && eye <= CUT_GRAMMAR.eyeTraceMax ? 0.6 : 0.5, transition: "cut", reason: eye !== null && eye <= CUT_GRAMMAR.eyeTraceMax ? "a hard cut on the beat, the eye already where the next shot puts it" : "a hard cut on the beat" });
+  // A dissolve only in the quiet feel, where time passing between rooms is the point.
+  if (ctx.feel === "quiet") out.push({ technique: "dissolve", strength: 0.35, transition: "softDissolve", reason: "a soft dissolve lets time pass between the rooms" });
   return out.map((c) => ({ ...c, extra: { ...(eye !== null && c.extra?.eyeTrace === undefined ? { eyeTrace: eye } : {}), ...c.extra } }));
 }
 
@@ -509,7 +567,14 @@ function attentionPoint(analysis: PlannerAnalysis, p: { x: number; y: number }, 
  * when a surprise is due (3 s or more since the last), a surprising one gets the edge, and at the reveal it must be
  * one if any is possible.
  */
-export function chooseTechnique(candidates: Candidate[], previous: CutTechnique | null, uses: Partial<Record<CutTechnique, number>>, ctx: Pick<CutContext, "sinceSurpriseMs" | "reveal" | "mustSurprise">): Candidate {
+/** Techniques the viewer sees as an effect (owner, v1 review): capped per reel by feel; the rest are hard cuts placed well. */
+export const VISIBLE_TECHNIQUES: ReadonlySet<CutTechnique> = new Set(["zoomThrough", "rackFocus", "lightLeak", "dissolve"]);
+export const VISIBLE_CAP: Record<CutFeel, number> = { quiet: 1, classic: 2, lively: 3 };
+/** Invisible hard cuts that are the fallback: they may be used more than twice (advice only), never twice in a row. */
+const FALLBACKS: ReadonlySet<CutTechnique> = new Set(["eyeTrace", "beatCut", "matchDirection", "cutOnAction"]);
+const isVisible = (c: Candidate) => VISIBLE_TECHNIQUES.has(c.technique) || c.transition === "occlusionWipe";
+
+export function chooseTechnique(candidates: Candidate[], previous: CutTechnique | null, uses: Partial<Record<CutTechnique, number>>, ctx: Pick<CutContext, "sinceSurpriseMs" | "reveal" | "mustSurprise"> & { visibleLeft?: number }): Candidate {
   // Surprises are spaced: kept back under 2.5 s since the last (each kind may be used only twice), favoured from
   // 3.5 s, and close to certain by 5 s.
   const since = ctx.sinceSurpriseMs;
@@ -519,16 +584,21 @@ export function chooseTechnique(candidates: Candidate[], previous: CutTechnique 
   // The hook is carried over the first cut whenever there is one: the opening's rule, not a choice.
   const carry = candidates.find((c) => c.technique === "graphicCarry");
   if (carry) return carry;
-  let allowed = candidates.filter((c) => c.technique !== previous && (uses[c.technique] ?? 0) < CUT_GRAMMAR.maxUsesPerReel);
+  // A virtual close-up is a scale jump by what it is, whatever else the cut allows.
+  const jump = candidates.find((c) => c.technique === "scaleJump");
+  if (jump && jump.technique !== previous) return jump;
+  // The visible-effect cap is hard: no surprise, reveal or fallback lifts it.
+  const usable = candidates.filter((c) => !isVisible(c) || (ctx.visibleLeft ?? Infinity) > 0);
+  let allowed = usable.filter((c) => c.technique !== previous && (FALLBACKS.has(c.technique) || (uses[c.technique] ?? 0) < CUT_GRAMMAR.maxUsesPerReel));
   // A surprise that must come now beats the twice-a-reel limit (the gate fails a gap; an extra use is only advice).
-  if (ctx.mustSurprise && !allowed.some(surprising)) allowed = [...allowed, ...candidates.filter((c) => c.technique !== previous && surprising(c))];
-  const pool = allowed.length ? allowed : candidates.filter((c) => c.technique !== previous);
-  return [...(pool.length ? pool : candidates)].sort((x, y) => score(y) - score(x) || CUT_ORDER.indexOf(x.technique) - CUT_ORDER.indexOf(y.technique))[0];
+  if (ctx.mustSurprise && !allowed.some(surprising)) allowed = [...allowed, ...usable.filter((c) => c.technique !== previous && surprising(c))];
+  const pool = allowed.length ? allowed : usable.filter((c) => c.technique !== previous);
+  return [...(pool.length ? pool : usable.length ? usable : candidates)].sort((x, y) => score(y) - score(x) || CUT_ORDER.indexOf(x.technique) - CUT_ORDER.indexOf(y.technique))[0];
 }
 const CUT_ORDER: CutTechnique[] = ["graphicCarry", "scaleJump", "occlusionWipe", "zoomThrough", "eyeTrace", "cutOnAction", "matchDirection", "rackFocus", "shapeMatch", "beatCut", "lightLeak", "dissolve"];
 
 /**
- * The incoming shot's in-point nudged (up to 0.75 s either way, the same length) so the cut works better: the eye
+ * The incoming shot's in-point nudged (up to 1.5 s either way, the same length) so the cut works better: the eye
  * lands where it already was, the movement carries on, or the shot starts on a movement peak. A shot a close-up
  * continues, the closer and photos keep theirs; a nudge never runs into another window of the same clip.
  */
@@ -541,14 +611,15 @@ function bestInPoint(slots: readonly Slot[], i: number): number {
   const from = attentionAt(A, outMs), exit = exitFlow(a.source, outMs);
   const others = slots.filter((other, k) => k !== i && other.source === slot.source).map((other) => [other.startMs ?? 0, (other.startMs ?? 0) + other.lengthMs] as [number, number]);
   let best = { start, score: -Infinity };
-  for (const offset of [0, -250, 250, -500, 500, -750, 750]) {
+  for (const offset of [0, -250, 250, -500, 500, -750, 750, -1000, 1000, -1250, 1250, -1500, 1500]) {
     const s = start + offset;
     if (s < GUARD_MS || s + slot.lengthMs > slot.source.durationMs - GUARD_MS) continue;
     if (others.some((span) => overlaps([s, s + slot.lengthMs], span, 300))) continue;
     const to = attentionAt(B, s), entry = entryFlow(slot.source, s);
     const eye = from && to ? eyeTraceDistance(from, to) : null;
-    let score = spanQuality(B, s, s + slot.lengthMs) * 0.5 - Math.abs(offset) / 2000;
-    if (eye !== null && eye <= CUT_GRAMMAR.eyeTraceMax) score += 2 - eye;
+    // The eye-trace hard cut is the fallback technique: lining up the eye is worth the most, then the closer the better.
+    let score = spanQuality(B, s, s + slot.lengthMs) * 0.5 - Math.abs(offset) / 3000;
+    if (eye !== null) score += eye <= CUT_GRAMMAR.eyeTraceMax ? 2.5 - eye : -eye;
     if (exit && entry && directionsAgree(exit.direction, entry.direction)) score += 1;
     if (B.flowPeaks.some((peak) => Math.abs(peak.t - s) <= 120)) score += 0.8;
     if (score > best.score) best = { start: s, score };
@@ -573,16 +644,15 @@ export function planCut(input: PlanInput): CutPlan {
     return { mode: "oneTake", feel, shots: [shot], totalMs: end - walk.startMs, reveal: null, carryUntilMs: null, loopSeam: { technique: "matchDirection", reason: "one continuous walk", eyeTrace: null }, notes: ["one take: the walk carries every room"] };
   }
 
-  const footage = sources.reduce((sum, source) => sum + available(source), 0);
-  const targetMs = clamp(input.targetMs ?? LENGTHS[feel].totalMs, REEL_MS.min, REEL_MS.max);
-  const reachable = Math.min(targetMs, Math.max(REEL_MS.floor, footage * 0.7));
-  if (reachable < targetMs) notes.push(`only ${(footage / 1000).toFixed(0)} s of usable footage: aiming at ${(reachable / 1000).toFixed(0)} s`);
-  const slots = buildSlots(sources, feel, reachable);
+  const slots = buildSlots(sources, feel, Math.min(REEL_MS.max, input.targetMs ?? REEL_MS.max));
+  const planned = slots.reduce((sum, slot) => sum + slot.lengthMs, 0);
+  if (planned < REEL_MS.floor) notes.push(`only ${(planned / 1000).toFixed(1)} s of usable footage: under the ${REEL_MS.floor / 1000} s floor`);
   placeWindows(slots, feel);
   const snapped = snapToBeats(slots, input.beats, feel);
+  varyLengths(slots, input.beats, feel);
   if (snapped) notes.push(`${snapped} cut${snapped === 1 ? "" : "s"} on the beat`);
 
-  const totalMs = slots.reduce((sum, slot) => sum + slot.lengthMs, 0);
+  let totalMs = slots.reduce((sum, slot) => sum + slot.lengthMs, 0);
   const starts: number[] = [];
   slots.reduce((at, slot) => (starts.push(at), at + slot.lengthMs), 0);
   // The reveal: the cut nearest the middle, inside 45–55 % when one is there.
@@ -590,13 +660,15 @@ export function planCut(input: PlanInput): CutPlan {
   const reveal = middle !== null ? { index: middle, atMs: starts[middle] } : null;
   if (reveal && (reveal.atMs < totalMs * 0.45 || reveal.atMs > totalMs * 0.55)) notes.push(`the reveal lands at ${Math.round((reveal.atMs / totalMs) * 100)} %, outside 45–55 %: the shots did not allow closer`);
 
-  const downbeats = beatTimes(input.beats, totalMs, feel !== "lively");
+  // A hard cut on any beat counts (the fallback technique); the snap put most cuts on one.
+  const downbeats = beatTimes(input.beats, totalMs, false);
   const shots: PlannedShot[] = [];
   const uses: Partial<Record<CutTechnique, number>> = {};
   let previous: CutTechnique | null = null;
   let lastSurprise = 0;
   let carryUntilMs: number | null = null;
   const seen = new Set<WalkStage>();
+  let visibleUsed = 0;
   for (const [i, slot] of slots.entries()) {
     if (i > 0) slot.startMs = bestInPoint(slots, i);
     const start = slot.startMs ?? 0;
@@ -620,11 +692,24 @@ export function planCut(input: PlanInput): CutPlan {
       const shown = contentReveal(a.stage, slot.stage, seen);
       const ctx: CutContext = { a, b: slot, index: i, atMs: starts[i], outMs: (a.startMs ?? 0) + a.lengthMs, inMs: start, beats: downbeats, feel, carry: i === 1 && input.carry !== false, reveal: reveal?.index === i && !shown,
         sinceSurpriseMs: shown ? 0 : starts[i] - lastSurprise, mustSurprise: !shown && (starts[i + 1] ?? totalMs) - lastSurprise > CUT_GRAMMAR.surpriseGapMaxMs - 500 };
-      const choice = chooseTechnique(cutCandidates(ctx), previous, uses, ctx);
+      const choice = chooseTechnique(cutCandidates(ctx), previous, uses, { ...ctx, visibleLeft: VISIBLE_CAP[feel] - visibleUsed });
+      if (VISIBLE_TECHNIQUES.has(choice.technique) || choice.transition === "occlusionWipe") visibleUsed++;
       uses[choice.technique] = (uses[choice.technique] ?? 0) + 1;
       previous = choice.technique;
       const surprise = choice.surprise ?? (SURPRISING.has(choice.technique) ? choice.technique : undefined) ?? shown ?? (reveal?.index === i ? "reveal" : undefined);
       if (surprise) lastSurprise = starts[i];
+      else if (ctx.mustSurprise) {
+        // No surprise fits here (the visible-effect cap is spent): this shot ends sooner, so the next pattern break (a
+        // reveal, a close-up) lands inside the gap instead of padding to it.
+        const want = lastSurprise + CUT_GRAMMAR.surpriseGapMaxMs - 500 - starts[i];
+        const shorter = Math.max(LENGTHS[feel][slot.role].min, Math.min(slot.lengthMs, Math.round(want)));
+        if (shorter < slot.lengthMs) {
+          const cutBy = slot.lengthMs - shorter;
+          slot.lengthMs = shorter;
+          for (let k = i + 1; k < starts.length; k++) starts[k] -= cutBy;
+          totalMs -= cutBy;
+        }
+      }
       transitionIn = choice.transition;
       cut = { technique: choice.technique, reason: choice.reason, ...(choice.extra ?? {}), ...(surprise ? { surprise } : {}), motion };
       if (choice.extra?.motion === "virtual" && !camera) {

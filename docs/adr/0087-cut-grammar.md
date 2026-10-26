@@ -65,9 +65,8 @@ shows them only on a cut the planner drew. `setTransition` accepts them; without
 1. **One take** when a clip has a steady camera walk ≥ 25 s (not for Lively).
 2. **Order** along the walk (arrival → threshold → living → kitchen → details → private → view → leaving), opening
    on the most spatial outside shot (aerial/drone, then the most motion).
-3. **Slots and lengths** by feel (Quiet/Classic/Lively): opener 1.5–2.5 s, heroes 2–4 s, details 0.8–1.5 s, target
-   42/36/30 s within 30–45 s (25 s floor when the footage is short, noted). Short of the target: heroes run longer,
-   then up to two virtual close-ups, then second looks at long clips (≥ 2.5 s apart in the source).
+3. **Slots and lengths** by feel (Quiet/Classic/Lively), from the footage (v2, below): every clip once, the
+   opener's twice for the loop, up to two virtual close-ups, heroes as long as their movement earns (≤ 3.5 s), 12–45 s.
 4. **Windows** from the analysis' best windows, or ending on a flow peak / inside an occluder when one is near;
    never "the middle" when there is an analysis. The **closer** is the opener's clip ending on the frame the opener
    starts from, so the loop is one continuous move.
@@ -103,6 +102,34 @@ planner's (and the first cut's) own.
   across the first cut. **No finish (Pop) on this path.** A plan that fails its gate falls back to the rule cut. The
   autopilot route accepts `feel` and `listing` (for the question screens); otherwise the style decides.
 
+### v2 after the owner's review (2026-10-26)
+
+The owner watched v1 (35.7 s) beside today's rule cut (14 s) and preferred the rule cut. The causes were planner
+defaults, not the vocabulary, and v2 changes them:
+
+- **Length comes from the footage.** No fixed 30–45 s: every clip once (the opener's twice when it closes the loop), a
+  virtual close-up only where the source has the pixels, each clip at most twice, no second looks unless the reel is
+  under the 12 s floor; 45 s ceiling. A hero's length follows how fast its best stretch moves in the reel's frame (the
+  role's shortest for a locked shot, up to 3.5 s for a camera visibly travelling); a wide and its close-up together
+  hold no more than 3.5 s; no two shots in a row the same length (a beat added or taken). Classic hero 1.8–3.5 s.
+- **Fewer visible effects.** zoomThrough, rackFocus/focusPull, lightLeak, dissolve and a drawn occlusion wipe are
+  capped per reel: Quiet 1, Classic 2, Lively 3, a hard cap no surprise lifts. A glint only where the light really
+  changes, a dissolve only in Quiet: no fillers. The fallback is an invisible hard cut: the incoming in-point is searched
+  ±1.5 s to line the eye up (eye trace within 15 %), every cut the feel allows is snapped to a beat (half a beat), and a
+  hard cut on any beat counts. These fallbacks may repeat beyond twice (advice only), never twice in a row. A virtual
+  close-up is always its scale jump. When a surprise is due and nothing within the cap fits, the shot is shortened so
+  the next reveal lands inside six seconds. A colour match needs a real colour (not near-black, white or grey).
+- **A hook that reads.** New optional `text.weight`. The planned first cut sets the hook in Playfair 600 at size 2.45
+  (capitals about 4.9 % of the frame height), white with the strong shadow, high in the frame. `legibility.ts` measures
+  a title's contrast over the frame under it, counting its shadow's halo (`titleContrast`, worst tenth of the
+  background), and `pickTitleSpot` finds the calmest place in the top 30 % that reaches 4.5:1, white first, then dark
+  ink. The gate fails an opening title under 4.5:1 (`hook-contrast`) whenever frames were read (the critic reads them).
+- **A short, readable end card.** New optional `endCard.size`: the line at the hook's size, weight 600. The planned
+  first cut closes on 1.2 s ("For sale", "Sold", "Open home", "For lease"; none when it is not a listing).
+- **Grade.** The planned first cut gives every shot the style's filter, as the rule cut does; the planner adds no
+  grade of its own.
+- **Contract v2** (ADR 0086 changed): "rotate" flow, still under 0.01 frame widths a second, rotation in the edge speed.
+
 ## Consequences
 
 - Every planned cut can be read and argued with: the reasons are in the timeline, the plan answer and the critic.
@@ -122,11 +149,12 @@ planner's (and the first cut's) own.
   copy), `packages/render/tests/cut-grammar-render.test.ts` (wipe edge, zoom styles, depth mask, sound bridges, the
   cap).
 - Reel 91 (owner reel `cmvo10ubf000001ad160ggov8`, its seven clips 4904–4906, 4908–4911; 4907 is not in the reel)
-  planned and rendered locally at 720p with the real renderer: `packages/render/scripts/cut-grammar-proof.ts`. The
-  clips were measured with a **stand-in analysis** (`scripts/stand-in-analysis.ts`: core's flow fit, Laplacian
-  sharpness, centre-surround attention inside the rendered crop, dark-band occluders, blown windows; no depth model,
-  no colour), not ADR 0086's worker. Result: 35.7 s, 12 shots, gate pass, 0 naked cuts, 0 repeats, longest without a
-  surprise 5.9 s; outputs in `ReelWalk-hybrid/output/phase-b/cut-grammar/`. The local render is silent (the song is not
-  in the repository).
+  through the app's own first-cut functions (`plannedCut` beside `ruleCut`, same style, song and hook words), rendered
+  locally at 720p with the real renderer and the song (`packages/render/scripts/cut-grammar-proof.ts`). v2 uses ADR
+  0086's worker measurements of Reel 91: 21.0 s, 9 shots, gate pass, 0 naked cuts, 0 repeats, two visible effects
+  (both depth rack focus), longest without a surprise 4.8 s, 7 cuts on the beat; hook placed as dark ink at y 0.16,
+  measured 6.8:1 (no white placement held 4.5:1 over the sky on both opening frames). Mean luma without the end card
+  111.5 against the rule cut's 114.4, the same filter on both. v1 (stand-in analysis, 35.7 s) is kept in `v1/`.
+  Outputs in `ReelWalk-hybrid/output/phase-b/cut-grammar/` and `s3://…/samples/phase-b-2026-10-26/`.
 - Not verified: a 1080p export through production (after deploy), the Player on a real phone, the planner on the
   worker's real analyses.

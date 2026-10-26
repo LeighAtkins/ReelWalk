@@ -94,3 +94,4 @@ export * from "./cut-schema";
 export * from "./cut-grammar";
 export * from "./cut-planner";
 export type { PlannerAnalysis } from "./shot-facts";
+export * from "./legibility";

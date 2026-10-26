@@ -11,6 +11,7 @@ import type { InstagramAudioTrack } from "./instagram-audio";
 import { snapCutsToBeats } from "./beats";
 import { carryOpeningTitle, planCutOnTimeline, planReport, type CutBrief, type CutPlan } from "./cut-planner";
 import type { PlannerAnalysis } from "./shot-facts";
+import { HOOK_TYPE } from "./legibility";
 import {
   MIN_CLIP_MS,
   addRoomLabels,
@@ -292,6 +293,11 @@ export function usableCut(timeline: Timeline): boolean {
   return timeline.clips.length > 0 && total >= 6000 && total <= 90_000 && timeline.clips.every((clip) => clipDurationMs(clip) >= 700);
 }
 
+/** The end card's line by what the listing is (one-shot plan, owner decision 5); none when it is not a listing. */
+export const END_CARD_LINES: Record<CutBrief["listing"], string | null> = { "for-sale": "For sale", "just-sold": "Sold", "open-home": "Open home", "for-rent": "For lease", "not-listing": null };
+/** How long the planned cut's end card holds (owner: at most 1.5 s). */
+export const END_CARD_MS = 1200;
+
 /** The feel a style asks for, when the person was not asked (ADR 0087): the slow luxury style is quiet, the quick ones lively. */
 export function briefForStyle(style: AutopilotStyle, brief: Partial<CutBrief> = {}): CutBrief {
   const feel = brief.feel ?? (style.id === "privacy" ? "quiet" : style.id === "just-listed" ? "lively" : "classic");
@@ -326,9 +332,20 @@ export function plannedCut(
   } catch {
     return null;
   }
-  const cut: Timeline = withGrid === base ? planned.timeline : { ...planned.timeline, music: base.music };
+  // The style's own grade on every shot, as the rule cut gives it (owner, v1 review: the planned cut looked cooler and duller).
+  const graded = planned.timeline.clips.map((clip) => ({ ...clip, filter: context.style.filter }));
+  const cut: Timeline = { ...planned.timeline, clips: graded, ...(withGrid === base ? {} : { music: base.music }) };
   const finished = finishAutopilot(cut, { ...context, instagramPick });
-  const result = carryOpeningTitle(finished.timeline, planned.plan.carryUntilMs);
+  // The hook in readable type (owner, v1 review): Playfair 600, capitals about 5 % of the frame, white with a strong
+  // shadow, high in the frame; the critic measures it against the picture (4.5:1) once frames are read.
+  const hook = finished.timeline.texts.find((text) => text.startMs <= 100 && !text.id.startsWith("room-"));
+  const styled: Timeline = hook ? { ...finished.timeline, texts: finished.timeline.texts.map((text) => (text.id === hook.id
+    ? { ...text, style: HOOK_TYPE.style, weight: HOOK_TYPE.weight, size: HOOK_TYPE.size, shadow: HOOK_TYPE.shadow, font: undefined, color: "#ffffff", y: 0.18, x: 0.5, animation: "auto" as const }
+    : text)) } : finished.timeline;
+  // A short, readable end card for a listing (at most 1.5 s, the hook's size), so the ending and the loop stay alive.
+  const card = END_CARD_LINES[briefForStyle(context.style, context.brief).listing];
+  const closed: Timeline = card && !styled.endCard ? { ...styled, endCard: { text: card, durationMs: END_CARD_MS, reveal: "cut", size: HOOK_TYPE.size } } : styled;
+  const result = carryOpeningTitle(closed, planned.plan.carryUntilMs);
   if (!planReport(result, planned.plan).pass) return null;
   return { timeline: result, plan: planned.plan, instagramPick: finished.instagramPick ?? instagramPick };
 }

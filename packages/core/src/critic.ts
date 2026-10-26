@@ -58,6 +58,7 @@ import { estimateLineWidth } from "./cinematic";
 import { applyCommand, type BatchableCommand, type Command } from "./commands";
 import { retentionFindings, seriesFromSamples, stillWindows, type RetentionInput } from "./retention";
 import { cutGrammarReport, hasCutGrammar } from "./cut-grammar";
+import { measuredContrast } from "./legibility";
 import type { FrameSeries } from "./render-checks";
 import { INSTAGRAM } from "./instagram";
 import { MIN_SPEAKING_FACE_PX, minFacePx } from "./presenter";
@@ -711,7 +712,12 @@ function cutGrammarChecks(ctx: Context, series: FrameSeries): CriticFinding[] {
   for (const [from, to] of stillWindows(timeline, series)) {
     timeline.clips.forEach((clip, i) => { if (starts[i] >= from - 1 && starts[i] + clipDurationMs(clip) <= to + 1) still.add(clip.id); });
   }
-  const report = cutGrammarReport(timeline, { stillClipIds: still });
+  // The opening title's contrast over the frame read just after it is in (when that frame was read).
+  const opener = timeline.texts.find((text) => text.startMs <= 100 && !text.id.startsWith("room-"));
+  const geometry = opener ? titleGeometry(timeline, opener, ctx.titleFont(opener), ctx.measure) : null;
+  const frame = opener ? frameAt(ctx, Math.min(opener.endMs - 1, opener.startMs + 300))?.frame ?? null : null;
+  const hookContrast = opener && geometry && frame ? measuredContrast(frame, geometry.box, opener) : null;
+  const report = cutGrammarReport(timeline, { stillClipIds: still, hookContrast });
   const at = (ms: number) => {
     const moment = momentAt(timeline, ms);
     return { atMs: ms, clipId: moment?.clipId ?? null, sourceMs: moment?.sourceMs ?? null, impact: impactOf(ms, total) };

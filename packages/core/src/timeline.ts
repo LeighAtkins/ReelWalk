@@ -248,6 +248,8 @@ export const textSchema = z
     byApp: z.literal(true).optional(),
     animation: z.enum(TEXT_ANIMATIONS).default("auto"),
     font: z.enum(["auto", "serif", "sans", "editorial"]).optional(),
+    /** The face's weight, over the style's own (ADR 0087: the hook is Playfair 600). Absent: the style's weight. */
+    weight: z.union([z.literal(400), z.literal(500), z.literal(600), z.literal(700)]).optional(),
     shadow: z.enum(["auto", "soft", "strong", "none"]).optional(),
     tracking: z.number().min(-0.04).max(0.24).optional(),
     /**
@@ -518,6 +520,11 @@ export const endCardSchema = z.object({
    * capitals; "leak" a soft warm glint hides the cut to the plate. A saved "fade" or "over" reads as "cut".
    */
   reveal: z.preprocess(migrateEndCardReveal, z.enum(END_CARD_REVEALS).optional()),
+  /**
+   * The line's size on the title scale (ADR 0087): the planner sets it to the hook's, so the close reads as well as the
+   * opening (weight 600, light tracking). Absent: the small tracked capitals of ADR 0082.
+   */
+  size: z.number().min(0.5).max(TEXT_SIZE_MAX).optional(),
 });
 export type EndCard = z.infer<typeof endCardSchema>;
 /** How an end card arrives (ADR 0082); absent is "cut". */

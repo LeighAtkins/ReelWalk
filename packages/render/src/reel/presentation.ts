@@ -1,19 +1,10 @@
 import type React from "react";
 import { interpolate } from "remotion";
 import { clipCameraAt, speedPlanOf, type Clip } from "@reelwalk/core";
-import { whipGeometry } from "./whip";
 import { roundFocus, zoomBlurStageCount, zoomStageId } from "./zoom-blur";
 
-/** Frames of the dip-to-black on each side of a "fade" transition. */
+/** Frames of the fade from black when the reel's opening shot has transitionIn "fade" (every other fade is a TransitionSeries crossfade, ADR 0083). */
 export const FADE_FRAMES = 8;
-/** Four silent frames on either side of a deliberate camera-matched whip. */
-export const WHIP_FRAMES = 4;
-
-export function whipStyle(amount: number, filterId: string, direction: Clip["whipDirection"]): React.CSSProperties | undefined {
-  if (amount === 0) return undefined;
-  const g = whipGeometry(amount, direction);
-  return { transform: `translate(${g.x}%, ${g.y}%) scale(${g.scaleX}, ${g.scaleY})`, filter: `url(#${filterId})` };
-}
 
 /** The camera move (eased keys, or the Ken Burns preset) and the clip's own zoom, as one CSS transform about the centre. */
 export function motionTransform(clip: Pick<Clip, "motion" | "camera" | "zoom">, progress: number, seconds: number, opening = false): string | undefined {
@@ -24,19 +15,15 @@ export function motionTransform(clip: Pick<Clip, "motion" | "camera" | "zoom">, 
 }
 
 export type ClipPresentation = {
-  /** The fade-in and fade-out of a "fade" transition, multiplied. */
+  /** The opening shot's fade from black; 1 everywhere else (the transitions between shots are TransitionSeries', ADR 0083). */
   opacity: number;
   /** Zoom and camera move, applied to the picture inside the frame. */
   transform: string | undefined;
-  /** The whip's displacement and blur, applied to the whole frame; undefined when not whipping. */
-  whip: React.CSSProperties | undefined;
-  whipAmount: number;
-  whipId: string;
-  whipDirection: Clip["whipDirection"] | undefined;
+  /** The speed-ramp blur's CSS filter over the whole frame (ADR 0073/0074); undefined when not blurring. */
+  blur: React.CSSProperties | undefined;
   /**
    * The speed-ramp transition's blur (ADR 0073): σ in px along each axis, or (ADR 0074) a zoom blur's spread (how much
-   * larger its outermost copy is) streaking from the focus (frame fractions); with the filter's id. Null when not
-   * blurring. Its style is in `whip` when no whip is drawn.
+   * larger its outermost copy is) streaking from the focus (frame fractions); with the filter's id. Null when not blurring.
    */
   speedBlur: { id: string; x: number; y: number; zoom: number; fx: number; fy: number } | null;
 };
@@ -53,12 +40,12 @@ const BLUR_MIN_PX = 0.4;
 const ZOOM_MIN = 0.004;
 
 /**
- * How a clip is shown at `frame`: its fade, its motion and its whip. One
+ * How a clip is shown at `frame`: its opening fade, its motion and its speed-ramp blur. One
  * function for the footage and for the person matte drawn above the type, so
  * the matte always sits exactly on the body it was cut from (review of
  * 2026-10-20: the matte used to ignore zoom, fit and transitions).
  */
-export function clipPresentation(clip: Clip, frame: number, fps: number, durationInFrames: number, fadeOut: boolean, whipOut: Clip["whipDirection"] | null, opening = false): ClipPresentation {
+export function clipPresentation(clip: Clip, frame: number, fps: number, durationInFrames: number, opening = false): ClipPresentation {
   // Clamped: a clip is mounted a second early (premount) with negative frames.
   const progress = durationInFrames > 1 ? Math.min(1, Math.max(0, frame / (durationInFrames - 1))) : 0;
   const motion = motionTransform(clip, progress, Math.max(0, frame / fps), opening);
@@ -73,21 +60,11 @@ export function clipPresentation(clip: Clip, frame: number, fps: number, duratio
   const about = zoomSpread >= ZOOM_MIN && (focusX !== 0.5 || focusY !== 0.5) ? { x: Math.round((focusX - 0.5) * 10000) / 100, y: Math.round((focusY - 0.5) * 10000) / 100 } : null;
   const pushed = about ? `translate(${about.x}%, ${about.y}%) scale(${1 + push}) translate(${-about.x}%, ${-about.y}%)` : `scale(${1 + push})`;
   const transform = push > 0 ? `${pushed}${motion ? ` ${motion}` : ""}` : motion;
-  const fadeIn = clip.transitionIn === "fade" ? interpolate(frame, [0, FADE_FRAMES], [0, 1], { extrapolateRight: "clamp" }) : 1;
-  const fadeOutValue = fadeOut
-    ? interpolate(frame, [durationInFrames - FADE_FRAMES, durationInFrames - 1], [1, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" })
-    : 1;
-  const clamp = { extrapolateLeft: "clamp", extrapolateRight: "clamp" } as const;
-  const whipIn = clip.transitionIn === "whip" ? interpolate(frame, [0, WHIP_FRAMES], [1, 0], clamp) : 0;
-  const whipAway = whipOut ? interpolate(frame, [durationInFrames - WHIP_FRAMES, durationInFrames - 1], [0, -1], clamp) : 0;
-  const whipAmount = whipIn || whipAway;
-  const whipId = `whip-${clip.id}`;
-  const whipDirection = whipIn ? clip.whipDirection : whipOut ?? undefined;
+  // The reel's first shot has no shot before it to cross from: its "fade" is a fade up from black.
+  const fadeIn = opening && clip.transitionIn === "fade" ? interpolate(frame, [0, FADE_FRAMES], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" }) : 1;
   const blurX = plan ? plan.blurX[planned] : 0, blurY = plan ? plan.blurY[planned] : 0;
   const speedBlur = blurX >= BLUR_MIN_PX || blurY >= BLUR_MIN_PX || zoomSpread >= ZOOM_MIN ? { id: `speedblur-${clip.id}`, x: blurX, y: blurY, zoom: zoomSpread >= ZOOM_MIN ? zoomSpread : 0, fx: focusX, fy: focusY } : null;
-  // A whip on the same frame wins (a clip too short for both); the blur is otherwise drawn the way a whip's is.
-  const whip = whipStyle(whipAmount, whipId, whipDirection) ?? (speedBlur ? ({ filter: speedBlurFilter(speedBlur) } as React.CSSProperties) : undefined);
-  return { opacity: Math.min(fadeIn, fadeOutValue), transform, whip, whipAmount, whipId, whipDirection, speedBlur: whipAmount === 0 ? speedBlur : null };
+  return { opacity: fadeIn, transform, blur: speedBlur ? { filter: speedBlurFilter(speedBlur) } : undefined, speedBlur };
 }
 
 /**

@@ -124,7 +124,7 @@ describe("the frames across a cut read as a push", () => {
   const cut = frames.clips[0].durationInFrames;
   const shown = (frame: number) => {
     const entry = frames.clips.find((candidate) => frame >= candidate.from && frame < candidate.from + candidate.durationInFrames)!;
-    return clipPresentation(entry.clip, frame - entry.from, FPS, entry.durationInFrames, false, null);
+    return clipPresentation(entry.clip, frame - entry.from, FPS, entry.durationInFrames);
   };
 
   it("draws a zoom blur with a focus on the outgoing side and an axis blur on the incoming side", () => {
@@ -133,15 +133,15 @@ describe("the frames across a cut read as a push", () => {
     expect(out.speedBlur!.zoom).toBeGreaterThan(0.05);
     expect(into.speedBlur!.zoom).toBe(0);
     expect(into.speedBlur!.x).toBeGreaterThan(0);
-    expect(out.whip).toEqual({ filter: speedBlurFilter(out.speedBlur!) });
-    expect(into.whip).toEqual({ filter: `url(#${into.speedBlur!.id})` });
+    expect(out.blur).toEqual({ filter: speedBlurFilter(out.speedBlur!) });
+    expect(into.blur).toEqual({ filter: `url(#${into.speedBlur!.id})` });
   });
 
   it("grows the zoom blur toward the cut and draws nothing far from it", () => {
     const spreads = [5, 4, 3, 2, 1].map((back) => shown(cut - back).speedBlur?.zoom ?? 0);
     spreads.forEach((value, i) => { if (i > 0) expect(value).toBeGreaterThanOrEqual(spreads[i - 1]); });
     expect(shown(cut - 20).speedBlur).toBeNull();
-    expect(shown(cut - 20).whip).toBeUndefined();
+    expect(shown(cut - 20).blur).toBeUndefined();
   });
 
   it("pushes about the blur's focus, so the push and the streaks radiate from the same point and reinforce each other", () => {
@@ -151,16 +151,16 @@ describe("the frames across a cut read as a push", () => {
     const middle = zoomCutTimeline({ after: "c1", out: { kind: "zoom-in" } });
     const plan = withSpeedPlans(middle, zoomCutPlan(middle));
     const entry = framePlan(plan, FPS).clips[0];
-    expect(clipPresentation(entry.clip, entry.durationInFrames - 1, FPS, entry.durationInFrames, false, null).transform).toMatch(/^scale\(1\.1\)/);
+    expect(clipPresentation(entry.clip, entry.durationInFrames - 1, FPS, entry.durationInFrames).transform).toMatch(/^scale\(1\.1\)/);
   });
 
   it("is exactly the old drawing for the same cut with no reading: a horizontal blur, no zoom", () => {
     const before = zoomCutTimeline(undefined);
     const plan = withSpeedPlans(before, zoomCutPlan(before));
     const entry = framePlan(plan, FPS).clips[0];
-    const out = clipPresentation(entry.clip, entry.durationInFrames - 1, FPS, entry.durationInFrames, false, null);
+    const out = clipPresentation(entry.clip, entry.durationInFrames - 1, FPS, entry.durationInFrames);
     expect(out.speedBlur).toMatchObject({ zoom: 0, y: 0 });
     expect(out.speedBlur!.x).toBeGreaterThan(0);
-    expect(out.whip).toEqual({ filter: `url(#${out.speedBlur!.id})` });
+    expect(out.blur).toEqual({ filter: `url(#${out.speedBlur!.id})` });
   });
 });

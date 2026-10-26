@@ -22,12 +22,13 @@ const pwDir = args.includes("--playwright") ? args[args.indexOf("--playwright") 
 const { chromium } = require(pwDir ? resolve(pwDir) : "playwright-core");
 
 /** The fontsource CSS the composition imports (packages/render src/reel/fonts.ts). */
-const css = ["@fontsource-variable/archivo/wdth.css", "@fontsource-variable/cormorant-garamond/wght.css", "@fontsource-variable/bodoni-moda/opsz.css"]
+const css = ["@fontsource-variable/archivo/wdth.css", "@fontsource-variable/playfair-display/wght.css", "@fontsource-variable/cormorant-garamond/wght.css", "@fontsource-variable/bodoni-moda/opsz.css"]
   .map((spec) => pathToFileURL(require.resolve(spec, { paths: [resolve(root, "packages/render")] })).href);
 
 /** The faces titles are drawn in: family × the weights look.ts uses × the stretches (Archivo's wdth axis). */
 const FACES = [
   { family: "Archivo Variable", weights: [600, 700, 800, 850], stretches: [75, 100, 112, 125] },
+  { family: "Playfair Display Variable", weights: [500, 600, 700], stretches: [100] },
   { family: "Cormorant Garamond Variable", weights: [600, 700], stretches: [100] },
   { family: "Bodoni Moda Variable", weights: [600, 700, 800, 850], stretches: [100] },
 ];

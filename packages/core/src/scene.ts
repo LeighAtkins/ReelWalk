@@ -313,6 +313,43 @@ export function screenTitleExtent(text: Pick<TextOverlay, "text" | "style">, fon
   return { width, height: font.fontSize * TITLE_LEADING * lines.length + 2 * pad.y, lines, column };
 }
 
+/** A screen title's drawn box stays inside this share of the frame's width (ADR 0083): 4 % clear of either edge. */
+export const TITLE_MAX_WIDTH = 0.92;
+/** The column a sentence wraps in, as a share of the frame's width. */
+export const TITLE_WRAP_WIDTH = 0.86;
+
+/**
+ * A screen title fitted by measurement so it never runs off the frame or breaks inside a word (ADR 0083). The
+ * measure is the renderer's (Remotion's measureText in the composition), so this is the drawn width, not a guess.
+ *   - A sentence wraps in its column; a word wider than the column widens the column to hold it on one line, so the
+ *     renderer never breaks it mid-word.
+ *   - One word (never wrapped) is one line, as before.
+ *   - If the box, at the title's own scale, is wider than TITLE_MAX_WIDTH of the frame, the scale comes down until it
+ *     fits; and its centre moves in just far enough to keep the box inside the frame. A title that already fits is
+ *     returned unchanged, so saved reels that drew correctly draw the same.
+ */
+export function fitScreenTitle(text: Pick<TextOverlay, "text" | "style">, font: TitleFont, measure: Measure, center: ScenePoint, scale: number, width: number): { wrap: ScreenPlacement["wrap"]; scale: number; center: ScenePoint } {
+  const pad = titlePaddingPx(text, font);
+  const sentence = /\s/.test(text.text);
+  let wrap: ScreenPlacement["wrap"];
+  let box: number;
+  if (sentence) {
+    const longest = Math.max(...text.text.split(/\s+/).filter((word) => word.length > 0).map((word) => measure(word, font).width));
+    wrap = { mode: "wrap", width: Math.max(width * TITLE_WRAP_WIDTH, Math.ceil(longest + 2 * pad.x)) };
+    box = screenTitleExtent(text, font, measure, wrap).width;
+  } else {
+    wrap = { mode: "line", maxWidth: width * 1.4 };
+    box = Math.max(...text.text.split("\n").map((line) => measure(line || " ", font).width)) + 2 * pad.x;
+  }
+  const room = width * TITLE_MAX_WIDTH;
+  const fitted = box * scale > room ? room / box : scale;
+  if (!sentence) wrap = { mode: "line", maxWidth: Math.max(width * 1.4, box) };
+  // Inside the frame: the drawn half-width from either edge, with the same margin.
+  const half = (box * fitted) / 2, margin = (width - room) / 2;
+  const x = Math.min(Math.max(center.x, margin + half), width - margin - half);
+  return { wrap, scale: fitted, center: Math.abs(x - center.x) < 1e-6 ? center : { x, y: center.y } };
+}
+
 /** The single evaluated placement of one title on one frame. See the module comment. */
 export function evaluateTitle(input: TitleInput): TitlePlacement {
   const { text, timeline, frame, durationInFrames, fps, width, height, font, measure } = input;
@@ -343,8 +380,8 @@ export function evaluateTitle(input: TitleInput): TitlePlacement {
   }
   if (!corners) {
     // A single word never breaks mid-word (a tracked title is usually one word); sentences wrap inside the safe width.
-    const wrap: ScreenPlacement["wrap"] = /\s/.test(text.text) ? { mode: "wrap", width: width * 0.86 } : { mode: "line", maxWidth: width * 1.4 };
-    return { kind: "screen", progress, center: { x: position.x * width, y: position.y * height }, wrap, scale: position.scale, rotation: position.rotation, opacity, occluderTaps };
+    const fitted = fitScreenTitle(text, font, measure, { x: position.x * width, y: position.y * height }, position.scale, width);
+    return { kind: "screen", progress, center: fitted.center, wrap: fitted.wrap, scale: fitted.scale, rotation: position.rotation, opacity, occluderTaps };
   }
 
   const { plane, quad } = corners;

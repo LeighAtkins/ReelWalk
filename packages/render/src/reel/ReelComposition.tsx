@@ -2,6 +2,7 @@ import React from "react";
 import {
   AbsoluteFill,
   Audio,
+  Freeze,
   Html5Video,
   Img,
   interpolate,
@@ -15,14 +16,16 @@ import {
 // WebCodecs-based video, used when the worker renders: about twice as fast as
 // OffthreadVideo here, and it falls back to it for files it cannot decode.
 import { Video as RenderVideo } from "@remotion/media";
+import { TransitionSeries } from "@remotion/transitions";
 import { behindInPlane, BRAND_FONTS, calloutGeometry, calloutSvg, cameraAt, colorMatchFilterId, colorMatrixValues, countUpText, duckGain, evaluateTitle, flareCss, framePlan, hasSpeedRamps, hasSpeech, mediaWindow, glintLetter, glintSvg, INSTAGRAM, isInstagramMusic, kineticProgress, matrix3d, particleField, particleSvg, personLayerOpacity, REEL_FORMAT, sceneLayers, SFX_DUCK, SFX_SOUNDS, sfxAssetKey, sfxEndMs, sfxGainAt, shineAt, shineBandCss, shineSpec, slideFromBehind, planSpeedRamps, speechWindows, speedPlanOf, speedRampMediaWindow, TITLE_LEADING, timelineDurationMs, walkInto, withSpeedPlans, wordReveal, type Clip, type Logo, type ParticleField, type PersonPass, type Plan, type SfxClip, type ShineFlare, type ShineGlint, type TextOverlay, type Timeline } from "@reelwalk/core";
-import { domMeasure } from "./measure";
+import { layoutMeasure } from "./measure";
 import { textExit, titleFont } from "./title-motion";
-import { whipGeometry } from "./whip";
 import { zoomFilterSpec, zoomStageId } from "./zoom-blur";
 import { clipPresentation } from "./presentation";
+import { clipSpans, mediaHandles, planCuts, type CutPlan } from "./transition-plan";
+import { AtCuts, presentationOf, timingOf } from "./transitions";
 import { useFontsFor } from "./fonts";
-import { clipFilterCss, ELEGANT_FADE_S, textTreatmentCss } from "./look";
+import { clipFilterCss, ELEGANT_FADE_S, FILTER_GRADES, textTreatmentCss, whiteBalanceId, whiteBalanceValues } from "./look";
 import { DetailsCardView } from "./DetailsCardView";
 import { EndCardView } from "./EndCardView";
 import { PanoView } from "./PanoView";
@@ -32,15 +35,6 @@ import { Watermark } from "./Watermark";
 import { PersonMatteView } from "./PersonMatte";
 import { ObjectMatteView } from "./ObjectMatte";
 import { HookView } from "./HookView";
-
-const WhipBlur: React.FC<{ id: string; amount: number; direction: Clip["whipDirection"] }> = ({ id, amount, direction }) => {
-  const g = whipGeometry(amount, direction);
-  return <svg width="0" height="0" style={{ position: "absolute" }} aria-hidden="true">
-    <filter id={id} x="-20%" y="-20%" width="140%" height="140%">
-      <feGaussianBlur stdDeviation={`${g.blurX} ${g.blurY}`} edgeMode="duplicate" />
-    </filter>
-  </svg>;
-};
 
 /**
  * The speed-ramp transition's blur: a directional Gaussian (ADR 0073), σ along x and y in px, edges duplicated so the
@@ -91,6 +85,17 @@ const ColorMatchFilter: React.FC<{ clip: Clip }> = ({ clip }) => {
   </svg>;
 };
 
+/** The presets' white balances (look.ts, ADR 0083), once for the whole reel: `gradeCss` points the clips' filters here. */
+const GradeFilters: React.FC = () => (
+  <svg width="0" height="0" style={{ position: "absolute" }} aria-hidden="true">
+    {Object.entries(FILTER_GRADES).map(([filter, grade]) => grade && (grade.temperature || grade.tint) ? (
+      <filter key={filter} id={whiteBalanceId(filter as keyof typeof FILTER_GRADES)} x="0" y="0" width="100%" height="100%" colorInterpolationFilters="sRGB">
+        <feColorMatrix type="matrix" values={whiteBalanceValues(grade.temperature, grade.tint)} />
+      </filter>
+    ) : null)}
+  </svg>
+);
+
 function resolveSrc(src: string): string {
   return /^(https?:|blob:|data:)/.test(src) ? src : staticFile(src);
 }
@@ -104,7 +109,13 @@ const Media: React.FC<{
   transform?: string;
   /** The clip's sequence length: the media window is derived from it (frames.ts), so every frame of the sequence has a picture. */
   durationInFrames: number;
-}> = ({ clip, asset, fit, muted, transform, durationInFrames }) => {
+  /**
+   * Frames of real footage before the clip's start and after its end, drawn under a transition centred on the cut
+   * (ADR 0083): the media's frame 0 is `pre` frames before the saved start. Only the saved span plays its sound.
+   */
+  pre?: number;
+  post?: number;
+}> = ({ clip, asset, fit, muted, transform, durationInFrames, pre = 0, post = 0 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const { isRendering } = useRemotionEnvironment();
@@ -120,13 +131,16 @@ const Media: React.FC<{
   // moves the rate per frame and fades the clip's own sound where the picture runs far from its mean speed.
   // A clip on a speed-ramp cut (ADR 0073) plays along its plan, which the composition attached; every other clip as before.
   const speedPlan = speedPlanOf(clip);
-  const window = speedPlan ? speedRampMediaWindow(clip, speedPlan, frame, fps) : mediaWindow(clip, frame, durationInFrames, fps);
+  const borrowed = pre > 0 ? { ...clip, sourceStartMs: clip.sourceStartMs - (pre * 1000 * (clip.speed || 1)) / fps } : clip;
+  const window = speedPlan ? speedRampMediaWindow(clip, speedPlan, frame, fps) : mediaWindow(borrowed, frame, durationInFrames + pre + post, fps);
+  const gain = clip.volume * window.gain;
   const timing = {
     src: resolveSrc(asset.src),
     trimBefore: window.trimBefore,
     trimAfter: window.trimAfter,
     playbackRate: window.playbackRate,
-    volume: muted ? 0 : clip.volume * window.gain,
+    // The handles are silent: the sound still cuts on the saved frame, as the music and the J-cuts expect.
+    volume: muted ? 0 : pre || post ? (f: number) => (f >= pre && f < pre + durationInFrames ? gain : 0) : gain,
     muted: muted || clip.volume === 0,
   };
   if (!isRendering) {
@@ -146,37 +160,43 @@ const Media: React.FC<{
 const ClipView: React.FC<{
   clip: Clip;
   asset: ReelAsset | undefined;
+  /** The clip's saved length in frames; its sequence is `lead + durationInFrames + tail`. */
   durationInFrames: number;
-  fadeOut: boolean;
-  /** The next clip whips in, so this one whips out. */
-  whipOut?: Clip["whipDirection"] | null;
   /** The clip before this one and its media, for a walk between two 360 photos. */
   previous?: { clip: Clip; asset: ReelAsset | undefined };
   plan: Plan | null;
   /** The reel's opening shot: an eased camera move starts already in progress (ADR 0067). */
   opening?: boolean;
-}> = ({ clip, asset, durationInFrames, fadeOut, whipOut = null, previous, plan, opening = false }) => {
-  const frame = useCurrentFrame();
+  /**
+   * Frames drawn before the saved start and after the saved end, under the transitions into and out of the clip,
+   * which are centred on the saved cuts (ADR 0083). Real footage where the source has it, else the first or last
+   * frame held.
+   */
+  lead?: number;
+  tail?: number;
+}> = ({ clip, asset, durationInFrames, previous, plan, opening = false, lead = 0, tail = 0 }) => {
+  const sequenceFrame = useCurrentFrame();
+  // The clip's own frame: 0 on the saved cut in, whatever the transition before it borrowed.
+  const frame = sequenceFrame - lead;
   const { fps } = useVideoConfig();
   if (!asset) {
     // The source was deleted. Show a neutral frame instead of failing the whole render.
     return <AbsoluteFill style={{ backgroundColor: "#262320" }} />;
   }
 
-  // Clamped: a clip is mounted a second early (premount) with negative frames.
+  // Clamped: a clip is mounted a second early (premount) with negative frames, and draws its handles past either end.
   const progress = durationInFrames > 1 ? Math.min(1, Math.max(0, frame / (durationInFrames - 1))) : 0;
-  const { transform, opacity: shown, whip, whipAmount, whipId, whipDirection, speedBlur } = clipPresentation(clip, frame, fps, durationInFrames, fadeOut, whipOut, opening);
+  const { transform, opacity: shown, blur, speedBlur } = clipPresentation(clip, Math.min(frame, durationInFrames - 1), fps, durationInFrames, opening);
 
   if (clip.pano && asset.kind === "IMAGE") {
     const clipMs = (durationInFrames * 1000) / fps;
     // A walk needs the photo the camera is leaving; without it the clip simply cuts in.
     const from = previous?.asset?.kind === "IMAGE" && walkInto(plan, previous.clip, clip, clipMs) ? previous : undefined;
     const camera = from
-      ? cameraAt(plan, from.clip, clip, (Math.max(0, frame) * 1000) / fps, clipMs)
+      ? cameraAt(plan, from.clip, clip, (Math.max(0, Math.min(frame, durationInFrames)) * 1000) / fps, clipMs)
       : cameraAt(plan, undefined, clip, progress, 1);
     return (
-      <AbsoluteFill style={{ opacity: shown, backgroundColor: "#000", ...whip }}>
-        {whipAmount !== 0 ? <WhipBlur id={whipId} amount={whipAmount} direction={whipDirection} /> : null}
+      <AbsoluteFill style={{ opacity: shown, backgroundColor: "#000", ...blur }}>
         {speedBlur ? <SpeedBlur {...speedBlur} /> : null}
         <ColorMatchFilter clip={clip} />
         <PanoView
@@ -191,20 +211,32 @@ const ClipView: React.FC<{
     );
   }
 
+  // The handles: footage borrowed from either side of the clip, or the end frame held where the source has none.
+  const { pre, post } = mediaHandles(clip, Boolean(speedPlanOf(clip)), asset.durationMs, durationInFrames, lead, tail, fps);
+  const liveFrom = lead - pre, liveTo = lead + durationInFrames + post;
+  const held = sequenceFrame < liveFrom ? liveFrom : sequenceFrame >= liveTo ? liveTo - 1 : null;
+  // Always mounted the same way (Freeze toggled, never added), so a handle never remounts the video mid-transition.
+  const media = (fit: "cover" | "contain", props: { muted?: boolean; transform?: string }) => (
+    <Freeze frame={held ?? 0} active={held !== null}>
+      <Sequence from={liveFrom} name={`media ${clip.id}`}>
+        <Media clip={clip} asset={asset} fit={fit} durationInFrames={durationInFrames} pre={pre} post={post} {...props} />
+      </Sequence>
+    </Freeze>
+  );
+
   return (
     <AbsoluteFill style={{ opacity: shown, overflow: "hidden" }}>
-      {whipAmount !== 0 ? <WhipBlur id={whipId} amount={whipAmount} direction={whipDirection} /> : null}
       {speedBlur ? <SpeedBlur {...speedBlur} /> : null}
       <ColorMatchFilter clip={clip} />
-      <AbsoluteFill style={whip}>
+      <AbsoluteFill style={blur}>
       {clip.fit === "contain" ? (
         // Letterboxed: the same picture, blurred and enlarged, fills the 9:16 frame behind it.
         <AbsoluteFill style={{ filter: "blur(48px) brightness(0.7)", transform: "scale(1.25)" }}>
-          <Media clip={clip} asset={asset} fit="cover" muted durationInFrames={durationInFrames} />
+          {media("cover", { muted: true })}
         </AbsoluteFill>
       ) : null}
       <AbsoluteFill>
-        <Media clip={clip} asset={asset} fit={clip.fit} transform={transform} durationInFrames={durationInFrames} muted={Boolean(clip.audio)} />
+        {media(clip.fit, { transform, muted: Boolean(clip.audio) })}
       </AbsoluteFill>
       {clip.lensSoftness ? <AbsoluteFill style={{ pointerEvents: "none", backdropFilter: `blur(${clip.lensSoftness * 7}px)`,
         maskImage: "radial-gradient(ellipse 47% 40% at 50% 48%, transparent 52%, black 100%)",
@@ -420,7 +452,9 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
   // A count-up draws tabular figures (ADR 0061): measured the same way, so its fit leaves room for the widest number.
   const font = titleFont(text, css);
   // Hooks first: a pinned title on another clip returns nothing, but only after every hook has run (React 300 otherwise).
-  useFontsFor(text.text, Number(css.fontWeight ?? 600), text.brand ? [BRAND_FONTS[text.brand.font].family] : undefined);
+  const fontsReady = useFontsFor(text.text, Number(css.fontWeight ?? 600), text.brand ? [BRAND_FONTS[text.brand.font].family] : undefined);
+  // Measured with Remotion's measureText once the faces are in (ADR 0083); the frame is held until then.
+  const measure = layoutMeasure(fontsReady);
   // Word-by-word and from-behind type bring the words in themselves but keep the way out (an elegant fade) (ADR 0061);
   // a callout has its own reveal and exit; a count replaces the typewriter.
   const arrives = text.callout || (text.kinetic?.preset === "count" && text.animation === "type") ? { ...text, animation: "none" as const } : text;
@@ -428,7 +462,7 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
   /** The golden-hour streak on this frame; `aspect` is the words' box height / width, for where the tilted band crosses its middle. */
   const flareAt = (aspect: number) => (text.shine ? shineAt(text.shine, (frame * 1000) / fps, aspect).flare : null);
   // Where the title is on this frame comes from one place (ADR 0046): the scene evaluator in core.
-  const placement = evaluateTitle({ text, timeline, frame, from, durationInFrames, fps, width, height, font, measure: domMeasure });
+  const placement = evaluateTitle({ text, timeline, frame, from, durationInFrames, fps, width, height, font, measure });
   if (placement.kind === "hidden") return null;
   // A kit style's forward lean (ADR 0078) is a skewX on the face; the placements below set a transform of their own, so they append it.
   const lean = typeof css.transform === "string" ? ` ${css.transform}` : "";
@@ -504,7 +538,7 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
   let callout: { svg: string; opacity: number; label: number; shift: { x: number; y: number } } | null = null;
   if (placement.callout) {
     const pad = paddingPx(css.padding);
-    const lineW = Math.max(...text.text.split("\n").map((part) => domMeasure(part || " ", font).width));
+    const lineW = Math.max(...text.text.split("\n").map((part) => measure(part || " ", font).width));
     const g = calloutGeometry({
       anchor: placement.callout.anchor, titleMs, lifeMs: (durationInFrames * 1000) / fps, width,
       label: { x: center.x, y: center.y, halfWidth: lineW / 2 + pad.x, halfHeight: (font.fontSize * (Number(css.lineHeight) || TITLE_LEADING)) / 2 + pad.y },
@@ -517,7 +551,7 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
   let slide: { dx: number; clipPath: string } | null = null;
   if (text.kinetic?.preset === "behind") {
     const pad = paddingPx(css.padding);
-    const widest = Math.max(...text.text.split("\n").map((part) => domMeasure(part || " ", font).width));
+    const widest = Math.max(...text.text.split("\n").map((part) => measure(part || " ", font).width));
     const textW = wrap.mode === "wrap" ? Math.min(wrap.width, widest) : Math.min(wrap.maxWidth, widest + 2 * pad.x);
     const boxW = wrap.mode === "wrap" ? wrap.width : textW;
     const textLeft = (boxW - textW) / 2;
@@ -526,7 +560,7 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
   // A screen title's particles fill its text box (the wrap width, or the measured line), centred where the words are.
   const screenParticles = (layer: "front" | "back") => {
     if (!text.particles) return null;
-    const widest = Math.max(...text.text.split("\n").map((part) => domMeasure(part || " ", font).width));
+    const widest = Math.max(...text.text.split("\n").map((part) => measure(part || " ", font).width));
     const lines = text.text.split("\n").length * (wrap.mode === "wrap" ? Math.max(1, Math.ceil(widest / wrap.width)) : 1);
     const box = { width: wrap.mode === "wrap" ? Math.min(wrap.width, widest) : Math.min(wrap.maxWidth, widest), height: font.fontSize * TITLE_LEADING * lines };
     return <ParticleLayer text={text} layer={layer} reelMs={reelMs} box={box} style={{ left: center.x, top: center.y, opacity: visible, transformOrigin: "50% 50%" }} transform={() => motion} />;
@@ -567,7 +601,7 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
         )}
       </div>
       {text.shine ? (() => {
-        const widest = Math.max(...text.text.split("\n").map((part) => domMeasure(part || " ", font).width));
+        const widest = Math.max(...text.text.split("\n").map((part) => measure(part || " ", font).width));
         const lineW = wrap.mode === "wrap" ? Math.min(wrap.width, widest) : Math.min(wrap.maxWidth, widest);
         const lineH = font.fontSize * TITLE_LEADING * text.text.split("\n").length;
         const flare = flareAt(lineH / Math.max(1, lineW));
@@ -666,6 +700,8 @@ const SfxTrack: React.FC<{ timeline: Timeline; assets: Record<string, ReelAsset>
   );
 };
 
+const NO_CUT: CutPlan = { kind: "none" };
+
 /**
  * The whole reel. Used by the Player in the editor and by the worker for the
  * final MP4, so the export always matches the preview.
@@ -680,6 +716,10 @@ export const ReelComposition: React.FC<ReelProps> = ({ timeline: saved, assets, 
     return withSpeedPlans(saved, planSpeedRamps(frames.map(({ clip, durationInFrames }) => ({ clip, durationInFrames, sourceDurationMs: assets[clip.assetId]?.durationMs ?? null, speech: hasSpeech(assets[clip.assetId]?.transcript) })), fps));
   }, [saved, assets, fps]);
   const plan = framePlan(timeline, fps);
+  // Every cut as a Remotion transition centred on its saved frame (ADR 0083): the series' sequences are each clip's
+  // saved span plus the halves of the transitions either side, so every cut, title and sound stays where it was.
+  const cuts = planCuts(plan.clips, fps);
+  const spans = clipSpans(cuts);
   const musicAsset = timeline.music ? assets[timeline.music.assetId] : undefined;
   // Speech in reel time, for ducking the sound design (the music track finds its own, ADR 0035).
   const sfxSpeech = React.useMemo(
@@ -689,25 +729,35 @@ export const ReelComposition: React.FC<ReelProps> = ({ timeline: saved, assets, 
 
   return (
     <AbsoluteFill style={{ backgroundColor: "#000" }}>
-      {plan.clips.map(({ clip, from, durationInFrames }, index) => (
-        // premountFor loads the next clip a second early, so the preview does not stall at cuts.
-        <Sequence key={clip.id} from={from} durationInFrames={durationInFrames} premountFor={fps} name={`clip ${index + 1}`}>
-          <ClipView
-            clip={clip}
-            asset={assets[clip.assetId]}
-            durationInFrames={durationInFrames}
-            fadeOut={timeline.clips[index + 1]?.transitionIn === "fade"}
-            whipOut={timeline.clips[index + 1]?.transitionIn === "whip" ? timeline.clips[index + 1].whipDirection ?? "right" : null}
-            previous={index > 0 ? { clip: timeline.clips[index - 1], asset: assets[timeline.clips[index - 1].assetId] } : undefined}
-            plan={timeline.plan?.geometry ?? null}
-            opening={index === 0}
-          />
-          {/* A J-cut (ADR 0069): the sound under a cutaway is the presenter take it covers, from the same source time. */}
-          {clip.audio && assets[clip.audio.assetId]?.kind === "VIDEO" ? (
-            <Audio src={resolveSrc(assets[clip.audio.assetId].src)} trimBefore={Math.round((clip.audio.sourceStartMs * fps) / 1000)} volume={clip.audio.volume} />
-          ) : null}
-        </Sequence>
-      ))}
+      <GradeFilters />
+      <TransitionSeries name="shots">
+        {plan.clips.flatMap(({ clip, durationInFrames }, index) => {
+          const cut = cuts[index];
+          const { lead, tail } = spans[index];
+          return [
+            cut.kind === "none" ? null : <TransitionSeries.Transition key={`cut-${clip.id}`} presentation={presentationOf(cut)} timing={timingOf(cut)} />,
+            // premountFor loads the next clip a second early, so the preview does not stall at cuts.
+            <TransitionSeries.Sequence key={clip.id} durationInFrames={lead + durationInFrames + tail} premountFor={fps} name={`clip ${index + 1}`}>
+              <ClipView
+                clip={clip}
+                asset={assets[clip.assetId]}
+                durationInFrames={durationInFrames}
+                previous={index > 0 ? { clip: timeline.clips[index - 1], asset: assets[timeline.clips[index - 1].assetId] } : undefined}
+                plan={timeline.plan?.geometry ?? null}
+                opening={index === 0}
+                lead={lead}
+                tail={tail}
+              />
+              {/* A J-cut (ADR 0069): the sound under a cutaway is the presenter take it covers, from the same source time, on the saved span only. */}
+              {clip.audio && assets[clip.audio.assetId]?.kind === "VIDEO" ? (
+                <Sequence from={lead} durationInFrames={durationInFrames} layout="none">
+                  <Audio src={resolveSrc(assets[clip.audio.assetId].src)} trimBefore={Math.round((clip.audio.sourceStartMs * fps) / 1000)} volume={clip.audio.volume} />
+                </Sequence>
+              ) : null}
+            </TransitionSeries.Sequence>,
+          ];
+        })}
+      </TransitionSeries>
       <PlanOverlayView timeline={timeline} />
       {/* Titles and what stands in front of them, bottom to top (ADR 0046): each title's occluders draw above
           that title only; the presenter above the "behind" titles, a plain caption above every matte. */}
@@ -723,9 +773,10 @@ export const ReelComposition: React.FC<ReelProps> = ({ timeline: saved, assets, 
         const clip = timeline.clips[layer.clipIndex];
         const asset = assets[clip.assetId];
         const { from, durationInFrames } = layer;
-        const next = timeline.clips[layer.clipIndex + 1];
-        const fadeOut = next?.transitionIn === "fade";
-        const whipOut = next?.transitionIn === "whip" ? next.whipDirection ?? "right" : null;
+        // The footage's transitions, around a matte drawn above the titles, so it moves with the shot under it (ADR 0083).
+        const atCuts = (node: React.ReactNode) => (
+          <AtCuts cutIn={cuts[layer.clipIndex]} cutOut={cuts[layer.clipIndex + 1] ?? NO_CUT} durationInFrames={plan.clips[layer.clipIndex].durationInFrames}>{node}</AtCuts>
+        );
         if (layer.kind === "person") {
           // People in front of the type (ADR 0039): a person-only matte of the clip.
           // A group of passing titles' presenter (ADR 0055): above those titles only, faded in as she walks through the words.
@@ -733,20 +784,20 @@ export const ReelComposition: React.FC<ReelProps> = ({ timeline: saved, assets, 
             const pass = layer.pass;
             return (
               <Sequence key={`matte-${clip.id}-pass-${pass.passMs}-${pass.passFadeMs}`} from={from} durationInFrames={durationInFrames} name={`passes ${clip.id}`}>
-                <PassFade pass={pass} from={from}>{(active) => <PersonMatteView clip={clip} asset={asset} durationInFrames={durationInFrames} fadeOut={fadeOut} whipOut={whipOut} active={active} opening={layer.clipIndex === 0} />}</PassFade>
+                <PassFade pass={pass} from={from}>{(active) => atCuts(<PersonMatteView clip={clip} asset={asset} durationInFrames={durationInFrames} active={active} opening={layer.clipIndex === 0} />)}</PassFade>
               </Sequence>
             );
           }
           return (
             <Sequence key={`matte-${clip.id}`} from={from} durationInFrames={durationInFrames} name={`matte ${clip.id}`}>
-              <PersonMatteView clip={clip} asset={asset} durationInFrames={durationInFrames} fadeOut={fadeOut} whipOut={whipOut} opening={layer.clipIndex === 0} />
+              {atCuts(<PersonMatteView clip={clip} asset={asset} durationInFrames={durationInFrames} opening={layer.clipIndex === 0} />)}
             </Sequence>
           );
         }
         // Things tapped as being in front of this title (ADR 0044): the object under the tap.
         return (
           <Sequence key={`object-${clip.id}-${layer.text.id}`} from={from} durationInFrames={durationInFrames} name={`in front of ${layer.text.text.slice(0, 12)}`}>
-            <ObjectMatteView clip={clip} asset={asset} text={layer.text} timeline={timeline} from={from} durationInFrames={durationInFrames} fadeOut={fadeOut} whipOut={whipOut} opening={layer.clipIndex === 0} />
+            {atCuts(<ObjectMatteView clip={clip} asset={asset} text={layer.text} timeline={timeline} from={from} durationInFrames={durationInFrames} opening={layer.clipIndex === 0} />)}
           </Sequence>
         );
       })}

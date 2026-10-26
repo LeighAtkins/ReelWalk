@@ -5,6 +5,8 @@ export default tseslint.config(
   {
     ignores: [
       "**/node_modules/**",
+      // Vendored agent skills (Remotion's examples): not our code, and not built.
+      "**/.claude/**",
       "**/.next/**",
       "**/out/**",
       "**/dist/**",

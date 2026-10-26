@@ -248,7 +248,8 @@ function textMotion(text: TextOverlay, frame: number, fps: number, durationInFra
     case "fadeQuick":
     case "maskUp":
     case "trackIn":
-    case "blurIn": {
+    case "blurIn":
+    case "blurQuick": {
       // The toolbox's quiet reveals (ADR 0082): the fade and the settle here; tracking, blur and the mask on the face (RevealFace).
       const reveal = revealStyle(animation, frame, fps, durationInFrames);
       return { ...still, opacity: reveal.opacity, rise: reveal.offsetY / 40 };

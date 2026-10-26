@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   applyCommand, BUTTON_COLUMN_X, captionWordAt, COMMAND_TYPES, composeKeywordLockups, describeLockups, fitScreenTitle, KEYWORD_CAP, KEYWORD_SIZE_MAX,
-  maxTextSize, parseTimeline, phrasesOf, pickKeyword, placeKeyword, REEL_FORMAT, SAFE_AREA, screenTitleExtent, SERIF_CAP_EM, TEXT_SAFE_BOTTOM, TEXT_SIZE_MAX,
+  maxTextSize, parseTimeline, referencedAssetIds, phrasesOf, pickKeyword, placeKeyword, REEL_FORMAT, SAFE_AREA, screenTitleExtent, SERIF_CAP_EM, TEXT_SAFE_BOTTOM, TEXT_SIZE_MAX,
   textSchema, updateText, type Timeline, type TranscriptWord,
 } from "../src";
 import { LAST_MILE_KIT } from "../src/brand-kits";
@@ -111,6 +111,28 @@ describe("composeKeywordLockups", () => {
     expect(close.startMs).toBeGreaterThanOrEqual(last.endMs);
   });
 
+  it("keeps clips whose ids share a long prefix apart (presenter takes are script-ai-…)", () => {
+    const twins = parseTimeline({ version: 1, music: null, texts: [], clips: [
+      { id: "script-ai-cmvp4abc", assetId: TAKE1, kind: "VIDEO", sourceStartMs: 200, sourceEndMs: 6450 },
+      { id: "script-ai-cmvp4def", assetId: TAKE2, kind: "VIDEO", sourceStartMs: 100, sourceEndMs: 8000 },
+    ] });
+    const both = composeKeywordLockups(twins, { speech: SPEECH });
+    const ids = both.texts.map((t) => t.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    // Composing the first clip again leaves the second clip's lockups alone.
+    const again = composeKeywordLockups(both, { speech: SPEECH, clipIds: ["script-ai-cmvp4abc"] });
+    expect(again.texts.filter((t) => t.lockup?.id.startsWith("script-ai-cmvp4def-")).length).toBe(both.texts.filter((t) => t.lockup?.id.startsWith("script-ai-cmvp4def-")).length);
+    expect(again.texts.length).toBe(both.texts.length);
+  });
+
+  it("puts a keyword too short to show back into the captions instead of dropping the word", () => {
+    // "beat." is said 5580–6200 ms; a clip cut at 5700 leaves it 160 ms.
+    const short = parseTimeline({ version: 1, music: null, texts: [], clips: [{ id: "c", assetId: TAKE1, kind: "VIDEO", sourceStartMs: 3700, sourceEndMs: 5700 }] });
+    const done = composeKeywordLockups(short, { speech: SPEECH, keywords: ["beat"], keywordsOnly: true });
+    expect(done.texts.some((t) => t.lockup?.role === "keyword")).toBe(false);
+    expect(done.texts.find((t) => t.lockup?.role === "captions")!.text.split(" ")).toContain("beat");
+  });
+
   it("refuses clips with no speech, and unknown clips", () => {
     expect(() => composeKeywordLockups(reel(), { speech: {} })).toThrow(/no transcribed speech|None of those clips/);
     expect(() => composeKeywordLockups(reel(), { speech: SPEECH, clipIds: ["nope"] })).toThrow(/no clip called nope/);
@@ -151,6 +173,11 @@ describe("schema and editing", () => {
     expect(maxTextSize({ lockup: { role: "keyword" } })).toBe(KEYWORD_SIZE_MAX);
     const moved = updateText(composeKeywordLockups(reel(), { speech: SPEECH, faces: FACES }), "kw-clip-one-0", { x: 0.5 });
     expect(moved.texts.find((t) => t.id === "kw-clip-one-0")!.size).toBeGreaterThan(TEXT_SIZE_MAX);
+  });
+
+  it("counts a keyword's picture fill among the reel's assets, so it is loaded and exported", () => {
+    const filled = parseTimeline({ version: 1, music: null, clips: reel().clips, texts: [{ id: "k", text: "home", startMs: 0, endMs: 1000, fill: { kind: "image", assetId: "photo-1" } }] });
+    expect(referencedAssetIds(filled)).toContain("photo-1");
   });
 
   it("reads every saved title the same: no fill, italic, weight or lockup appears", () => {

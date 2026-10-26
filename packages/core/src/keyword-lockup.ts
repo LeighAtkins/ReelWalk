@@ -230,7 +230,10 @@ export function placeCaptions(face: { x0: number; y0: number; x1: number; y1: nu
 
 export type LockupReport = { lockupId: string; clipId: string; phrase: string; keyword: string | null; startMs: number; endMs: number; keywordAt?: { x: number; y: number; capHeight: number }; captions: string[]; captionAt?: { x: number; y: number } };
 
-const lockupIdFor = (clipId: string, n: number) => `${clipId.slice(0, 12)}-${n}`;
+/** A lockup's id: the clip's whole id and the phrase's number, so two clips never share one (ids like `script-ai-…` share long prefixes). */
+const lockupIdFor = (clipId: string, n: number) => `${clipId}-${n}`;
+/** Whether a lockup was made on this clip: its id is the clip's id, a dash and a number (not merely a prefix: clip "a" is not clip "a-b"). */
+const onClip = (lockupId: string, clipId: string) => lockupId.startsWith(`${clipId}-`) && /^\d+$/.test(lockupId.slice(clipId.length + 1));
 
 /** The timeline with keyword lockups on the chosen clips (any earlier lockups on them replaced). Throws a plain error when there is nothing to compose. */
 export function composeKeywordLockups(timeline: Timeline, options: LockupOptions): Timeline {
@@ -266,7 +269,9 @@ export function composeKeywordLockups(timeline: Timeline, options: LockupOptions
         const at = placements.get(normaliseWord(word));
         const placed = placeKeyword(word, capHeight, face, at);
         const startMs = Math.max(clipStart, phrase.words[k].startMs - KEYWORD_LEAD_MS);
-        if (phraseEnd - startMs >= 300) {
+        // Too short to read before the clip ends: no keyword, and the word goes back into the captions.
+        if (phraseEnd - startMs < 300) k = -1;
+        else {
           added.push(textSchema.parse({
             id: `kw-${id}`, text: word, startMs, endMs: phraseEnd, x: placed.x, y: placed.y, style: "elegant", size: placed.size, color: options.color ?? "#ffffff",
             weight: KEYWORD_WEIGHT, shadow: "soft", animation: "blurQuick", behind: true, byApp: true, lockup: { id, role: "keyword" },
@@ -327,7 +332,7 @@ export function composeKeywordLockups(timeline: Timeline, options: LockupOptions
     }
   }
   // Lockups on the composed clips are replaced; everything else (other titles, other clips' lockups) is kept.
-  const ours = (text: TextOverlay) => text.lockup && [...touched].some((clipId) => text.lockup!.id.startsWith(`${clipId.slice(0, 12)}-`));
+  const ours = (text: TextOverlay) => text.lockup && [...touched].some((clipId) => onClip(text.lockup!.id, clipId));
   return { ...timeline, texts: [...timeline.texts.filter((text) => !ours(text)), ...added] };
 }
 

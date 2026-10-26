@@ -322,7 +322,7 @@ export const textSchema = z
      * whether this is its keyword or its caption track. Composing again replaces the titles carrying it. Absent: an
      * ordinary title.
      */
-    lockup: z.object({ id: z.string().min(1).max(80), role: z.enum(LOCKUP_ROLES) }).optional(),
+    lockup: z.object({ id: z.string().min(1).max(200), role: z.enum(LOCKUP_ROLES) }).optional(),
     /**
      * A pinned callout (ADR 0061): the feature the label points at, frame fractions on the title's first frame. The label
      * sits at x/y and keeps its size and angle; a leader line runs from the label to this point. When pinned, the point
@@ -1038,5 +1038,7 @@ export function referencedAssetIds(timeline: Timeline): string[] {
   const ids = new Set(timeline.clips.map((clip) => clip.assetId));
   if (timeline.music) ids.add(timeline.music.assetId);
   if (timeline.logo) ids.add(timeline.logo.assetId);
+  // A keyword's picture fill (ADR 0089) is loaded, checked and exported like any other picture.
+  for (const text of timeline.texts) if (text.fill?.kind === "image") ids.add(text.fill.assetId);
   return [...ids];
 }

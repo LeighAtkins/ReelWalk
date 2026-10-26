@@ -126,6 +126,10 @@ and both answer `lockups` (`describeLockups`: each phrase's keyword, its place a
 - The first proof showed the end-focus pick was wrong for this layout: "beat", "walls", "home" arrived as the phrase
   ended and held 0.5–0.9 s ("walls" flashed with the cut). The pick now favours a word that can hold 1.5 s; the
   second proof's keywords hold 2.0–2.6 s with the captions running under them, as in reel 3.
+- Review (sol-loop) found the composition had no `blurQuick` case, so the first two proofs popped (scale 0.86 → 1)
+  under the blur; and the steep ease-out made the word sharp in two frames. Fixed; the published proof (the fourth
+  render) fades and sharpens over five frames, as reel 3's "difficult" does (frame strips in `work/v4-arrival-words.jpg`
+  and the reference's `work/a9.jpg`).
 - White against a dark espresso gradient fill on the cream wall: the dark fill read muddy under the doubled soft
   shadow (now one light drop shadow); white was kept, which is also the owner's default.
 - The matte puts her hair over the bottom of every keyword, as in reel 3; no caption crosses y 0.72 or x 960 px.

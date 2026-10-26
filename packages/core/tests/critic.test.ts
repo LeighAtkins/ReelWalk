@@ -17,7 +17,7 @@ import {
 } from "../src/critic";
 import { MIN_GATE_FACE_PX, MIN_SPEAKING_FACE_PX } from "../src/presenter";
 import type { Measure, TitleFont } from "../src/scene";
-import { parseTimeline, timelineDurationMs, type TextOverlay, type Timeline } from "../src/timeline";
+import { parseTimeline, ROOM_LABEL_AT, timelineDurationMs, type TextOverlay, type Timeline } from "../src/timeline";
 
 // The critic before export (ADR 0062): each check on a fixture reel, each fix as the command it should be,
 // and no fix touching anything outside its scope.
@@ -178,6 +178,18 @@ describe("safe zones", () => {
 
   it("a title well inside is not flagged", () => {
     expect(ofCheck(run(titled({ y: 0.4 })), "safe-zone")).toEqual([]);
+  });
+
+  it("a title the app placed is left alone, and is the person's to fix once they move it (ADR 0081)", () => {
+    expect(ofCheck(run(titled({ y: 0.9, byApp: true })), "safe-zone")).toEqual([]);
+    expect(ofCheck(run(titled({ y: 0.9 })), "safe-zone")).toHaveLength(1);
+  });
+
+  it("where the app draws a room label is clear of Instagram's zones, measured as the critic measures a title", () => {
+    const label = titled({ id: "label", text: "Living room", ...ROOM_LABEL_AT, style: "box", size: 0.8 });
+    expect(ofCheck(run(label), "safe-zone")).toEqual([]);
+    // The first version's spot was on the caption line and would have been flagged.
+    expect(ofCheck(run(titled({ id: "label", text: "Living room", x: 0.5, y: 0.74, style: "box", size: 0.8 })), "safe-zone")).toHaveLength(1);
   });
 });
 

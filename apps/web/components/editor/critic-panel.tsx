@@ -10,7 +10,7 @@ const SHOWN = 3;
  * The critic's findings in the Export sheet (ADR 0062): a picture of the
  * moment, one line of why, and the fix as one tap. "Fix all" applies the
  * safe ones (title moves and treatments, the beat snap) as one undo step.
- * Export anyway stays below, always available.
+ * The plain Export button stays below, always available (ADR 0081).
  */
 export function CriticPanel({ findings, thumbs, checking, safeCount, onFix, onFixAll, onShow }: {
   findings: CriticFinding[];

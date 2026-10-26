@@ -29,6 +29,8 @@ const PUBLIC_PATHS = [
   /^\/brand\//,
   // The landing page's photos and drawn screens.
   /^\/landing\//,
+  // The link-preview image (ADR 0081): link crawlers and ad review fetch it without a session.
+  /^\/og\//,
   /^\/robots\.txt$/,
   /^\/sitemap\.xml$/,
   /^\/manifest\.webmanifest$/,

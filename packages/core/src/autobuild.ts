@@ -266,7 +266,7 @@ export function buildTourReel(input: {
 
   // The hook holds the first seconds; the first room's name waits until it has gone.
   const hookEnd = Math.min(HOOK_MS, Math.floor(timelineDurationMs(timeline) / 3));
-  const hook = textSchema.parse({ id: "hook", text: vibe.hook, startMs: 300, endMs: hookEnd, x: 0.5, y: 0.46, style: vibe.hookStyle, color: "#ffffff", size: 1.15 });
+  const hook = textSchema.parse({ id: "hook", text: vibe.hook, startMs: 300, endMs: hookEnd, x: 0.5, y: 0.46, style: vibe.hookStyle, color: "#ffffff", size: 1.15, byApp: true });
   const texts = timeline.texts
     .map((text) => (text.startMs < hookEnd ? { ...text, startMs: hookEnd + 200 } : text))
     .filter((text) => text.endMs - text.startMs >= 600);

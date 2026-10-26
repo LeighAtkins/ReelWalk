@@ -14,12 +14,12 @@ export type InsightNumbers = {
   avgWatchMs: number | null;
 };
 
-const count = (n: number, one: string, many: string) => `${n.toLocaleString("en-US")} ${n === 1 ? one : many}`;
+const count = (n: number, one: string, many: string) => `${n.toLocaleString("en-AU")} ${n === 1 ? one : many}`;
 
 export function insightsLine(i: InsightNumbers): string {
   const parts: string[] = [];
   if (i.views != null) parts.push(count(i.views, "view", "views"));
-  if (i.reach != null) parts.push(`${i.reach.toLocaleString("en-US")} reached`);
+  if (i.reach != null) parts.push(`${i.reach.toLocaleString("en-AU")} reached`);
   if (i.avgWatchMs != null && i.avgWatchMs > 0) parts.push(`${(i.avgWatchMs / 1000).toFixed(1)} s average watch`);
   if (i.likes) parts.push(count(i.likes, "like", "likes"));
   if (i.comments) parts.push(count(i.comments, "comment", "comments"));

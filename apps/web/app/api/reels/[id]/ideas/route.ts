@@ -176,7 +176,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       const answer = await structuredAnswer({
         workspaceId: user.workspaceId,
         instructions:
-          "You write Instagram captions for real-estate listing reels, in the voice of the listing agent. Two to four short lines: a hook, the facts given (never invented ones: no price, address or size unless given), a call to action (DM, link in bio, open house), then one line of at most five hashtags, #realestate among them and the city's or area's when the address says where. Plain words, no emoji, no markdown. Under 400 characters.",
+          "You write Instagram captions for real-estate listing reels, in the voice of the listing agent. Two to four short lines: a hook, the facts given (never invented ones: no price, address or size unless given), a call to action (DM, link in bio, open home); Australian spelling and terms (open home, suburb, vendor), then one line of at most five hashtags, #realestate among them and the city's or area's when the address says where. Plain words, no emoji, no markdown. Under 400 characters.",
         input: `Reel "${reel.title}". Facts: ${facts || "none given"}. Text on the reel: ${lines.length ? lines.map((line) => `"${line}"`).join(", ") : "none"}. Rooms shown: ${rooms.join(", ") || "unknown"}.${reel.caption ? ` The current caption, to improve on: "${reel.caption.slice(0, 600)}"` : ""}`,
         schemaName: "caption",
         schema: CAPTION_SCHEMA as unknown as Record<string, unknown>,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addClips, canExport, countHashtags, emptyTimeline, instagramIssues, isInSafeArea, type Clip, type Timeline } from "../src";
+import { addClips, canExport, countHashtags, emptyTimeline, instagramIssues, isInSafeArea, updateText, type Clip, type Timeline } from "../src";
 
 function photo(id: string, durationMs: number): Clip {
   return {
@@ -43,6 +43,20 @@ describe("instagramIssues", () => {
     const issues = instagramIssues(timeline);
     expect(issues).toEqual([expect.objectContaining({ code: "text-unsafe", textId: "t", level: "warning" })]);
     expect(canExport(issues)).toBe(true);
+  });
+
+  it("does not warn about text the app placed itself, until a person moves it (ADR 0081)", () => {
+    const base = addClips(emptyTimeline(), [photo("a", 5000)]);
+    const text = { id: "room-a", text: "Kitchen", startMs: 0, endMs: 1000, style: "box" as const, color: "#ffffff", size: 0.8, animation: "auto" as const };
+    // Low on the frame, but the app put it there.
+    expect(codes({ ...base, texts: [{ ...text, x: 0.5, y: 0.9, byApp: true }] })).toEqual([]);
+    // A label saved before the flag existed, still where the first version drew it.
+    expect(codes({ ...base, texts: [{ ...text, x: 0.5, y: 0.74 }] })).toEqual([]);
+    // Moved by a person (updateText drops the flag): theirs to answer for.
+    const moved = updateText({ ...base, texts: [{ ...text, x: 0.5, y: 0.5, byApp: true }] }, "room-a", { y: 0.92 });
+    expect(codes(moved)).toEqual(["text-unsafe"]);
+    // The same low spot for a title a person typed is still reported.
+    expect(codes({ ...base, texts: [{ ...text, id: "t", x: 0.5, y: 0.9 }] })).toEqual(["text-unsafe"]);
   });
 
   it("checks the post caption", () => {

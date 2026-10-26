@@ -51,18 +51,18 @@ test("one tap: shots in, a finished first cut in the editor, then a rendered ree
   await page.getByRole("dialog", { name: "Timing" }).getByRole("button", { name: "Close" }).click();
   await expect(total).not.toHaveText(before);
 
-  // The style and the facts are still there to cut it again with: bare numbers get $ and sq ft.
+  // The style and the facts are still there to cut it again with: bare numbers get $ and m².
   await tools.getByRole("button", { name: "Reel", exact: true }).click();
   await page.getByTestId("remake").click();
   const panel = page.getByRole("dialog", { name: "Make it for me" });
   await panel.getByTestId("autopilot-style-open-house").click();
   await panel.getByPlaceholder("$1,250,000").fill("899000");
-  await panel.getByPlaceholder("2,400 sq ft").fill("1800");
-  await expect(panel.getByText("Shows as $899,000 · 1,800 sq ft")).toBeVisible();
+  await panel.getByPlaceholder("240 m²").fill("180");
+  await expect(panel.getByText("Shows as $899,000 · 180 m²")).toBeVisible();
   await panel.getByPlaceholder("Saturday 1–3 pm").fill("Sunday 2–4 pm");
   await panel.getByTestId("autopilot-go").click();
   await expect(panel).toHaveCount(0, { timeout: 120_000 });
-  await expect(page.getByTestId("text-bar").filter({ hasText: "Open house" }).first()).toBeVisible();
+  await expect(page.getByTestId("text-bar").filter({ hasText: "Open home" }).first()).toBeVisible();
 
   // Export when it is right.
   await expect(page.getByTestId("save-state")).toHaveAttribute("data-status", "saved", { timeout: 60_000 });

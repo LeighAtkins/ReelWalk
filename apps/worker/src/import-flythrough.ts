@@ -88,7 +88,7 @@ async function createSampleReel(scene: string, workspaceId: string, assetId: str
     plan: null,
     details:
       routeTimeline?.details ??
-      listingDetailsSchema.parse({ price: "$512,000", beds: "4", baths: "2", area: "1,910 sq ft", address: "Sample home (3D flythrough)", placement: "end" }),
+      listingDetailsSchema.parse({ price: "$512,000", beds: "4", baths: "2", area: "177 m²", address: "Sample home (3D flythrough)", placement: "end" }),
   });
   await prisma.reel.create({
     data: {

@@ -260,8 +260,8 @@ export const AI_BRIEFS: AiBrief[] = [
   },
   {
     id: "open-house",
-    name: "Open house",
-    text: "Cut a 15 to 25 second open-house reel from my shots: the hook is the open-house day and time in a box at the start, the walk goes exterior, living, kitchen, primary bedroom, outdoor, cuts of 1.5 to 2.5 seconds on the beat; no room labels; the details card with the address and time at the end. Ask me for the day and time if I have not given them.",
+    name: "Open home",
+    text: "Cut a 15 to 25 second open-home reel from my shots: the hook is the open-home day and time in a box at the start, the walk goes exterior, living, kitchen, primary bedroom, outdoor, cuts of 1.5 to 2.5 seconds on the beat; no room labels; the details card with the address and time at the end. Ask me for the day and time if I have not given them.",
   },
   {
     id: "walkthrough",
@@ -378,7 +378,7 @@ Rules:
 - How text arrives (animation on addText or editText): pop (a quick pop, the bold styles' own), fade (a slow fade, the elegant style's own), rise (drifts up as it fades in), type (letter by letter, like typing), none (simply there); auto is the style's own.
 - Room labels are the texts whose number is marked (room label); to turn them all off use roomLabels on=false rather than removing each.
 - When clips are trimmed, moved or removed, the other texts follow their clips, cuts that were on the beat stay on it, and room labels are redrawn, all by themselves: do not re-time texts or snap to the beat to compensate for your own edits.
-- The details card (price, beds, baths, area, address, contact) is op details; pass only the fields to change, null for the rest; to remove the card pass details null. A phone number, an email or a handle the user gives goes in contact on the card, not as text over the picture. An open house day and time goes both as a box text at the start ("Open house · Sat 2–4") and in contact. placement: end, start or both show it as a card; "throughout" shows the facts as a thin strip at the top for the whole reel ("keep the price on screen the whole time"); "none" keeps the facts without showing them. Facts the description lists as known but not shown may be used for text, the caption and the card without asking.
+- The details card (price, beds, baths, area, address, contact) is op details; pass only the fields to change, null for the rest; to remove the card pass details null. A phone number, an email or a handle the user gives goes in contact on the card, not as text over the picture. An open home day and time goes both as a box text at the start ("Open home · Sat 2–4") and in contact. placement: end, start or both show it as a card; "throughout" shows the facts as a thin strip at the top for the whole reel ("keep the price on screen the whole time"); "none" keeps the facts without showing them. Facts the description lists as known but not shown may be used for text, the caption and the card without asking.
 - The caption: when the user asks for the caption, the post text or hashtags, write it in "caption": two to four short lines in the voice of the listing agent, the facts you know (never invented ones), a call to action, then a line of at most five hashtags, #realestate and the city's among them when the address is known; otherwise caption is null. Writing a caption needs no operations.
 - A new brief or whole-reel cut on a reel that already has a cut replaces the earlier styling: remove the earlier hook texts and stickers and write the brief's own, re-trim every shot to the pace the brief asks, and set room labels and the details card as the brief says; keep the clips and the music.
 - Cutting a whole reel ("cut it", "make something from these", a brief): the clips already in the reel are the user's shoot of this property; build the reel from them. Never remove them to make room for other media. Use "unused media" only when the user asks for it, or when the reel has fewer than three clips. Order them with op order, then cut fast: a reel is 1.5 to 2.5 s a shot unless the brief says slower (luxury, slow: 3 to 4 s); a photo 2 s with motion zoom-in, a 360 photo 4 s. A video longer than 6 s can give two or three shots: duplicate it and trim each copy to a different part (startMs, lengthMs) so the reel has more cuts instead of longer ones. Aim for 8 to 14 cuts in a 20 to 30 s reel. If the user names a length (15 seconds, 10 seconds), make the reel that long; never refuse a length. Pick a song, snapToBeat, add the hook, and the details card as the brief says. Lead with the strongest exterior or wide shot and end on an outdoor or view shot.
@@ -1190,7 +1190,7 @@ export function fakeAiEditPlan(request: string, timeline: Timeline, songs: AiSon
     ops.push({ ...blank, op: "roomLabels", on });
     notes.push(`Room labels are ${on ? "on" : "off"}.`);
   }
-  const sticker = /\b(sold|price drop|under contract|open house|coming soon|new price|just listed)\b/.exec(text);
+  const sticker = /\b(sold|price drop|under contract|under offer|open house|open home|auction|coming soon|new price|just listed)\b/.exec(text);
   if (sticker && /\b(sticker|tag|badge|mark it|label it)\b/.test(text)) {
     ops.push({ ...blank, op: "addText", style: "tag", content: sticker[1].toUpperCase() });
     notes.push(`A ${sticker[1]} sticker is on the first shot.`);

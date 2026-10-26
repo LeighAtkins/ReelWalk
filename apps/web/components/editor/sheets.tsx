@@ -891,13 +891,13 @@ export function DetailsSheet({
   return (
     <Sheet title="Property details" onClose={onClose}>
       <p className="muted small">Shown as a card over the video, or as a thin strip at the top for the whole reel. Leave a field empty to leave it off.</p>
-      {field("price", "Price", "¥48,000,000", 24)}
+      {field("price", "Price", "$1,250,000", 24)}
       <div className="field-grid">
         {field("beds", "Beds", "3", 6, "numeric")}
         {field("baths", "Baths", "2", 6, "numeric")}
         {field("area", "Size", "92 m²", 16)}
       </div>
-      {field("address", "Address or area", "Kanda, Chiyoda", 80)}
+      {field("address", "Address or suburb", "Bronte, Sydney", 80)}
       {field("contact", "Contact", "@your_agency or a phone number", 60)}
       <div className="field">
         Show the card
@@ -1039,7 +1039,7 @@ export function TextSheet({
         rows={2}
         maxLength={200}
         value={draft.text}
-        placeholder={draft.callout ? "Heated floors" : "Just listed · 3LDK near Kanda Station"}
+        placeholder={draft.callout ? "Heated floors" : "Just listed · 3 bed near Bronte Beach"}
         aria-label="Text to show"
         onChange={(event) => setDraft({ ...draft, text: event.target.value })}
       />
@@ -1740,13 +1740,19 @@ export function ExportSheet({
   onClose(): void;
 }) {
   const ready = canExport(issues);
-  const toFix = ready && findingCount > 0;
+  const worthALook = ready && findingCount > 0;
   return (
-    <Sheet title={!ready ? "Not ready to export" : toFix ? `${findingCount} ${findingCount === 1 ? "thing" : "things"} to fix` : "Export for Instagram"} onClose={onClose}>
+    <Sheet title={ready ? "Export for Instagram" : "Not ready to export"} onClose={onClose}>
       <p className="muted">
         {formatDuration(durationMs, true)} reel, rendered as an MP4 at 30 fps (the size depends on your plan). Usually ready in about {renderMinutes(durationMs)}; you can
         keep editing while it renders.
       </p>
+      {/* A quiet note, and only when the critic found something real: exporting is never gated on it (ADR 0081). */}
+      {worthALook ? (
+        <p className="muted small" data-testid="export-note">
+          {findingCount === 1 ? "One thing is worth a look before you post." : `${findingCount} things are worth a look before you post.`}
+        </p>
+      ) : null}
       {instagramSound ? (
         <p className="muted small" data-testid="export-instagram-sound">
           The video file has only your clips&apos; own sound. Instagram adds “{instagramSound}” when you post or schedule it from ReelWalk.
@@ -1780,7 +1786,7 @@ export function ExportSheet({
         </Link>
       ) : null}
       <button type="button" className="btn btn-signal btn-block" disabled={!ready || busy} onClick={onExport} data-testid="confirm-export">
-        {busy ? "Starting export…" : toFix ? "Export anyway" : "Export video"}
+        {busy ? "Starting export…" : "Export"}
       </button>
     </Sheet>
   );
@@ -1985,7 +1991,7 @@ export type AutopilotInfo = { address: string; price: string; beds: string; bath
 const AUTOPILOT_STYLE_CHOICES = [
   { id: "just-listed", name: "Just listed" },
   { id: "privacy", name: "Luxury, slow" },
-  { id: "open-house", name: "Open house" },
+  { id: "open-house", name: "Open home" },
   { id: "walkthrough", name: "Walkthrough" },
 ];
 
@@ -2065,7 +2071,7 @@ export function AutopilotSheet({
             <form className="autopilot-fields" onSubmit={(event) => event.preventDefault()} autoComplete="off">
               <label className="field wide">
                 Address
-                <input className="text-input" value={info.address} placeholder="1427 Lakeview Dr, Austin" maxLength={80} enterKeyHint="next" onChange={set("address")} />
+                <input className="text-input" value={info.address} placeholder="14 Banksia Avenue, Bronte" maxLength={80} enterKeyHint="next" onChange={set("address")} />
               </label>
               <label className="field">
                 Price
@@ -2073,7 +2079,7 @@ export function AutopilotSheet({
               </label>
               <label className="field">
                 Size
-                <input className="text-input" value={info.area} placeholder="2,400 sq ft" maxLength={16} inputMode="decimal" enterKeyHint="next" onChange={set("area")} />
+                <input className="text-input" value={info.area} placeholder="240 m²" maxLength={16} inputMode="decimal" enterKeyHint="next" onChange={set("area")} />
               </label>
               <label className="field">
                 Beds
@@ -2086,7 +2092,7 @@ export function AutopilotSheet({
               <label className="check wide units-check">
                 <input type="checkbox" checked={units} onChange={(event) => setUnits(event.target.checked)} data-testid="autopilot-units" />
                 <span>
-                  Add $ and sq ft for me
+                  Add $ and m² for me
                   {units && (info.price || info.area) ? (
                     <span className="muted small units-preview">
                       {" "}
@@ -2096,7 +2102,7 @@ export function AutopilotSheet({
                 </span>
               </label>
               <label className="field wide">
-                Open house (if there is one)
+                Open home (if there is one)
                 <input className="text-input" value={info.openHouse} placeholder="Saturday 1–3 pm" maxLength={40} enterKeyHint="done" onChange={set("openHouse")} />
               </label>
             </form>

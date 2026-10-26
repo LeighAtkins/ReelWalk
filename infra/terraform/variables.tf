@@ -262,6 +262,18 @@ variable "stripe_price_office_yearly" {
   default = ""
 }
 
+# Optional: the Stripe product ids of the Agent and Studio plans, so a subscription bought on an
+# older (USD) price still resolves to its plan after the prices moved to AUD (ADR 0081).
+variable "stripe_product_agent" {
+  type    = string
+  default = ""
+}
+
+variable "stripe_product_office" {
+  type    = string
+  default = ""
+}
+
 # Public https URLs of finished reels shown on the landing page (apps/web/components/landing),
 # comma separated, newest first. Empty shows a placeholder frame.
 variable "sample_reel_urls" {

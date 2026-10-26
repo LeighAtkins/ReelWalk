@@ -196,6 +196,12 @@ export const textSchema = z
     color: z.string().regex(/^#[0-9a-f]{6}$/i).default("#ffffff"),
     /** Scale relative to the default size. */
     size: z.number().min(minTextSize("elegant")).max(TEXT_SIZE_MAX).default(1),
+    /**
+     * Placed by the app itself (the room labels, the opening line of a quick cut), not by a person (ADR 0081).
+     * The export check only warns about text a person placed or moved; `updateText` drops this when a
+     * title's x or y changes. Absent on every text saved before it existed, which then counts as placed.
+     */
+    byApp: z.literal(true).optional(),
     animation: z.enum(TEXT_ANIMATIONS).default("auto"),
     font: z.enum(["auto", "serif", "sans", "editorial"]).optional(),
     shadow: z.enum(["auto", "soft", "strong", "none"]).optional(),
@@ -768,6 +774,8 @@ export function updateText(timeline: Timeline, id: string, patch: Partial<Omit<T
       const next = { ...text, ...patch };
       next.x = Math.max(0, Math.min(1, next.x));
       next.y = Math.max(0, Math.min(1, next.y));
+      // A person who moves an app-placed title owns its position from then on.
+      if (next.byApp && (next.x !== text.x || next.y !== text.y)) delete next.byApp;
       next.startMs = Math.max(0, Math.min(Math.round(next.startMs), total - 100));
       next.endMs = Math.max(next.startMs + 100, Math.min(Math.round(next.endMs), total));
       // A small elegant text switched to a bolder style grows to that style's minimum.
@@ -818,6 +826,27 @@ export function coverMs(timeline: Timeline): number {
   return Math.min(start + Math.min(timeline.cover.offsetMs, Math.max(0, clipDurationMs(clip) - 100)), Math.max(0, total - 100));
 }
 
+/**
+ * Where a room's name is drawn: centred, with its whole box above Instagram's caption zone (the bottom
+ * 500 px of 1920, y 0.74). The first version put the centre on that line (y 0.74), so every label read as
+ * "where Instagram's buttons or caption may cover it" (ADR 0081); a box title at size 0.8 is about a tenth
+ * of the frame tall, so this keeps it clear with room to spare (0.66, below the 0.72 safe-zone limit).
+ */
+export const ROOM_LABEL_AT = { x: 0.5, y: ROOM_LABEL_Y } as const;
+
+/** The y the first version drew room labels at, which reels saved then still carry. */
+const LEGACY_ROOM_LABEL_Y = 0.74;
+
+/**
+ * Whether the app placed this title and nobody has moved it since (ADR 0081): the export check leaves such
+ * a title alone, because the app is responsible for its position, not the person. A room label saved before
+ * the `byApp` flag existed, still at the spot the first version drew it, counts too.
+ */
+export function placedByApp(text: Pick<TextOverlay, "id" | "x" | "y" | "byApp">): boolean {
+  if (text.byApp) return true;
+  return text.id.startsWith("room-") && text.x === ROOM_LABEL_AT.x && text.y === LEGACY_ROOM_LABEL_Y;
+}
+
 /** Ids of the text overlays that addRoomLabels manages. */
 const roomLabelId = (clipId: string) => `room-${clipId}`;
 
@@ -855,7 +884,7 @@ export function addRoomLabels(timeline: Timeline): Timeline {
   const fitted = labels
     .map((label) => ({ ...label, startMs: Math.max(label.startMs, clearFrom), endMs: Math.min(label.endMs, clearUntil) }))
     .filter((label) => label.endMs - label.startMs >= 600)
-    .map((label) => textSchema.parse({ ...label, x: 0.5, y: ROOM_LABEL_Y, style: "box", color: "#ffffff", size: 0.8 }));
+    .map((label) => textSchema.parse({ ...label, ...ROOM_LABEL_AT, style: "box", color: "#ffffff", size: 0.8, byApp: true }));
   const others = timeline.texts.filter((text) => !managed.has(text.id) && !text.id.startsWith("room-"));
   // Labels never take the reel past the most texts it may have: the first rooms are named, the rest are not.
   return { ...timeline, texts: [...others, ...fitted.slice(0, Math.max(0, MAX_TEXTS - others.length))] };

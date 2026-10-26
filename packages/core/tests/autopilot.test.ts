@@ -73,7 +73,7 @@ describe("finishAutopilot", () => {
     const { timeline, added } = finishAutopilot(fromModel, context("open-house", { openHouse: "Sat 1–3 pm" }));
     expect(timeline.texts.map((text) => text.text)).toEqual(["Welcome home"]);
     expect(timeline.music?.assetId).toBe("bright");
-    expect(timeline.details).toMatchObject({ contact: "Open house Sat 1–3 pm" });
+    expect(timeline.details).toMatchObject({ contact: "Open home Sat 1–3 pm" });
     expect(added).toEqual(["music: Carefree, cuts on the beat", "details card"]);
   });
 });
@@ -90,7 +90,7 @@ describe("repeats", () => {
 describe("the request and the facts", () => {
   it("tells the model the facts and not to ask", () => {
     const text = autopilotRequest("open-house", { openHouse: "Saturday 1–3 pm", address: "1427 Lakeview Dr" });
-    expect(text).toContain("address: 1427 Lakeview Dr; open house: Saturday 1–3 pm");
+    expect(text).toContain("address: 1427 Lakeview Dr; open home: Saturday 1–3 pm");
     expect(text).toContain("Do not ask me anything");
     expect(text).toContain("always return a cut");
     expect(text).not.toContain("Ask me for the day");

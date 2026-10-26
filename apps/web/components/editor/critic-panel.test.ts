@@ -6,7 +6,7 @@ import { CriticPanel } from "./critic-panel";
 import { ExportSheet } from "./sheets";
 
 // The Export sheet with the critic's findings (ADR 0062), rendered as the server would: the count in the
-// title, a thumbnail, reason and one-tap fix per finding, Fix all for the safe ones, and Export anyway.
+// note, a thumbnail, reason and one-tap fix per finding, Fix all for the safe ones, and a plain Export (ADR 0081).
 
 const findings: CriticFinding[] = [
   { id: "hook:opening", check: "hook", severity: "high", impact: "hook", reason: "Nothing changes in the first 1.5 s, so people scroll past before it gets going.", atMs: 0, clipId: "a", sourceMs: 0,
@@ -19,11 +19,14 @@ const findings: CriticFinding[] = [
 const noop = () => undefined;
 
 describe("the critic in the Export sheet", () => {
-  it("says how many things to fix and keeps Export anyway", () => {
+  it("notes how many things are worth a look, and the button stays a plain Export", () => {
     const panel = createElement(CriticPanel, { findings, thumbs: { "safe-zone:t": "data:image/jpeg;base64,AAAA" }, checking: false, safeCount: 2, onFix: noop, onFixAll: noop, onShow: noop });
     const html = renderToStaticMarkup(createElement(ExportSheet, { issues: [], durationMs: 12000, busy: false, error: null, critic: panel, findingCount: findings.length, onExport: noop, onShowIssue: noop, onClose: noop }));
-    expect(html).toContain("3 things to fix");
-    expect(html).toContain("Export anyway");
+    expect(html).toContain("Export for Instagram");
+    expect(html).toContain("3 things are worth a look before you post.");
+    expect(html).not.toContain("to fix");
+    expect(html).not.toContain("Export anyway");
+    expect(html).toMatch(/data-testid="confirm-export"[^>]*>Export</);
     expect(html).toContain("Fix all (2)");
     expect(html.match(/data-testid="critic-finding"/g)).toHaveLength(3);
     expect(html).not.toContain("critic-more");
@@ -43,7 +46,8 @@ describe("the critic in the Export sheet", () => {
     const panel = createElement(CriticPanel, { findings: [], thumbs: {}, checking: false, safeCount: 0, onFix: noop, onFixAll: noop, onShow: noop });
     const html = renderToStaticMarkup(createElement(ExportSheet, { issues: [], durationMs: 12000, busy: false, error: null, critic: panel, findingCount: 0, onExport: noop, onShowIssue: noop, onClose: noop }));
     expect(html).toContain("Export for Instagram");
-    expect(html).toContain("Export video");
+    expect(html).toMatch(/data-testid="confirm-export"[^>]*>Export</);
+    expect(html).not.toContain("export-note");
     expect(html).toContain("Looks good");
   });
 

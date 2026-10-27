@@ -26,8 +26,11 @@ import { abortAfter, AttemptStopped, createAttemptScope, DEFAULT_GRACE_MS, linkA
  * again. Losing it (crash, timeout, lost connection) makes it UNRESOLVED.
  */
 
-/** "music-analysis" (ADR 0066) decodes a track with ffmpeg: it runs only in the worker and never calls a paid provider. */
-export type AiStepKind = "ask" | "autopilot" | "director-review" | "music-analysis";
+/**
+ * "music-analysis" (ADR 0066) decodes a track with ffmpeg; "block-solve" and "block-reveal" (ADR 0093) read a drone
+ * clip in 3D and draw its reveal. They run only in the worker and never call a paid provider.
+ */
+export type AiStepKind = "ask" | "autopilot" | "director-review" | "music-analysis" | "block-solve" | "block-reveal";
 
 export type ClaimedStep = {
   id: string;

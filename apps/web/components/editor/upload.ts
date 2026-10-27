@@ -255,10 +255,11 @@ async function putParts(
   return parts;
 }
 
-export async function uploadFile(original: File, onProgress: (fraction: number) => void): Promise<LibraryAsset> {
+export async function uploadFile(original: File, onProgress: (fraction: number) => void, options: { shrink?: boolean } = {}): Promise<LibraryAsset> {
   // A 4K phone clip is shrunk to 1080 on the phone first (ADR 0024): the first
   // part of the bar is the shrink (which takes longer than sending the result), the rest the upload. The original's name is kept.
-  const shrunk = original.type.startsWith("video/") ? await shrinkVideo(original, (fraction) => onProgress(fraction * 0.6)) : null;
+  // Walk the block (ADR 0093) keeps the original: its 9:16 crop of a landscape drone frame needs the full 4K.
+  const shrunk = options.shrink !== false && original.type.startsWith("video/") ? await shrinkVideo(original, (fraction) => onProgress(fraction * 0.6)) : null;
   const file = shrunk?.file ?? original;
   if (shrunk) console.log(`shrink: ${original.name} ${(shrunk.from.bytes / 1048576).toFixed(1)} MB ${shrunk.from.width}x${shrunk.from.height} -> ${(file.size / 1048576).toFixed(1)} MB in ${shrunk.ms} ms`);
   const report = shrunk ? (fraction: number) => onProgress(0.6 + fraction * 0.4) : onProgress;

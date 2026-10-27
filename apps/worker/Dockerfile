@@ -2,6 +2,7 @@
 FROM node:22-bookworm-slim AS runtime
 
 # Security updates, then ffmpeg plus the shared libraries Chrome Headless Shell needs,
+# python3 for Walk the block's drone solve (ADR 0093, OpenCV in the /opt/block venv),
 # and pg_dump 17 (from the PostgreSQL project's repository, matching Supabase's
 # server) for the nightly backup task.
 # The upgrade layer is rebuilt whenever this ARG changes: bump the date when Debian ships
@@ -20,7 +21,7 @@ RUN apt-get update \
   && apt-get update \
   && apt-get install -y --no-install-recommends postgresql-client-17 \
   && apt-get purge -y curl && apt-get autoremove -y \
-  && apt-get install -y --no-install-recommends ffmpeg ca-certificates libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libpango-1.0-0 libcairo2 libasound2 libatspi2.0-0 libxshmfence1 fonts-noto-color-emoji \
+  && apt-get install -y --no-install-recommends python3 ffmpeg ca-certificates libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libpango-1.0-0 libcairo2 libasound2 libatspi2.0-0 libxshmfence1 fonts-noto-color-emoji \
   && fc-cache -f \
   && rm -rf /var/lib/apt/lists/*
 # Chrome Headless Shell draws emoji with whatever fontconfig finds; fail the build if the colour font is missing.
@@ -52,6 +53,10 @@ RUN ln -s ../worker/node_modules apps/web/node_modules
 
 RUN pnpm --filter @reelwalk/db db:generate
 
+# Walk the block (ADR 0093): the drone clip's camera solve is OpenCV (opencv-python-headless) in a venv. Wheels pinned
+# by hash; pip and setuptools are removed from the venv afterwards, so the runner has no package manager in it.
+RUN apt-get update && apt-get install -y --no-install-recommends python3-venv && rm -rf /var/lib/apt/lists/*   && python3 -m venv /opt/block   && /opt/block/bin/pip install --no-cache-dir --require-hashes --only-binary=:all: -r apps/worker/block/requirements.txt   && /opt/block/bin/pip uninstall -y pip setuptools   && /opt/block/bin/python -c "import cv2, numpy; cv2.SIFT_create(); print('opencv', cv2.__version__, 'numpy', numpy.__version__)"
+
 WORKDIR /workspace/apps/worker
 
 # Download Chrome Headless Shell at build time. Otherwise every new pod would
@@ -70,9 +75,11 @@ FROM runtime AS runner
 RUN rm -rf /usr/local/lib/node_modules /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /opt/yarn-*
 
 COPY --from=build /workspace /workspace
+COPY --from=build /opt/block /opt/block
 WORKDIR /workspace/apps/worker
 
 ENV TRANSCRIBE_MODEL_DIR=/workspace/models
+ENV BLOCK_PYTHON=/opt/block/bin/python
 
 USER node
 EXPOSE 8081

@@ -1,0 +1,315 @@
+import { spawn, type ChildProcess } from "node:child_process";
+import { createReadStream, createWriteStream } from "node:fs";
+import { readFile, stat } from "node:fs/promises";
+import path from "node:path";
+import { pipeline } from "node:stream/promises";
+import { fileURLToPath } from "node:url";
+import { GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
+import {
+  areaText,
+  blockPinSchema,
+  blockSolveKeyFor,
+  blockStillKeyFor,
+  blockSvg,
+  BUILDS,
+  clipSchema,
+  drawBlock,
+  emptyTimeline,
+  labelImageSize,
+  OUTPUT,
+  parseBlockSolve,
+  revealDurationMs,
+  textSchema,
+  viewAt,
+  type BlockPin,
+  type BlockSolve,
+  type BlockShape,
+  type ViewWindow,
+} from "@reelwalk/core";
+import { prisma } from "@reelwalk/db";
+import sharp from "sharp";
+import { z } from "zod";
+import { getConfig } from "./config";
+import { run, s3 } from "./library/tools";
+import { AttemptStopped, createAttemptScope, killTree, ownChild, OWN_PROCESS_GROUP, type AttemptScope } from "./lifecycle";
+
+/**
+ * Walk the block (ADR 0093), the worker's half. Two durable steps, neither calls a paid provider:
+ *
+ * - "block-solve": the drone clip read in 3D by `block/run.py` (OpenCV; Python because that is where the method was
+ *   proven, 76 of 76 frames at 0.29 px where COLMAP failed). The solve and the pin screen's still are kept in storage
+ *   beside nothing else (`blockSolveKeyFor`), so asking again for the same clip reads them back.
+ * - "block-reveal": the reveal clip drawn frame by frame: the true-scale outline locked to the ground, its area written
+ *   on it, then the white massing rising with its shadow. The shapes come from `drawBlock` in core, the same function
+ *   the pin screen draws with; here they are rasterised onto each decoded frame. No Veo: a generator does not hold scale.
+ *   The clip becomes a media asset and the first shot of a new reel.
+ */
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+/** The solve's Python package. In the image it runs from the venv at /opt/block (Dockerfile); locally from any python with opencv. */
+export const BLOCK_DIR = path.resolve(HERE, "..", "block");
+const PYTHON = process.env.BLOCK_PYTHON ?? (process.platform === "win32" ? "python" : "python3");
+const FFMPEG = process.env.FFMPEG_PATH ?? "ffmpeg";
+const LABEL_FONT_FILE = path.join(BLOCK_DIR, "fonts", "PlayfairDisplay.ttf");
+
+export const blockSolvePayloadSchema = z.object({ assetId: z.string().min(1).max(64) });
+export const blockRevealPayloadSchema = z.object({ assetId: z.string().min(1).max(64), pin: blockPinSchema });
+
+export type BlockSolveStepResult = { ok: true; frames: number; registered: number; medianReprojectionPx: number } | { ok: false; code: string; message: string };
+export type BlockRevealStepResult = { assetId: string; reelId: string };
+
+type Log = (line: string) => void;
+
+/** An attempt scope for a step, stopped when the step's own attempt is (the executor hands steps its signal, not its scope). */
+export function scopeFor(signal: AbortSignal | undefined): AttemptScope {
+  const scope = createAttemptScope();
+  const stop = () => scope.abort(signal?.reason instanceof AttemptStopped ? signal.reason : new AttemptStopped("The step was stopped", "shutdown"));
+  if (signal?.aborted) stop();
+  else signal?.addEventListener("abort", stop, { once: true });
+  return scope;
+}
+
+/** Reads a drone clip in 3D: `block/run.py` writes solve.json and still.jpg into `outDir`. */
+export async function solveClip(videoPath: string, outDir: string, scope: AttemptScope, log: Log = console.log): Promise<unknown> {
+  const started = Date.now();
+  const { stdout } = await run(PYTHON, [path.join(BLOCK_DIR, "run.py"), videoPath, outDir], {
+    scope,
+    timeoutMs: 12 * 60_000,
+    maxBuffer: 4 * 1024 * 1024,
+    env: { ...process.env, FFMPEG_PATH: FFMPEG, PYTHONUNBUFFERED: "1" },
+  });
+  for (const line of stdout.trim().split("\n").slice(-6)) log(`block-solve: ${line}`);
+  log(`block-solve: ${Math.round((Date.now() - started) / 1000)} s`);
+  return JSON.parse(await readFile(path.join(outDir, "solve.json"), "utf8"));
+}
+
+/**
+ * The area label as a picture, `labelImageSize(1)` units scaled to `px` per unit: Playfair from the bundled TTF (the
+ * SVG rasteriser cannot read the web fonts the editor uses), white with a soft dark shadow so it reads on grass and dust.
+ */
+export async function renderLabel(text: string, sub: string, px = 120): Promise<{ png: Buffer; width: number; height: number }> {
+  const size = labelImageSize(px);
+  const width = Math.round(size.width);
+  const height = Math.round(size.height);
+  const line = async (markup: string, pt: number) =>
+    sharp({ text: { text: markup, font: `Playfair Display ${pt}`, fontfile: LABEL_FONT_FILE, rgba: true, dpi: 72 } }).png().toBuffer({ resolveWithObject: true });
+  const escape = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+  // The same layout as blockSvg's text: main line's cap height `px`, baseline 0.35 px under the centre; sub line under it.
+  const main = await line(`<span foreground="white" weight="500">${escape(text)}</span>`, Math.round(px * 1.45));
+  const second = await line(`<span foreground="white" alpha="90%">${escape(sub)}</span>`, Math.round(px * 0.62));
+  const mainTop = Math.round(height / 2 + 0.35 * px - main.info.height * 0.78);
+  const subTop = Math.round(height / 2 + 1.25 * px - second.info.height * 0.78);
+  const layers = [
+    { input: main.data, left: Math.round((width - main.info.width) / 2), top: mainTop },
+    { input: second.data, left: Math.round((width - second.info.width) / 2), top: subTop },
+  ];
+  const text$ = await sharp({ create: { width, height, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } }).composite(layers).png().toBuffer();
+  // shadow: the text's alpha, blurred, as black at 45%
+  const alpha = await sharp(text$).extractChannel(3).blur(px * 0.06).linear(0.45, 0).toBuffer();
+  const shadow = await sharp({ create: { width, height, channels: 3, background: { r: 0, g: 0, b: 0 } } }).joinChannel(alpha).png().toBuffer();
+  const png = await sharp(shadow).composite([{ input: text$ }]).png().toBuffer();
+  return { png, width, height };
+}
+
+/** Reads exactly `bytes` at a time from a stream. */
+async function* frames(stream: NodeJS.ReadableStream, bytes: number): AsyncGenerator<Buffer> {
+  let pending: Buffer[] = [];
+  let have = 0;
+  for await (const chunk of stream as AsyncIterable<Buffer>) {
+    pending.push(chunk);
+    have += chunk.length;
+    while (have >= bytes) {
+      const all = Buffer.concat(pending);
+      yield all.subarray(0, bytes);
+      const rest = all.subarray(bytes);
+      pending = rest.length ? [rest] : [];
+      have = rest.length;
+    }
+  }
+}
+
+function spawnOwned(args: string[], scope: AttemptScope, stdio: "decode" | "encode"): { child: ChildProcess; done: Promise<void> } {
+  const child = spawn(FFMPEG, args, { detached: OWN_PROCESS_GROUP, windowsHide: true, stdio: stdio === "decode" ? ["ignore", "pipe", "pipe"] : ["pipe", "ignore", "pipe"] });
+  const forget = ownChild(scope, child, `ffmpeg ${stdio}`);
+  let err = "";
+  child.stderr!.on("data", (d: Buffer) => {
+    err = (err + d.toString()).slice(-2000);
+  });
+  const done = new Promise<void>((resolve, reject) => {
+    child.once("error", reject);
+    child.once("close", (code) => {
+      forget();
+      if (code === 0) resolve();
+      else reject(new Error(`ffmpeg ${stdio} exited ${code}: ${err.trim()}`));
+    });
+  });
+  return { child, done };
+}
+
+/** The source rectangle (decoded pixels) for a window of solve pixels, whole pixels, 9:16, inside the frame; and that rectangle back in solve pixels. */
+export function sourceRect(win: ViewWindow, m: number, decoded: { width: number; height: number }) {
+  const width = Math.min(decoded.width, Math.max(16, Math.round(win.w * m)));
+  const height = Math.min(decoded.height, Math.round((width * OUTPUT.height) / OUTPUT.width));
+  const left = Math.min(decoded.width - width, Math.max(0, Math.round(win.x * m)));
+  const top = Math.min(decoded.height - height, Math.max(0, Math.round(win.y * m)));
+  return { rect: { left, top, width, height }, window: { x: left / m, y: top / m, w: width / m, h: height / m } };
+}
+
+/**
+ * Draws the reveal: the clip from the still's moment for `revealDurationMs`, cropped to 9:16 with the slow push-in,
+ * every frame with `drawBlock`'s shapes for its moment on top. Writes an H.264 MP4 (no sound: the reel's music goes
+ * under it) to `outPath`.
+ */
+export async function renderReveal(input: { videoPath: string; solve: BlockSolve; pin: BlockPin; outPath: string; scope: AttemptScope; onProgress?: (fraction: number) => void; log?: Log }): Promise<{ frames: number; durationMs: number }> {
+  const { videoPath, solve, pin, outPath, scope } = input;
+  const log = input.log ?? console.log;
+  const durationMs = revealDurationMs(solve);
+  const count = Math.round((durationMs / 1000) * OUTPUT.fps);
+  // Decode at the source's own size up to 2160 high: the 9:16 crop of a 4K frame is then about the output's size.
+  const decodedHeight = Math.min(solve.source.height, 2160);
+  const decoded = { width: Math.round((solve.source.width * decodedHeight) / solve.source.height / 2) * 2, height: decodedHeight };
+  const m = decoded.width / solve.intrinsics.width;
+  const label = areaText(pin);
+  const labelPicture = await renderLabel(label.text, label.sub);
+  const labelHref = `data:image/png;base64,${labelPicture.png.toString("base64")}`;
+  const decoder = spawnOwned(
+    ["-v", "error", "-ss", String(solve.still.t), "-i", videoPath, "-t", String(durationMs / 1000), "-an", "-vf", `fps=${OUTPUT.fps},scale=${decoded.width}:${decoded.height}:flags=lanczos`, "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+    scope,
+    "decode",
+  );
+  const encoder = spawnOwned(
+    ["-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", `${OUTPUT.width}x${OUTPUT.height}`, "-r", String(OUTPUT.fps), "-i", "-", "-c:v", "libx264", "-preset", "medium", "-crf", "17", "-pix_fmt", "yuv420p", "-movflags", "+faststart", outPath],
+    scope,
+    "encode",
+  );
+  const stdin = encoder.child.stdin!;
+  const write = (buf: Buffer) => new Promise<void>((resolve, reject) => (stdin.write(buf, (error) => (error ? reject(error) : resolve()))));
+  let n = 0;
+  try {
+    for await (const frame of frames(decoder.child.stdout!, decoded.width * decoded.height * 3)) {
+      scope.throwIfStopped();
+      if (n >= count) break;
+      const tMs = (n * 1000) / OUTPUT.fps;
+      const { rect, window } = sourceRect(viewAt(solve, pin, tMs), m, decoded);
+      const shapes: BlockShape[] = drawBlock(solve, pin, tMs, { window });
+      const label = shapes.find((s) => s.kind === "label");
+      const svg = blockSvg(shapes, OUTPUT, label?.kind === "label" ? { href: labelHref, ...labelImageSize(label.size) } : undefined);
+      const out = await sharp(frame, { raw: { width: decoded.width, height: decoded.height, channels: 3 } })
+        .extract(rect)
+        .resize(OUTPUT.width, OUTPUT.height, { kernel: "lanczos3" })
+        .composite([{ input: Buffer.from(svg) }])
+        .removeAlpha()
+        .raw()
+        .toBuffer();
+      await write(out);
+      n++;
+      if (n % 30 === 0) input.onProgress?.(n / count);
+    }
+    stdin.end();
+    // The decoder may still be writing frames past `count`; it is no longer needed.
+    if (decoder.child.exitCode === null) killTree(decoder.child, "SIGKILL");
+    await decoder.done.catch(() => undefined);
+    await encoder.done;
+  } catch (error) {
+    killTree(decoder.child, "SIGKILL");
+    killTree(encoder.child, "SIGKILL");
+    throw error;
+  }
+  if (n < Math.min(count, 2)) throw new Error("The drone clip could not be decoded.");
+  log(`block-reveal: ${n} frames, ${pin.build}, ${label.text}`);
+  return { frames: n, durationMs: Math.round((n * 1000) / OUTPUT.fps) };
+}
+
+async function download(key: string, to: string, scope: AttemptScope): Promise<void> {
+  const object = await s3.send(new GetObjectCommand({ Bucket: getConfig().s3Bucket, Key: key }), { abortSignal: scope.signal });
+  if (!object.Body) throw new Error("The clip's file is missing from storage.");
+  await pipeline(object.Body as NodeJS.ReadableStream, createWriteStream(to));
+}
+
+async function upload(key: string, file: string, contentType: string, scope: AttemptScope): Promise<number> {
+  const { size } = await stat(file);
+  await s3.send(new PutObjectCommand({ Bucket: getConfig().s3Bucket, Key: key, Body: createReadStream(file), ContentLength: size, ContentType: contentType }), { abortSignal: scope.signal });
+  return size;
+}
+
+async function findClip(workspaceId: string, assetId: string) {
+  // The workspace's own clip, or a shared library clip (the starter drone footage).
+  const asset = await prisma.mediaAsset.findFirst({ where: { id: assetId, kind: "VIDEO", OR: [{ workspaceId }, { shared: true }] }, select: { id: true, objectKey: true, fileName: true } });
+  if (!asset) throw new Error("That clip is not in this workspace.");
+  return asset;
+}
+
+export async function runBlockSolveStep(step: { payload: unknown; user: { workspaceId: string } }, scope?: AttemptScope): Promise<BlockSolveStepResult> {
+  const { assetId } = blockSolvePayloadSchema.parse(step.payload);
+  const asset = await findClip(step.user.workspaceId, assetId);
+  const own = scope ? null : createAttemptScope();
+  const attempt = scope ?? own!;
+  try {
+    const dir = await attempt.tempDir("reelwalk-block-");
+    const video = path.join(dir, `clip${path.extname(asset.objectKey) || ".mp4"}`);
+    await download(asset.objectKey, video, attempt);
+    const out = path.join(dir, "out");
+    const result = parseBlockSolve(await solveClip(video, out, attempt));
+    const body = Buffer.from(await readFile(path.join(out, "solve.json")));
+    if (result.ok) await upload(blockStillKeyFor(asset.id), path.join(out, "still.jpg"), "image/jpeg", attempt);
+    // Written last: its presence is what tells the web app the still is there too.
+    await s3.send(new PutObjectCommand({ Bucket: getConfig().s3Bucket, Key: blockSolveKeyFor(asset.id), Body: body, ContentLength: body.byteLength, ContentType: "application/json" }), { abortSignal: attempt.signal });
+    if (!result.ok) return { ok: false, code: result.code, message: result.message };
+    const { stats } = result.solve;
+    return { ok: true, frames: stats.frames, registered: stats.registered, medianReprojectionPx: stats.medianReprojectionPx };
+  } finally {
+    await own?.close();
+  }
+}
+
+export async function runBlockRevealStep(step: { id: string; payload: unknown; user: { id: string; workspaceId: string } }, scope?: AttemptScope): Promise<BlockRevealStepResult> {
+  const { assetId, pin } = blockRevealPayloadSchema.parse(step.payload);
+  const asset = await findClip(step.user.workspaceId, assetId);
+  const own = scope ? null : createAttemptScope();
+  const attempt = scope ?? own!;
+  try {
+    const stored = await s3.send(new GetObjectCommand({ Bucket: getConfig().s3Bucket, Key: blockSolveKeyFor(asset.id) }), { abortSignal: attempt.signal });
+    const parsed = parseBlockSolve(JSON.parse((await stored.Body?.transformToString()) ?? "null"));
+    if (!parsed.ok) throw new Error(parsed.message);
+    const dir = await attempt.tempDir("reelwalk-reveal-");
+    const video = path.join(dir, `clip${path.extname(asset.objectKey) || ".mp4"}`);
+    await download(asset.objectKey, video, attempt);
+    const outPath = path.join(dir, "reveal.mp4");
+    const { durationMs } = await renderReveal({ videoPath: video, solve: parsed.solve, pin, outPath, scope: attempt });
+    const thumbPath = path.join(dir, "reveal.jpg");
+    // The library's thumbnail: the reveal's last frame, the massing standing, 240 px high.
+    await run(FFMPEG, ["-v", "error", "-y", "-sseof", "-0.5", "-i", outPath, "-frames:v", "1", "-vf", "scale=-2:240", "-q:v", "4", thumbPath], { scope: attempt });
+    const id = `block-${step.id}`;
+    const objectKey = `workspaces/${step.user.workspaceId}/blocks/${step.id}.mp4`;
+    const thumbKey = `workspaces/${step.user.workspaceId}/blocks/${step.id}.jpg`;
+    const sizeBytes = await upload(objectKey, outPath, "video/mp4", attempt);
+    await upload(thumbKey, thumbPath, "image/jpeg", attempt);
+    const { text } = areaText(pin);
+    const timeline = emptyTimeline();
+    timeline.clips.push(clipSchema.parse({ id: `clip-${id}`, assetId: id, kind: "VIDEO", sourceStartMs: 0, sourceEndMs: durationMs }));
+    // House style: one quiet serif title from frame 0, above the caption zone and off the centre.
+    timeline.texts.push(textSchema.parse({ id: `title-${id}`, text: "Drawn to scale.", startMs: 0, endMs: durationMs, x: 0.5, y: 0.16, style: "elegant", byApp: true }));
+    const reelId = await prisma.$transaction(async (tx) => {
+      await tx.mediaAsset.upsert({
+        where: { objectKey },
+        update: {},
+        create: {
+          id, workspaceId: step.user.workspaceId, kind: "VIDEO", objectKey, thumbKey, previewKey: objectKey, contentType: "video/mp4",
+          fileName: `Walk the block — ${BUILDS[pin.build].label}, ${text}.mp4`, sizeBytes: BigInt(sizeBytes), durationMs,
+          width: OUTPUT.width, height: OUTPUT.height,
+          attribution: `Drawn to scale on ${asset.fileName} (ReelWalk Walk the block)`,
+        },
+      });
+      const reel = await tx.reel.upsert({
+        where: { id: `walk-${step.id}` },
+        update: {},
+        create: { id: `walk-${step.id}`, workspaceId: step.user.workspaceId, title: `${BUILDS[pin.build].label} · ${text}`, timeline },
+        select: { id: true },
+      });
+      return reel.id;
+    });
+    return { assetId: id, reelId };
+  } finally {
+    await own?.close();
+  }
+}

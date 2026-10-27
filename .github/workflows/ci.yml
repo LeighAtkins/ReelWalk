@@ -160,6 +160,11 @@ jobs:
         run: |
           mkdir -p smoke-out && chmod 777 smoke-out
           docker run --rm -w /workspace/apps/worker -e SMOKE_COMPARE -e SMOKE_BASELINE=report -v "$PWD/smoke-out:/out" "$IMAGE" node_modules/.bin/tsx ../../packages/render/scripts/render-smoke.ts /out
+      # Walk the block (ADR 0093): the drone solve's tests (a real 4 s fixture, refusals) with the image's own Python and OpenCV.
+      - name: Drone solve tests
+        if: matrix.app == 'worker'
+        timeout-minutes: 5
+        run: docker run --rm -w /workspace/apps/worker/block "$IMAGE" /opt/block/bin/python -m unittest discover -s tests -v
       # Render QA (ADR 0082), report only: remotion-qa's pace and Reels safe-zone checks on the smoke's MP4, and
       # audio-bed-check's loop and level-step checks on the bundled ambience beds. Its findings go to the job summary;
       # it does not fail the build (the beds are known 4 s loops, and the safe-zone check skips bands over footage).

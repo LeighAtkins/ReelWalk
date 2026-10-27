@@ -170,7 +170,7 @@ export type Command =
   /**
    * A title timed to the words it repeats (ADR 0084): its words found in what the clip under it (or `clipId`) says, the
    * title starting with the first word and ending `holdMs` after the last (default 700, never past the shot), each word
-   * arriving as it is said ("words" reveal with `wordsMs`). `speech` is the word-timed transcripts by asset id; the HTTP
+   * arriving as it is said ("words" reveal with `wordsMs`, or "focus" when the title already comes into focus, ADR 0092). `speech` is the word-timed transcripts by asset id; the HTTP
    * commands route fills it from the library, so an agent sends only `textId`. Refused, with what the clip says, when the
    * words are not heard there.
    */

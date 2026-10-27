@@ -97,8 +97,16 @@ export type ShinePreset = (typeof SHINE_PRESETS)[number];
  * Kinetic type (ADR 0061): word by word, sliding out from behind something in front of the surface, or a number counting up.
  * "caption" (ADR 0089): one word at a time, each replacing the one before on its onset (`wordsMs`), the single-word
  * caption track of a keyword lockup.
+ * "focus" (ADR 0092): each word comes into focus as it is said, faint, blurred and a little too large shrinking sharp
+ * (the CapCut realtor caption), on its onset (`wordsMs`) or staggered; the title blurs out as one at its end.
  */
-export const KINETIC_PRESETS = ["words", "behind", "count", "caption"] as const;
+export const KINETIC_PRESETS = ["words", "behind", "count", "caption", "focus"] as const;
+/**
+ * A title's typeface beside its style's own ("auto"): Cormorant ("serif"), Archivo ("sans"), Bodoni ("editorial"), and
+ * Inter Tight ("tight", ADR 0092), the heavy, tightly spaced grotesk of the realtor caption trend. All SIL OFL 1.1.
+ */
+export const TEXT_FONTS = ["auto", "serif", "sans", "editorial", "tight"] as const;
+export type TextFont = (typeof TEXT_FONTS)[number];
 /**
  * The roles of a keyword lockup's titles (ADR 0089): the big hero word, the small one-word caption track around it, and
  * (the addendum) a companion line interlocked with the keyword in a short phrase.
@@ -264,7 +272,7 @@ export const textSchema = z
      */
     byApp: z.literal(true).optional(),
     animation: z.enum(TEXT_ANIMATIONS).default("auto"),
-    font: z.enum(["auto", "serif", "sans", "editorial"]).optional(),
+    font: z.enum(TEXT_FONTS).optional(),
     shadow: z.enum(["auto", "soft", "strong", "none"]).optional(),
     tracking: z.number().min(-0.04).max(0.24).optional(),
     /**
@@ -313,7 +321,7 @@ export const textSchema = z
       startMs: z.number().int().min(0).max(TYPE_MOTION_START_MAX_MS).optional(),
       durationMs: z.number().int().min(100).max(10_000).optional(),
       /**
-       * "words" only (ADR 0084): when each word arrives, ms after the title appears, one per word of the text, so the
+       * "words" and "focus" (ADR 0084, 0092): when each word arrives, ms after the title appears, one per word of the text, so the
        * words land as a speaker says them (`syncTextToSpeech`). Absent, or not one per word: evenly over `durationMs`.
        */
       wordsMs: z.array(z.number().int().min(0).max(TYPE_MOTION_START_MAX_MS)).max(60).optional(),

@@ -19,7 +19,7 @@ import {
 // OffthreadVideo here, and it falls back to it for files it cannot decode.
 import { Video as RenderVideo } from "@remotion/media";
 import { TransitionSeries } from "@remotion/transitions";
-import { behindInPlane, BRAND_FONTS, cutBlurAt, calloutGeometry, calloutSvg, cameraAt, captionWordAt, colorMatchFilterId, colorMatrixValues, countUpText, duckGain, evaluateTitle, flareCss, framePlan, mediaWindow, glintLetter, glintSvg, INSTAGRAM, isInstagramMusic, kineticProgress, matrix3d, particleField, particleSvg, personLayerOpacity, REEL_FORMAT, sceneLayers, SFX_DUCK, SFX_SOUNDS, sfxAssetKey, sfxEndMs, sfxGainAt, shineAt, shineBandCss, shineSpec, slideFromBehind, speechWindows, TITLE_LEADING, timelineDurationMs, titleArrival, walkInto, wrapTitleLines, wordReveal, type Clip, type Logo, type ParticleField, type PersonPass, type Plan, type SfxClip, type ShineFlare, type ShineGlint, type TextOverlay, type Timeline } from "@reelwalk/core";
+import { behindInPlane, BRAND_FONTS, cutBlurAt, calloutGeometry, calloutSvg, cameraAt, captionWordAt, colorMatchFilterId, colorMatrixValues, countUpText, duckGain, evaluateTitle, flareCss, focusReveal, framePlan, mediaWindow, glintLetter, glintSvg, INSTAGRAM, isInstagramMusic, kineticProgress, matrix3d, particleField, particleSvg, personLayerOpacity, REEL_FORMAT, sceneLayers, SFX_DUCK, SFX_SOUNDS, sfxAssetKey, sfxEndMs, sfxGainAt, shineAt, shineBandCss, shineSpec, slideFromBehind, speechWindows, TITLE_LEADING, timelineDurationMs, titleArrival, walkInto, wrapTitleLines, wordReveal, type Clip, type Logo, type ParticleField, type PersonPass, type Plan, type SfxClip, type ShineFlare, type ShineGlint, type TextOverlay, type Timeline } from "@reelwalk/core";
 import { layoutMeasure } from "./measure";
 import { textExit, titleFont } from "./title-motion";
 import { revealStyle } from "./toolbox/title-reveal";
@@ -346,28 +346,32 @@ function glinted(str: string, offset: number, glints: Map<number, ShineGlint>, c
 /**
  * The letters of a title with shine or kinetic type (ADR 0061), inside its face span, in that span's own box: a
  * surface title's span is in plane px under the plane's warp, so everything here is carried by the tracked plane.
- *   - words: each word fades up and unblurs, staggered; count: the numbers count up over a hidden copy that holds the
+ *   - words: each word fades up and unblurs, staggered; focus (ADR 0092): each word shrinks into focus out of a blur on
+ *     its spoken onset, and the title blurs out at its end (`lifeMs`); count: the numbers count up over a hidden copy that holds the
  *     size (as the typewriter does, which this also draws when the title types);
  *   - shine: glints on chosen letters; the band is two copies of the letters (a shade-light-shade fill clipped to the
  *     glyphs, and a glow masked to the band's core). The flare is not drawn here but in FlareLayer, a sibling that
  *     screen-blends against the footage (inside the title's box it would only blend with the letters).
  * Everything is read from `titleMs` (the frame), so preview, stills and export agree.
  */
-const MotionLetters: React.FC<{ text: TextOverlay; titleMs: number; face: React.CSSProperties; written: string | null; aspect: number }> = ({ text, titleMs, face, written, aspect }) => {
+const MotionLetters: React.FC<{ text: TextOverlay; titleMs: number; lifeMs: number; face: React.CSSProperties; written: string | null; aspect: number }> = ({ text, titleMs, lifeMs, face, written, aspect }) => {
   const kinetic = text.kinetic;
   // A caption track (ADR 0089): only the word being said, centred where the title is; nothing between words.
   if (kinetic?.preset === "caption") return <>{captionWordAt(text.text, kinetic, titleMs) ?? ""}</>;
   const progress = kinetic ? kineticProgress(kinetic, titleMs) : 1;
   // A string drawn over a hidden copy of the whole text: the count, or the typewriter's written part.
-  const replaced = kinetic?.preset === "count" ? countUpText(text.text, progress) : kinetic?.preset === "words" ? null : written;
+  const perWord = kinetic?.preset === "words" || kinetic?.preset === "focus";
+  const replaced = kinetic?.preset === "count" ? countUpText(text.text, progress) : perWord ? null : written;
   const shine = text.shine ? shineAt(text.shine, titleMs, aspect) : null;
   const glintColour = text.shine ? shineSpec(text.shine).glintColor : "#ffffff";
   const glintsFor = (str: string) => new Map((shine?.glints ?? []).map((g) => [glintLetter(str, g), g] as const).filter(([i]) => i >= 0));
   const body = (str: string, withGlints: boolean): React.ReactNode => {
     const glints = withGlints ? glintsFor(str) : new Map<number, ShineGlint>();
-    if (kinetic?.preset !== "words") return glinted(str, 0, glints, glintColour);
+    if (!perWord || !kinetic) return glinted(str, 0, glints, glintColour);
     let offset = 0;
-    return wordReveal(str, kinetic, titleMs).map((part, i) => {
+    // The focus blur is a fraction of the words' own size, in the px of the span they are set in (plane px on a surface).
+    const parts = kinetic.preset === "focus" ? focusReveal(str, kinetic, titleMs, lifeMs, Number(face.fontSize) || 64) : wordReveal(str, kinetic, titleMs);
+    return parts.map((part, i) => {
       const at = offset;
       offset += [...part.text].length;
       if (part.space) return part.text;
@@ -492,7 +496,7 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
   const titleMs = (frame * 1000) / fps;
   const moving = Boolean(text.shine || text.kinetic);
   const motionFace: React.CSSProperties = { ...face, position: "relative", ...(text.kinetic?.preset === "count" ? { fontVariantNumeric: "tabular-nums" } : {}) };
-  const letters = (aspect: number) => <MotionLetters text={text} titleMs={titleMs} face={face} written={chars === null ? null : `${written}${cursor ? "|" : ""}`} aspect={aspect} />;
+  const letters = (aspect: number) => <MotionLetters text={text} titleMs={titleMs} lifeMs={(durationInFrames * 1000) / fps} face={face} written={chars === null ? null : `${written}${cursor ? "|" : ""}`} aspect={aspect} />;
   /** "From behind": the slide (px, in the box the edges are given in) and the polygon that clips the side the words come from. */
   const behind = (textLeft: number, textRight: number, edge: number) => {
     const slide = slideFromBehind({ spec: text.kinetic!, titleMs, textLeft, textRight, edge });

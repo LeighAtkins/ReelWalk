@@ -91,15 +91,31 @@ export function sourceToReelMs(clip: Clip, clipStartMs: number, sourceMs: number
  * phrase starts, and never runs past the clip's end.
  */
 export function captionsFromSpeech(transcript: Transcript, clip: Clip, clipStartMs: number, minHoldMs = 700): SpeechPhrase[] {
+  return captionsWithWords(transcript, clip, clipStartMs, minHoldMs).map(({ text, startMs, endMs }) => ({ text, startMs, endMs }));
+}
+
+/**
+ * The same captions with when each of their words is said, reel ms (one per word of `text`): what a caption whose words
+ * come into focus as they are said (ADR 0092) is timed by.
+ */
+export function captionsWithWords(transcript: Transcript, clip: Clip, clipStartMs: number, minHoldMs = 700): (SpeechPhrase & { wordStartsMs: number[] })[] {
   const words = transcriptWindow(transcript, clip.sourceStartMs, clip.sourceEndMs);
   const phrases = speechPhrases(words);
+  // speechPhrases keeps every word in order, so each phrase's words are the next run of as many as it has.
+  let taken = 0;
+  const starts = phrases.map((phrase) => {
+    const count = phrase.text.split(" ").length;
+    const run = words.slice(taken, taken + count).map((word) => sourceToReelMs(clip, clipStartMs, word.s));
+    taken += count;
+    return run;
+  });
   const clipEndMs = sourceToReelMs(clip, clipStartMs, clip.sourceEndMs);
   return phrases
     .map((phrase, index) => {
       const startMs = Math.max(clipStartMs, sourceToReelMs(clip, clipStartMs, phrase.startMs));
       const next = phrases[index + 1] ? sourceToReelMs(clip, clipStartMs, phrases[index + 1].startMs) : clipEndMs;
       const endMs = Math.min(clipEndMs, Math.max(sourceToReelMs(clip, clipStartMs, phrase.endMs), startMs + minHoldMs, 0), next);
-      return { text: phrase.text, startMs, endMs };
+      return { text: phrase.text, startMs, endMs, wordStartsMs: starts[index] };
     })
     .filter((phrase) => phrase.endMs > phrase.startMs);
 }

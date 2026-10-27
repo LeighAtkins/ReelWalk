@@ -18,6 +18,7 @@ import { HOOK_DESCRIPTIONS, HOOK_FONTS, HOOK_LABELS, type Hook, type HookKind,
   hasCountableNumber,
   KINETIC_LABELS,
   KINETIC_PRESETS,
+  TEXT_FONTS,
   SHINE_LABELS,
   SHINE_PRESETS,
   calloutTrackTarget,
@@ -1058,8 +1059,8 @@ export function TextSheet({
         ))}
       </div>
       <Range label="Size" value={draft.size} min={minTextSize(draft.style)} max={maxTextSize(draft)} step={0.1} display={`${Math.round(draft.size * 100)}%`} onChange={(size) => setDraft({ ...draft, size })} />
-      <Segmented label="Typeface" options={["auto", "serif", "sans", "editorial"] as const} value={draft.font ?? "auto"} onChange={font => setDraft({ ...draft, font, brand: undefined })}
-        format={font => ({ auto: "Style default", serif: "Cormorant", sans: "Archivo", editorial: "Bodoni" })[font]} />
+      <Segmented label="Typeface" options={TEXT_FONTS} value={draft.font ?? "auto"} onChange={font => setDraft({ ...draft, font, brand: undefined })}
+        format={font => ({ auto: "Style default", serif: "Cormorant", sans: "Archivo", editorial: "Bodoni", tight: "Inter Tight" })[font]} />
       <Segmented label="Text shadow" options={["auto", "soft", "strong", "none"] as const} value={draft.shadow ?? "auto"} onChange={shadow => setDraft({ ...draft, shadow, brand: undefined })} format={shadow => ({ auto: "Auto contrast", soft: "Soft", strong: "Strong", none: "None" })[shadow]} />
       <p className="muted small">Auto contrast protects small text over bright footage without changing its size or font.</p>
       <Range label="Letter spacing" value={draft.tracking ?? 0.06} min={-0.04} max={0.24} step={0.01} display={`${(draft.tracking ?? 0.06).toFixed(2)}em`} onChange={tracking => setDraft({ ...draft, tracking })} />

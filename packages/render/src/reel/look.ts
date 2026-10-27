@@ -111,6 +111,12 @@ export const ELEGANT_FONT_FAMILY = '"Playfair Display Variable", "Noto Sans JP V
 export const CORMORANT_FONT_FAMILY = '"Cormorant Garamond Variable", "Noto Sans JP Variable", "Noto Color Emoji", serif';
 /** Bodoni Moda: the title font "editorial". */
 export const BODONI_FONT_FAMILY = '"Bodoni Moda Variable", Georgia, "Noto Color Emoji", serif';
+/**
+ * Inter Tight: the title font "tight" (ADR 0092), the heavy, tightly spaced grotesk of the realtor caption trend (the
+ * reference's Helvetica Neue / SF Pro look). Set FONT_TIGHT_TRACKING tighter than its style unless the title has its own.
+ */
+export const INTER_TIGHT_FONT_FAMILY = '"Inter Tight Variable", "Archivo Variable", "Noto Sans JP Variable", "Noto Color Emoji", sans-serif';
+export const FONT_TIGHT_TRACKING = "-0.03em";
 
 /**
  * The elegant serif is set smaller than the base size so the picture leads: Playfair at size 1 is about 53 px, a cap
@@ -211,13 +217,14 @@ export function brandCss(brand: TextTreatment, fontSize: number): CSSProperties 
 }
 
 export function textTreatmentCss(text: Pick<TextOverlay, "style" | "color" | "size" | "font" | "tracking" | "shadow" | "brand"> & Partial<Pick<TextOverlay, "italic" | "weight">>): CSSProperties {
-  const fonts = { auto: undefined, serif: CORMORANT_FONT_FAMILY, sans: REEL_FONT_FAMILY, editorial: BODONI_FONT_FAMILY };
+  const fonts = { auto: undefined, serif: CORMORANT_FONT_FAMILY, sans: REEL_FONT_FAMILY, editorial: BODONI_FONT_FAMILY, tight: INTER_TIGHT_FONT_FAMILY };
   // The elegant style set in Cormorant by name keeps Cormorant's own size, weight and tracking (its look before ADR 0083).
   const cormorant = text.style === "elegant" && text.font === "serif"
     ? { fontSize: BASE_TEXT_PX * text.size * CORMORANT_SCALE, fontWeight: 600, letterSpacing: "0.06em" } : {};
   const base: CSSProperties = { ...textCss(text.style, text.color, text.size),
     ...(text.font && text.font !== "auto" ? { fontFamily: fonts[text.font] } : {}),
     ...cormorant,
+    ...(text.font === "tight" ? { letterSpacing: FONT_TIGHT_TRACKING } : {}),
     ...(text.tracking !== undefined ? { letterSpacing: `${text.tracking}em` } : {}),
     // A lockup's keyword weight and its caption words' italic (ADR 0089); absent on every title saved before.
     ...(text.weight !== undefined ? { fontWeight: text.weight } : {}),

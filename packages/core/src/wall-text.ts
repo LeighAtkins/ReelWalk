@@ -21,7 +21,7 @@ import { SURFACE_SAFE, surfacePlaneSize } from "./surface-finder";
 import { TITLE_LEADING } from "./scene";
 import { clipDurationMs, clipStartsMs, REEL_FORMAT, type Timeline, type TextOverlay } from "./timeline";
 import { sourceToReelMs, transcriptWindow, type TranscriptWord } from "./transcript";
-import { WORD_ARRIVE_MS } from "./kinetic";
+import { FOCUS, WORD_ARRIVE_MS } from "./kinetic";
 import { levenshtein } from "./take-trim";
 
 // ---------------------------------------------------------------- the line's place on the wall
@@ -238,8 +238,10 @@ export function speechSync(
   const startMs = Math.max(clipStartMs, Math.round(alignment.wordStartsMs[0] - leadMs));
   const endMs = Math.min(clipEndMs, Math.max(Math.round(alignment.endMs + holdMs), startMs + 1200));
   if (endMs <= startMs) throw new Error(`The words of ${textId} are said after clip ${clip.id} ends.`);
-  // Each word arrives `leadMs` ahead of being said, relative to the title's start; the reveal is the "words" one (ADR 0061).
+  // Each word arrives `leadMs` ahead of being said, relative to the title's start; the reveal is the "words" one (ADR 0061),
+  // or "focus" when the title already comes into focus (ADR 0092), which keeps it.
   const wordsMs = alignment.wordStartsMs.map((ms) => Math.max(0, Math.round(ms - leadMs - startMs)));
-  const durationMs = Math.max(100, wordsMs[wordsMs.length - 1] + WORD_ARRIVE_MS);
-  return { patch: { startMs, endMs, kinetic: { preset: "words", startMs: wordsMs[0], durationMs, wordsMs } }, alignment, clipId: clip.id };
+  const preset = text.kinetic?.preset === "focus" ? "focus" : "words";
+  const durationMs = Math.max(100, wordsMs[wordsMs.length - 1] + (preset === "focus" ? FOCUS.arriveMs : WORD_ARRIVE_MS));
+  return { patch: { startMs, endMs, kinetic: { preset, startMs: wordsMs[0], durationMs, wordsMs } }, alignment, clipId: clip.id };
 }

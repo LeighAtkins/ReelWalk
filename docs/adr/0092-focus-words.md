@@ -107,5 +107,11 @@ Not built:
   - The real Pexels lounge (39576518, Alef Morais) with a staggered title across a dark post and a white sofa.
 
   It is rendered in Inter Tight and in Playfair, all inverted. Stills from `renderReelStills` and frames of the MP4 from
-  `renderReel` were compared at the same frames (see the PR for the SSIM numbers). `docs/adr/assets/0092-focus-proof.jpg`
-  sets frames of the proof beside the reference.
+  `renderReel` (the worker's export) were compared at 14 frames across the three shots (Inter Tight version):
+  - SSIM was 0.986–0.994 on every frame.
+  - The mean difference inside the title band was 2.0–2.2 / 255, the same as across the whole frame (2.0–2.1). The
+    difference is the encoder; the titles agree.
+  - `docs/adr/assets/0092-focus-proof.jpg` shows frames of the proof. The side-by-side with the reference reel stays
+    out of the repository (it is someone else's video).
+- Not verified: the editor's Player itself was not captured. It draws the same `ReelComposition` in Chrome, and stills
+  are drawn the same way, but that frame was not compared.

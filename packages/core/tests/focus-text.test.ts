@@ -88,7 +88,7 @@ describe("focus in the schema, the sheet and an ask", () => {
     assetId: null, order: null, pieces: null, atClip: null, animation: null, zoom: null, corner: null, yaw: null, sweep: null,
   };
   const op = (fields: Partial<AiEditOp> & { op: AiEditOp["op"] }): AiEditOp => ({ ...blank, ...fields });
-  const transcript = { words: [{ w: "Before", s: 200, e: 500 }, { w: "I", s: 560, e: 640 }, { w: "share.", s: 660, e: 1000 }, { w: "My", s: 2000, e: 2150 }, { w: "favourite", s: 2180, e: 2700 }, { w: "features.", s: 2750, e: 3300 }] };
+  const transcript = { text: "Before I share. My favourite features.", words: [{ w: "Before", s: 200, e: 500 }, { w: "I", s: 560, e: 640 }, { w: "share.", s: 660, e: 1000 }, { w: "My", s: 2000, e: 2150 }, { w: "favourite", s: 2180, e: 2700 }, { w: "features.", s: 2750, e: 3300 }] };
   const assets: Record<string, AiAsset> = {
     v: { id: "v", kind: "VIDEO", title: "talking head", durationMs: 8000, isPano: false, bpm: null, beatOffsetMs: null, transcript } as AiAsset,
   };

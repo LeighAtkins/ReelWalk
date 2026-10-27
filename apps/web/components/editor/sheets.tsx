@@ -1035,6 +1035,7 @@ export function TextSheet({
         <Segmented label="Kinetic type" options={KINETIC_PRESETS} value={draft.kinetic.preset} onChange={preset => setDraft({ ...draft, kinetic: { ...draft.kinetic, preset } })} format={preset => KINETIC_LABELS[preset]} />
       ) : null}
       {draft.kinetic?.preset === "count" && !hasCountableNumber(draft.text) ? <p className="small">Count up needs a number in the text, like 4 BED or $1.2M.</p> : null}
+      {draft.kinetic?.preset === "focus" ? <p className="muted small">Each word shrinks into focus in turn. To land every word as it is said, ask for captions that come into focus.</p> : null}
       {draft.kinetic?.preset === "behind" ? <p className="muted small">The words slide out from behind the nearest post or tapped object in front of the surface (set under Pin), or from behind their own edge.</p> : null}
       {(draft.shine || draft.kinetic) && title ? (
         <div className="pass-row" role="group" aria-label="When the motion starts">

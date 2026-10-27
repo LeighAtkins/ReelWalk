@@ -343,6 +343,18 @@ describe("legibility", () => {
     const [finding] = ofCheck(run(inverted, { frames: over(inverted, flat(0.5)) }), "legibility");
     expect(finding.severity).toBe("high");
     expect(finding.fixes[0]).toMatchObject({ label: "On top, not inverted", command: { type: "updateText", textId: "t", patch: { blend: "plain" } } });
+    // Drawn without them, a strong shadow, an outline or a box does not exempt an inverted title on a mid-tone.
+    for (const extra of [{ shadow: "strong" }, { style: "outline" }, { style: "box" }, { depth: "extruded" }]) {
+      const treated = titled({ blend: "invert", ...extra });
+      expect(ofCheck(run(treated, { frames: over(treated, flat(0.5)) }), "legibility"), JSON.stringify(extra)).toHaveLength(1);
+    }
+  });
+
+  it("inverted across a dark wall and a bright window is fine: no mid-tone is invented from their mean", () => {
+    const split: CriticFrame = { width: 18, height: 32, luma: new Float32Array(18 * 32) };
+    split.luma.forEach((_, i) => { split.luma[i] = i % 18 < 11 ? 0.06 : 0.94; });
+    const inverted = titled({ blend: "invert" });
+    expect(ofCheck(run(inverted, { frames: over(inverted, split) }), "legibility")).toEqual([]);
   });
 
   it("an inverted title's ink is the picture's negative times its colour", () => {

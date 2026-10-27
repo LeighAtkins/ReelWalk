@@ -601,18 +601,20 @@ function titleChecks(ctx: Context): CriticFinding[] {
     // (ADR 0071: "add a shadow" on boxed titles was the critic's commonest false positive); an outline with its own edge is
     // not either; a strong shadow or extrusion is already the fix.
     const ownContrast = ["box", "tag"].includes(text.style) || ((text.shadow ?? "auto") === "auto" && text.style === "outline");
-    if (ownContrast || (text.shadow === "strong" && text.blend !== "surface") || (text.depth === "extruded" && text.blend !== "surface")) continue;
+    // An inverted title (ADR 0091) is drawn without its plate, outline, shadow or extrusion, so none of them exempts it.
+    if (text.blend !== "invert" && (ownContrast || (text.shadow === "strong" && text.blend !== "surface") || (text.depth === "extruded" && text.blend !== "surface"))) continue;
     const frame = moment ? ctx.frames.get(moment.key) : undefined;
     const behind = frame ? regionLuminance(frame, geometry.box) : null;
     if (!behind) continue;
     const surface = text.blend === "surface";
     const textL = colorLuminance(text.color);
-    // Inverted (ADR 0091) the letters have no colour of their own: judge the negative of each part of the picture against
-    // it. Its weak spot is a mid-tone, where the negative is the same grey, so the worst of dark, mean and bright counts.
+    // Inverted (ADR 0091) the letters have no colour of their own: judge the negative of the picture's darkest and brightest
+    // tenth, each against itself. Not the mean: a word across a dark wall and a bright window averages to a grey that is not
+    // there. Its weak spot is a real mid-tone, where the negative is the same grey and both tenths are near it.
     const inverted = text.blend === "invert";
     const against = (l: number) => contrastRatio(inverted ? invertedInkLuminance(l, text.color) : textL, l);
-    const meanContrast = against(behind.mean);
-    const worstContrast = inverted ? Math.min(against(behind.p10), meanContrast, against(behind.p90)) : against(textL > 0.4 ? behind.p90 : behind.p10);
+    const meanContrast = inverted ? Math.min(against(behind.p10), against(behind.p90)) : against(behind.mean);
+    const worstContrast = inverted ? meanContrast : against(textL > 0.4 ? behind.p90 : behind.p10);
     // Painted on a surface, the wall's own light shows through the letters: hold it to a higher bar.
     const bad = CRITIC.contrastBad * (surface ? 1.3 : 1), good = CRITIC.contrastGood * (surface ? 1.3 : 1);
     if (worstContrast >= good) continue;

@@ -362,6 +362,15 @@ export function colorLuminance(hex: string): number {
   return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }
 
+/**
+ * The relative luminance of an inverted title's letters (ADR 0091) over a picture of relative luminance `behind`: the
+ * negative is taken in sRGB (as CSS blends are), then multiplied by the title's colour.
+ */
+export function invertedInkLuminance(behind: number, color: string): number {
+  const encoded = behind <= 0.0031308 ? behind * 12.92 : 1.055 * behind ** (1 / 2.4) - 0.055;
+  return colorLuminance(color) * toLinear(Math.min(1, Math.max(0, 1 - encoded)));
+}
+
 /** WCAG contrast ratio of two relative luminances (1..21). */
 export function contrastRatio(a: number, b: number): number {
   const [hi, lo] = a > b ? [a, b] : [b, a];
@@ -596,15 +605,19 @@ function titleChecks(ctx: Context): CriticFinding[] {
     const frame = moment ? ctx.frames.get(moment.key) : undefined;
     const behind = frame ? regionLuminance(frame, geometry.box) : null;
     if (!behind) continue;
-    const textL = colorLuminance(text.color);
-    const meanContrast = contrastRatio(textL, behind.mean);
-    const worstContrast = contrastRatio(textL, textL > 0.4 ? behind.p90 : behind.p10);
     const surface = text.blend === "surface";
+    const textL = colorLuminance(text.color);
+    // Inverted (ADR 0091) the letters have no colour of their own: judge the negative of each part of the picture against
+    // it. Its weak spot is a mid-tone, where the negative is the same grey, so the worst of dark, mean and bright counts.
+    const inverted = text.blend === "invert";
+    const against = (l: number) => contrastRatio(inverted ? invertedInkLuminance(l, text.color) : textL, l);
+    const meanContrast = against(behind.mean);
+    const worstContrast = inverted ? Math.min(against(behind.p10), meanContrast, against(behind.p90)) : against(textL > 0.4 ? behind.p90 : behind.p10);
     // Painted on a surface, the wall's own light shows through the letters: hold it to a higher bar.
     const bad = CRITIC.contrastBad * (surface ? 1.3 : 1), good = CRITIC.contrastGood * (surface ? 1.3 : 1);
     if (worstContrast >= good) continue;
-    const fix: CriticFix = surface
-      ? { kind: "command", label: "Plain, not painted", command: { type: "updateText", textId: text.id, patch: { blend: "plain" } }, safe: true }
+    const fix: CriticFix = surface || inverted
+      ? { kind: "command", label: inverted ? "On top, not inverted" : "Plain, not painted", command: { type: "updateText", textId: text.id, patch: { blend: "plain" } }, safe: true }
       : { kind: "command", label: "Add a shadow", command: { type: "updateText", textId: text.id, patch: { shadow: "strong" } }, safe: true };
     const decided = meanContrast < bad;
     findings.push({ ...base, id: `legibility:${text.id}`, check: "legibility", severity: decided ? "high" : "low", impact: impactOf(base.atMs, ctx.total),

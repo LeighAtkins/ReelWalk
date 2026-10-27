@@ -76,6 +76,8 @@ describe("applyFinish", () => {
     expect(finishRestyles({ ...crafted.texts[4], style: "plain", callout: { at: 1 } } as never)).toBe(false);
     expect(finishRestyles({ ...crafted.texts[4], style: "plain", kinetic: "words" } as never)).toBe(false);
     expect(finishRestyles({ ...crafted.texts[4], style: "plain", shine: true } as never)).toBe(false);
+    // An inverted title (ADR 0091) keeps its tint.
+    expect(finishRestyles({ ...crafted.texts[4], style: "plain", blend: "invert" } as never)).toBe(false);
     const after = applyFinish(crafted, "premium", { sourceDurationsMs: durations });
     for (const id of ["wall", "painted", "deep", "tag"]) {
       const { startMs, endMs, ...rest } = text(after, id);

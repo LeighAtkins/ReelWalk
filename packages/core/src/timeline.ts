@@ -349,8 +349,12 @@ export const textSchema = z
     callout: z.object({ x: z.number().min(-0.5).max(1.5), y: z.number().min(-0.5).max(1.5) }).optional(),
     /** An extruded, 3D-looking title. */
     depth: z.enum(["flat", "extruded"]).optional(),
-    /** How the text meets the picture: `surface` lets the wall's light and texture show through, like paint on it (ADR 0039). */
-    blend: z.enum(["plain", "surface"]).optional(),
+    /**
+     * How the text meets the picture: `surface` lets the wall's light and texture show through, like paint on it (ADR 0039);
+     * `invert` shows the picture behind the letters as a negative tinted with `color` (ADR 0091), so they are light on a
+     * dark wall and dark on a bright window and flip where the picture does. White gives a true negative.
+     */
+    blend: z.enum(["plain", "surface", "invert"]).optional(),
     /** The flat surface the title is painted on, as four corners (tl, tr, br, bl) in frame fractions, found from the picture's edges or dragged by hand (ADR 0043). Pinning tracks this plane. */
     surface: z.array(z.number().min(-0.5).max(1.5)).length(8).optional(),
     /** Things in front of the surface that hide the title where they cross it (a window mullion, a post): quads in frame fractions at pin time, on or near the surface's plane so they move with it (ADR 0043). */

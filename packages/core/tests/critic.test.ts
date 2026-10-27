@@ -7,6 +7,8 @@ import {
   critique,
   fixAllCommand,
   frameDifference,
+  colorLuminance as colorLuminanceOf,
+  invertedInkLuminance,
   lumaFromRgba,
   settleUndecided,
   type CriticFace,
@@ -330,6 +332,26 @@ describe("legibility", () => {
     const timeline = titled({ blend: "surface", shadow: "strong" });
     const [finding] = ofCheck(run(timeline, { frames: over(timeline, flat(0.95)) }), "legibility");
     expect(commandOf(finding)).toEqual({ type: "updateText", textId: "t", patch: { blend: "plain" } });
+  });
+
+  it("inverted (ADR 0091): fine on a dark or a bright picture, lost on a mid-tone, and the fix is to stop inverting", () => {
+    const inverted = titled({ blend: "invert" });
+    expect(ofCheck(run(inverted, { frames: over(inverted, flat(0.95)) }), "legibility")).toEqual([]);
+    expect(ofCheck(run(inverted, { frames: over(inverted, flat(0.08)) }), "legibility")).toEqual([]);
+    // A plain white title over the same bright window is flagged; inverted it is the window's negative, near black.
+    expect(ofCheck(run(titled({}), { frames: over(titled({}), flat(0.95)) }), "legibility")).toHaveLength(1);
+    const [finding] = ofCheck(run(inverted, { frames: over(inverted, flat(0.5)) }), "legibility");
+    expect(finding.severity).toBe("high");
+    expect(finding.fixes[0]).toMatchObject({ label: "On top, not inverted", command: { type: "updateText", textId: "t", patch: { blend: "plain" } } });
+  });
+
+  it("an inverted title's ink is the picture's negative times its colour", () => {
+    expect(invertedInkLuminance(0, "#ffffff")).toBeCloseTo(1, 5);
+    expect(invertedInkLuminance(1, "#ffffff")).toBeCloseTo(0, 5);
+    // sRGB mid-grey (0.5 encoded, 0.214 linear) inverts to itself.
+    expect(invertedInkLuminance(0.214, "#ffffff")).toBeCloseTo(0.214, 2);
+    // Tinted: a dark picture under pale yellow letters gives pale yellow, never brighter than the tint.
+    expect(invertedInkLuminance(0, "#f2ef9c")).toBeCloseTo(colorLuminanceOf("#f2ef9c"), 5);
   });
 
   it("small type on a phone is made bigger", () => {

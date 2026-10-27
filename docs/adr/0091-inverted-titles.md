@@ -40,9 +40,9 @@ picture behind them as a negative, tinted with the title's `color`:
   `AbsoluteFill`, which forms no stacking context. They blend with the footage the same way the existing `surface`
   hard-light does.
 - **Critic** (`critic.ts`): an inverted title has no colour of its own, so legibility judges the negative of the
-  picture's darkest and brightest tenth, each against itself (`invertedInkLuminance`: negated in sRGB as CSS does, times
-  the tint's luminance). It does not use the mean: a word across a dark wall and a bright window, the intended case,
-  averages to a grey that is not there. A real mid-tone is the weak spot, where the negative is the same grey. The fix
+  picture pixel by pixel, each against its own pixel (`invertedContrasts`, with `invertedInkLuminance` negating in sRGB as
+  CSS does, times the tint's luminance), and counts the median and the worst tenth of those contrasts. It does not use the
+  mean picture: a word across a dark wall and a bright window, the intended case, averages to a grey that is not there. A real mid-tone is the weak spot, where the negative is the same grey. The fix
   offered there is "On top, not inverted" (`blend: "plain"`). The box, outline, strong-shadow and extrusion exemptions do
   not apply to an inverted title, because it is drawn without them.
 - **Finishes** (ADR 0064) leave an inverted title alone: a finish's colour would change the tint.
@@ -65,7 +65,7 @@ the negative pass's opacity if the owner wants it softer.
 
 - Unit tests: `packages/render/tests/invert-blend.test.ts` (passes, tint and fill handling, the filter is cleared and not
   set to `none` so RevealFace's blur still composes, and the schema accepts `invert`, keeps old titles and rejects
-  unknown modes); critic tests (fine on dark, bright and a dark/bright split, flagged on mid-grey with the "On top, not inverted"
+  unknown modes); critic tests (fine on dark, bright and a dark/bright split, flagged on mid-grey and on mostly mid-grey between dark and bright edges, with the "On top, not inverted"
   fix even with a strong shadow, outline, box or extrusion, ink maths); finishes test.
 - Real renderer: `packages/render/scripts/invert-stills.ts` renders "dollar" with `renderReelStills` over a picture
   with a dark wall (22, 34, 34), a bright window (228, 236, 236) and a dark mullion

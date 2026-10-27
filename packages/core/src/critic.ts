@@ -371,6 +371,20 @@ export function invertedInkLuminance(behind: number, color: string): number {
   return colorLuminance(color) * toLinear(Math.min(1, Math.max(0, 1 - encoded)));
 }
 
+/** An inverted title's contrast over a box (ADR 0091): each pixel's negative against that pixel; the median and the worst tenth. */
+export function invertedContrasts(frame: CriticFrame, box: CriticBox, color: string): { median: number; p10: number } | null {
+  const x0 = Math.max(0, Math.floor(box.x * frame.width)), x1 = Math.min(frame.width, Math.ceil((box.x + box.w) * frame.width));
+  const y0 = Math.max(0, Math.floor(box.y * frame.height)), y1 = Math.min(frame.height, Math.ceil((box.y + box.h) * frame.height));
+  const values: number[] = [];
+  for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+    const l = toLinear(frame.luma[y * frame.width + x]);
+    values.push(contrastRatio(invertedInkLuminance(l, color), l));
+  }
+  if (!values.length) return null;
+  values.sort((p, q) => p - q);
+  return { median: values[Math.floor(values.length / 2)], p10: values[Math.floor(values.length * 0.1)] };
+}
+
 /** WCAG contrast ratio of two relative luminances (1..21). */
 export function contrastRatio(a: number, b: number): number {
   const [hi, lo] = a > b ? [a, b] : [b, a];
@@ -608,13 +622,12 @@ function titleChecks(ctx: Context): CriticFinding[] {
     if (!behind) continue;
     const surface = text.blend === "surface";
     const textL = colorLuminance(text.color);
-    // Inverted (ADR 0091) the letters have no colour of their own: judge the negative of the picture's darkest and brightest
-    // tenth, each against itself. Not the mean: a word across a dark wall and a bright window averages to a grey that is not
-    // there. Its weak spot is a real mid-tone, where the negative is the same grey and both tenths are near it.
-    const inverted = text.blend === "invert";
-    const against = (l: number) => contrastRatio(inverted ? invertedInkLuminance(l, text.color) : textL, l);
-    const meanContrast = inverted ? Math.min(against(behind.p10), against(behind.p90)) : against(behind.mean);
-    const worstContrast = inverted ? meanContrast : against(textL > 0.4 ? behind.p90 : behind.p10);
+    // Inverted (ADR 0091) the letters have no colour of their own: each pixel's negative is judged against that pixel, then
+    // the median and the worst tenth of those contrasts count. Not the mean picture: a word across a dark wall and a bright
+    // window averages to a grey that is not there. Its weak spot is a real mid-tone, where the negative is the same grey.
+    const inverted = frame && text.blend === "invert" ? invertedContrasts(frame, geometry.box, text.color) : null;
+    const meanContrast = inverted ? inverted.median : contrastRatio(textL, behind.mean);
+    const worstContrast = inverted ? inverted.p10 : contrastRatio(textL, textL > 0.4 ? behind.p90 : behind.p10);
     // Painted on a surface, the wall's own light shows through the letters: hold it to a higher bar.
     const bad = CRITIC.contrastBad * (surface ? 1.3 : 1), good = CRITIC.contrastGood * (surface ? 1.3 : 1);
     if (worstContrast >= good) continue;

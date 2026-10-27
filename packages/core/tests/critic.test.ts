@@ -355,6 +355,10 @@ describe("legibility", () => {
     split.luma.forEach((_, i) => { split.luma[i] = i % 18 < 11 ? 0.06 : 0.94; });
     const inverted = titled({ blend: "invert" });
     expect(ofCheck(run(inverted, { frames: over(inverted, split) }), "legibility")).toEqual([]);
+    // Mostly mid-grey between a dark and a bright edge: the darkest and brightest tenths read well, the word does not.
+    const threeTone: CriticFrame = { width: 18, height: 32, luma: new Float32Array(18 * 32) };
+    threeTone.luma.forEach((_, i) => { const col = i % 18; threeTone.luma[i] = col < 6 ? 0.06 : col > 11 ? 0.94 : 0.5; });
+    expect(ofCheck(run(inverted, { frames: over(inverted, threeTone) }), "legibility")).toHaveLength(1);
   });
 
   it("an inverted title's ink is the picture's negative times its colour", () => {

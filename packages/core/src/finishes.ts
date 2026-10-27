@@ -98,7 +98,8 @@ export function heldByFinish(clip: Clip, speechAssetIds: readonly string[] = [])
 /** Whether a finish restyles this title: a plain caption or headline, not one the studio placed or crafted (ADR 0039, 0055, 0061). */
 export function finishRestyles(text: TextOverlay): boolean {
   if (text.id.startsWith("hook-word-") || text.style === "tag") return false;
-  if (text.pin || text.surface || text.blend === "surface" || text.depth === "extruded") return false;
+  // An inverted title (ADR 0091) keeps its tint: a finish's colour would change what the negative is multiplied by.
+  if (text.pin || text.surface || text.blend === "surface" || text.blend === "invert" || text.depth === "extruded") return false;
   return !text.callout && !text.kinetic && !text.shine;
 }
 

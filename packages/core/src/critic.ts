@@ -362,6 +362,29 @@ export function colorLuminance(hex: string): number {
   return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }
 
+/**
+ * The relative luminance of an inverted title's letters (ADR 0091) over a picture of relative luminance `behind`: the
+ * negative is taken in sRGB (as CSS blends are), then multiplied by the title's colour.
+ */
+export function invertedInkLuminance(behind: number, color: string): number {
+  const encoded = behind <= 0.0031308 ? behind * 12.92 : 1.055 * behind ** (1 / 2.4) - 0.055;
+  return colorLuminance(color) * toLinear(Math.min(1, Math.max(0, 1 - encoded)));
+}
+
+/** An inverted title's contrast over a box (ADR 0091): each pixel's negative against that pixel; the median and the worst tenth. */
+export function invertedContrasts(frame: CriticFrame, box: CriticBox, color: string): { median: number; p10: number } | null {
+  const x0 = Math.max(0, Math.floor(box.x * frame.width)), x1 = Math.min(frame.width, Math.ceil((box.x + box.w) * frame.width));
+  const y0 = Math.max(0, Math.floor(box.y * frame.height)), y1 = Math.min(frame.height, Math.ceil((box.y + box.h) * frame.height));
+  const values: number[] = [];
+  for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+    const l = toLinear(frame.luma[y * frame.width + x]);
+    values.push(contrastRatio(invertedInkLuminance(l, color), l));
+  }
+  if (!values.length) return null;
+  values.sort((p, q) => p - q);
+  return { median: values[Math.floor(values.length / 2)], p10: values[Math.floor(values.length * 0.1)] };
+}
+
 /** WCAG contrast ratio of two relative luminances (1..21). */
 export function contrastRatio(a: number, b: number): number {
   const [hi, lo] = a > b ? [a, b] : [b, a];
@@ -592,19 +615,24 @@ function titleChecks(ctx: Context): CriticFinding[] {
     // (ADR 0071: "add a shadow" on boxed titles was the critic's commonest false positive); an outline with its own edge is
     // not either; a strong shadow or extrusion is already the fix.
     const ownContrast = ["box", "tag"].includes(text.style) || ((text.shadow ?? "auto") === "auto" && text.style === "outline");
-    if (ownContrast || (text.shadow === "strong" && text.blend !== "surface") || (text.depth === "extruded" && text.blend !== "surface")) continue;
+    // An inverted title (ADR 0091) is drawn without its plate, outline, shadow or extrusion, so none of them exempts it.
+    if (text.blend !== "invert" && (ownContrast || (text.shadow === "strong" && text.blend !== "surface") || (text.depth === "extruded" && text.blend !== "surface"))) continue;
     const frame = moment ? ctx.frames.get(moment.key) : undefined;
     const behind = frame ? regionLuminance(frame, geometry.box) : null;
     if (!behind) continue;
-    const textL = colorLuminance(text.color);
-    const meanContrast = contrastRatio(textL, behind.mean);
-    const worstContrast = contrastRatio(textL, textL > 0.4 ? behind.p90 : behind.p10);
     const surface = text.blend === "surface";
+    const textL = colorLuminance(text.color);
+    // Inverted (ADR 0091) the letters have no colour of their own: each pixel's negative is judged against that pixel, then
+    // the median and the worst tenth of those contrasts count. Not the mean picture: a word across a dark wall and a bright
+    // window averages to a grey that is not there. Its weak spot is a real mid-tone, where the negative is the same grey.
+    const inverted = frame && text.blend === "invert" ? invertedContrasts(frame, geometry.box, text.color) : null;
+    const meanContrast = inverted ? inverted.median : contrastRatio(textL, behind.mean);
+    const worstContrast = inverted ? inverted.p10 : contrastRatio(textL, textL > 0.4 ? behind.p90 : behind.p10);
     // Painted on a surface, the wall's own light shows through the letters: hold it to a higher bar.
     const bad = CRITIC.contrastBad * (surface ? 1.3 : 1), good = CRITIC.contrastGood * (surface ? 1.3 : 1);
     if (worstContrast >= good) continue;
-    const fix: CriticFix = surface
-      ? { kind: "command", label: "Plain, not painted", command: { type: "updateText", textId: text.id, patch: { blend: "plain" } }, safe: true }
+    const fix: CriticFix = surface || inverted
+      ? { kind: "command", label: inverted ? "On top, not inverted" : "Plain, not painted", command: { type: "updateText", textId: text.id, patch: { blend: "plain" } }, safe: true }
       : { kind: "command", label: "Add a shadow", command: { type: "updateText", textId: text.id, patch: { shadow: "strong" } }, safe: true };
     const decided = meanContrast < bad;
     findings.push({ ...base, id: `legibility:${text.id}`, check: "legibility", severity: decided ? "high" : "low", impact: impactOf(base.atMs, ctx.total),

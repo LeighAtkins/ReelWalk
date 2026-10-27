@@ -32,7 +32,7 @@ import { clipSpans, mediaHandles, planCuts, type CutPlan } from "./transition-pl
 import { AtCuts, presentationOf, timingOf } from "./transitions";
 import { MotionCutBlur } from "./motion-cut-blur";
 import { useFontsFor } from "./fonts";
-import { clipFilterCss, ELEGANT_FADE_S, FILTER_GRADES, textFillCss, textTreatmentCss, whiteBalanceId, whiteBalanceValues } from "./look";
+import { clipFilterCss, ELEGANT_FADE_S, FILTER_GRADES, invertLayers, textFillCss, textTreatmentCss, whiteBalanceId, whiteBalanceValues } from "./look";
 import { DetailsCardView } from "./DetailsCardView";
 import { EndCardView } from "./EndCardView";
 import { PanoView } from "./PanoView";
@@ -477,6 +477,10 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
   const lean = typeof css.transform === "string" ? ` ${css.transform}` : "";
   const face = { ...css, ...(text.depth === "extruded" ? { textShadow: extrudedShadow(text.color, font.fontSize), WebkitTextStroke: `${Math.max(0.5, font.fontSize * 0.01)}px rgba(0,0,0,0.35)` } : {}), ...textFillCss(text.fill, fillSrc) };
   const visible = opacity * placement.opacity;
+  // Inverted (ADR 0091): the same letters once per pass, each blending with everything drawn under it (the footage, then
+  // the negative); every other title is one pass with nothing changed.
+  const passes: { key: string; mixBlendMode?: "difference" | "multiply"; face: React.CSSProperties }[] =
+    text.blend === "invert" ? invertLayers(text.color, textFillCss(text.fill, fillSrc)) : [{ key: "ink", face: {} }];
   // The typewriter keeps the full text in place, invisible, so the box never changes size while it writes.
   const written = chars === null ? text.text : text.text.slice(0, chars);
   const cursor = chars !== null && chars < text.text.length && Math.floor(frame / (fps / 4)) % 2 === 0;
@@ -519,9 +523,10 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
       <AbsoluteFill style={{ pointerEvents: "none", perspective: "none" }}>
         {planeParticles("back")}
         {/* Painted on a chosen surface, the text exists only on that surface: anything in front of the surface's edge (a wall, a railing) hides it. */}
-        <div style={{ position: "absolute", left: rect.left, top: rect.top, width: w, height: h, display: "flex", alignItems: "center", justifyContent: "center", transformOrigin: "0 0", transform: placed ? matrix3d(placed) : undefined, opacity: visible, whiteSpace: "nowrap", textAlign: "center", overflow: clipToPlane ? "hidden" : "visible", ...mask, ...meet, ...(slide ? { clipPath: slide.clipPath } : {}) }}>
+        {passes.map((pass) => (
+        <div key={pass.key} style={{ position: "absolute", left: rect.left, top: rect.top, width: w, height: h, display: "flex", alignItems: "center", justifyContent: "center", transformOrigin: "0 0", transform: placed ? matrix3d(placed) : undefined, opacity: visible, whiteSpace: "nowrap", textAlign: "center", overflow: clipToPlane ? "hidden" : "visible", ...mask, ...meet, ...(pass.mixBlendMode ? { mixBlendMode: pass.mixBlendMode } : {}), ...(slide ? { clipPath: slide.clipPath } : {}) }}>
           {/* The plane's box is only its frame: the words sit on one line (or the lines the author typed), scaled to fill or fit it, warped with it. */}
-          <span style={{ ...(moving ? motionFace : face), position: "relative", whiteSpace: text.text.includes("\n") ? "pre" : "nowrap", overflowWrap: "normal", wordBreak: "keep-all", transform: `${slide ? `translateX(${slide.dx.toFixed(2)}px) ` : ""}scale(${scale * fitScale})${lean}` }}>
+          <span style={{ ...(moving ? motionFace : face), ...pass.face, position: "relative", whiteSpace: text.text.includes("\n") ? "pre" : "nowrap", overflowWrap: "normal", wordBreak: "keep-all", transform: `${slide ? `translateX(${slide.dx.toFixed(2)}px) ` : ""}scale(${scale * fitScale})${lean}` }}>
             {moving ? letters(h / Math.max(1, w)) : chars === null ? text.text : (<>
               {/* The typewriter on a plane: the full text holds the size, the written part sits over it. */}
               <span style={{ visibility: "hidden" }}>{text.text}</span>
@@ -529,6 +534,7 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
             </>)}
           </span>
         </div>
+        ))}
         {text.shine ? (() => {
           const lineW = placement.lineBox.width * fitScale * scale, lineH = placement.lineBox.height * fitScale * scale;
           const flare = flareAt(lineH / Math.max(1, lineW));
@@ -578,7 +584,9 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
     <AbsoluteFill style={{ pointerEvents: "none" }}>
       {callout ? <CalloutLine svg={callout.svg} opacity={callout.opacity} /> : null}
       {screenParticles("back")}
+      {passes.map((pass) => (
       <div
+        key={pass.key}
         style={{
           position: "absolute",
           left: center.x,
@@ -589,20 +597,21 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
           justifyContent: "center",
           transform: motion,
           ...meet,
+          ...(pass.mixBlendMode ? { mixBlendMode: pass.mixBlendMode } : {}),
           // After the surface blend, whose own 0.92 is kept: the callout's reveal multiplies it rather than being overwritten.
           opacity: visible * (text.blend === "surface" ? 0.92 : 1) * (callout ? callout.label : 1),
           ...(slide ? { clipPath: slide.clipPath } : {}),
         }}
       >
         {moving ? (
-          <span style={{ ...motionFace, ...(slide ? { transform: `translateX(${slide.dx.toFixed(2)}px)${lean}` } : {}) }}>{letters(0.25)}</span>
+          <span style={{ ...motionFace, ...pass.face, ...(slide ? { transform: `translateX(${slide.dx.toFixed(2)}px)${lean}` } : {}) }}>{letters(0.25)}</span>
         ) : chars === null ? (
           isTitleReveal(arrival) ? (
-            <RevealFace face={face} text={text.text} reveal={revealStyle(arrival, frame, fps, durationInFrames)} masked={arrival === "maskUp"}
+            <RevealFace face={{ ...face, ...pass.face }} text={text.text} reveal={revealStyle(arrival, frame, fps, durationInFrames)} masked={arrival === "maskUp"}
               lines={arrival === "trackIn" && wrap.mode === "wrap" ? wrapTitleLines(text.text, font, measure, wrap.width) : null} />
-          ) : <span style={face}>{text.text}</span>
+          ) : <span style={{ ...face, ...pass.face }}>{text.text}</span>
         ) : (
-          <span style={{ ...css, position: "relative" }}>
+          <span style={{ ...css, ...pass.face, position: "relative" }}>
             <span style={{ visibility: "hidden" }}>{text.text}</span>
             {/* The same box as the hidden text (its padding, when the style has one), so the words wrap the same way. */}
             <span style={{ position: "absolute", inset: css.padding ?? 0, textAlign: "inherit" }}>
@@ -612,6 +621,7 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
           </span>
         )}
       </div>
+      ))}
       {text.shine ? (() => {
         const widest = Math.max(...text.text.split("\n").map((part) => measure(part || " ", font).width));
         const lineW = wrap.mode === "wrap" ? Math.min(wrap.width, widest) : Math.min(wrap.maxWidth, widest);

@@ -336,3 +336,24 @@ export function textFillCss(fill: TextOverlay["fill"], src?: string): CSSPropert
     filter: "drop-shadow(0 2px 6px rgba(0, 0, 0, 0.28))",
   };
 }
+
+/** One pass of an inverted title's letters (ADR 0091): how it blends with what is under it and what it changes in the face. */
+export type InvertLayer = { key: "negative" | "tint"; mixBlendMode: "difference" | "multiply"; face: CSSProperties };
+
+/**
+ * An inverted title (`blend: "invert"`, ADR 0091) as the passes that draw it, bottom first. The letters show the picture
+ * behind them as a negative: white letters difference-blended give 1 − picture, so they are light on a dark wall and
+ * dark on a bright window, and flip where the picture does. A coloured title (or a gradient or picture fill) then
+ * multiplies that negative by its colour, the reference's look (DZWLhE3uEhO): pale yellow letters turn brown over a
+ * window. White needs no tint pass. No pass draws a shadow, stroke or plate: under a difference a shadow is invisible
+ * and under a multiply it would darken the negative.
+ */
+export function invertLayers(color: string, fill: CSSProperties | null): InvertLayer[] {
+  const bare: CSSProperties = { textShadow: "none", WebkitTextStroke: "0px", backgroundColor: "transparent", boxShadow: "none", filter: undefined };
+  const negative: InvertLayer = {
+    key: "negative", mixBlendMode: "difference",
+    face: { ...bare, color: "#ffffff", WebkitTextFillColor: "#ffffff", backgroundImage: "none" },
+  };
+  if (!fill && /^#f{6}$/i.test(color)) return [negative];
+  return [negative, { key: "tint", mixBlendMode: "multiply", face: { ...bare, ...(fill ? { ...fill, ...bare } : { color }) } }];
+}

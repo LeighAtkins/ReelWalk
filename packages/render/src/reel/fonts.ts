@@ -9,6 +9,8 @@ import "@fontsource-variable/playfair-display/wght.css";
 // Cormorant Garamond (SIL Open Font Licence 1.1): the title font "serif", and the elegant style before ADR 0083.
 import "@fontsource-variable/cormorant-garamond/wght.css";
 import "@fontsource-variable/bodoni-moda/opsz.css";
+// Inter Tight (SIL Open Font Licence 1.1): the title font "tight", the heavy grotesk of the focus captions (ADR 0092).
+import "@fontsource-variable/inter-tight/wght.css";
 // Brand kit fonts (ADR 0078), bundled files with their SIL OFL 1.1 licence texts beside them: declared here, downloaded
 // only when a title that uses one asks for it (`useFontsFor`'s `families`).
 import "./brand-fonts/brand-fonts.css";
@@ -37,6 +39,7 @@ export function useFontsFor(text: string, weight: number, brandFamilies: readonl
       document.fonts.load(`${weight} 64px "Playfair Display Variable"`, sample),
       document.fonts.load(`${weight} 64px "Cormorant Garamond Variable"`, sample),
       document.fonts.load(`${weight} 64px "Bodoni Moda Variable"`, sample),
+      document.fonts.load(`${weight} 64px "Inter Tight Variable"`, sample),
       ...brandFamilies.map((family) => document.fonts.load(`${weight} 64px "${family}"`, sample)),
       ...(italic ? [document.fonts.load(`italic ${weight} 64px "Archivo Variable"`, sample)] : []),
     ])

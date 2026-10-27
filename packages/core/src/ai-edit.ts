@@ -10,7 +10,8 @@
 import { z } from "zod";
 import type { InstagramAudioTrack } from "./instagram-audio";
 import { beatPeriodMs, nearestBeatMs, snapCutsToBeats, type BeatGrid } from "./beats";
-import { captionsFromSpeech, describeSpeech, hasSpeech, type Transcript } from "./transcript";
+import { captionsWithWords, describeSpeech, hasSpeech, type Transcript } from "./transcript";
+import { FOCUS } from "./kinetic";
 import { singleAiVoice, tidyCaptions } from "./guards";
 import { attachedAnchors, retimeTexts } from "./text-timing";
 import {
@@ -29,6 +30,7 @@ import {
   TEXT_SAFE_BOTTOM,
   TEXT_STYLES,
   TRANSITIONS,
+  TYPE_MOTION_START_MAX_MS,
   ZOOM_MAX,
   addClips,
   addRoomLabels,
@@ -57,8 +59,16 @@ import {
   updateText,
   coverMs,
   type Clip,
+  type TextOverlay,
   type Timeline,
 } from "./timeline";
+
+/**
+ * How text may arrive in an ask: every saved animation, and "focus" (ADR 0092), which is stored as the kinetic preset
+ * "focus" (per word, so it can follow the speech) rather than as an animation.
+ */
+export const AI_TEXT_ANIMATIONS = [...TEXT_ANIMATIONS, "focus"] as const;
+type AiTextAnimation = (typeof AI_TEXT_ANIMATIONS)[number];
 
 // ── What the model may ask for ──────────────────────────────────
 
@@ -144,7 +154,7 @@ export const aiEditOpSchema = z.object({
   pieces: nullable(z.number().int().min(2).max(4)),
   /** addText/editText: the clip the text shows over, start to end. */
   atClip: nullable(z.number().int().min(1).max(100)),
-  animation: nullable(z.enum(TEXT_ANIMATIONS)),
+  animation: nullable(z.enum(AI_TEXT_ANIMATIONS)),
   /** zoom: 1 shows the whole picture, 2 the middle half. */
   zoom: nullable(z.number().min(1).max(ZOOM_MAX)),
   /** logo: which corner. */
@@ -207,7 +217,7 @@ export const AI_EDIT_PLAN_JSON_SCHEMA = {
           content: { type: ["string", "null"], description: "addText/editText: the words; room: the room's name, lower case (kitchen, living room, primary bedroom, pool); turn: the thing to face (door, window, the view, the bed, the fireplace)" },
           pieces: { type: ["integer", "null"], description: "split: 2 to 4 shots from different parts of the video" },
           atClip: { type: ["integer", "null"], description: "addText/editText: the clip number the text shows over, from its start to its end" },
-          animation: { type: ["string", "null"], enum: [...TEXT_ANIMATIONS, null], description: "addText/editText: how the text arrives" },
+          animation: { type: ["string", "null"], enum: [...AI_TEXT_ANIMATIONS, null], description: "addText/editText/captionSpeech: how the text arrives" },
           zoom: { type: ["number", "null"], description: "zoom: 1 = the whole picture, 1.3 a little closer, 2 = the middle half" },
           corner: { type: ["string", "null"], enum: [...CORNERS, null], description: "logo: where it sits" },
           yaw: { type: ["number", "null"], description: "turn: heading to end on, degrees, 0 = the middle of the 360 photo; leave null and name the thing in content to have it found in the picture" },
@@ -358,6 +368,19 @@ export function songMood(title: string, bpm: number | null = null): string | nul
   return parts.length ? parts.join("; ") : null;
 }
 
+
+/** The title fields an ask's animation sets: "focus" is the kinetic preset; any other arrival takes a focus preset off. */
+function arrivalPatch(animation: AiTextAnimation, kinetic: TextOverlay["kinetic"]): Pick<TextOverlay, "animation" | "kinetic"> | Pick<TextOverlay, "animation"> {
+  if (animation === "focus") return { animation: "none", kinetic: { preset: "focus", ...(kinetic?.preset === "focus" ? kinetic : {}) } };
+  return kinetic?.preset === "focus" ? { animation, kinetic: undefined } : { animation };
+}
+
+/** A speech caption whose words come into focus on their spoken onsets, from the caption's own start. */
+function focusCaption(phrase: { startMs: number; wordStartsMs: number[] }): Pick<TextOverlay, "animation" | "kinetic"> {
+  const wordsMs = phrase.wordStartsMs.map((ms) => Math.max(0, Math.min(TYPE_MOTION_START_MAX_MS, ms - phrase.startMs)));
+  return { animation: "none", kinetic: { preset: "focus", startMs: 0, durationMs: Math.max(100, Math.min(10_000, (wordsMs[wordsMs.length - 1] ?? 0) + FOCUS.arriveMs)), wordsMs } };
+}
+
 export const AI_EDIT_SYSTEM_PROMPT = `You edit short vertical real-estate listing reels for ReelWalk. The user describes a change in plain words; you answer with the smallest list of operations that makes it, using only the operations and values given, and a note to the user.
 
 Rules:
@@ -376,6 +399,7 @@ Rules:
 - Speech: a clip line that includes "says:" gives the words spoken and when, measured from the audio (times from that clip's own start as played). To caption dialogue use op captionSpeech with clip: it lays one caption per phrase, timed to the words (style and y optional; default a thin serif at y 0.6). Never hand-time captions over speech with addText, and never claim a muted clip is heard. The editor enforces: captions stay between y 0.3 and ${TEXT_SAFE_BOTTOM}, two captions never share a line at the same time, and only the first voiced AI take plays with sound (later voiced AI takes are muted; caption their lines).
 - A status sticker (JUST LISTED, PRICE DROP, NEW PRICE, SOLD, UNDER CONTRACT, OPEN HOUSE, COMING SOON) is addText with style "tag": two or three words in capitals, size 0.8 to 1; it places itself at the top of the safe area, over the first clip unless atClip says otherwise. One sticker at a time: change an existing tag with editText rather than adding a second.
 - How text arrives (animation on addText or editText): pop (a quick pop, the bold styles' own), fade (a slow fade, the elegant style's own), rise (drifts up as it fades in), type (letter by letter, like typing), none (simply there); auto is the style's own.
+- focus: each word comes into focus as it is said, shrinking sharp out of a soft blur (the talking-head caption look: "words come into focus", "blur-in captions", "CapCut style captions"); with captionSpeech each word lands on its spoken word. Best with style headline and font tight, or the elegant serif.
 - Quiet reveals for a title: fadeQuick (a 200 ms fade, nearly a cut), maskUp (rises into view through a hard edge, no fade), trackIn (the letters close up as it fades in), blurIn (comes into focus out of a soft blur). Use them only when asked for a reveal or an elegant entrance.
 - Room labels are the texts whose number is marked (room label); to turn them all off use roomLabels on=false rather than removing each.
 - When clips are trimmed, moved or removed, the other texts follow their clips, cuts that were on the beat stay on it, and room labels are redrawn, all by themselves: do not re-time texts or snap to the beat to compensate for your own edits.
@@ -916,7 +940,7 @@ export function applyAiEditPlan(timeline: Timeline, plan: Pick<AiEditPlan, "ops"
           style,
           color: op.color ?? "#ffffff",
           size: op.size ?? (style === "tag" ? 0.9 : 1),
-          animation: op.animation ?? "auto",
+          ...arrivalPatch(op.animation ?? "auto", undefined),
         });
         if (current.texts.length === before) skipped.push(`addText: "${op.content}" would show outside the reel`);
         else applied.push(`added text "${op.content}"`);
@@ -932,7 +956,7 @@ export function applyAiEditPlan(timeline: Timeline, plan: Pick<AiEditPlan, "ops"
           break;
         }
         const index = current.clips.findIndex((entry) => entry.id === clip.id);
-        const phrases = captionsFromSpeech(transcript, clip, clipStartsMs(current)[index]);
+        const phrases = captionsWithWords(transcript, clip, clipStartsMs(current)[index]);
         if (!phrases.length) {
           skipped.push(`captionSpeech: no speech plays in ${clipLabel(current, clip, assets)}`);
           break;
@@ -942,7 +966,8 @@ export function applyAiEditPlan(timeline: Timeline, plan: Pick<AiEditPlan, "ops"
         for (const [n, phrase] of phrases.entries()) {
           current = addText(current, {
             id: `speech-${clip.id}-${n}`, text: phrase.text, startMs: phrase.startMs, endMs: phrase.endMs, x: 0.5,
-            y: op.y ?? 0.6, style: op.style ?? "elegant", color: op.color ?? "#ffffff", size: op.size ?? 1, animation: op.animation ?? "none",
+            y: op.y ?? 0.6, style: op.style ?? "elegant", color: op.color ?? "#ffffff", size: op.size ?? 1,
+            ...(op.animation === "focus" ? focusCaption(phrase) : { animation: op.animation ?? "none" }),
           });
         }
         applied.push(`captioned the speech in ${clipLabel(current, clip, assets)} (${phrases.length} ${phrases.length === 1 ? "caption" : "captions"})`);
@@ -960,7 +985,7 @@ export function applyAiEditPlan(timeline: Timeline, plan: Pick<AiEditPlan, "ops"
           ...(op.color ? { color: op.color } : {}),
           ...(op.size !== null && op.size !== undefined ? { size: op.size } : {}),
           ...(op.y !== null && op.y !== undefined ? { y: op.y } : op.style === "tag" ? { y: TAG_Y } : {}),
-          ...(op.animation ? { animation: op.animation } : {}),
+          ...(op.animation ? arrivalPatch(op.animation, text.kinetic) : {}),
           ...(overStart !== null ? { startMs: overStart, endMs: overStart + clipDurationMs(current.clips[over]) } : {}),
           ...(overStart === null && op.startMs !== null && op.startMs !== undefined ? { startMs: op.startMs } : {}),
           ...(overStart === null && op.endMs !== null && op.endMs !== undefined ? { endMs: op.endMs } : {}),

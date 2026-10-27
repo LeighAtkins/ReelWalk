@@ -11,6 +11,11 @@
  *     the layout is the full text's); each word fades up from a little below,
  *     unblurring, staggered across the move.
  *
+ *   focusReveal(text, spec, titleMs, lifeMs, fontSizePx): WordPart[]
+ *     "focus" (ADR 0092): each word comes into focus as it is said, starting
+ *     faint, blurred and a little too large and shrinking sharp; the title
+ *     leaves by blurring out as one.
+ *
  *   slideFromBehind({ spec, titleMs, textLeft, textRight, edge }): { dx, clipLeft?, clipRight? }
  *     "behind": the words slide out from behind an edge (a post, a cut-out or
  *     a tapped object in front of the surface, or the text's own left edge),
@@ -53,9 +58,10 @@ export const KINETIC_PRESET: Record<KineticPreset, { startMs: number; durationMs
   behind: { startMs: 0, durationMs: 900 },
   count: { startMs: 150, durationMs: 1200 },
   caption: { startMs: 0, durationMs: 1500 },
+  focus: { startMs: 0, durationMs: 700 },
 };
 
-export const KINETIC_LABELS: Record<KineticPreset, string> = { words: "Word by word", behind: "From behind", count: "Count up", caption: "One word at a time" };
+export const KINETIC_LABELS: Record<KineticPreset, string> = { words: "Word by word", behind: "From behind", count: "Count up", caption: "One word at a time", focus: "Into focus" };
 
 /**
  * "caption" (ADR 0089): the one word on screen on this frame, or null between words. Each word is cut on at its
@@ -125,6 +131,64 @@ export function wordReveal(text: string, spec: KineticSpec, titleMs: number): Wo
     // Spoken words pop: they land a touch large and settle, so each one reads as said (only with spoken times; saved reels are unchanged).
     const scale = timed && since >= 0 ? 1 + (WORD_SETTLE_SCALE - 1) * (1 - easeOutCubic(since / WORD_SETTLE_MS)) : 1;
     return { text: part, space: false, opacity: Number(e.toFixed(4)), rise: Number(((1 - e) * WORD_RISE_EM).toFixed(4)), blur: Number(((1 - e) * WORD_BLUR_PX).toFixed(3)), scale: Number(scale.toFixed(4)) };
+  });
+}
+
+/**
+ * "focus" (ADR 0092), the realtor-reel caption measured on Instagram DaNYpI2xw1M and rebuilt from CapCut's keyframes:
+ * a word is invisible until it arrives, then over FOCUS.arriveMs fades up, unblurs from FOCUS.blurEm of its font size
+ * and shrinks from FOCUS.scaleFrom to its size, easing out (cubic, CapCut's "Cubic out") with no overshoot. In the last FOCUS.exitMs of the title
+ * every word blurs and fades out together, as the reference's phrase does on its cut.
+ */
+export const FOCUS = {
+  /** How long a word takes to come into focus, ms. */
+  arriveMs: 300,
+  /** How large a word starts, as a multiple of its size. */
+  scaleFrom: 1.15,
+  /** How blurred a word starts, as a fraction of the font size (10 px on a 120 px keyword). */
+  blurEm: 0.08,
+  /** How long the whole title takes to blur out at its end, ms. */
+  exitMs: 250,
+  /** How blurred the title is when gone, as a fraction of the font size. */
+  exitBlurEm: 0.06,
+} as const;
+
+
+/**
+ * When each word of a "focus" title arrives, ms after the title appears: its spoken onset (`wordsMs`, one per word,
+ * written by `syncTextToSpeech`), else evenly from `startMs` so the last word is in focus at `startMs + durationMs`.
+ */
+export function focusArrivals(text: string, spec: KineticSpec): number[] {
+  const words = text.split(/\s+/).filter(Boolean).length;
+  if (spec.wordsMs && spec.wordsMs.length === words) return [...spec.wordsMs];
+  const { startMs, durationMs } = kineticTiming(spec);
+  const arrive = Math.min(FOCUS.arriveMs, durationMs);
+  const stagger = words > 1 ? Math.max(0, durationMs - arrive) / (words - 1) : 0;
+  return Array.from({ length: words }, (_, index) => Math.round(startMs + index * stagger));
+}
+
+/**
+ * "focus": each word's state on this frame (`titleMs` since the title appeared, `lifeMs` the title's length, `fontSizePx`
+ * the size the words are set at, in the same px as the blur is drawn in). Spaces and line breaks are kept as parts.
+ */
+export function focusReveal(text: string, spec: KineticSpec, titleMs: number, lifeMs: number, fontSizePx: number): WordPart[] {
+  const parts = text.split(/(\s+)/).filter((part) => part !== "");
+  const arrivals = focusArrivals(text, spec);
+  const arrive = Math.min(FOCUS.arriveMs, kineticTiming(spec).durationMs);
+  // The way out, shared by every word; never longer than a third of the title, so a short one still settles.
+  const exitMs = Math.min(FOCUS.exitMs, lifeMs / 3);
+  const out = exitMs > 0 ? clamp01((titleMs - (lifeMs - exitMs)) / exitMs) : 0;
+  // Eased in (cubic), as CapCut's "Cubic in" way out: it starts to go slowly, then is gone on the cut.
+  const leaving = out * out * out;
+  let index = 0;
+  return parts.map((part) => {
+    if (/^\s+$/.test(part)) return { text: part, space: true, opacity: 1, rise: 0, blur: 0, scale: 1 };
+    const since = titleMs - arrivals[index++];
+    const e = since < 0 ? 0 : easeOutCubic(since / Math.max(1, arrive));
+    const opacity = e * (1 - leaving);
+    const blur = ((1 - e) * FOCUS.blurEm + leaving * FOCUS.exitBlurEm) * fontSizePx;
+    const scale = 1 + (FOCUS.scaleFrom - 1) * (1 - e);
+    return { text: part, space: false, opacity: Number(opacity.toFixed(4)), rise: 0, blur: Number(blur.toFixed(3)), scale: Number(scale.toFixed(4)) };
   });
 }
 

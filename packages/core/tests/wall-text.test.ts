@@ -160,6 +160,13 @@ describe("speechSync and the syncTextToSpeech command", () => {
     expect(patch.kinetic).toEqual({ preset: "words", startMs: 0, durationMs: 1200 + 420, wordsMs: [0, 400, 800, 1200] });
   });
 
+  it("keeps a title that comes into focus (ADR 0092) in focus, timed the same way", () => {
+    const timeline = reel();
+    timeline.texts[0] = { ...timeline.texts[0], kinetic: { preset: "focus" } };
+    const { patch } = speechSync(timeline, "l1", speech);
+    expect(patch.kinetic).toEqual({ preset: "focus", startMs: 0, durationMs: 1200 + 300, wordsMs: [0, 400, 800, 1200] });
+  });
+
   it("never runs past the shot, and keeps a short line up for at least 1.2 s", () => {
     const { patch } = speechSync(reel(), "l3", speech, { holdMs: 5000 });
     expect(patch.endMs).toBe(11000);

@@ -15,7 +15,7 @@ import { revealFrames, revealStyle, TITLE_REVEALS } from "./toolbox/title-reveal
  *     only the way out of a title's animation: word-by-word and from-behind type
  *     bring the words in themselves, but an elegant fade (or a chosen "fade")
  *     still fades them out over its last ELEGANT_FADE_S. Every other animation
- *     has no exit.
+ *     has no exit, and neither has a focus title (ADR 0092), which leaves by itself.
  */
 export function titleFont(text: Pick<TextOverlay, "tracking" | "kinetic">, css: CSSProperties): TitleFont {
   return {
@@ -26,9 +26,11 @@ export function titleFont(text: Pick<TextOverlay, "tracking" | "kinetic">, css: 
   };
 }
 
-export function textExit(text: Pick<TextOverlay, "animation" | "style">, frame: number, fps: number, durationInFrames: number): { scale: number; opacity: number; rise: number; chars: number | null } {
+export function textExit(text: Pick<TextOverlay, "animation" | "style"> & Partial<Pick<TextOverlay, "kinetic">>, frame: number, fps: number, durationInFrames: number): { scale: number; opacity: number; rise: number; chars: number | null } {
   const animation = titleArrival(text);
   const still = { scale: 1, opacity: 1, rise: 0, chars: null };
+  // Focus words (ADR 0092) blur out as one at the end themselves: the style's own exit would fade them early as well.
+  if (text.kinetic?.preset === "focus") return still;
   // A toolbox reveal (the elegant serif's own track-in since ADR 0082) keeps only its way out: the words came in themselves.
   if ((TITLE_REVEALS as readonly string[]).includes(animation)) {
     const reveal = animation as (typeof TITLE_REVEALS)[number];

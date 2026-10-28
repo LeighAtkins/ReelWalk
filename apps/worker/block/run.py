@@ -10,6 +10,7 @@
 # {"ok": false, "code", "message"} and exits 0, so the worker can show the person the reason. Any other exit is a bug.
 import argparse
 import json
+import math
 import os
 import re
 import subprocess
@@ -20,7 +21,7 @@ import numpy as np
 import cv2
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from solve import SolveError, solve, too_slow  # noqa: E402
+from solve import Budget, SolveError, solve, too_slow  # noqa: E402
 from measure import DEFAULT_SUN, world  # noqa: E402
 
 VERSION = 1
@@ -82,7 +83,36 @@ def plan(src_w, src_h, seconds, src_fps, want_fps=3.0, max_seconds=24.0, max_wid
     return {"step": step, "fps": fps, "seconds": use, "width": width, "height": height, "count": count}
 
 
-def frames(ffmpeg, video, out_dir, p):
+def cpu_budget(affinity, cpu_max=None, override=None):
+    """Threads for OpenCV: an explicit override (BLOCK_SOLVE_THREADS), else the smaller of the CPUs this process may run
+    on and its cgroup CPU quota (cgroup v2 `cpu.max`, e.g. "200000 100000" = 2 CPUs; "max ..." = no quota). Affinity alone
+    over-counts in a container: a Fargate task may see more CPUs than its quota lets it use."""
+    if override:
+        return max(1, int(override))
+    cpus = max(1, affinity)
+    if cpu_max:
+        quota, _, period = cpu_max.strip().partition(" ")
+        if quota != "max" and period:
+            cpus = min(cpus, max(1, int(math.ceil(int(quota) / int(period)))))
+    return cpus
+
+
+def read_cpu_max():
+    for path in ("/sys/fs/cgroup/cpu.max",):
+        try:
+            with open(path) as f:
+                return f.read()
+        except OSError:
+            pass
+    try:  # cgroup v1
+        with open("/sys/fs/cgroup/cpu/cpu.cfs_quota_us") as q, open("/sys/fs/cgroup/cpu/cpu.cfs_period_us") as p:
+            quota = q.read().strip()
+            return ("max" if quota == "-1" else quota) + " " + p.read().strip()
+    except OSError:
+        return None
+
+
+def frames(ffmpeg, video, out_dir, p, timeout=None):
     """Every `step`-th source frame (no resampling: each is a real frame) with its own timestamp from the source, so a
     camera is labelled with the moment its frame was filmed. Times run from the first frame (0)."""
     d = os.path.join(out_dir, "frames")
@@ -91,7 +121,7 @@ def frames(ffmpeg, video, out_dir, p):
     vf = "select='not(mod(n,%d))',showinfo,scale=%d:%d" % (p["step"], p["width"], p["height"])
     run = subprocess.run([ffmpeg, "-hide_banner", "-v", "info", "-y", "-t", "%.3f" % p["seconds"], "-i", video, "-vf", vf,
                           "-fps_mode", "passthrough", "-frames:v", str(p["count"]), "-q:v", "2", os.path.join(d, "f%03d.jpg")],
-                         capture_output=True, text=True)
+                         capture_output=True, text=True, timeout=timeout)
     if run.returncode != 0:
         raise RuntimeError("ffmpeg could not decode the clip: %s" % run.stderr[-400:])
     pts = [float(m) for m in re.findall(r"Parsed_showinfo[^\n]*?pts_time:\s*([-\d.]+)", run.stderr)]
@@ -115,11 +145,10 @@ def main(argv=None):
     ffmpeg = os.environ.get("FFMPEG_PATH", "ffmpeg")
     os.makedirs(a.out, exist_ok=True)
     started = time.time()
-    # The CPUs this process may use (a container's share, not the host's count), so OpenCV does not oversubscribe them.
-    cpus = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else (os.cpu_count() or 1)
-    cv2.setNumThreads(max(1, cpus))
-    budget = float(os.environ.get("BLOCK_SOLVE_BUDGET_S", "420"))
-    deadline = (time.monotonic() - (time.time() - started) + budget, budget)
+    # Threads OpenCV may use: the container's CPU quota, not the host's count (BLOCK_SOLVE_THREADS overrides).
+    affinity = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else (os.cpu_count() or 1)
+    cv2.setNumThreads(cpu_budget(affinity, read_cpu_max(), os.environ.get("BLOCK_SOLVE_THREADS")))
+    budget = Budget(float(os.environ.get("BLOCK_SOLVE_BUDGET_S", "420")))
     src_w, src_h, duration, src_fps = probe(ffmpeg, a.video)
     result = {"version": VERSION, "ok": True}
     try:
@@ -129,15 +158,27 @@ def main(argv=None):
             images = [cv2.imread(os.path.join(a.frames_dir, n)) for n in names]
             times = [round(k / p["fps"], 4) for k in range(len(images))]
         else:
-            images, times = frames(ffmpeg, a.video, a.out, p)
+            budget.check()
+            try:
+                images, times = frames(ffmpeg, a.video, a.out, p, timeout=max(1.0, budget.remaining()))
+            except subprocess.TimeoutExpired:
+                raise too_slow(budget.seconds)
         log("frames %d at %dx%d, every %d of %.3f fps (%.1f s)" % (len(images), images[0].shape[1], images[0].shape[0], p["step"], src_fps, time.time() - started))
-        if time.monotonic() > deadline[0]:
-            raise too_slow(budget)
-        sol = solve(images, p["fps"], log=log, deadline=deadline)
+        budget.check()
+        sol = solve(images, p["fps"], log=log, budget=budget)
         last = max(sol["cameras"])
         if times[last] - times[0] < MIN_REVEAL_SECONDS:
             raise SolveError("too-short", "Only the first %.1f seconds of the flight could be followed; the reveal needs %g." % (times[last], MIN_REVEAL_SECONDS))
+        budget.check()
         wd = world(sol, a.altitude_m)
+        budget.check()
+        # The pin screen's still: the first frame at up to 1920 px high (a 9:16 crop of it fills a phone).
+        still_h = min(1920, src_h)
+        try:
+            subprocess.run([ffmpeg, "-v", "error", "-y", "-i", a.video, "-frames:v", "1", "-vf", "scale=-2:%d" % still_h, "-q:v", "3",
+                            os.path.join(a.out, "still.jpg")], check=True, timeout=max(1.0, budget.remaining()))
+        except subprocess.TimeoutExpired:
+            raise too_slow(budget.seconds)
     except SolveError as e:
         write_json(os.path.join(a.out, "solve.json"), {"version": VERSION, "ok": False, "code": e.code, "message": e.message})
         log("refused: %s" % e.code)
@@ -161,10 +202,6 @@ def main(argv=None):
         "sun": sun,
         "stats": {**sol["stats"], "seconds": round(time.time() - started, 1)},
     })
-    # The pin screen's still: the first frame at up to 1920 px high (a 9:16 crop of it fills a phone).
-    still_h = min(1920, src_h)
-    subprocess.run([ffmpeg, "-v", "error", "-y", "-i", a.video, "-frames:v", "1", "-vf", "scale=-2:%d" % still_h, "-q:v", "3",
-                    os.path.join(a.out, "still.jpg")], check=True)
     result["still"] = {"t": 0, "width": int(round(src_w * still_h / src_h / 2) * 2), "height": still_h}
     write_json(os.path.join(a.out, "solve.json"), result)
     log("done in %.1f s" % (time.time() - started))

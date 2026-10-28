@@ -11,7 +11,7 @@ import cv2
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
-from solve import SolveError, overruns, solve  # noqa: E402
+from solve import Budget, SolveError, solve  # noqa: E402
 from measure import ASSUMED_ALTITUDE_M, world  # noqa: E402
 
 FIXTURE = os.path.join(HERE, "fixtures", "drone-14194694")
@@ -70,20 +70,112 @@ class RealClip(unittest.TestCase):
         self.assertAlmostEqual(w["cameras"][0][1][1], 92.0, places=6)
 
 
-class Budget(unittest.TestCase):
-    def test_projects_an_overrun_from_the_frames_done(self):
-        # 10 frames in 20 s, 60 to go: 120 s more. Finishing at t = 150 misses a deadline at 140, makes one at 160.
-        self.assertTrue(overruns(30.0, 10.0, 10, 60, 140.0))
-        self.assertFalse(overruns(30.0, 10.0, 10, 60, 160.0))
-        self.assertFalse(overruns(30.0, 10.0, 4, 600, 31.0))  # too few frames to judge yet
+class Clock:
+    """A clock the test moves: the solve's budget reads it instead of time.monotonic."""
 
-    def test_stops_early_with_a_clear_reason(self):
-        names = sorted(n for n in os.listdir(FIXTURE) if n.endswith(".jpg"))
-        images = [cv2.imread(os.path.join(FIXTURE, n)) for n in names]
+    def __init__(self):
+        self.t = 0.0
+
+    def __call__(self):
+        return self.t
+
+
+def fixture_images():
+    names = sorted(n for n in os.listdir(FIXTURE) if n.endswith(".jpg"))
+    return [cv2.imread(os.path.join(FIXTURE, n)) for n in names]
+
+
+class BudgetPace(unittest.TestCase):
+    """Budget.step alone, with timings Sol's review gave."""
+
+    def run_steps(self, durations, seconds=420):
+        clock = Clock()
+        b = Budget(seconds, clock)
+        b.begin(len(durations))
+        for k, d in enumerate(durations):
+            clock.t += d
+            b.step(len(durations) - k - 1)
+        return clock.t
+
+    def test_a_slow_start_then_fast_is_not_refused(self):
+        # 5 frames at 30 s (nothing cached yet), then 65 at 3 s: finishes at 345 s, inside 420.
+        self.assertAlmostEqual(self.run_steps([30.0] * 5 + [3.0] * 65), 345.0)
+
+    def test_a_steadily_slow_reading_is_refused_on_sustained_evidence(self):
+        # 70 frames at 10 s would finish at 700 s; refused once a quarter (18) are done, at 180 s, long before 420.
+        clock = Clock()
+        b = Budget(420, clock)
+        b.begin(70)
         with self.assertRaises(SolveError) as e:
-            solve(images, fps=1.5, log=quiet, deadline=(time.monotonic(), 420))
+            for k in range(70):
+                clock.t += 10.0
+                b.step(70 - k - 1)
         self.assertEqual(e.exception.code, "too-slow")
-        self.assertIn("420 seconds", e.exception.message)
+        self.assertAlmostEqual(clock.t, 180.0)
+
+    def test_the_budget_is_absolute_even_before_there_is_evidence(self):
+        clock = Clock()
+        b = Budget(420, clock)
+        b.begin(70)
+        clock.t = 500.0  # gone during the first frame, before any projection is allowed
+        with self.assertRaises(SolveError):
+            b.step(69)
+
+
+class BudgetInTheSolve(unittest.TestCase):
+    """The real solve on the real fixture (5 registrations after the init pair), its budget on a clock the test moves."""
+
+    def solve_with(self, on_log=None, on_progress=None, seconds=420):
+        clock = Clock()
+        log = (lambda line: on_log(clock, line)) if on_log else quiet
+        progress = (lambda done, total: on_progress(clock, done, total)) if on_progress else None
+        try:
+            solve(fixture_images(), fps=1.5, log=log, budget=Budget(seconds, clock), progress=progress)
+        except SolveError as e:
+            return e, clock.t
+        return None, clock.t
+
+    def test_expiry_during_the_warmup(self):
+        # the time runs out right after the init: the first registration must not start
+        seen = []
+        def on_log(clock, line):
+            if line.startswith("init"):
+                clock.t = 500.0
+        def on_progress(clock, done, total):
+            seen.append(done)
+        e, _ = self.solve_with(on_log, on_progress)
+        self.assertEqual(e.code, "too-slow")
+        self.assertEqual(seen, [])
+
+    def test_expiry_in_the_last_iteration(self):
+        def on_progress(clock, done, total):
+            if done == total - 1:
+                clock.t = 500.0
+        e, _ = self.solve_with(on_progress=on_progress)
+        self.assertEqual(e.code, "too-slow")
+
+    def test_expiry_after_the_last_registration_stops_before_post_processing(self):
+        def on_progress(clock, done, total):
+            if done == total:
+                clock.t = 500.0
+        e, _ = self.solve_with(on_progress=on_progress)
+        self.assertEqual(e.code, "too-slow")
+
+    def test_the_projection_refuses_before_the_time_is_gone(self):
+        # 100 s a frame: after 3 of 5 (the evidence threshold) it is 300 s and 2 more would end at 500 > 420
+        def on_progress(clock, done, total):
+            clock.t += 100.0
+        e, t = self.solve_with(on_progress=on_progress)
+        self.assertEqual(e.code, "too-slow")
+        self.assertIn("420 seconds", e.message)
+        self.assertAlmostEqual(t, 300.0)  # refused on the projection, with time still left
+
+    def test_a_reading_inside_its_budget_succeeds(self):
+        def on_progress(clock, done, total):
+            clock.t += 10.0
+        e, t = self.solve_with(on_progress=on_progress)
+        self.assertIsNone(e)
+        self.assertAlmostEqual(t, 50.0)
 
 
 class Refusals(unittest.TestCase):

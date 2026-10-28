@@ -25,8 +25,9 @@ vi.mock("../src/library/tools", () => ({
       return command.constructor.name === "GetObjectCommand" ? { Body: Readable.from([Buffer.from("video")]) } : {};
     }),
   },
-  run: (file: string, args: string[]) => python(file, args),
+  run: (file: string, args: string[], options: unknown) => python(file, args, options),
 }));
+import { solveLimits } from "../src/walk-block";
 import { blockRevealPayloadSchema, renderReveal, revealDecodeArgs, runBlockSolveStep, runInStepScope, scopeFor, sourceRect, upload, type FfmpegCommand } from "../src/walk-block";
 
 beforeEach(() => {
@@ -59,6 +60,32 @@ describe("block-solve step", () => {
     await expect(runBlockSolveStep({ payload: { assetId: "clip1" }, user: { workspaceId: "w" } })).rejects.toThrow("not in this workspace");
     expect(sent).toEqual([]);
     expect(python).not.toHaveBeenCalled();
+  });
+});
+
+describe("solveLimits", () => {
+  it("counts from the step's start, so a slow download leaves the solve less time, never past the step's deadline", () => {
+    const start = 1_000_000;
+    // straight away: killed at 9 min, its own budget at the 420 s cap
+    expect(solveLimits(start, start)).toEqual({ timeoutMs: 540_000, budgetS: 420 });
+    // 3 min of download: 6 min left before the kill, the budget a minute inside that
+    expect(solveLimits(start, start + 180_000)).toEqual({ timeoutMs: 360_000, budgetS: 300 });
+    // a download that ate it all: still a short, bounded attempt rather than none
+    expect(solveLimits(start, start + 600_000)).toEqual({ timeoutMs: 15_000, budgetS: 5 });
+  });
+
+  it("is what the solve step hands the Python process", async () => {
+    db.mediaAsset.findFirst.mockResolvedValue({ id: "clip1", objectKey: "uploads/w/clip1.mp4", fileName: "drone.mp4" });
+    python.mockImplementation(async (_file: string, args: string[]) => {
+      await mkdir(args[2], { recursive: true });
+      await writeFile(path.join(args[2], "solve.json"), JSON.stringify({ version: 1, ok: false, code: "no-parallax", message: "x" }));
+      return { stdout: "", stderr: "" };
+    });
+    await runBlockSolveStep({ payload: { assetId: "clip1" }, user: { workspaceId: "w" } });
+    const options = python.mock.calls[0][2] as { timeoutMs: number; env: Record<string, string> };
+    expect(options.timeoutMs).toBeLessThanOrEqual(540_000);
+    expect(options.timeoutMs).toBeGreaterThan(530_000);
+    expect(Number(options.env.BLOCK_SOLVE_BUDGET_S)).toBeLessThanOrEqual(420);
   });
 });
 

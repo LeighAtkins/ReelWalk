@@ -63,6 +63,15 @@ class Plan(unittest.TestCase):
         self.assertEqual(run.plan(3840, 2160, 25.3, 23.976)["step"], 8)
 
 
+class Threads(unittest.TestCase):
+    def test_follows_the_cgroup_quota_not_the_cpus_visible(self):
+        self.assertEqual(run.cpu_budget(8, "200000 100000"), 2)   # a 2-vCPU task that can see 8 CPUs
+        self.assertEqual(run.cpu_budget(8, "150000 100000"), 2)   # 1.5 CPUs: two threads
+        self.assertEqual(run.cpu_budget(8, "max 100000"), 8)      # no quota
+        self.assertEqual(run.cpu_budget(4, None), 4)
+        self.assertEqual(run.cpu_budget(8, "200000 100000", "3"), 3)  # BLOCK_SOLVE_THREADS
+
+
 @unittest.skipUnless(FFMPEG, "needs ffmpeg")
 class Frames(unittest.TestCase):
     def setUp(self):

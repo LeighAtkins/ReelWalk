@@ -143,10 +143,15 @@ local cores. Production ran the old solve 1.8× slower than these two cores (307
 production reading is about 100 s. In 1920 pixels the reprojection error is 1.5× the old one (the frames are smaller);
 in the reel that is under one output pixel, and the path and the road are the same within 1%.
 
-**An early stop instead of the deadline.** `run.py` has a budget (`BLOCK_SOLVE_BUDGET_S`, 420 s from its start). The solve
-refuses with "too-slow" (a plain message: a shorter clip reads in about a minute) when the budget is gone, or once the
-frames registered so far (after the first five) project the rest past it. The worker kills the Python process at 9 min,
-below the 10 min step deadline.
+**An early stop instead of the deadline.** A `Budget` (`BLOCK_SOLVE_BUDGET_S`, at most 420 s) runs on a clock the tests
+can drive. It is absolute: checked at every feature frame, around the init, before every registration, after the last
+one, before the world conversion and the still, and it bounds run.py's ffmpeg calls (their timeout is what is left).
+It also refuses early on a projection, but only on sustained evidence: at least a quarter of the frames (and three)
+registered, judged at the more optimistic of the overall and the recent rate, so a slow start (5 frames at 30 s, then
+65 at 3 s: done at 345 s) is not refused while a steady 10 s a frame is, at 180 s. The worker measures from the step's
+start, download included: it kills the Python process 60 s before the 10 min step deadline and hands run.py a budget a
+minute inside that (`solveLimits`). OpenCV's threads follow the container's CPU quota (cgroup `cpu.max`), not the CPUs it
+can see; `BLOCK_SOLVE_THREADS` overrides.
 
 ## Consequences
 

@@ -114,15 +114,31 @@ export async function runInStepScope<T>(signal: AbortSignal | undefined, work: (
   }
 }
 
-/** Reads a drone clip in 3D: `block/run.py` writes solve.json and still.jpg into `outDir`. */
-export async function solveClip(videoPath: string, outDir: string, scope: AttemptScope, log: Log = console.log): Promise<unknown> {
+/** The step's own deadline (the worker's AI_STEP_TIMEOUT_SECONDS, 600 by default), and the headroom kept under it for the uploads. */
+export const SOLVE_STEP_SECONDS = 600;
+const SOLVE_HEADROOM_S = 60;
+const SOLVE_BUDGET_S = 420;
+
+/**
+ * How long the solve may still run, measured from the step's start (the download counts against it): the Python
+ * process is killed `SOLVE_HEADROOM_S` before the step's deadline, and run.py's own budget (after which it refuses the
+ * clip as "too-slow" and says so) ends a further minute before that, at most 420 s.
+ */
+export function solveLimits(stepStartedMs: number, nowMs: number, stepSeconds = SOLVE_STEP_SECONDS): { timeoutMs: number; budgetS: number } {
+  const left = stepSeconds * 1000 - SOLVE_HEADROOM_S * 1000 - (nowMs - stepStartedMs);
+  const timeoutMs = Math.max(15_000, left);
+  return { timeoutMs, budgetS: Math.max(5, Math.min(SOLVE_BUDGET_S, Math.floor(timeoutMs / 1000) - 60)) };
+}
+
+/** Reads a drone clip in 3D: `block/run.py` writes solve.json and still.jpg into `outDir`. `stepStartedMs`: when the step began. */
+export async function solveClip(videoPath: string, outDir: string, scope: AttemptScope, log: Log = console.log, stepStartedMs = Date.now()): Promise<unknown> {
   const started = Date.now();
+  const limits = solveLimits(stepStartedMs, started);
   const { stdout } = await run(PYTHON, [path.join(BLOCK_DIR, "run.py"), videoPath, outDir], {
     scope,
-    // Below the step's 10-minute deadline; run.py refuses a clip it can see will overrun well before this (420 s).
-    timeoutMs: 9 * 60_000,
+    timeoutMs: limits.timeoutMs,
     maxBuffer: 4 * 1024 * 1024,
-    env: { ...process.env, FFMPEG_PATH: FFMPEG, PYTHONUNBUFFERED: "1" },
+    env: { ...process.env, FFMPEG_PATH: FFMPEG, PYTHONUNBUFFERED: "1", BLOCK_SOLVE_BUDGET_S: String(limits.budgetS) },
   });
   for (const line of stdout.trim().split("\n").slice(-6)) log(`block-solve: ${line}`);
   log(`block-solve: ${Math.round((Date.now() - started) / 1000)} s`);
@@ -375,6 +391,7 @@ async function findClip(workspaceId: string, assetId: string) {
 }
 
 export async function runBlockSolveStep(step: { payload: unknown; user: { workspaceId: string } }, scope?: AttemptScope): Promise<BlockSolveStepResult> {
+  const stepStarted = Date.now();
   const { assetId } = blockSolvePayloadSchema.parse(step.payload);
   const asset = await findClip(step.user.workspaceId, assetId);
   const own = scope ? null : createAttemptScope();
@@ -384,7 +401,7 @@ export async function runBlockSolveStep(step: { payload: unknown; user: { worksp
     const video = path.join(dir, `clip${path.extname(asset.objectKey) || ".mp4"}`);
     await download(asset.objectKey, video, attempt);
     const out = path.join(dir, "out");
-    const result = parseBlockSolve(await solveClip(video, out, attempt));
+    const result = parseBlockSolve(await solveClip(video, out, attempt, console.log, stepStarted));
     const body = Buffer.from(await readFile(path.join(out, "solve.json")));
     if (result.ok) await upload(blockStillKeyFor(asset.id), path.join(out, "still.jpg"), "image/jpeg", attempt);
     // Written last: its presence is what tells the web app the still is there too.

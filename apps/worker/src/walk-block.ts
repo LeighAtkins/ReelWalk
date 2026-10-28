@@ -241,12 +241,16 @@ export async function cropFrame(frame: Buffer, decoded: { width: number; height:
   const x = win.x * m;
   const y = win.y * m;
   const s = OUTPUT.width / (win.w * m);
-  const left = Math.max(0, Math.floor(x) - 1);
-  const top = Math.max(0, Math.floor(y) - 1);
-  const width = Math.min(decoded.width - left, Math.ceil(win.w * m) + 3);
-  const height = Math.min(decoded.height - top, Math.ceil(win.h * m) + 3);
-  // Padded with copies of its edge pixels: bicubic reads two pixels past the piece, and at the frame's own edge there
-  // is nothing there (it read black: 150 grey came out 66 at a right/bottom-aligned 2.5x crop).
+  // The piece holds every real source pixel bicubic reads (2 past the sampling footprint on each side, plus one for
+  // rounding), clipped only where the source itself ends; the replicated padding below then only ever stands in for
+  // pixels beyond the source (review: a tighter piece padded a copy of its own cut edge into crops inside the frame).
+  const halo = 3;
+  const left = Math.max(0, Math.floor(x) - halo);
+  const top = Math.max(0, Math.floor(y) - halo);
+  const width = Math.min(decoded.width, Math.ceil(x + win.w * m) + halo) - left;
+  const height = Math.min(decoded.height, Math.ceil(y + win.h * m) + halo) - top;
+  // Padded with copies of its edge pixels: at the frame's own edge bicubic reads past the source, where there is
+  // nothing (it read black: 150 grey came out 66 at a right/bottom-aligned 2.5x crop).
   const pad = 4;
   const piece = await sharp(frame, { raw: { width: decoded.width, height: decoded.height, channels: 3 } })
     .extract({ left, top, width, height })

@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Readable } from "node:stream";
+import sharp from "sharp";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { blockSolveKeyFor, blockStillKeyFor, initialPin, OUTPUT, parseBlockSolve, type BlockSolve } from "@reelwalk/core";
 import { createAttemptScope } from "../src/lifecycle";
@@ -109,6 +110,30 @@ describe("the crop", () => {
     // (a crop rounded to whole decoded pixels would move it 0 or 13 pixels)
     expect(Math.abs(b[0] - a[0])).toBeGreaterThan(2);
     expect(Math.abs(b[0] - a[0])).toBeLessThan(11);
+  });
+
+  it("reads the real pixels around a crop inside the frame, never a copy of its own cut edge", async () => {
+    // Review fixture: black 1920 x 1080 with one white row (733) just past the window's bottom footprint (732.6). The
+    // bottom rows must match a crop made from a piece with a generous real halo (a tight piece padded a copy of row
+    // 733 into row 734 and the bottom-centre came out 88 instead of 99).
+    const decoded = { width: 1920, height: 1080 };
+    const frame = Buffer.alloc(decoded.width * decoded.height * 3);
+    frame.fill(255, 733 * decoded.width * 3, 734 * decoded.width * 3);
+    const win = { x: 700.4, y: 300.6, w: 243, h: 432 };
+    const out = await cropFrame(frame, decoded, win, 1);
+    // the reference: the same transform on a piece with 20 real pixels on every side (inside the frame, no padding)
+    const s = W / win.w;
+    const left = Math.floor(win.x) - 20;
+    const top = Math.floor(win.y) - 20;
+    const piece = await sharp(frame, { raw: { ...decoded, channels: 3 } }).extract({ left, top, width: Math.ceil(win.w) + 40, height: Math.ceil(win.h) + 40 }).raw().toBuffer();
+    const ref = await sharp(piece, { raw: { width: Math.ceil(win.w) + 40, height: Math.ceil(win.h) + 40, channels: 3 } })
+      .affine([s, 0, 0, s], { odx: -(win.x - left) * s, ody: -(win.y - top) * s, interpolator: sharp.interpolators.bicubic })
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+    const refAt = (x: number, y: number) => ref.data[(y * ref.info.width + x) * 3];
+    const at = (x: number, y: number) => out[(y * W + x) * 3];
+    expect(Math.abs(at(W / 2, H - 1) - 99)).toBeLessThanOrEqual(1);
+    for (const y of [H - 1, H - 2, H - 3, H - 6]) for (const x of [0, W / 2, W - 1]) expect(Math.abs(at(x, y) - refAt(x, y))).toBeLessThanOrEqual(1);
   });
 
   for (const decoded of [{ width: 600, height: 340 }, { width: 1920, height: 1080 }]) {

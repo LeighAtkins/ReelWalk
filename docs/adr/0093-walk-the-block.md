@@ -92,12 +92,15 @@ long afternoon shadows) flagged `assumed`, and the person turns it on the pin sc
    frame rate, under 5 s, or sampled frames over a 900 MB budget are refused before a frame is decoded.
 3. **Supervised ffmpeg.** Both processes' exits are observed from the start; an encoder that dies stops the loop at the
    next frame; every path waits for both to exit, so a failure is an error, never an unhandled rejection.
-4. **Prompt cleanup.** When the attempt's signal fires, the step's scope is aborted *and closed* then: its ffmpeg and
-   Python are killed and its temp dirs removed at once, not after the work notices.
+4. **Prompt cleanup.** When the attempt's signal fires, every process the step runs is killed at once (each ffmpeg
+   has its own abort listener; Python's `run` already had one) and storage requests abort through the signal. Round 2:
+   the scope is *not* closed then, because removing the temp dir while an upload was opening its file was an unhandled
+   ENOENT that killed the worker; temp dirs go when the step's work has settled, and uploads read their file whole first.
 5. **True frame times.** The solve took ffmpeg's `fps=3`, which picks the last frame of each rounded bucket (about
    0.13 s late at 30 fps) while the camera was labelled with the bucket's start. It now takes every n-th source frame
-   and labels each with its own presentation time (`showinfo`); the reveal is decoded at the source's frame rate with no
-   resampling, so frame k is at k / fps exactly.
+   and labels each with its own presentation time (`showinfo`). Round 2: the reveal's decode is resampled to a constant
+   rate (`fps` filter) and ends in source time (`-t`), so frame k is the source at still.t + k / fps even on a
+   variable-frame-rate clip (raw video carries no timestamps; passing a VFR clip through frame for frame did not).
 6. **Enough footage.** A solved flight under 4.5 s (`MIN_REVEAL_SECONDS`) is refused by the solve and does not parse;
    the reveal never runs past the last solved camera or the clip's end; a decoder that ends early is an error.
 7. **Restart after Stop.** Asking again for a stopped solve clears the stop flag in the transaction that queues it

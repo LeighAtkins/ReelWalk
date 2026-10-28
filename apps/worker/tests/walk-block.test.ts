@@ -1,4 +1,5 @@
-import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -8,24 +9,28 @@ import { blockSolveKeyFor, blockStillKeyFor, initialPin, OUTPUT, parseBlockSolve
 import { createAttemptScope } from "../src/lifecycle";
 
 // Walk the block's worker steps (ADR 0093) with storage, the database and the Python solve stood in for.
-const { db, sent, python } = vi.hoisted(() => ({
+const { db, sent, python, hooks } = vi.hoisted(() => ({
   db: { mediaAsset: { findFirst: vi.fn() } },
-  sent: [] as { name: string; input: { Key?: string; ContentType?: string } }[],
+  sent: [] as { name: string; input: { Key?: string; ContentType?: string; Body?: unknown } }[],
   python: vi.fn(),
+  /** Runs inside s3.send, before it answers: a test's chance to act while a request is in flight. */
+  hooks: { onSend: null as null | ((name: string) => Promise<void>) },
 }));
 vi.mock("@reelwalk/db", () => ({ prisma: db }));
 vi.mock("../src/library/tools", () => ({
   s3: {
     send: vi.fn(async (command: { constructor: { name: string }; input: { Key?: string } }) => {
       sent.push({ name: command.constructor.name, input: command.input });
+      await hooks.onSend?.(command.constructor.name);
       return command.constructor.name === "GetObjectCommand" ? { Body: Readable.from([Buffer.from("video")]) } : {};
     }),
   },
   run: (file: string, args: string[]) => python(file, args),
 }));
-import { blockRevealPayloadSchema, renderReveal, runBlockSolveStep, scopeFor, sourceRect, type FfmpegCommand } from "../src/walk-block";
+import { blockRevealPayloadSchema, renderReveal, revealDecodeArgs, runBlockSolveStep, scopeFor, sourceRect, upload, type FfmpegCommand } from "../src/walk-block";
 
 beforeEach(() => {
+  hooks.onSend = null;
   sent.length = 0;
   db.mediaAsset.findFirst.mockReset();
   python.mockReset();
@@ -82,18 +87,38 @@ describe("the crop", () => {
 });
 
 describe("scopeFor", () => {
-  it("stops the step's scope with the attempt and releases what it holds at once", async () => {
+  it("stops the step with the attempt but keeps its files until the step's work has settled", async () => {
     const controller = new AbortController();
     const scope = scopeFor(controller.signal);
-    const killed = vi.fn();
-    scope.own("an ffmpeg", killed);
-    expect(scope.signal.aborted).toBe(false);
+    const dir = await scope.tempDir("scope-test-");
+    const released = vi.fn();
+    scope.own("a temp file in use", released);
     controller.abort(new Error("deadline"));
     expect(scope.signal.aborted).toBe(true);
-    // released when the parent fires, not when the step's work next gets round to closing its scope
-    await vi.waitFor(() => expect(killed).toHaveBeenCalledTimes(1));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    // still there: an upload or a download may be opening it right now
+    expect(existsSync(dir)).toBe(true);
+    expect(released).not.toHaveBeenCalled();
     await scope.close();
-    expect(killed).toHaveBeenCalledTimes(1);
+    expect(released).toHaveBeenCalledTimes(1);
+    expect(existsSync(dir)).toBe(false);
+  });
+});
+
+describe("upload", () => {
+  it("survives its file being removed while the request is in flight, with no stream left to fail", async () => {
+    const scope = createAttemptScope();
+    const dir = await scope.tempDir("upload-test-");
+    const file = path.join(dir, "reveal.mp4");
+    await writeFile(file, Buffer.alloc(4096, 7));
+    // what an abort used to do: the temp dir goes while the upload is between its start and its stream's open
+    hooks.onSend = async () => rm(dir, { recursive: true, force: true });
+    await expect(upload("k/reveal.mp4", file, "video/mp4", scope)).resolves.toBe(4096);
+    const body = sent.find((s) => s.input.Key === "k/reveal.mp4")?.input.Body;
+    expect(Buffer.isBuffer(body)).toBe(true); // read whole first: no ReadStream to emit ENOENT later
+    // and a file already gone is a plain rejection
+    await expect(upload("k/gone.mp4", file, "video/mp4", scope)).rejects.toThrow(/ENOENT/);
+    await scope.close();
   });
 });
 
@@ -136,7 +161,77 @@ describe("renderReveal's processes", () => {
     await expect(attempt({ FAKE_ENCODE: "ok", FAKE_DECODE_FRAMES: "2" })).rejects.toThrow(/ended early: 2 of 4 frames/);
   }, 30_000);
 
+  it("kills a stuck decoder the moment the attempt is stopped", async () => {
+    process.env.FAKE_DECODE_HANG = "1";
+    const controller = new AbortController();
+    const scope = scopeFor(controller.signal);
+    const dir = await scope.tempDir("reveal-abort-");
+    const started = Date.now();
+    const rendering = renderReveal({ videoPath: "clip.mp4", solve, pin, outPath: path.join(dir, "out.mp4"), scope, log: quiet, ffmpeg: fake });
+    setTimeout(() => controller.abort(new Error("deadline")), 300);
+    await expect(rendering).rejects.toThrow();
+    expect(Date.now() - started).toBeLessThan(5000); // a hung decoder never exits on its own
+    delete process.env.FAKE_DECODE_HANG;
+    await scope.close();
+  }, 30_000);
+
   it("fails cleanly when ffmpeg cannot be started", async () => {
     await expect(attempt({}, { file: path.join(tmpdir(), "no-such-ffmpeg-here") })).rejects.toThrow(/ENOENT|ffmpeg/);
   }, 30_000);
+});
+
+describe("the reveal's decode", () => {
+  // A variable-frame-rate clip: 80 frames at 10 fps (0-8 s), then 80 at 40 fps (8-10 s); each frame shows its index.
+  const raw = JSON.parse(readFileSync(path.join(__dirname, "../../../packages/core/tests/fixtures/block-solve-14194694.json"), "utf8"));
+  const parsed = parseBlockSolve({ ...raw, source: { ...raw.source, width: 160, height: 90, fps: 30, durationMs: 10000 } });
+  if (!parsed.ok) throw new Error("fixture does not parse");
+  const solve: BlockSolve = parsed.solve;
+  const size = { width: 160, height: 90 };
+
+  it("resamples to a constant rate and ends in source time", () => {
+    const args = revealDecodeArgs(solve, "clip.mp4", size);
+    expect(args.join(" ")).toContain("-ss 0 -i clip.mp4 -t 8.000");
+    expect(args[args.indexOf("-vf") + 1]).toMatch(/^fps=30,scale=160:90/);
+    expect(args).not.toContain("passthrough");
+    expect(args[args.indexOf("-frames:v") + 1]).toBe("240");
+  });
+
+  const ffmpeg = process.env.FFMPEG_PATH ?? "ffmpeg";
+  const haveFfmpeg = spawnSync(ffmpeg, ["-version"]).status === 0;
+  it.skipIf(!haveFfmpeg)("puts frame k of a variable-frame-rate clip at its source moment still.t + k / fps", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "vfr-test-"));
+    try {
+      const clip = path.join(dir, "vfr.mp4");
+      const bits = 8;
+      const frames = Buffer.alloc(160 * size.width * size.height);
+      for (let k = 0; k < 160; k++)
+        for (let y = 0; y < size.height; y++)
+          for (let b = 0; b < bits; b++)
+            if ((k >> b) & 1) frames.fill(255, k * size.width * size.height + y * size.width + (b * size.width) / bits, k * size.width * size.height + y * size.width + ((b + 1) * size.width) / bits);
+      const made = spawnSync(ffmpeg, ["-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "gray", "-s", `${size.width}x${size.height}`, "-r", "40", "-i", "-",
+        "-vf", "setpts='if(lt(N,80),N/10,8+(N-80)/40)/TB'", "-fps_mode", "vfr", "-c:v", "libx264", "-crf", "8", "-pix_fmt", "yuv420p", clip], { input: frames });
+      expect(made.status).toBe(0);
+      const out = spawnSync(ffmpeg, revealDecodeArgs(solve, clip, size), { maxBuffer: 300 * size.width * size.height * 3 });
+      expect(out.status).toBe(0);
+      const frameBytes = size.width * size.height * 3;
+      const decoded = out.stdout.length / frameBytes;
+      expect(decoded).toBe(240); // 8 s of source at 30 fps, not 240 of the clip's own frames (which run to 9.0 s)
+      const indexAt = (k: number) => {
+        let n = 0;
+        for (let b = 0; b < bits; b++) {
+          const x = Math.round(((b + 0.5) * size.width) / bits);
+          const at = k * frameBytes + (Math.round(size.height / 2) * size.width + x) * 3;
+          if (out.stdout[at] > 127) n |= 1 << b;
+        }
+        return n;
+      };
+      for (const k of [0, 60, 150, 239]) {
+        const t = k / 30;
+        const expected = t < 8 ? t * 10 : 80 + (t - 8) * 40;
+        expect(Math.abs(indexAt(k) - expected)).toBeLessThanOrEqual(1);
+      }
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  }, 60_000);
 });

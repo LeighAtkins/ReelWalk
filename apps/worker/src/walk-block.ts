@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { createReadStream, createWriteStream } from "node:fs";
-import { readFile, stat } from "node:fs/promises";
+import { createWriteStream } from "node:fs";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
@@ -63,16 +63,15 @@ type Log = (line: string) => void;
 
 /**
  * An attempt scope for a step, stopped when the step's own attempt is (the executor hands steps its signal, not its
- * scope). When that signal fires the scope is aborted and closed at once: its ffmpeg and Python processes are killed and
- * its temp dirs removed then, not when the step's work next notices, so nothing outlives the attempt's deadline. The
- * step's own `close()` afterwards is a no-op.
+ * scope). When that signal fires, the scope is aborted: every process the step runs is killed at once (ffmpeg by
+ * `spawnOwned`'s abort listener, Python by `run`'s), and storage requests abort through the signal. The scope is NOT
+ * closed then: its temp dirs are removed by the step's own `close()`, after its work has settled, so nothing still
+ * reading or writing a file there (an upload opening it, a download writing it) has it deleted underneath (review
+ * round 2: removing a file between an upload's stat and its stream's open was an unhandled ENOENT that killed the worker).
  */
 export function scopeFor(signal: AbortSignal | undefined): AttemptScope {
   const scope = createAttemptScope();
-  const stop = () => {
-    scope.abort(signal?.reason instanceof AttemptStopped ? signal.reason : new AttemptStopped("The step was stopped", "shutdown"));
-    void scope.close();
-  };
+  const stop = () => scope.abort(signal?.reason instanceof AttemptStopped ? signal.reason : new AttemptStopped("The step was stopped", "shutdown"));
   if (signal?.aborted) stop();
   else signal?.addEventListener("abort", stop, { once: true });
   return scope;
@@ -147,6 +146,10 @@ export type FfmpegCommand = { file: string; prefix?: string[] };
 function spawnOwned(command: FfmpegCommand, args: string[], scope: AttemptScope, mode: "decode" | "encode"): { child: ChildProcess; done: Promise<void> } {
   const child = spawn(command.file, [...(command.prefix ?? []), ...args], { detached: OWN_PROCESS_GROUP, windowsHide: true, stdio: mode === "decode" ? ["ignore", "pipe", "pipe"] : ["pipe", "ignore", "pipe"] });
   const forget = ownChild(scope, child, `ffmpeg ${mode}`);
+  // Killed the moment the attempt is stopped, not when its scope is closed (see `scopeFor`).
+  const onAbort = () => killTree(child, "SIGKILL");
+  if (scope.signal.aborted) onAbort();
+  else scope.signal.addEventListener("abort", onAbort, { once: true });
   let err = "";
   child.stderr?.on("data", (d: Buffer) => {
     err = (err + d.toString()).slice(-2000);
@@ -157,10 +160,12 @@ function spawnOwned(command: FfmpegCommand, args: string[], scope: AttemptScope,
   const done = new Promise<void>((resolve, reject) => {
     child.once("error", (error) => {
       forget();
+      scope.signal.removeEventListener("abort", onAbort);
       reject(error);
     });
     child.once("close", (code, signal) => {
       forget();
+      scope.signal.removeEventListener("abort", onAbort);
       if (code === 0) resolve();
       else reject(new Error(`ffmpeg ${mode} exited ${code ?? signal}: ${err.trim()}`));
     });
@@ -179,8 +184,24 @@ export function sourceRect(win: ViewWindow, m: number, decoded: { width: number;
 }
 
 /**
- * Draws the reveal: the clip from the still's moment for `revealDurationMs`, frame for frame at the source's own rate
- * (no resampling, so each frame's moment is exact), cropped to 9:16 with the push-in, every frame with `drawBlock`'s
+ * The reveal's decode: from the still's moment for `revealDurationMs` of *source time* (`-t`), resampled to a constant
+ * `revealFps` (the `fps` filter), so output frame k is the source at still.t + k / fps whatever the clip's own timing.
+ * Raw video carries no timestamps, and a variable-frame-rate phone or drone clip passed through frame for frame put
+ * frame k at k / fps against a source that was somewhere else (review round 2). `-frames:v` only caps the count.
+ */
+export function revealDecodeArgs(solve: BlockSolve, videoPath: string, decoded: { width: number; height: number }): string[] {
+  const fps = revealFps(solve);
+  const seconds = revealDurationMs(solve) / 1000;
+  return [
+    "-v", "error", "-ss", String(solve.still.t), "-i", videoPath, "-t", seconds.toFixed(3), "-an",
+    "-vf", `fps=${fps},scale=${decoded.width}:${decoded.height}:flags=lanczos`,
+    "-frames:v", String(Math.floor(seconds * fps)), "-f", "rawvideo", "-pix_fmt", "rgb24", "-",
+  ];
+}
+
+/**
+ * Draws the reveal: the clip from the still's moment for `revealDurationMs`, at a constant `revealFps` (see
+ * `revealDecodeArgs`), cropped to 9:16 with the push-in, every frame with `drawBlock`'s
  * shapes for its moment on top. Writes an H.264 MP4 (no sound: the reel's music goes under it) to `outPath`.
  *
  * Both ffmpeg processes are supervised from the start: an encoder that dies stops the loop at the next frame, a decoder
@@ -201,12 +222,7 @@ export async function renderReveal(input: { videoPath: string; solve: BlockSolve
   const labelPicture = await renderLabel(label.text, label.sub);
   const labelHref = `data:image/png;base64,${labelPicture.png.toString("base64")}`;
   scope.throwIfStopped();
-  const decoder = spawnOwned(
-    ffmpeg,
-    ["-v", "error", "-ss", String(solve.still.t), "-i", videoPath, "-an", "-vf", `scale=${decoded.width}:${decoded.height}:flags=lanczos`, "-fps_mode", "passthrough", "-frames:v", String(count), "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
-    scope,
-    "decode",
-  );
+  const decoder = spawnOwned(ffmpeg, revealDecodeArgs(solve, videoPath, decoded), scope, "decode");
   const encoder = spawnOwned(
     ffmpeg,
     ["-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", `${OUTPUT.width}x${OUTPUT.height}`, "-r", String(fps), "-i", "-", "-c:v", "libx264", "-preset", "medium", "-crf", "17", "-pix_fmt", "yuv420p", "-movflags", "+faststart", outPath],
@@ -275,10 +291,15 @@ async function download(key: string, to: string, scope: AttemptScope): Promise<v
   await pipeline(object.Body as NodeJS.ReadableStream, createWriteStream(to));
 }
 
-async function upload(key: string, file: string, contentType: string, scope: AttemptScope): Promise<number> {
-  const { size } = await stat(file);
-  await s3.send(new PutObjectCommand({ Bucket: getConfig().s3Bucket, Key: key, Body: createReadStream(file), ContentLength: size, ContentType: contentType }), { abortSignal: scope.signal });
-  return size;
+/**
+ * Puts a file the step made (the reveal, its thumbnail: tens of MB at most). It is read whole first, so no read stream
+ * is left opening the file after a failure or an abort, and a file that has gone is a plain rejected promise here.
+ */
+export async function upload(key: string, file: string, contentType: string, scope: AttemptScope): Promise<number> {
+  const body = await readFile(file);
+  scope.throwIfStopped();
+  await s3.send(new PutObjectCommand({ Bucket: getConfig().s3Bucket, Key: key, Body: body, ContentLength: body.byteLength, ContentType: contentType }), { abortSignal: scope.signal });
+  return body.byteLength;
 }
 
 async function findClip(workspaceId: string, assetId: string) {

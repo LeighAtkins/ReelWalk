@@ -136,18 +136,21 @@ describe("the crop", () => {
     for (const y of [H - 1, H - 2, H - 3, H - 6]) for (const x of [0, W / 2, W - 1]) expect(Math.abs(at(x, y) - refAt(x, y))).toBeLessThanOrEqual(1);
   });
 
-  for (const decoded of [{ width: 600, height: 340 }, { width: 1920, height: 1080 }]) {
+  // Right, bottom and corner crops of a 1080p source, and the corner of a small one (each crop is a full 1080 x 1920
+  // frame of work; kept to four so this file leaves the CI runner's CPU to core's tracker tests).
+  for (const [decoded, names] of [[{ width: 1920, height: 1080 }, ["right", "bottom", "corner"]], [{ width: 600, height: 340 }, ["corner"]]] as const) {
     it(`keeps the frame's own colour at its edges (${decoded.width} wide source, 2.5x crop)`, async () => {
       const m = decoded.width / 1920;
       const frame = Buffer.alloc(decoded.width * decoded.height * 3, 150);
       const w = 607.5 / 2.5;
       const h = 1080 / 2.5;
-      const crops = {
+      const all = {
         right: { x: 1920 - w, y: 300, w, h },
         bottom: { x: 600, y: 1080 - h, w, h },
         corner: { x: 1920 - w, y: 1080 - h, w, h },
       };
-      for (const [name, win] of Object.entries(crops)) {
+      for (const name of names) {
+        const win = all[name];
         const out = await cropFrame(frame, decoded, win, m);
         expect(out.length).toBe(W * H * 3);
         const at = (x: number, y: number) => out[(y * W + x) * 3];

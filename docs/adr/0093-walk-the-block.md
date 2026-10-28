@@ -119,6 +119,44 @@ Round 3 (at e238f5d9):
 11. **The end of the file.** A decode resampled right up to a clip's end comes out a frame or two short (a VFR test that
    ran to the end found 178 of 180), so the reveal stops 0.15 s before the clip's end (`REVEAL_END_MARGIN_S`).
 
+## Addendum: solve speed (2026-10-28, after the first production run)
+
+The first production solve of the prototype clip took **331 s** on the 2-vCPU worker (23 s decoding frames, 307 s
+solving): 55% of the 600 s step deadline, against ~50 s on the desktop. Nearly all of it was brute-force descriptor
+matching (6000 SIFT features a frame, every match a full 6000 × 6000 comparison) on 1920-wide frames.
+
+**Decision.** The solve reads **1280-wide** frames (intrinsics follow the width: f = 2/3 of it), detects **4000** SIFT
+features a frame and matches them with **FLANN** (approximate nearest neighbours, 4 KD-trees, 48 checks) instead of brute
+force. OpenCV gets the CPUs the process may use (`sched_getaffinity`, a container's share), not the host's count.
+
+Measured on the prototype clip with the process pinned to 2 cores (`output/walk-the-block/speed/bench.py`):
+
+| | solve | reprojection | road → drone height | camera path vs before |
+|---|---|---|---|---|
+| before (1920, 6000 SIFT, brute force) | 170 s | 0.278 px (of 1920) | 91.6 m | — |
+| FLANN only, 1920 | 84 s | 0.283 px | 91.0 m | ≤ 0.83 m |
+| **after (1280, 4000 SIFT, FLANN)** | **41 s** | 0.274 px (of 1280) | **91.4 m** (core `scaleFromLength`: 92.3 m vs 91.6) | ≤ 0.43 m over 180 m, ≤ 0.29° |
+| 1280, 2 reference frames instead of 3 | 36 s | 0.235 px | 92.2 m | ≤ 0.77 m (not taken) |
+
+The whole reading (`run.py`: probe, decoding 72 frames from 4K, solve, still) went from about 3 min (170 s of solving plus the decode) to **54.5 s** on two
+local cores. Production ran the old solve 1.8× slower than these two cores (307 s against 170 s), so the expected
+production reading is about 100 s. In 1920 pixels the reprojection error is 1.5× the old one (the frames are smaller);
+in the reel that is under one output pixel, and the path and the road are the same within 1%.
+
+**An early stop instead of the deadline.** A `Budget` (`BLOCK_SOLVE_BUDGET_S`, at most 420 s) runs on a clock the tests
+can drive. It is absolute: checked at every feature frame, around the init, before every registration, after the last
+one, before the world conversion and the still, and it bounds run.py's ffmpeg calls (their timeout is what is left).
+It also refuses early on a projection, but only on sustained evidence: at least a quarter of the frames (and three)
+registered, judged at the more optimistic of the overall and the recent rate, so a slow start (5 frames at 30 s, then
+65 at 3 s: done at 345 s) is not refused while a steady 10 s a frame is, at 180 s. The worker measures from the step's
+start, download included: it kills the Python process 60 s before the 10 min step deadline and hands run.py a budget a
+30 s inside that (`solveLimits`), from the configured step deadline (`AI_STEP_TIMEOUT_SECONDS`). Nothing is ever added
+to what is left: with under a 20 s budget the step stops at once ("too-slow", the step fails so it can be asked again;
+it is the attempt that ran out, not the clip that is refused). The probe runs inside the budget too. OpenCV's threads
+follow the process's own cgroup CPU quota, found as Go's runtime finds it (/proc/self/cgroup and /proc/self/mountinfo,
+v1 or v2, the tightest quota up to the mount), not the CPUs it can see; `BLOCK_SOLVE_THREADS` overrides, and Terraform
+sets it to the worker task's vCPUs.
+
 ## Consequences
 
 - A drone clip becomes a scale-true reveal for no credits in about two minutes of worker time (solve ~1 min on 2 vCPU

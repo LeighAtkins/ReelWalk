@@ -25,7 +25,7 @@ vi.mock("../src/library/tools", () => ({
       return command.constructor.name === "GetObjectCommand" ? { Body: Readable.from([Buffer.from("video")]) } : {};
     }),
   },
-  run: (file: string, args: string[]) => python(file, args),
+  run: (file: string, args: string[], options: unknown) => python(file, args, options),
 }));
 import { blockRevealPayloadSchema, renderReveal, revealDecodeArgs, runBlockSolveStep, runInStepScope, scopeFor, sourceRect, upload, type FfmpegCommand } from "../src/walk-block";
 
@@ -59,6 +59,58 @@ describe("block-solve step", () => {
     await expect(runBlockSolveStep({ payload: { assetId: "clip1" }, user: { workspaceId: "w" } })).rejects.toThrow("not in this workspace");
     expect(sent).toEqual([]);
     expect(python).not.toHaveBeenCalled();
+  });
+});
+
+// Imported here, beside the tests that use it, so this file's import block is left as it was (Walk the block's
+// stage and solve-speed branches touch it independently and must merge in either order).
+import { solveLimits, stepDeadlineSeconds } from "../src/walk-block";
+describe("solveLimits", () => {
+  it("counts from the step's start, so a slow download leaves the solve less time, never past the step's deadline", () => {
+    const start = 1_000_000;
+    // straight away: killed at 9 min, its own budget at the 420 s cap
+    expect(solveLimits(start, start, 600)).toEqual({ timeoutMs: 540_000, budgetS: 420 });
+    // 3 min of download: 6 min left before the kill, the budget 30 s inside that
+    expect(solveLimits(start, start + 180_000, 600)).toEqual({ timeoutMs: 360_000, budgetS: 330 });
+    // a download that ends at 598 s: nothing is started (no minimum is ever added past the deadline)
+    expect(solveLimits(start, start + 598_000, 600)).toBeNull();
+    expect(solveLimits(start, start + 495_000, 600)).toBeNull(); // 45 s left before the kill: a 15 s budget, under the 20 s worth starting
+    expect(solveLimits(start, start + 480_000, 600)).toEqual({ timeoutMs: 60_000, budgetS: 30 });
+    // never more time than is left, whatever is left
+    for (const elapsed of [0, 100_000, 300_000, 450_000, 489_000]) {
+      const limits = solveLimits(start, start + elapsed, 600);
+      if (limits) expect(start + elapsed + limits.timeoutMs).toBeLessThanOrEqual(start + 540_000);
+    }
+    // the configured step deadline, not an assumed 600 s
+    expect(solveLimits(start, start, 300)).toEqual({ timeoutMs: 240_000, budgetS: 210 });
+    expect(stepDeadlineSeconds({ AI_STEP_TIMEOUT_SECONDS: "900" })).toBe(900);
+    expect(stepDeadlineSeconds({})).toBe(600);
+  });
+
+  it("stops a step with too little time left without starting the solve", async () => {
+    db.mediaAsset.findFirst.mockResolvedValue({ id: "clip1", objectKey: "uploads/w/clip1.mp4", fileName: "drone.mp4" });
+    process.env.AI_STEP_TIMEOUT_SECONDS = "60";
+    try {
+      await expect(runBlockSolveStep({ payload: { assetId: "clip1" }, user: { workspaceId: "w" } })).rejects.toThrow(/could not finish in time/);
+    } finally {
+      delete process.env.AI_STEP_TIMEOUT_SECONDS;
+    }
+    expect(python).not.toHaveBeenCalled();
+    expect(sent.filter((s) => s.name === "PutObjectCommand")).toEqual([]);
+  });
+
+  it("is what the solve step hands the Python process", async () => {
+    db.mediaAsset.findFirst.mockResolvedValue({ id: "clip1", objectKey: "uploads/w/clip1.mp4", fileName: "drone.mp4" });
+    python.mockImplementation(async (_file: string, args: string[]) => {
+      await mkdir(args[2], { recursive: true });
+      await writeFile(path.join(args[2], "solve.json"), JSON.stringify({ version: 1, ok: false, code: "no-parallax", message: "x" }));
+      return { stdout: "", stderr: "" };
+    });
+    await runBlockSolveStep({ payload: { assetId: "clip1" }, user: { workspaceId: "w" } });
+    const options = python.mock.calls[0][2] as { timeoutMs: number; env: Record<string, string> };
+    expect(options.timeoutMs).toBeLessThanOrEqual(540_000);
+    expect(options.timeoutMs).toBeGreaterThan(530_000);
+    expect(Number(options.env.BLOCK_SOLVE_BUDGET_S)).toBeLessThanOrEqual(420);
   });
 });
 

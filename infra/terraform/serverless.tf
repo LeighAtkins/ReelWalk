@@ -173,6 +173,8 @@ resource "aws_ecs_task_definition" "worker" {
         for k, v in merge(local.app_env, {
           RENDER_CONCURRENCY                = tostring(var.worker_render_concurrency)
           WORKER_IDLE_EXIT_SECONDS          = "240"
+          # Walk the block's solve (ADR 0093): OpenCV threads, one per vCPU of the task (it also reads the cgroup quota).
+          BLOCK_SOLVE_THREADS = tostring(max(1, floor(tonumber(var.worker_cpu) / 1024)))
           GOOGLE_WORKLOAD_IDENTITY_AUDIENCE = var.google_workload_identity_audience
           GOOGLE_SERVICE_ACCOUNT_EMAIL      = var.google_service_account_email
           # Up to max_workers of these share the database pooler with the web app.

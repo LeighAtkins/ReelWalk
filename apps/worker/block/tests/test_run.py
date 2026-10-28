@@ -58,9 +58,78 @@ class Plan(unittest.TestCase):
         p = run.plan(3840, 2160, 25.3, 29.97)
         self.assertEqual(p["step"], 10)
         self.assertAlmostEqual(p["fps"], 2.997, places=3)
-        self.assertEqual((p["width"], p["height"]), (1920, 1080))
+        self.assertEqual((p["width"], p["height"]), (1280, 720))  # the solve reads 1280-wide frames (ADR 0093, speed)
         self.assertLessEqual(p["count"] * p["width"] * p["height"] * 3, run.DECODE_BUDGET_BYTES)
         self.assertEqual(run.plan(3840, 2160, 25.3, 23.976)["step"], 8)
+
+
+class Cgroups(unittest.TestCase):
+    """The process's own cgroup, found the way Go's runtime finds it (review round 2)."""
+
+    def files(self, table):
+        return lambda path: table.get(path)
+
+    def test_v2_with_the_quota_on_a_parent_of_the_process_cgroup(self):
+        proc = "0::/ecs/task-1/container-a\n"
+        mounts = "30 23 0:26 / /sys/fs/cgroup rw,nosuid - cgroup2 cgroup2 rw\n"
+        read = self.files({"/sys/fs/cgroup/ecs/task-1/container-a/cpu.max": "max 100000\n",
+                           "/sys/fs/cgroup/ecs/task-1/cpu.max": "200000 100000\n",
+                           "/sys/fs/cgroup/cpu.max": "max 100000\n"})
+        self.assertEqual(run.cgroup_cpu_max(proc, mounts, read), "200000 100000")
+        self.assertEqual(run.cpu_budget(8, run.cgroup_cpu_max(proc, mounts, read)), 2)
+
+    def test_a_combined_v1_cpu_cpuacct_mount(self):
+        proc = "12:memory:/docker/abc\n4:cpu,cpuacct:/docker/abc\n"
+        mounts = ("31 23 0:27 / /sys/fs/cgroup/memory rw - cgroup cgroup rw,memory\n"
+                  "32 23 0:28 / /sys/fs/cgroup/cpu,cpuacct rw - cgroup cgroup rw,cpu,cpuacct\n")
+        read = self.files({"/sys/fs/cgroup/cpu,cpuacct/docker/abc/cpu.cfs_quota_us": "200000\n",
+                           "/sys/fs/cgroup/cpu,cpuacct/docker/abc/cpu.cfs_period_us": "100000\n"})
+        self.assertEqual(run.cgroup_cpu_max(proc, mounts, read), "200000 100000")
+
+    def test_a_container_whose_mount_root_is_its_own_cgroup(self):
+        # inside a container the hierarchy is mounted from the container's cgroup: root /docker/abc, process in /docker/abc
+        proc = "0::/docker/abc\n"
+        mounts = "40 30 0:30 /docker/abc /sys/fs/cgroup ro - cgroup2 cgroup2 rw\n"
+        read = self.files({"/sys/fs/cgroup/cpu.max": "150000 100000\n"})
+        self.assertEqual(run.cgroup_cpu_max(proc, mounts, read), "150000 100000")
+
+    def test_no_quota(self):
+        proc = "0::/user.slice\n"
+        mounts = "30 23 0:26 / /sys/fs/cgroup rw - cgroup2 cgroup2 rw\n"
+        read = self.files({"/sys/fs/cgroup/user.slice/cpu.max": "max 100000\n", "/sys/fs/cgroup/cpu.max": None})
+        self.assertIsNone(run.cgroup_cpu_max(proc, mounts, read))
+        self.assertIsNone(run.cgroup_cpu_max("", "", read))
+
+
+class Probe(unittest.TestCase):
+    def test_a_stalled_probe_is_a_too_slow_refusal_within_the_budget(self):
+        calls = []
+        real = run.subprocess.run
+
+        def stalled(cmd, **kw):
+            calls.append(kw.get("timeout"))
+            raise subprocess.TimeoutExpired(cmd, kw.get("timeout"))
+        out = tempfile.mkdtemp()
+        os.environ["BLOCK_SOLVE_BUDGET_S"] = "30"
+        run.subprocess.run = stalled
+        try:
+            self.assertEqual(run.main(["clip.mp4", out]), 0)
+        finally:
+            run.subprocess.run = real
+            del os.environ["BLOCK_SOLVE_BUDGET_S"]
+        self.assertEqual(read_code(out), "too-slow")
+        self.assertEqual(len(calls), 1)
+        self.assertLessEqual(calls[0], 30)
+        shutil.rmtree(out, ignore_errors=True)
+
+
+class Threads(unittest.TestCase):
+    def test_follows_the_cgroup_quota_not_the_cpus_visible(self):
+        self.assertEqual(run.cpu_budget(8, "200000 100000"), 2)   # a 2-vCPU task that can see 8 CPUs
+        self.assertEqual(run.cpu_budget(8, "150000 100000"), 2)   # 1.5 CPUs: two threads
+        self.assertEqual(run.cpu_budget(8, "max 100000"), 8)      # no quota
+        self.assertEqual(run.cpu_budget(4, None), 4)
+        self.assertEqual(run.cpu_budget(8, "200000 100000", "3"), 3)  # BLOCK_SOLVE_THREADS
 
 
 @unittest.skipUnless(FFMPEG, "needs ffmpeg")
@@ -94,6 +163,17 @@ class Frames(unittest.TestCase):
         self.assertEqual(run.main([video, out]), 0)
         self.assertEqual(read_code(out), "portrait")
         self.assertFalse(os.path.exists(os.path.join(out, "frames")))
+
+    def test_a_clip_past_the_time_budget_is_refused_as_too_slow(self):
+        video = os.path.join(self.dir, "b.mp4")
+        numbered_video(video, 180)
+        out = os.path.join(self.dir, "out")
+        os.environ["BLOCK_SOLVE_BUDGET_S"] = "0"
+        try:
+            self.assertEqual(run.main([video, out]), 0)
+        finally:
+            del os.environ["BLOCK_SOLVE_BUDGET_S"]
+        self.assertEqual(read_code(out), "too-slow")
 
     def test_a_short_clip_is_refused(self):
         video = os.path.join(self.dir, "s.mp4")

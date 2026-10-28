@@ -114,14 +114,52 @@ export async function runInStepScope<T>(signal: AbortSignal | undefined, work: (
   }
 }
 
-/** Reads a drone clip in 3D: `block/run.py` writes solve.json and still.jpg into `outDir`. */
-export async function solveClip(videoPath: string, outDir: string, scope: AttemptScope, log: Log = console.log): Promise<unknown> {
+/**
+ * The step's own deadline: the worker's AI_STEP_TIMEOUT_SECONDS (index.ts reads the same variable, 600 by default),
+ * the headroom kept under it for the uploads, the margin between run.py's budget and its kill, and the least time
+ * worth starting a solve with.
+ */
+export function stepDeadlineSeconds(env: NodeJS.ProcessEnv = process.env): number {
+  const n = Number(env.AI_STEP_TIMEOUT_SECONDS ?? 600);
+  return Number.isFinite(n) && n > 0 ? n : 600;
+}
+const SOLVE_HEADROOM_S = 60;
+const SOLVE_MARGIN_S = 30;
+const SOLVE_BUDGET_S = 420;
+const SOLVE_MIN_BUDGET_S = 20;
+
+/**
+ * How long the solve may still run, measured from the step's start (the download counts against it), or null when
+ * too little is left to be worth starting: the Python process is killed `SOLVE_HEADROOM_S` before the step's deadline,
+ * and run.py's own budget (after which it refuses the clip as "too-slow" and says so) ends `SOLVE_MARGIN_S` before
+ * that, at most 420 s. Never more than what is left: no minimum is ever added to it.
+ */
+export function solveLimits(stepStartedMs: number, nowMs: number, stepSeconds = stepDeadlineSeconds()): { timeoutMs: number; budgetS: number } | null {
+  const leftMs = stepSeconds * 1000 - SOLVE_HEADROOM_S * 1000 - (nowMs - stepStartedMs);
+  const budgetS = Math.min(SOLVE_BUDGET_S, Math.floor(leftMs / 1000) - SOLVE_MARGIN_S);
+  if (budgetS < SOLVE_MIN_BUDGET_S) return null;
+  return { timeoutMs: leftMs, budgetS };
+}
+
+/** Thrown when a step has too little of its deadline left to read the clip: the step fails (a fresh attempt gets the whole deadline). */
+export class SolveTooSlow extends Error {
+  constructor(seconds: number) {
+    super(`Reading this clip in 3D could not finish in time (the download left ${Math.max(0, Math.round(seconds))} s). Try again.`);
+  }
+}
+
+/** Reads a drone clip in 3D: `block/run.py` writes solve.json and still.jpg into `outDir`. `stepStartedMs`: when the step began. */
+export async function solveClip(videoPath: string, outDir: string, scope: AttemptScope, log: Log = console.log, stepStartedMs = Date.now()): Promise<unknown> {
   const started = Date.now();
+  const limits = solveLimits(stepStartedMs, started);
+  // Too little left to be worth starting: stop now, inside the step's deadline, rather than run past it. Not stored as
+  // the clip's refusal: it is the attempt that ran out (a slow download), so the step fails and can be asked again.
+  if (!limits) throw new SolveTooSlow((stepDeadlineSeconds() * 1000 - (started - stepStartedMs)) / 1000);
   const { stdout } = await run(PYTHON, [path.join(BLOCK_DIR, "run.py"), videoPath, outDir], {
     scope,
-    timeoutMs: 12 * 60_000,
+    timeoutMs: limits.timeoutMs,
     maxBuffer: 4 * 1024 * 1024,
-    env: { ...process.env, FFMPEG_PATH: FFMPEG, PYTHONUNBUFFERED: "1" },
+    env: { ...process.env, FFMPEG_PATH: FFMPEG, PYTHONUNBUFFERED: "1", BLOCK_SOLVE_BUDGET_S: String(limits.budgetS) },
   });
   for (const line of stdout.trim().split("\n").slice(-6)) log(`block-solve: ${line}`);
   log(`block-solve: ${Math.round((Date.now() - started) / 1000)} s`);
@@ -374,6 +412,7 @@ async function findClip(workspaceId: string, assetId: string) {
 }
 
 export async function runBlockSolveStep(step: { payload: unknown; user: { workspaceId: string } }, scope?: AttemptScope): Promise<BlockSolveStepResult> {
+  const stepStarted = Date.now();
   const { assetId } = blockSolvePayloadSchema.parse(step.payload);
   const asset = await findClip(step.user.workspaceId, assetId);
   const own = scope ? null : createAttemptScope();
@@ -383,7 +422,7 @@ export async function runBlockSolveStep(step: { payload: unknown; user: { worksp
     const video = path.join(dir, `clip${path.extname(asset.objectKey) || ".mp4"}`);
     await download(asset.objectKey, video, attempt);
     const out = path.join(dir, "out");
-    const result = parseBlockSolve(await solveClip(video, out, attempt));
+    const result = parseBlockSolve(await solveClip(video, out, attempt, console.log, stepStarted));
     const body = Buffer.from(await readFile(path.join(out, "solve.json")));
     if (result.ok) await upload(blockStillKeyFor(asset.id), path.join(out, "still.jpg"), "image/jpeg", attempt);
     // Written last: its presence is what tells the web app the still is there too.

@@ -119,6 +119,26 @@ Round 3 (at e238f5d9):
 11. **The end of the file.** A decode resampled right up to a clip's end comes out a frame or two short (a VFR test that
    ran to the end found 178 of 180), so the reveal stops 0.15 s before the clip's end (`REVEAL_END_MARGIN_S`).
 
+## Addendum: build stages (2026-10-28)
+
+A white box rising read as a placeholder, not as a house being built. The reveal now builds it, all still drawn from the
+solve (deterministic, no generator, no credits), every stage from the solved camera of its moment (locked to the
+ground) and shaded by the pinned sun (`REVEAL`, ms into an 8 s clip; `revealBeats` compresses them for a shorter one so
+the house is finished 0.6 s before it ends):
+
+| beat | what |
+|---|---|
+| 0.3–1.3 s | the dashed outline draws on; 0.9–1.5 s its area is written on the ground |
+| 1.5–2.2 s | the slab is poured (0.3 m of concrete, its faces lit by the sun); the outline goes under it; the area stays, written on the slab |
+| 2.2–3.5 s | the wall frame goes up: studs every 1.2 m rise in turn around the walls, then the top plates (and a floor plate between two storeys); each stud is lit like the wall it stands in |
+| 3.4–4.0 s | the area fades as the trusses arrive |
+| 3.5–4.5 s | gable roof trusses every 1.2 m go on end to end, then the ridge; the massing's shadow begins, faint |
+| 4.5–5.4 s | the walls and roof close over the frame into the finished white massing, with its full shadow |
+
+A pool's deck is its slab (the water on top of it); "Just the land" keeps its outline and area for the whole clip. The
+pin screen still shows the finished house (`still.rise` 1). Shapes carry roles `slab`, `frame` and `roof-frame`
+besides the existing ones. House style kept: white model, no sound, the push-in only towards the outline.
+
 ## Consequences
 
 - A drone clip becomes a scale-true reveal for no credits in about two minutes of worker time (solve ~1 min on 2 vCPU

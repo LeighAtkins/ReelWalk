@@ -17,6 +17,8 @@ import {
   projectPoint,
   pushInFor,
   MIN_REVEAL_SECONDS,
+  REVEAL,
+  revealBeats,
   revealDurationMs,
   revealFps,
   scaleFromAltitude,
@@ -133,31 +135,88 @@ describe("drawBlock", () => {
 
   it("draws nothing before the outline starts, then outline, fill and the area", () => {
     expect(drawBlock(solve, pin, 0)).toEqual([]);
-    const mid = drawBlock(solve, pin, 1600);
+    const mid = drawBlock(solve, pin, 1400);
     expect(mid.map((s) => (s.kind === "poly" ? s.role : "label"))).toEqual(["fill", "outline", "label"]);
     const label = mid.find((s) => s.kind === "label")!;
     expect(label.kind === "label" && label.text).toBe("264 m²");
     expect(label.kind === "label" && label.sub).toBe("24 × 11 m");
   });
 
-  it("raises a shaded massing with a shadow, showing only the faces turned to the camera", () => {
+  it("finishes as a shaded white massing with its shadow, showing only the faces turned to the camera", () => {
     const end = drawBlock(solve, pin, 6000);
     const faces = end.filter((s) => s.kind === "poly" && s.role === "face");
     expect(faces.length).toBeGreaterThanOrEqual(2);
     expect(faces.length).toBeLessThanOrEqual(4);
+    expect(faces.every((f) => f.kind === "poly" && f.fillOpacity === 1)).toBe(true);
     expect(end.some((s) => s.kind === "poly" && s.role === "shadow")).toBe(true);
-    expect(end.some((s) => s.kind === "label")).toBe(false); // the walls have covered it
+    expect(end.some((s) => s.kind === "label")).toBe(false); // the walls have closed over it
+    expect(end.some((s) => s.kind === "poly" && (s.role === "frame" || s.role === "roof-frame"))).toBe(false);
     for (const s of end) if (s.kind === "poly") for (const p of s.points) expect(Number.isFinite(p[0]) && Number.isFinite(p[1])).toBe(true);
-    // the massing is half-risen half way through the rise
-    const half = drawBlock(solve, pin, 3000).filter((s) => s.kind === "poly" && s.role === "face");
-    expect(half.length).toBeGreaterThan(0);
+  });
+
+  it("builds it in stages: slab, wall frame, roof trusses, then the walls close", () => {
+    const roles = (t: number) => new Set(drawBlock(solve, pin, t).map((s) => (s.kind === "poly" ? s.role : "label")));
+    const slabbing = roles(1900);
+    expect(slabbing.has("slab")).toBe(true);
+    expect(slabbing.has("label")).toBe(true); // the area stays, written on the slab
+    expect(roles(2900).has("label")).toBe(true);
+    expect(roles(4100).has("label")).toBe(false); // gone as the trusses go on
+    expect(roles(2400).has("outline")).toBe(false); // poured over
+    expect(slabbing.has("frame")).toBe(false);
+    const framing = roles(2900);
+    expect(framing.has("frame")).toBe(true);
+    expect(framing.has("roof-frame")).toBe(false);
+    expect(framing.has("face")).toBe(false);
+    const roofing = roles(4100);
+    expect(roofing.has("roof-frame")).toBe(true);
+    expect(roofing.has("face")).toBe(false);
+    const closing = drawBlock(solve, pin, 4950);
+    const face = closing.find((s) => s.kind === "poly" && s.role === "face");
+    expect(face?.kind === "poly" && face.fillOpacity > 0 && face.fillOpacity < 1).toBe(true);
+    expect(closing.some((s) => s.kind === "poly" && s.role === "frame")).toBe(true); // still showing through
+    // the studs go up in turn: early in the frame beat, fewer are standing than at its end
+    const studs = (t: number) => drawBlock(solve, pin, t).filter((s) => s.kind === "poly" && s.role === "frame").length;
+    expect(studs(2400)).toBeLessThan(studs(3400));
+    expect(studs(3400)).toBeGreaterThan(40); // 70 m of wall at 1.2 m, plus the plates
+  });
+
+  it("locks every stage to the ground and lights it by the pinned sun", () => {
+    // the slab's base corner is drawn where that moment's camera sees the footprint corner
+    const corners = footprintCorners(solve, pin);
+    const cam = blockCameraAt(solve, 2.2);
+    const win = viewAt(solve, pin, 2200);
+    const at = (p: Vec3) => {
+      const q = projectPoint(cam, p);
+      return [((q.u - win.x) * OUTPUT.width) / win.w, ((q.v - win.y) * OUTPUT.height) / win.h];
+    };
+    const slabs = drawBlock(solve, pin, 2200).filter((s) => s.kind === "poly" && s.role === "slab");
+    const target = at(corners[0]);
+    const nearest = Math.min(...slabs.flatMap((s) => (s.kind === "poly" ? s.points : [])).map((p) => Math.hypot(p[0] - target[0], p[1] - target[1])));
+    expect(nearest).toBeLessThan(1e-6);
+    // the slab's top turns with the sun's height; a stud's colour with the side of the house the sun is on
+    const top = (elevationDeg: number) => {
+      const shapes = drawBlock(solve, { ...pin, sun: { ...pin.sun, elevationDeg } }, 2400).filter((s) => s.kind === "poly" && s.role === "slab");
+      return shapes.map((s) => (s.kind === "poly" ? s.fill : "")).join();
+    };
+    expect(top(70)).not.toBe(top(10));
+    const studColours = new Set(drawBlock(solve, pin, 3400).filter((s) => s.kind === "poly" && s.role === "frame").map((s) => (s.kind === "poly" ? s.stroke : "")));
+    expect(studColours.size).toBeGreaterThan(1);
+  });
+
+  it("compresses the stages so a short reveal ends on the finished house", () => {
+    const short = revealBeats(4600);
+    expect(short.clad[1]).toBeLessThanOrEqual(4600 - 600);
+    expect(short.slab[0]).toBeLessThan(short.frame[0]);
+    expect(short.frame[1]).toBeLessThanOrEqual(short.roof[0]);
+    expect(revealBeats(8000)).toEqual(REVEAL);
   });
 
   it("keeps the outline on the same ground as the drone flies", () => {
     // Each corner is drawn where the solved camera of that moment sees that ground point, through that moment's crop.
     const corners = footprintCorners(solve, pin);
+    // (a land outline stays for the whole clip; a house's is poured over by the slab)
     for (const t of [1500, 4000, 7000]) {
-      const shapes = drawBlock(solve, pin, t);
+      const shapes = drawBlock(solve, { ...pin, build: "land" }, t);
       const outline = shapes.find((s) => s.kind === "poly" && s.role === "outline");
       if (!outline || outline.kind !== "poly") throw new Error("no outline");
       const cam = blockCameraAt(solve, t / 1000);
@@ -183,10 +242,11 @@ describe("drawBlock", () => {
     expect(land.some((s) => s.kind === "poly" && s.role === "face")).toBe(false);
     const pool = drawBlock(solve, { ...pin, build: "pool", length: 14, width: 7 }, 6000);
     const roles = pool.map((s) => (s.kind === "poly" ? s.role : "label"));
-    // the water is drawn after (on top of) every face of the opaque deck, so it is actually seen
+    // the deck is the pool's slab; the water is drawn after (on top of) every face of it, so it is actually seen
     expect(roles).toContain("pool");
-    expect(roles).toContain("face");
-    expect(roles.indexOf("pool")).toBeGreaterThan(roles.lastIndexOf("face"));
+    expect(roles).toContain("slab");
+    expect(roles).not.toContain("frame");
+    expect(roles.indexOf("pool")).toBeGreaterThan(roles.lastIndexOf("slab"));
   });
 });
 

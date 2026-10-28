@@ -98,9 +98,10 @@ describe("scopeFor", () => {
 });
 
 describe("renderReveal's processes", () => {
-  // The real clip's solve, but the source made tiny (64 x 36) at 2 fps: 16 frames for the 8 s reveal.
+  // The real clip's solve, but the source made tiny (64 x 36), 4.6 s long at 1 fps: a 4-frame reveal. Each frame is
+  // still composited at 1080 x 1920, so this stays small and leaves the CI runner's CPU to the other suites.
   const raw = JSON.parse(readFileSync(path.join(__dirname, "../../../packages/core/tests/fixtures/block-solve-14194694.json"), "utf8"));
-  const parsed = parseBlockSolve({ ...raw, source: { ...raw.source, width: 64, height: 36, fps: 2 } });
+  const parsed = parseBlockSolve({ ...raw, source: { ...raw.source, width: 64, height: 36, fps: 1, durationMs: 4600 } });
   if (!parsed.ok) throw new Error("fixture does not parse");
   const solve: BlockSolve = parsed.solve;
   const pin = initialPin(solve, "home");
@@ -123,8 +124,8 @@ describe("renderReveal's processes", () => {
 
   it("draws every frame of the reveal at the source's rate", async () => {
     const done = await attempt({ FAKE_ENCODE: "ok", FAKE_DECODE_FRAMES: "1000" });
-    expect(done.frames).toBe(16);
-    expect(done.file).toBe("frames 16");
+    expect(done.frames).toBe(4);
+    expect(done.file).toBe("frames 4");
   }, 30_000);
 
   it("fails, without an unhandled rejection, when the encoder dies mid-stream", async () => {
@@ -132,7 +133,7 @@ describe("renderReveal's processes", () => {
   }, 30_000);
 
   it("refuses footage that ends before the reveal does", async () => {
-    await expect(attempt({ FAKE_ENCODE: "ok", FAKE_DECODE_FRAMES: "5" })).rejects.toThrow(/ended early: 5 of 16 frames/);
+    await expect(attempt({ FAKE_ENCODE: "ok", FAKE_DECODE_FRAMES: "2" })).rejects.toThrow(/ended early: 2 of 4 frames/);
   }, 30_000);
 
   it("fails cleanly when ffmpeg cannot be started", async () => {

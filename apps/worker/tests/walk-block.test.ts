@@ -27,7 +27,6 @@ vi.mock("../src/library/tools", () => ({
   },
   run: (file: string, args: string[], options: unknown) => python(file, args, options),
 }));
-import { solveLimits, stepDeadlineSeconds } from "../src/walk-block";
 import { blockRevealPayloadSchema, renderReveal, revealDecodeArgs, runBlockSolveStep, runInStepScope, scopeFor, sourceRect, upload, type FfmpegCommand } from "../src/walk-block";
 
 beforeEach(() => {
@@ -63,6 +62,9 @@ describe("block-solve step", () => {
   });
 });
 
+// Imported here, beside the tests that use it, so this file's import block is left as it was (Walk the block's
+// stage and solve-speed branches touch it independently and must merge in either order).
+import { solveLimits, stepDeadlineSeconds } from "../src/walk-block";
 describe("solveLimits", () => {
   it("counts from the step's start, so a slow download leaves the solve less time, never past the step's deadline", () => {
     const start = 1_000_000;

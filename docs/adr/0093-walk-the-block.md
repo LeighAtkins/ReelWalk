@@ -51,7 +51,8 @@ thumb-sized on a phone, power where it acts.
   worker's entry: frames at 3 fps (≤ 24 s, ≤ 1920 wide) → `solve.json` + `still.jpg`. Focal is never refined: 2/3 of
   the frame width (a drone's 24 mm-equivalent; the prototype's focal search peaked at 1280–1500 on 1920).
 - `packages/core/src/walk-block.ts` (pure): the solve schema, camera interpolation (slerp), projection and ground casts,
-  scale from a stated height or a measured length, the 9:16 crop and the slow push-in (1 → 1.16), the site suggestion,
+  scale from a stated height or a measured length, the 9:16 crop and the push-in (eased; 1.16 at least, up to 1.45 until the outline spans a third of the frame at
+  the end, as the prototype pushed to 1.42), the site suggestion,
   and `drawBlock(solve, pin, tMs)`: the outline (dashed, drawn on 0.3–1.3 s), its fill, the area written flat on the
   ground in perspective (0.9–3.0 s; stays for "Just the land"), the gable massing rising 2–4 s with only its
   camera-facing faces, shaded by the sun, and its shadow cast along the sun onto the ground. `blockSvg` writes the shapes
@@ -116,3 +117,9 @@ long afternoon shadows) flagged `assumed`, and the person turns it on the pin sc
 - Core tests (`packages/core/tests/walk-block.test.ts`, 16): among them, the prototype's hand-placed house corner
   (cast from reel pixel (722, 1510) at 5.00 s onto its own solve) projects back within 6 px through this independent
   solve; the outline stays on the same ground point at every moment; sizes are true metres at any scale.
+- **End to end in the app, locally** (compose Postgres/MinIO/ElasticMQ; web and worker on the host, 412 × 915 phone
+  viewport): the 79 MB original uploaded through `/new/block`; the `block-solve` step read it (72/72, 0.29 px, 69 s);
+  the pin screen offered open ground; measuring the road's two kerbs on it gave **92 m**, the prototype's own figure
+  from the same road; dragging, the live preview over the clip and "Make it" ran; `block-reveal` drew 240 frames and the
+  editor opened reel `walk-<step>` with the clip and its title. The first local run hit a full disk (ENOSPC), which
+  showed that a FAILED solve could never be asked for again; `startWorkerStepRun` now re-queues a FAILED worker-only step.

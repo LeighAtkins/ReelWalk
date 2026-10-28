@@ -245,9 +245,16 @@ export async function cropFrame(frame: Buffer, decoded: { width: number; height:
   const top = Math.max(0, Math.floor(y) - 1);
   const width = Math.min(decoded.width - left, Math.ceil(win.w * m) + 3);
   const height = Math.min(decoded.height - top, Math.ceil(win.h * m) + 3);
-  const piece = await sharp(frame, { raw: { width: decoded.width, height: decoded.height, channels: 3 } }).extract({ left, top, width, height }).raw().toBuffer();
-  const scaled = await sharp(piece, { raw: { width, height, channels: 3 } })
-    .affine([s, 0, 0, s], { odx: -(x - left) * s, ody: -(y - top) * s, interpolator: sharp.interpolators.bicubic })
+  // Padded with copies of its edge pixels: bicubic reads two pixels past the piece, and at the frame's own edge there
+  // is nothing there (it read black: 150 grey came out 66 at a right/bottom-aligned 2.5x crop).
+  const pad = 4;
+  const piece = await sharp(frame, { raw: { width: decoded.width, height: decoded.height, channels: 3 } })
+    .extract({ left, top, width, height })
+    .extend({ top: pad, bottom: pad, left: pad, right: pad, extendWith: "copy" })
+    .raw()
+    .toBuffer();
+  const scaled = await sharp(piece, { raw: { width: width + 2 * pad, height: height + 2 * pad, channels: 3 } })
+    .affine([s, 0, 0, s], { odx: -(x - left + pad) * s, ody: -(y - top + pad) * s, interpolator: sharp.interpolators.bicubic })
     .raw()
     .toBuffer({ resolveWithObject: true });
   return sharp(scaled.data, { raw: { width: scaled.info.width, height: scaled.info.height, channels: 3 } })

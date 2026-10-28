@@ -525,6 +525,17 @@ function wallFrame(solve: BlockSolve, pin: BlockPin, progress: number): Member[]
   return members;
 }
 
+/**
+ * The two roof slopes' outward normals, taken from the finished massing's own roof faces (`a` on the p0–p1 side, `b`
+ * on the p3–p2 side), so a truss's rafters are lit exactly as the roof that closes over them.
+ */
+export function roofSlopeNormals(solve: BlockSolve, pin: BlockPin): { a: Vec3; b: Vec3 } | null {
+  const faces = massing(solve, pin);
+  const spec = BUILDS[pin.build];
+  if (faces.length < 6 || spec.ridge <= spec.eave) return null;
+  return { a: faces[4].n, b: faces[5].n };
+}
+
 /** The roof frame at `progress`: gable trusses every `STUD_SPACING_M` along the length, set end to end, then the ridge. */
 function roofFrame(solve: BlockSolve, pin: BlockPin, progress: number): Member[] {
   const spec = BUILDS[pin.build];
@@ -536,7 +547,8 @@ function roofFrame(solve: BlockSolve, pin: BlockPin, progress: number): Member[]
   const ridge = spec.ridge / k;
   const len = Math.hypot(p1[0] - p0[0], p1[2] - p0[2]) * k;
   const count = Math.min(40, Math.max(2, Math.round(len / STUD_SPACING_M) + 1));
-  const slopeA = norm(cross(sub(lift(midpoint(p1, p2), ridge), lift(p1, eave)), sub(lift(p0, eave), lift(p1, eave))));
+  // each rafter lit as its own slope of the finished roof (review: the far slope's rafters used to be lit as flat)
+  const slopes = roofSlopeNormals(solve, pin)!;
   const up: Vec3 = [0, 1, 0];
   const members: Member[] = [];
   for (let i = 0; i < count; i++) {
@@ -547,8 +559,8 @@ function roofFrame(solve: BlockSolve, pin: BlockPin, progress: number): Member[]
     const right = lift(add(p3, mul(sub(p2, p3), u)), eave);
     const top = lift(midpoint(add(p0, mul(sub(p1, p0), u)), add(p3, mul(sub(p2, p3), u))), ridge);
     const t = smooth(shown);
-    members.push({ a: left, b: add(left, mul(sub(top, left), t)), n: slopeA[1] >= 0 ? slopeA : mul(slopeA, -1), shown, heavy: false });
-    members.push({ a: right, b: add(right, mul(sub(top, right), t)), n: up, shown, heavy: false });
+    members.push({ a: left, b: add(left, mul(sub(top, left), t)), n: slopes.a, shown, heavy: false });
+    members.push({ a: right, b: add(right, mul(sub(top, right), t)), n: slopes.b, shown, heavy: false });
     members.push({ a: left, b: right, n: up, shown, heavy: false });
   }
   const ridgeP = ramp(progress, 0.7, 1);
@@ -583,7 +595,7 @@ function hull(points: Pt[]): Pt[] {
   return [...lower.slice(0, -1), ...upper.slice(0, -1)];
 }
 
-/** The model's white (or `base`), shaded by the sun: a face turned to it is bright, one turned away keeps 74% (a sky-lit side). */
+/** The model's white (or `base`), shaded by the sun (exported as `modelShade` for tests): a face turned to it is bright, one turned away keeps 74% (a sky-lit side). */
 function shade(n: Vec3, sun: Vec3, base: [number, number, number] = [246, 243, 236]): string {
   const lit = 0.74 + 0.26 * Math.max(0, dot(n, sun));
   const c = (v: number) => Math.round(Math.min(255, v * lit));
@@ -926,3 +938,5 @@ export function labelImageSize(size: number): { width: number; height: number } 
 /** Where the worker keeps a clip's solve and still, beside nothing else of the asset's, so a re-solve replaces them. */
 export const blockSolveKeyFor = (assetId: string): string => `blocks/${assetId}/solve.v${BLOCK_SOLVE_VERSION}.json`;
 export const blockStillKeyFor = (assetId: string): string => `blocks/${assetId}/still.v${BLOCK_SOLVE_VERSION}.jpg`;
+
+export const modelShade = (n: Vec3, sun: Vec3): string => shade(n, sun);

@@ -15,6 +15,9 @@ import {
   parseBlockSolve,
   placeAt,
   projectPoint,
+  modelShade,
+  roofSlopeNormals,
+  sunVector,
   PUSH_IN,
   pushProgress,
   groundYAt,
@@ -242,6 +245,24 @@ describe("drawBlock", () => {
     expect(top(70)).not.toBe(top(10));
     const studColours = new Set(drawBlock(solve, pin, 3400).filter((s) => s.kind === "poly" && s.role === "frame").map((s) => (s.kind === "poly" ? s.stroke : "")));
     expect(studColours.size).toBeGreaterThan(1);
+  });
+
+  it("lights each slope's rafters as the finished roof on that slope, for opposite suns", () => {
+    const slopes = roofSlopeNormals(solve, pin)!;
+    // the two slopes face opposite ways, both upward
+    expect(slopes.a[1]).toBeGreaterThan(0);
+    expect(slopes.b[1]).toBeGreaterThan(0);
+    for (const azimuthDeg of [pin.sun.azimuthDeg, pin.sun.azimuthDeg + 180]) {
+      const lit = { ...pin, sun: { azimuthDeg, elevationDeg: 20 } };
+      const sun = sunVector(lit.sun);
+      const roof = [modelShade(slopes.a, sun), modelShade(slopes.b, sun)];
+      expect(roof[0]).not.toBe(roof[1]); // a low sun lights one slope and not the other
+      const rafters = new Set(drawBlock(solve, lit, 4400).filter((s) => s.kind === "poly" && s.role === "roof-frame").map((s) => (s.kind === "poly" ? s.stroke : "")));
+      for (const colour of roof) expect(rafters.has(colour)).toBe(true);
+      // and those are the colours the finished roof faces take
+      const faces = new Set(drawBlock(solve, lit, 6000).filter((s) => s.kind === "poly" && s.role === "face").map((s) => (s.kind === "poly" ? s.fill : "")));
+      expect(roof.some((colour) => faces.has(colour))).toBe(true);
+    }
   });
 
   it("compresses the stages so a short reveal ends on the finished house", () => {

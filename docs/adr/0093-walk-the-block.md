@@ -145,6 +145,11 @@ drawing stays on the ground. At 2.5× a 4K source's crop is 486 px wide, upscale
 low in the drone's frame cannot be lifted by any crop: near the end of the flight it sits as low on screen as it does
 in the source (the default suggested site stays above the caption zone; a site dragged to the frame's foot does not).
 The "24 × 11 m" line under the area is gone: unreadable from a drone (the dimensions are on the pin screen).
+Review of #261: the crop's piece is padded with copies of its edge pixels before the bicubic affine (it read black past
+the frame: a 150-grey frame came out 66 at a bottom/right 2.5× crop), and each roof slope's rafters take that slope's
+normal from the finished roof (the far slope's were lit as flat). Measured on the prototype clip pinned to 2 cores: the
+whole render 54 s, the process tree's peak RSS 1.58 GB (node 0.3 GB, the 4K decoder 0.8 GB); production should be about
+1.8× slower, so ~95 s against the 600 s step deadline, in an 8 GB task.
 
 A pool's deck is its slab (the water on top of it); "Just the land" keeps its outline and area for the whole clip. The
 pin screen still shows the finished house (`still.rise` 1). Shapes carry roles `slab`, `frame` and `roof-frame`

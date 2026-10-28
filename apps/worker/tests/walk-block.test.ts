@@ -72,30 +72,65 @@ describe("block-reveal payload", () => {
 });
 
 describe("the crop", () => {
-  // A decoded frame whose red channel is 0.4 × its column: each output column must show the fractional source column
-  // the window puts there, so a moving push-in glides rather than stepping in whole source pixels.
-  const decoded = { width: 600, height: 340 };
-  const frame = Buffer.alloc(decoded.width * decoded.height * 3);
-  for (let y = 0; y < decoded.height; y++) for (let x = 0; x < decoded.width; x++) frame[(y * decoded.width + x) * 3] = Math.round(0.4 * x);
-  const m = decoded.width / 1920;
-
-  it("cuts the window to a fraction of a source pixel", async () => {
-    for (const x of [700, 700.4, 700.8]) {
-      const win = { x, y: 300.6, w: 243, h: 432 };
-      const out = await cropFrame(frame, decoded, win, m);
-      expect(out.length).toBe(OUTPUT.width * OUTPUT.height * 3);
-      const s = OUTPUT.width / (win.w * m);
-      for (const col of [100, 500, 900]) {
-        const sourceX = win.x * m + col / s;
-        expect(Math.abs(out[(960 * OUTPUT.width + col) * 3] - 0.4 * sourceX)).toBeLessThan(1.5);
+  const W = OUTPUT.width;
+  const H = OUTPUT.height;
+  /** Centroid of the red channel over the output frame, in output pixels. */
+  const centroid = (out: Buffer) => {
+    let sum = 0, sx = 0, sy = 0;
+    for (let y = 0; y < H; y++)
+      for (let x = 0; x < W; x++) {
+        const r = out[(y * W + x) * 3];
+        if (r > 20) {
+          sum += r;
+          sx += r * x;
+          sy += r * y;
+        }
       }
-    }
+    return [sx / sum, sy / sum];
+  };
+
+  it("moves the picture by the window's fraction of a source pixel, in both axes", async () => {
+    // black with one bright 5 x 5 square; the window is 81 x 144 decoded pixels, so 1 decoded pixel is 13.3 output pixels
+    const decoded = { width: 640, height: 360 };
+    const m = decoded.width / 1920;
+    const frame = Buffer.alloc(decoded.width * decoded.height * 3);
+    for (let y = 180; y < 185; y++) for (let x = 320; x < 325; x++) frame.fill(255, (y * decoded.width + x) * 3, (y * decoded.width + x) * 3 + 3);
+    const win = { x: 840, y: 360, w: 243, h: 432 };
+    const s = W / (win.w * m);
+    const a = centroid(await cropFrame(frame, decoded, win, m));
+    // the square's centre is decoded (322, 182): it lands where the overlay's projection puts coordinate 322, 182
+    // ((u - window x) x scale), so drawing and picture agree
+    expect(Math.abs(a[0] - (322 - win.x * m) * s)).toBeLessThan(0.5);
+    expect(Math.abs(a[1] - (182 - win.y * m) * s)).toBeLessThan(0.5);
+    // a third of a solve pixel across (0.3 decoded) and 0.6 decoded down: the picture moves 4 and 8 output pixels
+    const b = centroid(await cropFrame(frame, decoded, { ...win, x: win.x + 0.9, y: win.y + 1.8 }, m));
+    expect(b[0] - a[0]).toBeCloseTo(-0.3 * s, 0);
+    expect(b[1] - a[1]).toBeCloseTo(-0.6 * s, 0);
+    // (a crop rounded to whole decoded pixels would move it 0 or 13 pixels)
+    expect(Math.abs(b[0] - a[0])).toBeGreaterThan(2);
+    expect(Math.abs(b[0] - a[0])).toBeLessThan(11);
   });
 
-  it("works at the frame's edges", async () => {
-    const out = await cropFrame(frame, decoded, { x: 1920 - 607.5, y: 0, w: 607.5, h: 1080 }, m);
-    expect(out.length).toBe(OUTPUT.width * OUTPUT.height * 3);
-  });
+  for (const decoded of [{ width: 600, height: 340 }, { width: 1920, height: 1080 }]) {
+    it(`keeps the frame's own colour at its edges (${decoded.width} wide source, 2.5x crop)`, async () => {
+      const m = decoded.width / 1920;
+      const frame = Buffer.alloc(decoded.width * decoded.height * 3, 150);
+      const w = 607.5 / 2.5;
+      const h = 1080 / 2.5;
+      const crops = {
+        right: { x: 1920 - w, y: 300, w, h },
+        bottom: { x: 600, y: 1080 - h, w, h },
+        corner: { x: 1920 - w, y: 1080 - h, w, h },
+      };
+      for (const [name, win] of Object.entries(crops)) {
+        const out = await cropFrame(frame, decoded, win, m);
+        expect(out.length).toBe(W * H * 3);
+        const at = (x: number, y: number) => out[(y * W + x) * 3];
+        const edge = [at(W - 1, H / 2), at(W - 1, H - 1), at(W / 2, H - 1), at(0, H - 1), at(W - 1, 0), at(W / 2, H / 2)];
+        for (const v of edge) expect(Math.abs(v - 150), `${name} crop: ${edge.join(",")}`).toBeLessThanOrEqual(2);
+      }
+    });
+  }
 });
 
 describe("scopeFor", () => {

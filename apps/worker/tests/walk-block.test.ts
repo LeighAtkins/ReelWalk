@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Readable } from "node:stream";
+import sharp from "sharp";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { blockSolveKeyFor, blockStillKeyFor, initialPin, OUTPUT, parseBlockSolve, type BlockSolve } from "@reelwalk/core";
 import { createAttemptScope } from "../src/lifecycle";
@@ -27,7 +28,7 @@ vi.mock("../src/library/tools", () => ({
   },
   run: (file: string, args: string[], options: unknown) => python(file, args, options),
 }));
-import { blockRevealPayloadSchema, renderReveal, revealDecodeArgs, runBlockSolveStep, runInStepScope, scopeFor, sourceRect, upload, type FfmpegCommand } from "../src/walk-block";
+import { blockRevealPayloadSchema, renderReveal, revealDecodeArgs, runBlockSolveStep, cropFrame, runInStepScope, scopeFor, upload, type FfmpegCommand } from "../src/walk-block";
 
 beforeEach(() => {
   hooks.onSend = null;
@@ -124,18 +125,92 @@ describe("block-reveal payload", () => {
 });
 
 describe("the crop", () => {
-  it("takes whole source pixels at 9:16 inside the frame and says which window that is", () => {
-    const decoded = { width: 3840, height: 2160 };
-    const { rect, window } = sourceRect({ x: 300.3, y: 10.7, w: 523.9, h: 931.4 }, 2, decoded);
-    expect(Number.isInteger(rect.left) && Number.isInteger(rect.top) && Number.isInteger(rect.width) && Number.isInteger(rect.height)).toBe(true);
-    expect(rect.width / rect.height).toBeCloseTo(OUTPUT.width / OUTPUT.height, 2);
-    expect(rect.left + rect.width).toBeLessThanOrEqual(decoded.width);
-    expect(rect.top + rect.height).toBeLessThanOrEqual(decoded.height);
-    expect(window.x).toBeCloseTo(rect.left / 2, 9);
-    // a window past the edge is pulled back in
-    const edge = sourceRect({ x: 1700, y: 0, w: 607.5, h: 1080 }, 2, decoded);
-    expect(edge.rect.left + edge.rect.width).toBe(3840);
+  const W = OUTPUT.width;
+  const H = OUTPUT.height;
+  /** Centroid of the red channel over the output frame, in output pixels. */
+  const centroid = (out: Buffer) => {
+    let sum = 0, sx = 0, sy = 0;
+    for (let y = 0; y < H; y++)
+      for (let x = 0; x < W; x++) {
+        const r = out[(y * W + x) * 3];
+        if (r > 20) {
+          sum += r;
+          sx += r * x;
+          sy += r * y;
+        }
+      }
+    return [sx / sum, sy / sum];
+  };
+
+  it("moves the picture by the window's fraction of a source pixel, in both axes", async () => {
+    // black with one bright 5 x 5 square; the window is 81 x 144 decoded pixels, so 1 decoded pixel is 13.3 output pixels
+    const decoded = { width: 640, height: 360 };
+    const m = decoded.width / 1920;
+    const frame = Buffer.alloc(decoded.width * decoded.height * 3);
+    for (let y = 180; y < 185; y++) for (let x = 320; x < 325; x++) frame.fill(255, (y * decoded.width + x) * 3, (y * decoded.width + x) * 3 + 3);
+    const win = { x: 840, y: 360, w: 243, h: 432 };
+    const s = W / (win.w * m);
+    const a = centroid(await cropFrame(frame, decoded, win, m));
+    // the square's centre is decoded (322, 182): it lands where the overlay's projection puts coordinate 322, 182
+    // ((u - window x) x scale), so drawing and picture agree
+    expect(Math.abs(a[0] - (322 - win.x * m) * s)).toBeLessThan(0.5);
+    expect(Math.abs(a[1] - (182 - win.y * m) * s)).toBeLessThan(0.5);
+    // a third of a solve pixel across (0.3 decoded) and 0.6 decoded down: the picture moves 4 and 8 output pixels
+    const b = centroid(await cropFrame(frame, decoded, { ...win, x: win.x + 0.9, y: win.y + 1.8 }, m));
+    expect(b[0] - a[0]).toBeCloseTo(-0.3 * s, 0);
+    expect(b[1] - a[1]).toBeCloseTo(-0.6 * s, 0);
+    // (a crop rounded to whole decoded pixels would move it 0 or 13 pixels)
+    expect(Math.abs(b[0] - a[0])).toBeGreaterThan(2);
+    expect(Math.abs(b[0] - a[0])).toBeLessThan(11);
   });
+
+  it("reads the real pixels around a crop inside the frame, never a copy of its own cut edge", async () => {
+    // Review fixture: black 1920 x 1080 with one white row (733) just past the window's bottom footprint (732.6). The
+    // bottom rows must match a crop made from a piece with a generous real halo (a tight piece padded a copy of row
+    // 733 into row 734 and the bottom-centre came out 88 instead of 99).
+    const decoded = { width: 1920, height: 1080 };
+    const frame = Buffer.alloc(decoded.width * decoded.height * 3);
+    frame.fill(255, 733 * decoded.width * 3, 734 * decoded.width * 3);
+    const win = { x: 700.4, y: 300.6, w: 243, h: 432 };
+    const out = await cropFrame(frame, decoded, win, 1);
+    // the reference: the same transform on a piece with 20 real pixels on every side (inside the frame, no padding)
+    const s = W / win.w;
+    const left = Math.floor(win.x) - 20;
+    const top = Math.floor(win.y) - 20;
+    const piece = await sharp(frame, { raw: { ...decoded, channels: 3 } }).extract({ left, top, width: Math.ceil(win.w) + 40, height: Math.ceil(win.h) + 40 }).raw().toBuffer();
+    const ref = await sharp(piece, { raw: { width: Math.ceil(win.w) + 40, height: Math.ceil(win.h) + 40, channels: 3 } })
+      .affine([s, 0, 0, s], { odx: -(win.x - left) * s, ody: -(win.y - top) * s, interpolator: sharp.interpolators.bicubic })
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+    const refAt = (x: number, y: number) => ref.data[(y * ref.info.width + x) * 3];
+    const at = (x: number, y: number) => out[(y * W + x) * 3];
+    expect(Math.abs(at(W / 2, H - 1) - 99)).toBeLessThanOrEqual(1);
+    for (const y of [H - 1, H - 2, H - 3, H - 6]) for (const x of [0, W / 2, W - 1]) expect(Math.abs(at(x, y) - refAt(x, y))).toBeLessThanOrEqual(1);
+  });
+
+  // Right, bottom and corner crops of a 1080p source, and the corner of a small one (each crop is a full 1080 x 1920
+  // frame of work; kept to four so this file leaves the CI runner's CPU to core's tracker tests).
+  for (const [decoded, names] of [[{ width: 1920, height: 1080 }, ["right", "bottom", "corner"]], [{ width: 600, height: 340 }, ["corner"]]] as const) {
+    it(`keeps the frame's own colour at its edges (${decoded.width} wide source, 2.5x crop)`, async () => {
+      const m = decoded.width / 1920;
+      const frame = Buffer.alloc(decoded.width * decoded.height * 3, 150);
+      const w = 607.5 / 2.5;
+      const h = 1080 / 2.5;
+      const all = {
+        right: { x: 1920 - w, y: 300, w, h },
+        bottom: { x: 600, y: 1080 - h, w, h },
+        corner: { x: 1920 - w, y: 1080 - h, w, h },
+      };
+      for (const name of names) {
+        const win = all[name];
+        const out = await cropFrame(frame, decoded, win, m);
+        expect(out.length).toBe(W * H * 3);
+        const at = (x: number, y: number) => out[(y * W + x) * 3];
+        const edge = [at(W - 1, H / 2), at(W - 1, H - 1), at(W / 2, H - 1), at(0, H - 1), at(W - 1, 0), at(W / 2, H / 2)];
+        for (const v of edge) expect(Math.abs(v - 150), `${name} crop: ${edge.join(",")}`).toBeLessThanOrEqual(2);
+      }
+    });
+  }
 });
 
 describe("scopeFor", () => {

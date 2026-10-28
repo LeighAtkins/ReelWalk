@@ -286,34 +286,52 @@ export function cropXFor(solve: BlockSolve, u: number): number {
 }
 
 /**
- * The push-in over the clip, eased: at least 1.16, and more for a far-off outline, until it spans about a third of the
- * frame's width at the end of the clip (the prototype's reveal pushed to 1.42), never past 1.45 (a 4K source is then
- * upscaled about 1.3×).
+ * The push-in towards the house (build stages addendum): none before the outline appears (never a push into empty
+ * ground), then eased in so that by the time the walls close the house spans `span` of the frame's width (2.5× at most:
+ * a 4K source's 9:16 crop is then 486 px wide, upscaled 2.2×), held to the end. As it pushes, the crop is steered so the
+ * house settles at `focusX`, `focusY` of the frame: centred, a little low, clear of the title at 0.16 and of the
+ * like/share column on the right. Short clips compress it with the stages (`revealBeats`).
  */
-export const PUSH_IN = { min: 1.16, max: 1.45, span: 0.32 } as const;
+export const PUSH_IN = { max: 2.5, span: 0.35, focusX: 0.5, focusY: 0.58 } as const;
 
-/** How far the reveal pushes in by its end, for this pin. */
+/** How far the reveal pushes in, for this pin: the house's width on screen when the walls start to close, against `span`. */
 export function pushInFor(solve: BlockSolve, pin: BlockPin): number {
   const base = baseWindow(solve, pin.cropX);
-  const cam = blockCameraAt(solve, solve.still.t + revealDurationMs(solve) / 1000);
+  const beats = revealBeats(revealDurationMs(solve));
+  const cam = blockCameraAt(solve, solve.still.t + beats.clad[0] / 1000);
   const us = footprintCorners(solve, pin).map((p) => projectPoint(cam, p)).filter((q) => q.z > 0).map((q) => q.u);
-  if (us.length < 4) return PUSH_IN.min;
+  if (us.length < 4) return 1;
   const spanPx = ((Math.max(...us) - Math.min(...us)) * OUTPUT.width) / base.w;
-  return Math.min(PUSH_IN.max, Math.max(PUSH_IN.min, (PUSH_IN.span * OUTPUT.width) / Math.max(1, spanPx)));
+  return Math.min(PUSH_IN.max, Math.max(1, (PUSH_IN.span * OUTPUT.width) / Math.max(1, spanPx)));
 }
 
+/** How far the push has gone at `tMs`: 0 until the outline starts to draw, 1 when the walls start to close, eased both ends. */
+export function pushProgress(solve: BlockSolve, tMs: number): number {
+  const beats = revealBeats(revealDurationMs(solve));
+  return ramp(tMs, beats.outline[0], beats.clad[0]);
+}
+
+/**
+ * The part of the solve's frame the output shows at `tMs`: the 9:16 crop, pushed in and steered towards the house. A
+ * fractional window: the worker crops the source to it exactly (sub-pixel), and every shape is projected through it, so
+ * the drawing stays on the ground whatever the crop does.
+ */
 export function viewAt(solve: BlockSolve, pin: BlockPin, tMs: number): ViewWindow {
   const base = baseWindow(solve, pin.cropX);
-  const dur = revealDurationMs(solve);
-  const zoom = 1 + (pushInFor(solve, pin) - 1) * smooth(tMs / dur);
-  const cam = blockCameraAt(solve, solve.still.t + tMs / 1000);
-  const c = projectPoint(cam, [pin.x, groundYAt(solve, pin.x, pin.z), pin.z]);
-  const fu = c.z > 0 ? Math.min(base.x + base.w, Math.max(base.x, c.u)) : base.x + base.w / 2;
-  const fv = c.z > 0 ? Math.min(base.h, Math.max(0, c.v)) : base.h / 2;
+  const { width, height } = solve.intrinsics;
+  const p = pushProgress(solve, tMs);
+  const zoom = 1 + (pushInFor(solve, pin) - 1) * p;
   const w = base.w / zoom;
   const h = base.h / zoom;
-  const x = Math.min(base.x + base.w - w, Math.max(base.x, fu - (fu - base.x) / zoom));
-  const y = Math.min(base.h - h, Math.max(0, fv - fv / zoom));
+  const cam = blockCameraAt(solve, solve.still.t + tMs / 1000);
+  const c = projectPoint(cam, [pin.x, groundYAt(solve, pin.x, pin.z), pin.z]);
+  // from the base crop's middle (p = 0: exactly the base crop) to the house at its focus point (p = 1)
+  const fromX = base.x + (base.w - w) / 2;
+  const fromY = (base.h - h) / 2;
+  const toX = c.z > 0 ? c.u - PUSH_IN.focusX * w : fromX;
+  const toY = c.z > 0 ? c.v - PUSH_IN.focusY * h : fromY;
+  const x = Math.min(width - w, Math.max(0, fromX + (toX - fromX) * p));
+  const y = Math.min(height - h, Math.max(0, fromY + (toY - fromY) * p));
   return { x, y, w, h };
 }
 
@@ -321,19 +339,39 @@ const toOut = (win: ViewWindow, u: number, v: number): Pt => [((u - win.x) * OUT
 
 // ------------------------------------------------------------------------------------------------------- the drawing
 
-/** The reveal's beats, ms into the clip: the outline draws on, its area is written on it, then the massing rises. */
+/**
+ * The reveal's beats, ms into an 8 s clip (shorter clips compress them, `revealBeats`): the outline draws on and its
+ * area is written on it; then the house is built (ADR 0093, build stages): the slab is poured, the wall frame goes up
+ * stud by stud, the roof trusses go on end to end, and the walls and roof close into the finished white massing.
+ */
 export const REVEAL = {
   outline: [300, 1300],
   fill: [600, 1400],
   labelIn: [900, 1500],
-  labelOut: [2400, 3000],
-  rise: [2000, 4000],
+  slab: [1500, 2200],
+  frame: [2200, 3500],
+  roof: [3500, 4500],
+  clad: [4500, 5400],
+  // the area stays written on the slab while the frame goes up, and goes as the trusses go on
+  labelOut: [3400, 4000],
 } as const;
+
+export type RevealBeats = { [K in keyof typeof REVEAL]: readonly [number, number] };
+
+/** The beats for a reveal of `durationMs`: as `REVEAL` for 6 s and longer, compressed so the house is finished 0.6 s before a shorter clip ends. */
+export function revealBeats(durationMs: number): RevealBeats {
+  const k = Math.min(1, Math.max(0.1, (durationMs - 600) / REVEAL.clad[1]));
+  return Object.fromEntries(Object.entries(REVEAL).map(([key, [a, b]]) => [key, [a * k, b * k] as const])) as RevealBeats;
+}
+
+/** Slab thickness, true metres, and the wall frame's stud and truss spacing. */
+export const SLAB_M = 0.3;
+export const STUD_SPACING_M = 1.2;
 
 export type BlockShape =
   | {
       kind: "poly";
-      role: "fill" | "outline" | "shadow" | "face" | "pool";
+      role: "fill" | "outline" | "shadow" | "slab" | "frame" | "roof-frame" | "face" | "pool";
       points: Pt[];
       closed: boolean;
       fill: string | null;
@@ -386,42 +424,152 @@ export function footprintCorners(solve: BlockSolve, pin: BlockPin): Vec3[] {
 
 type Face = { pts: Vec3[]; n: Vec3 };
 
-/** The massing's faces at `rise` (0 flat, 1 full height), outward normals. A home: walls and a gable roof (ridge along the length). A pool: a deck slab. */
-function massing(solve: BlockSolve, pin: BlockPin, rise: number): Face[] {
-  const spec = BUILDS[pin.build];
-  if (spec.eave <= 0 || rise <= 0) return [];
-  const [p0, p1, p2, p3] = footprintCorners(solve, pin);
-  const k = pin.scale.factor;
-  const eave = (spec.eave / k) * rise;
-  const ridge = (spec.ridge / k) * rise;
-  const up = (p: Vec3, h: number): Vec3 => [p[0], p[1] + h, p[2]];
-  const mid = (a: Vec3, b: Vec3): Vec3 => mul(add(a, b), 0.5);
-  const faces: Face[] = [];
-  const face = (pts: Vec3[]) => {
-    const n = norm(cross(sub(pts[1], pts[0]), sub(pts[2], pts[0])));
-    faces.push({ pts, n });
-  };
-  // p0 → p1 runs along the length on the -z side (local), p1 → p2 across the width.
-  face([p0, up(p0, eave), up(p1, eave), p1]);
-  face([p2, up(p2, eave), up(p3, eave), p3]);
-  const r01 = up(mid(p0, p3), ridge);
-  const r12 = up(mid(p1, p2), ridge);
-  face([p1, up(p1, eave), r12, up(p2, eave), p2]);
-  face([p3, up(p3, eave), r01, up(p0, eave), p0]);
-  if (ridge > eave + 1e-6) {
-    face([up(p0, eave), r01, r12, up(p1, eave)]);
-    face([up(p2, eave), r12, r01, up(p3, eave)]);
-  } else {
-    face([up(p0, eave), up(p3, eave), up(p2, eave), up(p1, eave)]);
-  }
-  // Normals point away from the centre, whatever order the corners came in.
-  const centre = mul([p0, p1, p2, p3].reduce((s, p) => add(s, p), [0, 0, 0] as Vec3), 0.25);
-  const c: Vec3 = [centre[0], centre[1] + eave / 2, centre[2]];
+/** Faces' normals turned away from `centre`, whatever order their corners came in. */
+function orientOut(faces: Face[], centre: Vec3): Face[] {
   for (const f of faces) {
     const fc = mul(f.pts.reduce((s, p) => add(s, p), [0, 0, 0] as Vec3), 1 / f.pts.length);
-    if (dot(f.n, sub(fc, c)) < 0) f.n = mul(f.n, -1);
+    if (dot(f.n, sub(fc, centre)) < 0) f.n = mul(f.n, -1);
   }
   return faces;
+}
+
+function makeFace(pts: Vec3[]): Face {
+  return { pts, n: norm(cross(sub(pts[1], pts[0]), sub(pts[2], pts[0]))) };
+}
+
+const lift = (p: Vec3, h: number): Vec3 => [p[0], p[1] + h, p[2]];
+const midpoint = (a: Vec3, b: Vec3): Vec3 => mul(add(a, b), 0.5);
+
+/** The slab's (or a pool's deck's) height in solve metres, and the height the house stands on. */
+function slabHeight(pin: BlockPin): number {
+  if (pin.build === "land") return 0;
+  return (pin.build === "pool" ? BUILDS.pool.eave : SLAB_M) / pin.scale.factor;
+}
+
+/** The slab as a box `progress` (0..1) of its height: its top and four sides, outward normals. */
+function slab(solve: BlockSolve, pin: BlockPin, progress: number): Face[] {
+  const h = slabHeight(pin) * progress;
+  if (h <= 0) return [];
+  const [p0, p1, p2, p3] = footprintCorners(solve, pin);
+  const top = [p0, p1, p2, p3].map((p) => lift(p, h));
+  const faces = [makeFace(top), makeFace([p0, p1, top[1], top[0]]), makeFace([p1, p2, top[2], top[1]]), makeFace([p2, p3, top[3], top[2]]), makeFace([p3, p0, top[0], top[3]])];
+  return orientOut(faces, lift(midpoint(p0, p2), h / 2));
+}
+
+/** The finished massing standing on the slab: walls and a gable roof (ridge along the length), outward normals. */
+function massing(solve: BlockSolve, pin: BlockPin): Face[] {
+  const spec = BUILDS[pin.build];
+  if (pin.build === "pool" || pin.build === "land" || spec.eave <= 0) return [];
+  const base = slabHeight(pin);
+  const [p0, p1, p2, p3] = footprintCorners(solve, pin).map((p) => lift(p, base));
+  const k = pin.scale.factor;
+  const eave = spec.eave / k;
+  const ridge = spec.ridge / k;
+  const faces: Face[] = [];
+  // p0 → p1 runs along the length on the -z side (local), p1 → p2 across the width.
+  faces.push(makeFace([p0, lift(p0, eave), lift(p1, eave), p1]));
+  faces.push(makeFace([p2, lift(p2, eave), lift(p3, eave), p3]));
+  const r03 = lift(midpoint(p0, p3), ridge);
+  const r12 = lift(midpoint(p1, p2), ridge);
+  faces.push(makeFace([p1, lift(p1, eave), r12, lift(p2, eave), p2]));
+  faces.push(makeFace([p3, lift(p3, eave), r03, lift(p0, eave), p0]));
+  if (ridge > eave + 1e-6) {
+    faces.push(makeFace([lift(p0, eave), r03, r12, lift(p1, eave)]));
+    faces.push(makeFace([lift(p2, eave), r12, r03, lift(p3, eave)]));
+  } else {
+    faces.push(makeFace([lift(p0, eave), lift(p3, eave), lift(p2, eave), lift(p1, eave)]));
+  }
+  return orientOut(faces, lift(midpoint(p0, p2), eave / 2));
+}
+
+/** One member of the frame: a line in the world, the normal of the wall or roof it belongs to (for the sun), how far it has gone up, and how thick it is. */
+type Member = { a: Vec3; b: Vec3; n: Vec3; shown: number; heavy: boolean };
+
+/**
+ * The wall frame at `progress`: studs every `STUD_SPACING_M` around the walls, each rising in turn around the perimeter
+ * (the last starting at 60% of the beat), then the top plates (and a floor plate between two storeys) at the end.
+ */
+function wallFrame(solve: BlockSolve, pin: BlockPin, progress: number): Member[] {
+  const spec = BUILDS[pin.build];
+  if (progress <= 0 || pin.build === "pool" || pin.build === "land") return [];
+  const k = pin.scale.factor;
+  const base = slabHeight(pin);
+  const corners = footprintCorners(solve, pin).map((p) => lift(p, base));
+  const centre = midpoint(corners[0], corners[2]);
+  const eave = spec.eave / k;
+  const studs: { at: Vec3; n: Vec3 }[] = [];
+  for (let e = 0; e < 4; e++) {
+    const a = corners[e];
+    const b = corners[(e + 1) % 4];
+    const len = Math.hypot(b[0] - a[0], b[2] - a[2]) * k;
+    const count = Math.min(40, Math.max(1, Math.round(len / STUD_SPACING_M)));
+    const out = sub(midpoint(a, b), centre);
+    const n = norm([out[0], 0, out[2]]);
+    for (let i = 0; i < count; i++) studs.push({ at: add(a, mul(sub(b, a), i / count)), n });
+  }
+  const members: Member[] = studs.map((s, i) => {
+    const grown = Math.min(1, Math.max(0, (progress - (0.6 * i) / studs.length) / 0.4));
+    return { a: s.at, b: lift(s.at, eave * smooth(grown)), n: s.n, shown: grown, heavy: false };
+  });
+  const plates = ramp(progress, 0.85, 1);
+  if (plates > 0) {
+    const levels = spec.eave > 4.5 ? [eave / 2, eave] : [eave];
+    for (const h of levels)
+      for (let e = 0; e < 4; e++) {
+        const a = lift(corners[e], h);
+        const b = lift(corners[(e + 1) % 4], h);
+        const out = sub(midpoint(a, b), lift(centre, h));
+        members.push({ a, b: add(a, mul(sub(b, a), plates)), n: norm([out[0], 0, out[2]]), shown: 1, heavy: true });
+      }
+  }
+  return members;
+}
+
+/**
+ * The two roof slopes' outward normals, taken from the finished massing's own roof faces (`a` on the p0–p1 side, `b`
+ * on the p3–p2 side), so a truss's rafters are lit exactly as the roof that closes over them.
+ */
+export function roofSlopeNormals(solve: BlockSolve, pin: BlockPin): { a: Vec3; b: Vec3 } | null {
+  const faces = massing(solve, pin);
+  const spec = BUILDS[pin.build];
+  if (faces.length < 6 || spec.ridge <= spec.eave) return null;
+  return { a: faces[4].n, b: faces[5].n };
+}
+
+/** The roof frame at `progress`: gable trusses every `STUD_SPACING_M` along the length, set end to end, then the ridge. */
+function roofFrame(solve: BlockSolve, pin: BlockPin, progress: number): Member[] {
+  const spec = BUILDS[pin.build];
+  if (progress <= 0 || pin.build === "pool" || pin.build === "land" || spec.ridge <= spec.eave) return [];
+  const k = pin.scale.factor;
+  const base = slabHeight(pin);
+  const [p0, p1, p2, p3] = footprintCorners(solve, pin).map((p) => lift(p, base));
+  const eave = spec.eave / k;
+  const ridge = spec.ridge / k;
+  const len = Math.hypot(p1[0] - p0[0], p1[2] - p0[2]) * k;
+  const count = Math.min(40, Math.max(2, Math.round(len / STUD_SPACING_M) + 1));
+  // each rafter lit as its own slope of the finished roof (review: the far slope's rafters used to be lit as flat)
+  const slopes = roofSlopeNormals(solve, pin)!;
+  const up: Vec3 = [0, 1, 0];
+  const members: Member[] = [];
+  for (let i = 0; i < count; i++) {
+    const u = i / (count - 1);
+    const shown = Math.min(1, Math.max(0, (progress - 0.7 * u) / 0.3));
+    if (shown <= 0) continue;
+    const left = lift(add(p0, mul(sub(p1, p0), u)), eave);
+    const right = lift(add(p3, mul(sub(p2, p3), u)), eave);
+    const top = lift(midpoint(add(p0, mul(sub(p1, p0), u)), add(p3, mul(sub(p2, p3), u))), ridge);
+    const t = smooth(shown);
+    members.push({ a: left, b: add(left, mul(sub(top, left), t)), n: slopes.a, shown, heavy: false });
+    members.push({ a: right, b: add(right, mul(sub(top, right), t)), n: slopes.b, shown, heavy: false });
+    members.push({ a: left, b: right, n: up, shown, heavy: false });
+  }
+  const ridgeP = ramp(progress, 0.7, 1);
+  if (ridgeP > 0) {
+    const r0 = lift(midpoint(p0, p3), ridge);
+    const r1 = lift(midpoint(p1, p2), ridge);
+    members.push({ a: r0, b: add(r0, mul(sub(r1, r0), ridgeP)), n: up, shown: 1, heavy: true });
+  }
+  return members;
 }
 
 export function sunVector(sun: BlockPin["sun"]): Vec3 {
@@ -447,11 +595,11 @@ function hull(points: Pt[]): Pt[] {
   return [...lower.slice(0, -1), ...upper.slice(0, -1)];
 }
 
-/** The model's white, shaded by the sun: a face turned to it is bright, one turned away keeps 74% (a sky-lit side). */
-function shade(n: Vec3, sun: Vec3): string {
+/** The model's white (or `base`), shaded by the sun (exported as `modelShade` for tests): a face turned to it is bright, one turned away keeps 74% (a sky-lit side). */
+function shade(n: Vec3, sun: Vec3, base: [number, number, number] = [246, 243, 236]): string {
   const lit = 0.74 + 0.26 * Math.max(0, dot(n, sun));
   const c = (v: number) => Math.round(Math.min(255, v * lit));
-  return `rgb(${c(246)},${c(243)},${c(236)})`;
+  return `rgb(${c(base[0])},${c(base[1])},${c(base[2])})`;
 }
 
 /** The part of a closed outline from its start to `p` (0..1) of its perimeter. */
@@ -474,16 +622,36 @@ function partialOutline(points: Pt[], p: number): Pt[] {
 }
 
 export type DrawOptions = {
-  /** Draw everything at its end state (the pin screen): outline, fill, label and, for `rise`, the massing. */
+  /** Draw everything at its end state (the pin screen): outline, fill, label and, for `rise` (0..1), the house built that far. */
   still?: { rise: number; label: boolean };
   /** The window of solve pixels the output shows; defaults to `viewAt`. The pin screen passes the still's crop. */
   window?: ViewWindow;
 };
 
+/** How far each stage is at `tMs` (0..1). */
+export function stagesAt(solve: BlockSolve, pin: BlockPin, tMs: number, still?: DrawOptions["still"]) {
+  if (still) {
+    const r = still.rise;
+    return { outline: 1, fill: 1, label: still.label ? 1 : 0, slab: r > 0 ? 1 : 0, frame: r, roof: r, clad: r };
+  }
+  const b = revealBeats(revealDurationMs(solve));
+  const r = (beat: readonly [number, number]) => ramp(tMs, beat[0], beat[1]);
+  return {
+    outline: r(b.outline),
+    fill: r(b.fill),
+    label: r(b.labelIn) * (pin.build === "land" ? 1 : 1 - r(b.labelOut)),
+    slab: r(b.slab),
+    frame: r(b.frame),
+    roof: r(b.roof),
+    clad: r(b.clad),
+  };
+}
+
 /**
  * Everything drawn over the frame `tMs` into the reveal, in output pixels (1080 × 1920), back to front: the outline's
- * fill, the massing's shadow, the outline, the area label, the massing's visible faces, then a pool's water on top of
- * its deck. A shape behind the camera is left out.
+ * fill, the massing's shadow, the outline, the slab, the area label on it, the wall and roof frames, the massing's
+ * visible faces closing over them, then a pool's water on top of its deck. A shape behind the camera is left out.
+ * Every stage is drawn from the solved camera of its moment (locked to the ground) and shaded by the pinned sun.
  */
 export function drawBlock(solve: BlockSolve, pin: BlockPin, tMs: number, options: DrawOptions = {}): BlockShape[] {
   const cam = blockCameraAt(solve, solve.still.t + tMs / 1000);
@@ -496,80 +664,97 @@ export function drawBlock(solve: BlockSolve, pin: BlockPin, tMs: number, options
     const out = ps.map(P);
     return out.every((p) => p !== null) ? (out as Pt[]) : null;
   };
-  const still = options.still;
-  const outlineP = still ? 1 : ramp(tMs, REVEAL.outline[0], REVEAL.outline[1]);
-  const fillP = still ? 1 : ramp(tMs, REVEAL.fill[0], REVEAL.fill[1]);
-  const labelP = still ? (still.label ? 1 : 0) : ramp(tMs, REVEAL.labelIn[0], REVEAL.labelIn[1]) * (pin.build === "land" ? 1 : 1 - ramp(tMs, REVEAL.labelOut[0], REVEAL.labelOut[1]));
-  const rise = still ? still.rise : ramp(tMs, REVEAL.rise[0], REVEAL.rise[1]);
+  const st = stagesAt(solve, pin, tMs, options.still);
   const corners = footprintCorners(solve, pin);
   const ground = all(corners);
   const shapes: BlockShape[] = [];
   if (!ground) return shapes;
   const width = OUTPUT.width / 1080;
   const sun = sunVector(pin.sun);
+  const poly = (role: Extract<BlockShape, { kind: "poly" }>["role"], points: Pt[], rest: Partial<Extract<BlockShape, { kind: "poly" }>>): BlockShape => ({
+    kind: "poly", role, points, closed: true, fill: null, fillOpacity: 0, stroke: null, strokeWidth: 0, strokeOpacity: 0, dash: null, blur: 0, ...rest,
+  });
+  const facing = (f: Face) => dot(f.n, sub(cam.C, mul(f.pts.reduce((s, p) => add(s, p), [0, 0, 0] as Vec3), 1 / f.pts.length))) > 0;
 
-  if (fillP > 0) {
-    shapes.push({ kind: "poly", role: "fill", points: ground, closed: true, fill: "#F3EDE2", fillOpacity: 0.3 * fillP, stroke: null, strokeWidth: 0, strokeOpacity: 0, dash: null, blur: 0 });
-  }
-  const faces = massing(solve, pin, rise);
-  if (faces.length > 0 && sun[1] > 0.05) {
+  if (st.fill > 0) shapes.push(poly("fill", ground, { fill: "#F3EDE2", fillOpacity: 0.3 * st.fill }));
+
+  // The massing's shadow: faint while the frame and trusses stand, full as the walls close.
+  const faces = massing(solve, pin);
+  const shadowP = 0.34 * st.clad + 0.1 * st.roof * (1 - st.clad);
+  if (faces.length > 0 && sun[1] > 0.05 && shadowP > 0) {
     const cast: Pt[] = [];
     const y0 = corners[0][1];
     for (const f of faces)
       for (const v of f.pts) {
-        const s = add(v, mul(sun, -(v[1] - y0) / sun[1]));
-        const q = P(s);
+        const q = P(add(v, mul(sun, -(v[1] - y0) / sun[1])));
         if (q) cast.push(q);
       }
     for (const g of ground) cast.push(g);
-    if (cast.length >= 3) shapes.push({ kind: "poly", role: "shadow", points: hull(cast), closed: true, fill: "#000000", fillOpacity: 0.34 * rise, stroke: null, strokeWidth: 0, strokeOpacity: 0, dash: null, blur: 3 });
+    if (cast.length >= 3) shapes.push(poly("shadow", hull(cast), { fill: "#000000", fillOpacity: shadowP, blur: 3 }));
   }
-  if (outlineP > 0) {
-    shapes.push({
-      kind: "poly",
-      role: "outline",
-      points: outlineP >= 1 ? ground : partialOutline(ground, outlineP),
-      closed: outlineP >= 1,
-      fill: null,
-      fillOpacity: 0,
-      stroke: "#FFFFFF",
-      strokeWidth: 4 * width,
-      strokeOpacity: 0.95,
-      dash: [22 * width, 12 * width],
-      blur: 0,
-    });
+
+  if (st.outline > 0) {
+    const points = st.outline >= 1 ? ground : partialOutline(ground, st.outline);
+    // the slab is poured over it: the dashed line would otherwise show as a seam along the slab's foot
+    const under = pin.build === "land" ? 1 : 1 - st.slab;
+    if (under > 0) shapes.push(poly("outline", points, { closed: st.outline >= 1, stroke: "#FFFFFF", strokeWidth: 4 * width, strokeOpacity: 0.95 * under, dash: [22 * width, 12 * width] }));
   }
-  if (labelP > 0) {
-    const label = labelOnGround(solve, pin, cam, win);
-    if (label) shapes.push({ ...label, opacity: labelP });
-  }
-  for (const f of faces) {
-    const fc = mul(f.pts.reduce((s, p) => add(s, p), [0, 0, 0] as Vec3), 1 / f.pts.length);
-    if (dot(f.n, sub(cam.C, fc)) <= 0) continue; // faces away from the camera
+
+  // The slab (a pool's deck), poured: concrete, lit by the sun.
+  for (const f of slab(solve, pin, st.slab)) {
+    if (!facing(f)) continue;
     const pts = all(f.pts);
-    if (!pts) continue;
-    shapes.push({ kind: "poly", role: "face", points: pts, closed: true, fill: shade(f.n, sun), fillOpacity: 1, stroke: "#5A5650", strokeWidth: 1.4 * width, strokeOpacity: 0.45, dash: null, blur: 0 });
+    if (pts) shapes.push(poly("slab", pts, { fill: shade(f.n, sun, [222, 218, 210]), fillOpacity: 1, stroke: "#6B675F", strokeWidth: 1.2 * width, strokeOpacity: 0.4 }));
   }
-  if (pin.build === "pool" && fillP > 0) {
+
+  if (st.label > 0) {
+    const label = labelOnGround(solve, pin, cam, win, slabHeight(pin) * st.slab);
+    if (label) shapes.push({ ...label, opacity: st.label });
+  }
+
+  // The frame and the trusses, white like the model, each member lit like the wall or roof it belongs to; they fade as
+  // the walls close over them.
+  const frameOpacity = 1 - st.clad;
+  if (frameOpacity > 0) {
+    for (const [role, members] of [["frame", wallFrame(solve, pin, st.frame)], ["roof-frame", roofFrame(solve, pin, st.roof)]] as const) {
+      for (const m of members) {
+        if (m.shown <= 0) continue;
+        const pts = all([m.a, m.b]);
+        if (!pts) continue;
+        shapes.push(poly(role, pts, { closed: false, stroke: shade(m.n, sun), strokeWidth: (m.heavy ? 2.6 : 1.8) * width, strokeOpacity: 0.95 * frameOpacity * Math.min(1, m.shown * 2) }));
+      }
+    }
+  }
+
+  // The walls and roof closing into the finished white massing.
+  if (st.clad > 0) {
+    for (const f of faces) {
+      if (!facing(f)) continue;
+      const pts = all(f.pts);
+      if (pts) shapes.push(poly("face", pts, { fill: shade(f.n, sun), fillOpacity: st.clad, stroke: "#5A5650", strokeWidth: 1.4 * width, strokeOpacity: 0.45 * st.clad }));
+    }
+  }
+
+  if (pin.build === "pool" && st.fill > 0) {
     // the pool itself: 70% of the deck's length, 55% of its width, towards one end. Drawn after the deck's faces, on
     // its top, so the opaque deck does not cover it.
     const k = pin.scale.factor;
     const a = (pin.yawDeg * Math.PI) / 180;
     const ex: Vec3 = [Math.cos(a), 0, -Math.sin(a)];
     const ez: Vec3 = [Math.sin(a), 0, Math.cos(a)];
-    const y = corners[0][1] + (BUILDS.pool.eave / k) * rise + 0.01;
+    const y = corners[0][1] + slabHeight(pin) * st.slab + 0.01;
     const c: Vec3 = add([pin.x, y, pin.z], mul(ex, (-0.1 * pin.length) / k));
     const hl = (0.35 * pin.length) / k;
     const hw = (0.275 * pin.width) / k;
     const water = all([add(add(c, mul(ex, -hl)), mul(ez, -hw)), add(add(c, mul(ex, hl)), mul(ez, -hw)), add(add(c, mul(ex, hl)), mul(ez, hw)), add(add(c, mul(ex, -hl)), mul(ez, hw))]);
-    if (water) shapes.push({ kind: "poly", role: "pool", points: water, closed: true, fill: "#6FB7C9", fillOpacity: 0.85 * Math.max(fillP, rise), stroke: "#FFFFFF", strokeWidth: 2 * width, strokeOpacity: 0.6 * fillP, dash: null, blur: 0 });
+    if (water) shapes.push(poly("pool", water, { fill: "#6FB7C9", fillOpacity: 0.85 * Math.max(st.fill, st.slab), stroke: "#FFFFFF", strokeWidth: 2 * width, strokeOpacity: 0.6 * st.fill }));
   }
   return shapes;
 }
 
-/** The area written flat on the ground at the outline's centre, reading left to right from the camera, sized to fit inside it. */
-function labelOnGround(solve: BlockSolve, pin: BlockPin, cam: BlockCamera, win: ViewWindow): Extract<BlockShape, { kind: "label" }> | null {
-  const y = groundYAt(solve, pin.x, pin.z);
+/** The area written flat on the ground (or on the slab, `above` it) at the outline's centre, reading left to right from the camera, sized to fit inside it. */
+function labelOnGround(solve: BlockSolve, pin: BlockPin, cam: BlockCamera, win: ViewWindow, above = 0): Extract<BlockShape, { kind: "label" }> | null {
+  const y = groundYAt(solve, pin.x, pin.z) + above;
   const c: Vec3 = [pin.x, y, pin.z];
   const a = (pin.yawDeg * Math.PI) / 180;
   const along: Vec3 = [Math.cos(a), 0, -Math.sin(a)];
@@ -601,12 +786,12 @@ function labelOnGround(solve: BlockSolve, pin: BlockPin, cam: BlockCamera, win: 
   const k = pin.scale.factor;
   lengthM /= k;
   depthM /= k;
-  // Playfair's figures average ~0.52 em and the main line is set at 1.45 cap heights, so a line of n characters is ~0.75 n
-  // caps wide: as large as fits, inside 92% of the side it runs along and a third of the other (the sub line may run
-  // a little past it; legible from a drone's height matters more).
+  // Playfair's figures average ~0.52 em and the line is set at 1.45 cap heights, so a line of n characters is ~0.75 n
+  // caps wide: as large as fits, inside 92% of the side it runs along and half the other.
   const { text } = areaText(pin);
-  const size = Math.min((0.92 * lengthM) / (0.754 * text.length), 0.34 * depthM);
-  return { kind: "label", ...areaText(pin), matrix: [p1[0] - o[0], p1[1] - o[1], p2[0] - o[0], p2[1] - o[1], o[0], o[1]], size, opacity: 1 };
+  const size = Math.min((0.92 * lengthM) / (0.754 * text.length), 0.5 * depthM);
+  // Just the area: the "24 × 11 m" line under it was unreadable at a drone's distance (the dimensions are on the pin screen).
+  return { kind: "label", text, sub: "", matrix: [p1[0] - o[0], p1[1] - o[1], p2[0] - o[0], p2[1] - o[1], o[0], o[1]], size, opacity: 1 };
 }
 
 // ---------------------------------------------------------------------------------------------------------- the site
@@ -735,8 +920,8 @@ export function blockSvgBody(shapes: BlockShape[], labelImage?: { href: string; 
       const [a, b, c, d, e, f] = s.matrix.map(num);
       const inner = labelImage
         ? `<image href="${esc(labelImage.href)}" x="${num(-labelImage.width / 2)}" y="${num(-labelImage.height / 2)}" width="${num(labelImage.width)}" height="${num(labelImage.height)}"/>`
-        : `<text x="0" y="${num(s.size * 0.35)}" text-anchor="middle" font-family="${LABEL_FONT}" font-size="${num(s.size * 1.45)}" font-weight="500" fill="#FFFFFF">${esc(s.text)}</text>` +
-          `<text x="0" y="${num(s.size * 1.25)}" text-anchor="middle" font-family="${LABEL_FONT}" font-size="${num(s.size * 0.62)}" fill="#FFFFFF" fill-opacity="0.9">${esc(s.sub)}</text>`;
+        : `<text x="0" y="${num(s.size * 0.5)}" text-anchor="middle" font-family="${LABEL_FONT}" font-size="${num(s.size * 1.45)}" font-weight="500" fill="#FFFFFF">${esc(s.text)}</text>` +
+          (s.sub ? `<text x="0" y="${num(s.size * 1.4)}" text-anchor="middle" font-family="${LABEL_FONT}" font-size="${num(s.size * 0.62)}" fill="#FFFFFF" fill-opacity="0.9">${esc(s.sub)}</text>` : "");
       parts.push(`<g transform="matrix(${a} ${b} ${c} ${d} ${e} ${f})" opacity="${num(s.opacity)}">${inner}</g>`);
     }
   }
@@ -753,3 +938,5 @@ export function labelImageSize(size: number): { width: number; height: number } 
 /** Where the worker keeps a clip's solve and still, beside nothing else of the asset's, so a re-solve replaces them. */
 export const blockSolveKeyFor = (assetId: string): string => `blocks/${assetId}/solve.v${BLOCK_SOLVE_VERSION}.json`;
 export const blockStillKeyFor = (assetId: string): string => `blocks/${assetId}/still.v${BLOCK_SOLVE_VERSION}.jpg`;
+
+export const modelShade = (n: Vec3, sun: Vec3): string => shade(n, sun);

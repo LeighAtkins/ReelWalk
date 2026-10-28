@@ -300,8 +300,10 @@ export async function startMusicAnalysisRun(user: { id: string; workspaceId: str
 /**
  * A one-step run of work only the worker can do and that never calls a paid provider (Walk the block, ADR 0093). The
  * same `requestId` and payload resume the run already queued or done; the same id with a different payload is refused.
- * A run that FAILED is queued again under a new generation (nothing paid was sent, so repeating it is safe): the solve's
- * request id is fixed per clip, and a full disk or a lost worker must not lock a clip out for good.
+ * Asking again restarts a run that cannot finish as it stands (nothing paid was sent, so repeating it is safe): a step
+ * that FAILED, or one of a run that was stopped (whose claim the stop flag would refuse at every delivery). The stop
+ * flag is cleared in the same transaction as the step is queued again under a new generation. The solve's request id
+ * is fixed per clip, so without this a full disk, a lost worker or a Stop would lock the clip out for good.
  * Returns the step id the browser polls at /api/ai-jobs/:id.
  */
 export async function startWorkerStepRun(input: { user: { id: string; workspaceId: string }; kind: "block-solve" | "block-reveal"; requestId: string; payload: Prisma.InputJsonValue }): Promise<StartResult> {
@@ -309,24 +311,25 @@ export async function startWorkerStepRun(input: { user: { id: string; workspaceI
   const hash = requestHash(payload);
   const find = () => prisma.workflowRun.findUnique({
     where: { workspaceId_kind_requestId: { workspaceId: user.workspaceId, kind, requestId } },
-    select: { id: true, requestHash: true, steps: { where: { index: 0 }, select: { id: true, status: true } } },
+    select: { id: true, requestHash: true, cancelRequested: true, steps: { where: { index: 0 }, select: { id: true, status: true } } },
   });
   const resume = (run: NonNullable<Awaited<ReturnType<typeof find>>>): StartResult | null => {
     if (run.requestHash !== hash) return { ok: false, status: 409, message: "That request id was already used for a different request.", reason: "request_mismatch" };
     return run.steps[0] ? { ok: true, jobId: run.steps[0].id, runId: run.id, resumed: true } : null;
   };
   const existing = await find();
-  const failed = existing?.requestHash === hash ? existing.steps[0] : undefined;
-  if (existing && failed?.status === "FAILED") {
+  const step = existing?.requestHash === hash ? existing.steps[0] : undefined;
+  const restartable = step && (step.status === "FAILED" || (existing!.cancelRequested && step.status === "QUEUED"));
+  if (existing && step && restartable) {
     const requeued = await prisma.$transaction(async (tx) => {
-      const step = await tx.workflowStep.updateMany({ where: { id: failed.id, status: "FAILED" }, data: { status: "QUEUED", generation: { increment: 1 }, error: null, finishedAt: null, startedAt: null, heartbeatAt: null } });
-      if (step.count === 0) return false;
-      await tx.workflowRun.update({ where: { id: existing.id }, data: { status: "QUEUED", error: null, finishedAt: null } });
-      await queueStep(tx, await tx.workflowStep.findUniqueOrThrow({ where: { id: failed.id }, select: { id: true, generation: true } }));
+      const changed = await tx.workflowStep.updateMany({ where: { id: step.id, status: step.status }, data: { status: "QUEUED", generation: { increment: 1 }, error: null, finishedAt: null, startedAt: null, heartbeatAt: null } });
+      if (changed.count === 0) return false;
+      await tx.workflowRun.update({ where: { id: existing.id }, data: { status: "QUEUED", cancelRequested: false, error: null, finishedAt: null } });
+      await queueStep(tx, await tx.workflowStep.findUniqueOrThrow({ where: { id: step.id }, select: { id: true, generation: true } }));
       return true;
     });
     if (requeued) await kick();
-    return { ok: true, jobId: failed.id, runId: existing.id, resumed: true };
+    return { ok: true, jobId: step.id, runId: existing.id, resumed: true };
   }
   const resumed = existing && resume(existing);
   if (resumed) return resumed;

@@ -16,7 +16,9 @@ import {
   placeAt,
   projectPoint,
   pushInFor,
+  MIN_REVEAL_SECONDS,
   revealDurationMs,
+  revealFps,
   scaleFromAltitude,
   scaleFromLength,
   suggestSite,
@@ -180,7 +182,33 @@ describe("drawBlock", () => {
     expect(land.some((s) => s.kind === "label")).toBe(true);
     expect(land.some((s) => s.kind === "poly" && s.role === "face")).toBe(false);
     const pool = drawBlock(solve, { ...pin, build: "pool", length: 14, width: 7 }, 6000);
-    expect(pool.some((s) => s.kind === "poly" && s.role === "pool")).toBe(true);
+    const roles = pool.map((s) => (s.kind === "poly" ? s.role : "label"));
+    // the water is drawn after (on top of) every face of the opaque deck, so it is actually seen
+    expect(roles).toContain("pool");
+    expect(roles).toContain("face");
+    expect(roles.indexOf("pool")).toBeGreaterThan(roles.lastIndexOf("face"));
+  });
+});
+
+describe("short footage", () => {
+  const cut = (seconds: number): unknown => ({ ...raw, cameras: raw.cameras.filter((c: { t: number }) => c.t <= seconds) });
+
+  it("refuses a solve too short for the reveal's beats", () => {
+    const short = parseBlockSolve(cut(3));
+    expect(short.ok).toBe(false);
+    expect(!short.ok && short.code).toBe("too-short");
+    expect(parseBlockSolve(cut(MIN_REVEAL_SECONDS + 0.4)).ok).toBe(true);
+  });
+
+  it("never runs the reveal past the last solved camera or the end of the clip", () => {
+    const five = parseBlockSolve(cut(5));
+    if (!five.ok) throw new Error("5 s should parse");
+    const last = five.solve.cameras[five.solve.cameras.length - 1].t;
+    expect(revealDurationMs(five.solve)).toBeLessThanOrEqual(last * 1000);
+    expect(revealDurationMs(five.solve)).toBeGreaterThanOrEqual(MIN_REVEAL_SECONDS * 1000);
+    expect(revealDurationMs({ ...solve, source: { ...solve.source, durationMs: 6200 } })).toBe(6200);
+    expect(revealFps(solve)).toBe(30);
+    expect(revealFps({ ...solve, source: { ...solve.source, fps: 23.976 } })).toBeCloseTo(23.976, 6);
   });
 });
 

@@ -8,6 +8,7 @@
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -21,6 +22,19 @@ from measure import DEFAULT_SUN, world  # noqa: E402
 
 VERSION = 1
 MAX_POINTS = 4000
+# What the solve reads, decided from the probe before a single frame is decoded (review of PR #259: a 1080 x 10000 clip
+# was decoded whole, ~7 GB, before being refused as portrait).
+MIN_SECONDS = 5.0          # footage the solve starts on
+MIN_REVEAL_SECONDS = 4.5   # solved flight the reveal needs (MIN_REVEAL_SECONDS in core)
+MAX_SIDE = (8192, 4320)    # 8K
+MAX_ASPECT = 2.4           # wider is a panorama or a 360 strip, not a drone pass
+FPS_RANGE = (10.0, 121.0)
+DECODE_BUDGET_BYTES = 900 * 1024 * 1024  # every sampled frame is held in memory at once
+
+
+def write_json(path, value):
+    with open(path, "w") as f:
+        json.dump(value, f, separators=(",", ":"))
 
 
 def log(line):
@@ -28,23 +42,61 @@ def log(line):
 
 
 def probe(ffmpeg, video):
-    # ffmpeg -i prints the stream line to stderr; enough to get the size and duration without ffprobe.
+    # ffmpeg -i prints the stream line to stderr; enough to get the size, frame rate and duration without ffprobe.
     out = subprocess.run([ffmpeg, "-hide_banner", "-i", video], capture_output=True, text=True).stderr
-    import re
-    size = re.search(r"Video:.*?(\d{2,5})x(\d{2,5})", out)
+    stream = re.search(r"Stream[^\n]*Video:[^\n]*", out)
+    line = stream.group(0) if stream else ""
+    size = re.search(r", (\d{2,6})x(\d{2,6})", line)
+    rate = re.search(r", ([\d.]+) fps", line) or re.search(r", ([\d.]+) tbr", line)
     dur = re.search(r"Duration: (\d+):(\d+):([\d.]+)", out)
     w, h = (int(size.group(1)), int(size.group(2))) if size else (0, 0)
     seconds = int(dur.group(1)) * 3600 + int(dur.group(2)) * 60 + float(dur.group(3)) if dur else 0.0
-    return w, h, seconds
+    return w, h, seconds, float(rate.group(1)) if rate else 0.0
 
 
-def frames(ffmpeg, video, out_dir, fps, width, seconds):
+def plan(src_w, src_h, seconds, src_fps, want_fps=3.0, max_seconds=24.0, max_width=1920):
+    """What to decode, or a SolveError for a clip the solve will not read. Decided from the probe alone."""
+    if src_w <= 0 or src_h <= 0:
+        raise SolveError("unreadable", "This file could not be read as a video.")
+    if src_h > src_w:
+        raise SolveError("portrait", "This clip is portrait. Walk the block reads landscape drone footage.")
+    if src_w > MAX_SIDE[0] or src_h > MAX_SIDE[1]:
+        raise SolveError("too-large", "This clip is larger than 8K. Export it at 4K or smaller.")
+    if src_w / src_h > MAX_ASPECT:
+        raise SolveError("too-wide", "This clip is wider than a drone camera films (a panorama or a 360 strip).")
+    if not (FPS_RANGE[0] <= src_fps <= FPS_RANGE[1]):
+        raise SolveError("frame-rate", "This clip's frame rate could not be read. Export it again at 24-60 fps.")
+    if seconds < MIN_SECONDS:
+        raise SolveError("too-short", "The clip is too short to read in 3D. Use at least %g seconds of drone footage." % MIN_SECONDS)
+    step = max(1, int(round(src_fps / want_fps)))
+    fps = src_fps / step
+    use = min(seconds, max_seconds)
+    count = int(use * fps) + 1
+    width = min(max_width, src_w)
+    height = int(round(width * src_h / src_w / 2)) * 2
+    if count * width * height * 3 > DECODE_BUDGET_BYTES:
+        raise SolveError("too-large", "This clip is too large to read. Export it at 4K or smaller.")
+    return {"step": step, "fps": fps, "seconds": use, "width": width, "height": height, "count": count}
+
+
+def frames(ffmpeg, video, out_dir, p):
+    """Every `step`-th source frame (no resampling: each is a real frame) with its own timestamp from the source, so a
+    camera is labelled with the moment its frame was filmed. Times run from the first frame (0)."""
     d = os.path.join(out_dir, "frames")
     os.makedirs(d, exist_ok=True)
-    subprocess.run([ffmpeg, "-v", "error", "-y", "-t", str(seconds), "-i", video, "-vf", "fps=%g,scale=%d:-2" % (fps, width),
-                    "-q:v", "2", os.path.join(d, "f%03d.jpg")], check=True)
+    # Quoted, so the comma inside mod() is not a filter separator.
+    vf = "select='not(mod(n,%d))',showinfo,scale=%d:%d" % (p["step"], p["width"], p["height"])
+    run = subprocess.run([ffmpeg, "-hide_banner", "-v", "info", "-y", "-t", "%.3f" % p["seconds"], "-i", video, "-vf", vf,
+                          "-fps_mode", "passthrough", "-frames:v", str(p["count"]), "-q:v", "2", os.path.join(d, "f%03d.jpg")],
+                         capture_output=True, text=True)
+    if run.returncode != 0:
+        raise RuntimeError("ffmpeg could not decode the clip: %s" % run.stderr[-400:])
+    pts = [float(m) for m in re.findall(r"Parsed_showinfo[^\n]*?pts_time:\s*([-\d.]+)", run.stderr)]
     names = sorted(n for n in os.listdir(d) if n.endswith(".jpg"))
-    return [cv2.imread(os.path.join(d, n)) for n in names]
+    if not names or len(pts) < len(names):
+        raise RuntimeError("ffmpeg reported %d frame times for %d frames" % (len(pts), len(names)))
+    times = [round(t - pts[0], 4) for t in pts[: len(names)]]
+    return [cv2.imread(os.path.join(d, n)) for n in names], times
 
 
 def main(argv=None):
@@ -61,24 +113,24 @@ def main(argv=None):
     os.makedirs(a.out, exist_ok=True)
     started = time.time()
     cv2.setNumThreads(max(1, os.cpu_count() or 1))
-    src_w, src_h, duration = probe(ffmpeg, a.video)
-    if src_w <= 0:
-        raise SystemExit("could not read the video")
-    width = min(a.width, src_w if src_w >= src_h else a.width)
-    if a.frames_dir:
-        names = sorted(n for n in os.listdir(a.frames_dir) if n.endswith(".jpg"))
-        images = [cv2.imread(os.path.join(a.frames_dir, n)) for n in names]
-    else:
-        images = frames(ffmpeg, a.video, a.out, a.fps, width, min(a.seconds, duration or a.seconds))
-    log("frames %d at %dx%d (%.1f s)" % (len(images), images[0].shape[1], images[0].shape[0], time.time() - started))
+    src_w, src_h, duration, src_fps = probe(ffmpeg, a.video)
     result = {"version": VERSION, "ok": True}
     try:
-        if src_h > src_w:
-            raise SolveError("portrait", "This clip is portrait. Walk the block reads landscape drone footage.")
-        sol = solve(images, a.fps, log=log)
+        p = plan(src_w, src_h, duration, src_fps, a.fps, a.seconds, a.width)
+        if a.frames_dir:
+            names = sorted(n for n in os.listdir(a.frames_dir) if n.endswith(".jpg"))
+            images = [cv2.imread(os.path.join(a.frames_dir, n)) for n in names]
+            times = [round(k / p["fps"], 4) for k in range(len(images))]
+        else:
+            images, times = frames(ffmpeg, a.video, a.out, p)
+        log("frames %d at %dx%d, every %d of %.3f fps (%.1f s)" % (len(images), images[0].shape[1], images[0].shape[0], p["step"], src_fps, time.time() - started))
+        sol = solve(images, p["fps"], log=log)
+        last = max(sol["cameras"])
+        if times[last] - times[0] < MIN_REVEAL_SECONDS:
+            raise SolveError("too-short", "Only the first %.1f seconds of the flight could be followed; the reveal needs %g." % (times[last], MIN_REVEAL_SECONDS))
         wd = world(sol, a.altitude_m)
     except SolveError as e:
-        json.dump({"version": VERSION, "ok": False, "code": e.code, "message": e.message}, open(os.path.join(a.out, "solve.json"), "w"))
+        write_json(os.path.join(a.out, "solve.json"), {"version": VERSION, "ok": False, "code": e.code, "message": e.message})
         log("refused: %s" % e.code)
         return 0
     K = sol["K"]
@@ -90,9 +142,9 @@ def main(argv=None):
     near = P[np.hypot(P[:, 0], P[:, 2]) < 1500]
     sample = near[rng.choice(len(near), min(MAX_POINTS, len(near)), replace=False)] if len(near) else near
     result.update({
-        "source": {"width": src_w, "height": src_h, "durationMs": int(round(duration * 1000)), "solvedSeconds": round(len(images) / a.fps, 3)},
+        "source": {"width": src_w, "height": src_h, "durationMs": int(round(duration * 1000)), "solvedSeconds": round(times[-1], 3), "fps": round(src_fps, 4)},
         "intrinsics": {"width": sol["width"], "height": sol["height"], "f": round(float(K[0, 0]), 3), "cx": float(K[0, 2]), "cy": float(K[1, 2])},
-        "cameras": [{"t": round(j / a.fps, 4), "R": [round(float(v), 7) for v in cams[j][0].ravel()],
+        "cameras": [{"t": times[j], "R": [round(float(v), 7) for v in cams[j][0].ravel()],
                      "C": [round(float(v), 4) for v in cams[j][1]]} for j in keys],
         "points": [[round(float(v), 2) for v in p] for p in sample],
         "scale": {k: (round(v, 6) if isinstance(v, float) else v) for k, v in wd["scale"].items()},
@@ -105,7 +157,7 @@ def main(argv=None):
     subprocess.run([ffmpeg, "-v", "error", "-y", "-i", a.video, "-frames:v", "1", "-vf", "scale=-2:%d" % still_h, "-q:v", "3",
                     os.path.join(a.out, "still.jpg")], check=True)
     result["still"] = {"t": 0, "width": int(round(src_w * still_h / src_h / 2) * 2), "height": still_h}
-    json.dump(result, open(os.path.join(a.out, "solve.json"), "w"), separators=(",", ":"))
+    write_json(os.path.join(a.out, "solve.json"), result)
     log("done in %.1f s" % (time.time() - started))
     return 0
 

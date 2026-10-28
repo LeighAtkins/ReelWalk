@@ -17,10 +17,18 @@ export const BLOCK_SOLVE_VERSION = 1;
 
 const vec3 = z.tuple([z.number(), z.number(), z.number()]);
 
+/**
+ * The shortest solved flight a reveal can be drawn on, seconds: the outline draws on and the massing finishes rising by
+ * 4 s (`REVEAL`), and the clip holds it a moment. The solve refuses shorter footage; a stored solve shorter than this
+ * does not parse.
+ */
+export const MIN_REVEAL_SECONDS = 4.5;
+
 export const blockSolveSchema = z.object({
   version: z.literal(BLOCK_SOLVE_VERSION),
   ok: z.literal(true),
-  source: z.object({ width: z.number().positive(), height: z.number().positive(), durationMs: z.number().int().min(0), solvedSeconds: z.number().positive() }),
+  /** `fps`: the source's own frame rate; the reveal is drawn at it, frame for frame (absent on a solve written before it: 30). */
+  source: z.object({ width: z.number().positive(), height: z.number().positive(), durationMs: z.number().int().min(0), solvedSeconds: z.number().positive(), fps: z.number().min(1).max(240).optional() }),
   /** The solve's frames: pixel size and pinhole intrinsics (no distortion). */
   intrinsics: z.object({ width: z.number().positive(), height: z.number().positive(), f: z.number().positive(), cx: z.number(), cy: z.number() }),
   /** One per solved frame, ascending `t` (seconds into the clip). `R` is camera-to-world, row-major (camera x right, y down, z forward). */
@@ -34,7 +42,7 @@ export const blockSolveSchema = z.object({
   stats: z.object({ frames: z.number(), registered: z.number(), medianReprojectionPx: z.number() }).loose(),
   /** The pin screen's still: the frame at `t`, `width` × `height` px (the source's aspect). */
   still: z.object({ t: z.number().min(0), width: z.number().positive(), height: z.number().positive() }),
-});
+}).refine((solve) => solve.cameras[solve.cameras.length - 1].t - solve.still.t >= MIN_REVEAL_SECONDS, { message: "The solved flight is too short for a reveal" });
 export type BlockSolve = z.infer<typeof blockSolveSchema>;
 
 /** What the solve writes for a clip it will not read, with a message for the person. */
@@ -46,6 +54,9 @@ export function parseBlockSolve(value: unknown): { ok: true; solve: BlockSolve }
   if (refused.success) return { ok: false, code: refused.data.code, message: refused.data.message };
   const solved = blockSolveSchema.safeParse(value);
   if (solved.success) return { ok: true, solve: solved.data };
+  if (solved.error.issues.some((issue) => issue.message === "The solved flight is too short for a reveal")) {
+    return { ok: false, code: "too-short", message: `Only part of this clip could be followed; the reveal needs ${MIN_REVEAL_SECONDS} seconds of steady flight.` };
+  }
   return { ok: false, code: "unreadable", message: "The 3D reading of this clip could not be read. Try again." };
 }
 
@@ -242,11 +253,16 @@ export const OUTPUT = { width: 1080, height: 1920, fps: 30 } as const;
 /** The part of the solve's frame that fills the 9:16 output at `t`: a window in solve pixels. */
 export type ViewWindow = { x: number; y: number; w: number; h: number };
 
-/** How long the reveal clip runs, ms: 8 s, or as much of the solved flight as there is (at least 4 s). */
+/** How long the reveal clip runs, ms: 8 s, or as much of the solved flight as there is (at least `MIN_REVEAL_SECONDS`). */
 export function revealDurationMs(solve: BlockSolve): number {
-  const last = solve.cameras[solve.cameras.length - 1].t;
-  return Math.round(Math.max(4, Math.min(8, last)) * 1000);
+  // Never past the last solved camera (the drawing would freeze while the footage flies on) nor the clip's end.
+  const solved = solve.cameras[solve.cameras.length - 1].t - solve.still.t;
+  const footage = solve.source.durationMs / 1000 - solve.still.t;
+  return Math.floor(Math.min(8, solved, footage > 0 ? footage : solved) * 1000);
 }
+
+/** The source's frame rate, at which the reveal is decoded and drawn frame for frame. */
+export const revealFps = (solve: BlockSolve): number => solve.source.fps ?? 30;
 
 /** The 9:16 crop at no zoom, for `cropX`. */
 export function baseWindow(solve: BlockSolve, cropX: number): ViewWindow {
@@ -459,8 +475,8 @@ export type DrawOptions = {
 
 /**
  * Everything drawn over the frame `tMs` into the reveal, in output pixels (1080 × 1920), back to front: the outline's
- * fill, the massing's shadow, the outline, the area label, the massing's visible faces. A shape behind the camera is
- * left out.
+ * fill, the massing's shadow, the outline, the area label, the massing's visible faces, then a pool's water on top of
+ * its deck. A shape behind the camera is left out.
  */
 export function drawBlock(solve: BlockSolve, pin: BlockPin, tMs: number, options: DrawOptions = {}): BlockShape[] {
   const cam = blockCameraAt(solve, solve.still.t + tMs / 1000);
@@ -487,19 +503,6 @@ export function drawBlock(solve: BlockSolve, pin: BlockPin, tMs: number, options
 
   if (fillP > 0) {
     shapes.push({ kind: "poly", role: "fill", points: ground, closed: true, fill: "#F3EDE2", fillOpacity: 0.3 * fillP, stroke: null, strokeWidth: 0, strokeOpacity: 0, dash: null, blur: 0 });
-  }
-  if (pin.build === "pool" && fillP > 0) {
-    // the pool itself: 70% of the deck's length, 55% of its width, towards one end
-    const k = pin.scale.factor;
-    const a = (pin.yawDeg * Math.PI) / 180;
-    const ex: Vec3 = [Math.cos(a), 0, -Math.sin(a)];
-    const ez: Vec3 = [Math.sin(a), 0, Math.cos(a)];
-    const y = corners[0][1] + (BUILDS.pool.eave / k) * rise + 0.01;
-    const c: Vec3 = add([pin.x, y, pin.z], mul(ex, (-0.1 * pin.length) / k));
-    const hl = (0.35 * pin.length) / k;
-    const hw = (0.275 * pin.width) / k;
-    const water = all([add(add(c, mul(ex, -hl)), mul(ez, -hw)), add(add(c, mul(ex, hl)), mul(ez, -hw)), add(add(c, mul(ex, hl)), mul(ez, hw)), add(add(c, mul(ex, -hl)), mul(ez, hw))]);
-    if (water) shapes.push({ kind: "poly", role: "pool", points: water, closed: true, fill: "#6FB7C9", fillOpacity: 0.85 * Math.max(fillP, rise), stroke: "#FFFFFF", strokeWidth: 2 * width, strokeOpacity: 0.6 * fillP, dash: null, blur: 0 });
   }
   const faces = massing(solve, pin, rise);
   if (faces.length > 0 && sun[1] > 0.05) {
@@ -539,6 +542,20 @@ export function drawBlock(solve: BlockSolve, pin: BlockPin, tMs: number, options
     const pts = all(f.pts);
     if (!pts) continue;
     shapes.push({ kind: "poly", role: "face", points: pts, closed: true, fill: shade(f.n, sun), fillOpacity: 1, stroke: "#5A5650", strokeWidth: 1.4 * width, strokeOpacity: 0.45, dash: null, blur: 0 });
+  }
+  if (pin.build === "pool" && fillP > 0) {
+    // the pool itself: 70% of the deck's length, 55% of its width, towards one end. Drawn after the deck's faces, on
+    // its top, so the opaque deck does not cover it.
+    const k = pin.scale.factor;
+    const a = (pin.yawDeg * Math.PI) / 180;
+    const ex: Vec3 = [Math.cos(a), 0, -Math.sin(a)];
+    const ez: Vec3 = [Math.sin(a), 0, Math.cos(a)];
+    const y = corners[0][1] + (BUILDS.pool.eave / k) * rise + 0.01;
+    const c: Vec3 = add([pin.x, y, pin.z], mul(ex, (-0.1 * pin.length) / k));
+    const hl = (0.35 * pin.length) / k;
+    const hw = (0.275 * pin.width) / k;
+    const water = all([add(add(c, mul(ex, -hl)), mul(ez, -hw)), add(add(c, mul(ex, hl)), mul(ez, -hw)), add(add(c, mul(ex, hl)), mul(ez, hw)), add(add(c, mul(ex, -hl)), mul(ez, hw))]);
+    if (water) shapes.push({ kind: "poly", role: "pool", points: water, closed: true, fill: "#6FB7C9", fillOpacity: 0.85 * Math.max(fillP, rise), stroke: "#FFFFFF", strokeWidth: 2 * width, strokeOpacity: 0.6 * fillP, dash: null, blur: 0 });
   }
   return shapes;
 }

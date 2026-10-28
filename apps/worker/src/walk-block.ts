@@ -19,6 +19,7 @@ import {
   OUTPUT,
   parseBlockSolve,
   revealDurationMs,
+  revealFps,
   textSchema,
   viewAt,
   type BlockPin,
@@ -60,10 +61,18 @@ export type BlockRevealStepResult = { assetId: string; reelId: string };
 
 type Log = (line: string) => void;
 
-/** An attempt scope for a step, stopped when the step's own attempt is (the executor hands steps its signal, not its scope). */
+/**
+ * An attempt scope for a step, stopped when the step's own attempt is (the executor hands steps its signal, not its
+ * scope). When that signal fires the scope is aborted and closed at once: its ffmpeg and Python processes are killed and
+ * its temp dirs removed then, not when the step's work next notices, so nothing outlives the attempt's deadline. The
+ * step's own `close()` afterwards is a no-op.
+ */
 export function scopeFor(signal: AbortSignal | undefined): AttemptScope {
   const scope = createAttemptScope();
-  const stop = () => scope.abort(signal?.reason instanceof AttemptStopped ? signal.reason : new AttemptStopped("The step was stopped", "shutdown"));
+  const stop = () => {
+    scope.abort(signal?.reason instanceof AttemptStopped ? signal.reason : new AttemptStopped("The step was stopped", "shutdown"));
+    void scope.close();
+  };
   if (signal?.aborted) stop();
   else signal?.addEventListener("abort", stop, { once: true });
   return scope;
@@ -128,21 +137,35 @@ async function* frames(stream: NodeJS.ReadableStream, bytes: number): AsyncGener
   }
 }
 
-function spawnOwned(args: string[], scope: AttemptScope, stdio: "decode" | "encode"): { child: ChildProcess; done: Promise<void> } {
-  const child = spawn(FFMPEG, args, { detached: OWN_PROCESS_GROUP, windowsHide: true, stdio: stdio === "decode" ? ["ignore", "pipe", "pipe"] : ["pipe", "ignore", "pipe"] });
-  const forget = ownChild(scope, child, `ffmpeg ${stdio}`);
+/** The ffmpeg to run: a binary, or (for tests) a program and the arguments that come before ffmpeg's own. */
+export type FfmpegCommand = { file: string; prefix?: string[] };
+
+/**
+ * An ffmpeg owned by the attempt (killed when its scope closes). `done` settles when the process has exited; it is
+ * observed here, so a failure is never an unhandled rejection, and callers await it (or settle it) on every path.
+ */
+function spawnOwned(command: FfmpegCommand, args: string[], scope: AttemptScope, mode: "decode" | "encode"): { child: ChildProcess; done: Promise<void> } {
+  const child = spawn(command.file, [...(command.prefix ?? []), ...args], { detached: OWN_PROCESS_GROUP, windowsHide: true, stdio: mode === "decode" ? ["ignore", "pipe", "pipe"] : ["pipe", "ignore", "pipe"] });
+  const forget = ownChild(scope, child, `ffmpeg ${mode}`);
   let err = "";
-  child.stderr!.on("data", (d: Buffer) => {
+  child.stderr?.on("data", (d: Buffer) => {
     err = (err + d.toString()).slice(-2000);
   });
+  // A write into an encoder that has died fails with EPIPE; the exit is what is reported, through `done`.
+  child.stdin?.on("error", () => undefined);
+  child.stdout?.on("error", () => undefined);
   const done = new Promise<void>((resolve, reject) => {
-    child.once("error", reject);
-    child.once("close", (code) => {
+    child.once("error", (error) => {
+      forget();
+      reject(error);
+    });
+    child.once("close", (code, signal) => {
       forget();
       if (code === 0) resolve();
-      else reject(new Error(`ffmpeg ${stdio} exited ${code}: ${err.trim()}`));
+      else reject(new Error(`ffmpeg ${mode} exited ${code ?? signal}: ${err.trim()}`));
     });
   });
+  done.catch(() => undefined);
   return { child, done };
 }
 
@@ -156,15 +179,20 @@ export function sourceRect(win: ViewWindow, m: number, decoded: { width: number;
 }
 
 /**
- * Draws the reveal: the clip from the still's moment for `revealDurationMs`, cropped to 9:16 with the slow push-in,
- * every frame with `drawBlock`'s shapes for its moment on top. Writes an H.264 MP4 (no sound: the reel's music goes
- * under it) to `outPath`.
+ * Draws the reveal: the clip from the still's moment for `revealDurationMs`, frame for frame at the source's own rate
+ * (no resampling, so each frame's moment is exact), cropped to 9:16 with the push-in, every frame with `drawBlock`'s
+ * shapes for its moment on top. Writes an H.264 MP4 (no sound: the reel's music goes under it) to `outPath`.
+ *
+ * Both ffmpeg processes are supervised from the start: an encoder that dies stops the loop at the next frame, a decoder
+ * that ends early is an error (never a short clip saved as a success), and every path waits for both to exit.
  */
-export async function renderReveal(input: { videoPath: string; solve: BlockSolve; pin: BlockPin; outPath: string; scope: AttemptScope; onProgress?: (fraction: number) => void; log?: Log }): Promise<{ frames: number; durationMs: number }> {
+export async function renderReveal(input: { videoPath: string; solve: BlockSolve; pin: BlockPin; outPath: string; scope: AttemptScope; onProgress?: (fraction: number) => void; log?: Log; ffmpeg?: FfmpegCommand }): Promise<{ frames: number; durationMs: number }> {
   const { videoPath, solve, pin, outPath, scope } = input;
   const log = input.log ?? console.log;
+  const ffmpeg = input.ffmpeg ?? { file: FFMPEG };
+  const fps = revealFps(solve);
   const durationMs = revealDurationMs(solve);
-  const count = Math.round((durationMs / 1000) * OUTPUT.fps);
+  const count = Math.floor((durationMs / 1000) * fps);
   // Decode at the source's own size up to 2160 high: the 9:16 crop of a 4K frame is then about the output's size.
   const decodedHeight = Math.min(solve.source.height, 2160);
   const decoded = { width: Math.round((solve.source.width * decodedHeight) / solve.source.height / 2) * 2, height: decodedHeight };
@@ -172,24 +200,39 @@ export async function renderReveal(input: { videoPath: string; solve: BlockSolve
   const label = areaText(pin);
   const labelPicture = await renderLabel(label.text, label.sub);
   const labelHref = `data:image/png;base64,${labelPicture.png.toString("base64")}`;
+  scope.throwIfStopped();
   const decoder = spawnOwned(
-    ["-v", "error", "-ss", String(solve.still.t), "-i", videoPath, "-t", String(durationMs / 1000), "-an", "-vf", `fps=${OUTPUT.fps},scale=${decoded.width}:${decoded.height}:flags=lanczos`, "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+    ffmpeg,
+    ["-v", "error", "-ss", String(solve.still.t), "-i", videoPath, "-an", "-vf", `scale=${decoded.width}:${decoded.height}:flags=lanczos`, "-fps_mode", "passthrough", "-frames:v", String(count), "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
     scope,
     "decode",
   );
   const encoder = spawnOwned(
-    ["-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", `${OUTPUT.width}x${OUTPUT.height}`, "-r", String(OUTPUT.fps), "-i", "-", "-c:v", "libx264", "-preset", "medium", "-crf", "17", "-pix_fmt", "yuv420p", "-movflags", "+faststart", outPath],
+    ffmpeg,
+    ["-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", `${OUTPUT.width}x${OUTPUT.height}`, "-r", String(fps), "-i", "-", "-c:v", "libx264", "-preset", "medium", "-crf", "17", "-pix_fmt", "yuv420p", "-movflags", "+faststart", outPath],
     scope,
     "encode",
   );
+  // Settles (rejects) the moment the encoder exits while frames are still being written to it.
+  const encoderGone = encoder.done.then(
+    () => Promise.reject(new Error("ffmpeg encode exited before the last frame")),
+    (error: unknown) => Promise.reject(error),
+  );
+  encoderGone.catch(() => undefined);
   const stdin = encoder.child.stdin!;
-  const write = (buf: Buffer) => new Promise<void>((resolve, reject) => (stdin.write(buf, (error) => (error ? reject(error) : resolve()))));
+  const write = (buf: Buffer) => {
+    const written = new Promise<void>((resolve, reject) => {
+      stdin.write(buf, (error) => (error ? reject(error) : resolve()));
+    });
+    written.catch(() => undefined);
+    return Promise.race([written, encoderGone]);
+  };
   let n = 0;
   try {
     for await (const frame of frames(decoder.child.stdout!, decoded.width * decoded.height * 3)) {
       scope.throwIfStopped();
       if (n >= count) break;
-      const tMs = (n * 1000) / OUTPUT.fps;
+      const tMs = (n * 1000) / fps;
       const { rect, window } = sourceRect(viewAt(solve, pin, tMs), m, decoded);
       const shapes: BlockShape[] = drawBlock(solve, pin, tMs, { window });
       const label = shapes.find((s) => s.kind === "label");
@@ -205,19 +248,25 @@ export async function renderReveal(input: { videoPath: string; solve: BlockSolve
       n++;
       if (n % 30 === 0) input.onProgress?.(n / count);
     }
-    stdin.end();
-    // The decoder may still be writing frames past `count`; it is no longer needed.
-    if (decoder.child.exitCode === null) killTree(decoder.child, "SIGKILL");
-    await decoder.done.catch(() => undefined);
-    await encoder.done;
   } catch (error) {
     killTree(decoder.child, "SIGKILL");
     killTree(encoder.child, "SIGKILL");
+    await Promise.allSettled([decoder.done, encoder.done]);
     throw error;
   }
-  if (n < Math.min(count, 2)) throw new Error("The drone clip could not be decoded.");
-  log(`block-reveal: ${n} frames, ${pin.build}, ${label.text}`);
-  return { frames: n, durationMs: Math.round((n * 1000) / OUTPUT.fps) };
+  stdin.end();
+  // Past `count` the decoder is no longer needed; it is stopped and its exit (a kill) is not an error.
+  const stoppedDecoder = n >= count && decoder.child.exitCode === null;
+  if (stoppedDecoder) killTree(decoder.child, "SIGKILL");
+  const [decoding, encoding] = await Promise.allSettled([decoder.done, encoder.done]);
+  if (encoding.status === "rejected") throw encoding.reason;
+  // One frame short is rounding at the clip's end; more is footage that is not there.
+  if (n < count - 1) {
+    if (decoding.status === "rejected" && !stoppedDecoder) throw decoding.reason;
+    throw new Error(`The drone clip ended early: ${n} of ${count} frames.`);
+  }
+  log(`block-reveal: ${n} frames at ${fps} fps, ${pin.build}, ${label.text}`);
+  return { frames: n, durationMs: Math.round((n * 1000) / fps) };
 }
 
 async function download(key: string, to: string, scope: AttemptScope): Promise<void> {

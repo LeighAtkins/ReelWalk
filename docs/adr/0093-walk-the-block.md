@@ -48,7 +48,7 @@ thumb-sized on a phone, power where it acts.
   prototype's `terrain.py` did: world up perpendicular to every camera's right vector (gimbal-level horizon), with the
   ground's normal picking the pitch when the drone barely yaws (a 4 s clip; the right vectors alone only fix roll);
   RANSAC ground within 20° of up; origin on the ground under the first camera, y up, −z its heading. `run.py` is the
-  worker's entry: frames at 3 fps (≤ 24 s, ≤ 1920 wide) → `solve.json` + `still.jpg`. Focal is never refined: 2/3 of
+  worker's entry: every n-th source frame for about 3 a second, each with its own timestamp (≤ 24 s, ≤ 1920 wide) → `solve.json` + `still.jpg`. Focal is never refined: 2/3 of
   the frame width (a drone's 24 mm-equivalent; the prototype's focal search peaked at 1280–1500 on 1920).
 - `packages/core/src/walk-block.ts` (pure): the solve schema, camera interpolation (slerp), projection and ground casts,
   scale from a stated height or a measured length, the 9:16 crop and the push-in (eased; 1.16 at least, up to 1.45 until the outline spans a third of the frame at
@@ -61,7 +61,7 @@ thumb-sized on a phone, power where it acts.
   (worker only, never a paid provider, so an attempt that fails is simply retried):
   - `block-solve` runs `run.py` on the clip and stores `blocks/<assetId>/solve.v1.json` and `still.v1.jpg`; a refusal is
     stored too, so the person sees the reason, and a clip is read once.
-  - `block-reveal` decodes the clip (≤ 2160 high, 30 fps), crops each frame to that moment's window, rasterises that
+  - `block-reveal` decodes the clip (≤ 2160 high, at its own frame rate, frame for frame), crops each frame to that moment's window, rasterises that
     moment's shapes onto it (sharp/librsvg; the area label is rendered once from the bundled Playfair TTF, OFL, because
     librsvg cannot read the editor's woff2 web fonts, and placed per frame by the ground transform), encodes H.264, and
     creates a media asset `block-<step>` and a reel `walk-<step>` that opens on it.
@@ -81,6 +81,28 @@ search over sun hypotheses scoring the ground where every tall point's shadow wo
 (250°): dark tree crowns read as shadow, and crown exclusion did not fix it. Shipping a confident wrong sun would put
 the massing's shadow against the real trees' shadows, so the sun is a default (135°, 35°: ahead-left of the drone,
 long afternoon shadows) flagged `assumed`, and the person turns it on the pin screen.
+
+## Review fixes (GPT-6.1 Sol, PR #259 at 5c524c7)
+
+1. **Not behind AI_JOBS_DURABLE.** That flag moves *paid* AI steps onto the worker and is off in production; the block
+   steps are worker-only and free, and the worker consumes step messages whatever it says. The routes now need only the
+   render queue that exports use (`SQS_QUEUE_URL` and the ECS launcher are set for App Runner in `serverless.tf`; the
+   media CloudFront serves the whole bucket, so `blocks/` stills resolve). `WALK_BLOCK=off` switches it off.
+2. **Refuse before decoding.** `run.py` decides from the probe alone: portrait, over 8K, wider than 2.4:1, an unreadable
+   frame rate, under 5 s, or sampled frames over a 900 MB budget are refused before a frame is decoded.
+3. **Supervised ffmpeg.** Both processes' exits are observed from the start; an encoder that dies stops the loop at the
+   next frame; every path waits for both to exit, so a failure is an error, never an unhandled rejection.
+4. **Prompt cleanup.** When the attempt's signal fires, the step's scope is aborted *and closed* then: its ffmpeg and
+   Python are killed and its temp dirs removed at once, not after the work notices.
+5. **True frame times.** The solve took ffmpeg's `fps=3`, which picks the last frame of each rounded bucket (about
+   0.13 s late at 30 fps) while the camera was labelled with the bucket's start. It now takes every n-th source frame
+   and labels each with its own presentation time (`showinfo`); the reveal is decoded at the source's frame rate with no
+   resampling, so frame k is at k / fps exactly.
+6. **Enough footage.** A solved flight under 4.5 s (`MIN_REVEAL_SECONDS`) is refused by the solve and does not parse;
+   the reveal never runs past the last solved camera or the clip's end; a decoder that ends early is an error.
+7. **Restart after Stop.** Asking again for a stopped solve clears the stop flag in the transaction that queues it
+   again (the claim refuses a stopped run at every delivery).
+8. **Pool water on top.** The water is drawn after the deck's faces.
 
 ## Consequences
 

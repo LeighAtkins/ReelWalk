@@ -1,8 +1,11 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { blockSolveKeyFor, blockStillKeyFor, OUTPUT } from "@reelwalk/core";
+import { blockSolveKeyFor, blockStillKeyFor, initialPin, OUTPUT, parseBlockSolve, type BlockSolve } from "@reelwalk/core";
+import { createAttemptScope } from "../src/lifecycle";
 
 // Walk the block's worker steps (ADR 0093) with storage, the database and the Python solve stood in for.
 const { db, sent, python } = vi.hoisted(() => ({
@@ -20,7 +23,7 @@ vi.mock("../src/library/tools", () => ({
   },
   run: (file: string, args: string[]) => python(file, args),
 }));
-import { blockRevealPayloadSchema, runBlockSolveStep, scopeFor, sourceRect } from "../src/walk-block";
+import { blockRevealPayloadSchema, renderReveal, runBlockSolveStep, scopeFor, sourceRect, type FfmpegCommand } from "../src/walk-block";
 
 beforeEach(() => {
   sent.length = 0;
@@ -79,12 +82,60 @@ describe("the crop", () => {
 });
 
 describe("scopeFor", () => {
-  it("stops the step's scope with the attempt", () => {
+  it("stops the step's scope with the attempt and releases what it holds at once", async () => {
     const controller = new AbortController();
     const scope = scopeFor(controller.signal);
+    const killed = vi.fn();
+    scope.own("an ffmpeg", killed);
     expect(scope.signal.aborted).toBe(false);
     controller.abort(new Error("deadline"));
     expect(scope.signal.aborted).toBe(true);
-    void scope.close();
+    // released when the parent fires, not when the step's work next gets round to closing its scope
+    await vi.waitFor(() => expect(killed).toHaveBeenCalledTimes(1));
+    await scope.close();
+    expect(killed).toHaveBeenCalledTimes(1);
   });
+});
+
+describe("renderReveal's processes", () => {
+  // The real clip's solve, but the source made tiny (64 x 36) at 2 fps: 16 frames for the 8 s reveal.
+  const raw = JSON.parse(readFileSync(path.join(__dirname, "../../../packages/core/tests/fixtures/block-solve-14194694.json"), "utf8"));
+  const parsed = parseBlockSolve({ ...raw, source: { ...raw.source, width: 64, height: 36, fps: 2 } });
+  if (!parsed.ok) throw new Error("fixture does not parse");
+  const solve: BlockSolve = parsed.solve;
+  const pin = initialPin(solve, "home");
+  const fake = { file: process.execPath, prefix: [path.join(__dirname, "fixtures", "fake-ffmpeg.mjs")] };
+  const quiet = () => undefined;
+
+  async function attempt(env: Record<string, string>, ffmpeg: FfmpegCommand = fake) {
+    Object.assign(process.env, env);
+    const dir = await mkdtemp(path.join(tmpdir(), "reveal-test-"));
+    const scope = createAttemptScope();
+    try {
+      return await renderReveal({ videoPath: "clip.mp4", solve, pin, outPath: path.join(dir, "out.mp4"), scope, log: quiet, ffmpeg }).then(async (r) => ({ ...r, file: await readFile(path.join(dir, "out.mp4"), "utf8") }));
+    } finally {
+      await scope.close();
+      await rm(dir, { recursive: true, force: true });
+      delete process.env.FAKE_ENCODE;
+      delete process.env.FAKE_DECODE_FRAMES;
+    }
+  }
+
+  it("draws every frame of the reveal at the source's rate", async () => {
+    const done = await attempt({ FAKE_ENCODE: "ok", FAKE_DECODE_FRAMES: "1000" });
+    expect(done.frames).toBe(16);
+    expect(done.file).toBe("frames 16");
+  }, 30_000);
+
+  it("fails, without an unhandled rejection, when the encoder dies mid-stream", async () => {
+    await expect(attempt({ FAKE_ENCODE: "die", FAKE_DECODE_FRAMES: "1000" })).rejects.toThrow(/ffmpeg encode exited 1/);
+  }, 30_000);
+
+  it("refuses footage that ends before the reveal does", async () => {
+    await expect(attempt({ FAKE_ENCODE: "ok", FAKE_DECODE_FRAMES: "5" })).rejects.toThrow(/ended early: 5 of 16 frames/);
+  }, 30_000);
+
+  it("fails cleanly when ffmpeg cannot be started", async () => {
+    await expect(attempt({}, { file: path.join(tmpdir(), "no-such-ffmpeg-here") })).rejects.toThrow(/ENOENT|ffmpeg/);
+  }, 30_000);
 });

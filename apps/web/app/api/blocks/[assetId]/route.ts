@@ -1,6 +1,6 @@
 import { getSessionUser } from "@/lib/auth";
-import { blockSolveRequestId, findBlockClip, readBlockState } from "@/lib/walk-block";
-import { durableAiJobs, startWorkerStepRun } from "@/lib/workflows";
+import { blockSolveRequestId, findBlockClip, readBlockState, walkBlockEnabled } from "@/lib/walk-block";
+import { startWorkerStepRun } from "@/lib/workflows";
 
 export const dynamic = "force-dynamic";
 
@@ -34,7 +34,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ ass
   if (!asset) return Response.json({ ok: false, message: "That clip is not in this workspace." }, { status: 404 });
   const state = await readBlockState(asset);
   if (state.status !== "missing") return Response.json({ ok: true, ...state }, { headers });
-  if (!durableAiJobs()) return Response.json({ ok: false, message: "Walk the block needs the render worker, which is not set up here." }, { status: 503 });
+  if (!walkBlockEnabled()) return Response.json({ ok: false, message: "Walk the block is switched off here." }, { status: 503 });
   const started = await startWorkerStepRun({ user, kind: "block-solve", requestId: blockSolveRequestId(asset.id), payload: { assetId: asset.id } });
   if (!started.ok) return Response.json({ ok: false, message: started.message }, { status: started.status });
   return Response.json({ ok: true, status: "pending", assetId: asset.id, jobId: started.jobId, message: "Reading the land in 3D. Poll /api/ai-jobs/:jobId, then GET again." }, { status: 202, headers });

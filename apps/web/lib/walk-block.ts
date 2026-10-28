@@ -15,6 +15,15 @@ export type BlockState =
 
 export const blockSolveRequestId = (assetId: string) => `block-solve:${assetId}:v${BLOCK_SOLVE_VERSION}`;
 
+/**
+ * Whether Walk the block takes new work. Its steps run only in the worker and never call a paid provider, so they need
+ * the render queue that exports already use, not AI_JOBS_DURABLE (ADR 0049's switch for moving paid AI steps onto the
+ * worker, which is off in production). WALK_BLOCK=off turns it off.
+ */
+export function walkBlockEnabled(env: Record<string, string | undefined> = process.env): boolean {
+  return env.WALK_BLOCK !== "off";
+}
+
 /** A drone clip the workspace may use: its own, or one of the shared library's. */
 export function findBlockClip(workspaceId: string, assetId: string) {
   return prisma.mediaAsset.findFirst({ where: { id: assetId, kind: "VIDEO", ...mediaScope(workspaceId) }, select: { id: true, objectKey: true, previewKey: true } });

@@ -254,15 +254,22 @@ export const OUTPUT = { width: 1080, height: 1920, fps: 30 } as const;
 export type ViewWindow = { x: number; y: number; w: number; h: number };
 
 /** How long the reveal clip runs, ms: 8 s, or as much of the solved flight as there is (at least `MIN_REVEAL_SECONDS`). */
+export const REVEAL_END_MARGIN_S = 0.15;
+
 export function revealDurationMs(solve: BlockSolve): number {
-  // Never past the last solved camera (the drawing would freeze while the footage flies on) nor the clip's end.
+  // Never past the last solved camera (the drawing would freeze while the footage flies on), nor into the clip's last
+  // `REVEAL_END_MARGIN_S`: a decode resampled right up to the end of a file comes out a frame or two short.
   const solved = solve.cameras[solve.cameras.length - 1].t - solve.still.t;
-  const footage = solve.source.durationMs / 1000 - solve.still.t;
+  const footage = solve.source.durationMs / 1000 - solve.still.t - REVEAL_END_MARGIN_S;
   return Math.floor(Math.min(8, solved, footage > 0 ? footage : solved) * 1000);
 }
 
-/** The source's frame rate, at which the reveal is decoded and drawn frame for frame. */
-export const revealFps = (solve: BlockSolve): number => solve.source.fps ?? 30;
+/**
+ * The reveal's frame rate: the source's, at most 30 (the reels pipeline's own rate; an 8 s reveal at 120 fps would be
+ * four times the frames and bytes for nothing a reel shows). The decode resamples to it.
+ */
+export const REVEAL_MAX_FPS = 30;
+export const revealFps = (solve: BlockSolve): number => Math.min(REVEAL_MAX_FPS, solve.source.fps ?? REVEAL_MAX_FPS);
 
 /** The 9:16 crop at no zoom, for `cropX`. */
 export function baseWindow(solve: BlockSolve, cropX: number): ViewWindow {

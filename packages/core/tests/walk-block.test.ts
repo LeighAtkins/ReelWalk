@@ -206,9 +206,13 @@ describe("short footage", () => {
     const last = five.solve.cameras[five.solve.cameras.length - 1].t;
     expect(revealDurationMs(five.solve)).toBeLessThanOrEqual(last * 1000);
     expect(revealDurationMs(five.solve)).toBeGreaterThanOrEqual(MIN_REVEAL_SECONDS * 1000);
-    expect(revealDurationMs({ ...solve, source: { ...solve.source, durationMs: 6200 } })).toBe(6200);
+    // the clip's end, less a margin a resampled decode needs at the end of the file
+    expect(revealDurationMs({ ...solve, source: { ...solve.source, durationMs: 6200 } })).toBe(6050);
     expect(revealFps(solve)).toBe(30);
     expect(revealFps({ ...solve, source: { ...solve.source, fps: 23.976 } })).toBeCloseTo(23.976, 6);
+    // capped: a 60 or 120 fps drone clip makes a 30 fps reveal
+    expect(revealFps({ ...solve, source: { ...solve.source, fps: 60 } })).toBe(30);
+    expect(revealFps({ ...solve, source: { ...solve.source, fps: 120 } })).toBe(30);
   });
 });
 

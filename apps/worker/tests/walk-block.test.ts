@@ -27,7 +27,7 @@ vi.mock("../src/library/tools", () => ({
   },
   run: (file: string, args: string[]) => python(file, args),
 }));
-import { blockRevealPayloadSchema, renderReveal, revealDecodeArgs, runBlockSolveStep, scopeFor, sourceRect, upload, type FfmpegCommand } from "../src/walk-block";
+import { blockRevealPayloadSchema, renderReveal, revealDecodeArgs, runBlockSolveStep, runInStepScope, scopeFor, sourceRect, upload, type FfmpegCommand } from "../src/walk-block";
 
 beforeEach(() => {
   hooks.onSend = null;
@@ -105,6 +105,51 @@ describe("scopeFor", () => {
   });
 });
 
+describe("runInStepScope", () => {
+  it("closes a stopped step's scope after its grace even while its work never settles, and the late work writes nothing", async () => {
+    const controller = new AbortController();
+    let release!: () => void;
+    const hang = new Promise<void>((resolve) => (release = resolve));
+    const write = vi.fn();
+    let dir = "";
+    const started = Date.now();
+    const running = runInStepScope(controller.signal, async (scope) => {
+      dir = await scope.tempDir("forced-close-");
+      await hang; // a storage request that ignores its abort signal
+      scope.throwIfStopped();
+      write();
+    }, 100);
+    await vi.waitFor(() => expect(dir).not.toBe(""));
+    controller.abort(new Error("deadline"));
+    await expect(running).rejects.toThrow();
+    expect(Date.now() - started).toBeLessThan(3000);
+    expect(existsSync(dir)).toBe(false); // the temp dir is gone though the work is still pending
+    release();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  it("gives the solve step's stuck download the same: stop, clean up, and no writes when it finally answers", async () => {
+    db.mediaAsset.findFirst.mockResolvedValue({ id: "clip1", objectKey: "uploads/w/clip1.mp4", fileName: "drone.mp4" });
+    let release!: () => void;
+    const answered = new Promise<void>((resolve) => (release = resolve));
+    hooks.onSend = async (name) => (name === "GetObjectCommand" ? answered : undefined);
+    const controller = new AbortController();
+    const running = runInStepScope(controller.signal, (scope) => runBlockSolveStep({ payload: { assetId: "clip1" }, user: { workspaceId: "w" } }, scope), 100);
+    await vi.waitFor(() => expect(sent.some((s) => s.name === "GetObjectCommand")).toBe(true));
+    controller.abort(new Error("deadline"));
+    await expect(running).rejects.toThrow();
+    release();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(sent.filter((s) => s.name === "PutObjectCommand")).toEqual([]);
+    expect(python).not.toHaveBeenCalled();
+  });
+
+  it("returns the work's own result when it is not stopped", async () => {
+    await expect(runInStepScope(undefined, async () => 7, 100)).resolves.toBe(7);
+  });
+});
+
 describe("upload", () => {
   it("survives its file being removed while the request is in flight, with no stream left to fail", async () => {
     const scope = createAttemptScope();
@@ -161,6 +206,22 @@ describe("renderReveal's processes", () => {
     await expect(attempt({ FAKE_ENCODE: "ok", FAKE_DECODE_FRAMES: "2" })).rejects.toThrow(/ended early: 2 of 4 frames/);
   }, 30_000);
 
+  it("refuses an encoded reveal over the size cap before anything reads it whole", async () => {
+    Object.assign(process.env, { FAKE_ENCODE: "ok", FAKE_DECODE_FRAMES: "1000" });
+    const dir = await mkdtemp(path.join(tmpdir(), "reveal-cap-"));
+    const scope = createAttemptScope();
+    try {
+      // the fake encoder writes "frames 4" (8 bytes)
+      await expect(renderReveal({ videoPath: "clip.mp4", solve, pin, outPath: path.join(dir, "out.mp4"), scope, log: quiet, ffmpeg: fake, maxBytes: 4 })).rejects.toThrow(/over the/);
+      await expect(renderReveal({ videoPath: "clip.mp4", solve, pin, outPath: path.join(dir, "out.mp4"), scope, log: quiet, ffmpeg: fake, maxBytes: 64 })).resolves.toMatchObject({ bytes: 8 });
+    } finally {
+      await scope.close();
+      await rm(dir, { recursive: true, force: true });
+      delete process.env.FAKE_ENCODE;
+      delete process.env.FAKE_DECODE_FRAMES;
+    }
+  }, 30_000);
+
   it("kills a stuck decoder the moment the attempt is stopped", async () => {
     process.env.FAKE_DECODE_HANG = "1";
     const controller = new AbortController();
@@ -181,19 +242,24 @@ describe("renderReveal's processes", () => {
 });
 
 describe("the reveal's decode", () => {
-  // A variable-frame-rate clip: 80 frames at 10 fps (0-8 s), then 80 at 40 fps (8-10 s); each frame shows its index.
+  // A variable-frame-rate clip: 40 frames at 10 fps (0-4 s), then 80 at 40 fps (4-6 s); each frame shows its index.
+  // The reveal runs to the clip's end (6 s), across the change of rate.
   const raw = JSON.parse(readFileSync(path.join(__dirname, "../../../packages/core/tests/fixtures/block-solve-14194694.json"), "utf8"));
-  const parsed = parseBlockSolve({ ...raw, source: { ...raw.source, width: 160, height: 90, fps: 30, durationMs: 10000 } });
+  const parsed = parseBlockSolve({ ...raw, source: { ...raw.source, width: 160, height: 90, fps: 30, durationMs: 6000 } });
   if (!parsed.ok) throw new Error("fixture does not parse");
   const solve: BlockSolve = parsed.solve;
   const size = { width: 160, height: 90 };
 
-  it("resamples to a constant rate and ends in source time", () => {
+  it("resamples to a constant rate, at most 30 fps, and ends in source time", () => {
     const args = revealDecodeArgs(solve, "clip.mp4", size);
-    expect(args.join(" ")).toContain("-ss 0 -i clip.mp4 -t 8.000");
+    expect(args.join(" ")).toContain("-ss 0 -i clip.mp4 -t 5.850"); // the clip's 6 s less the end margin
     expect(args[args.indexOf("-vf") + 1]).toMatch(/^fps=30,scale=160:90/);
     expect(args).not.toContain("passthrough");
-    expect(args[args.indexOf("-frames:v") + 1]).toBe("240");
+    expect(args[args.indexOf("-frames:v") + 1]).toBe("175");
+    // a 120 fps source still gives a 30 fps reveal: 4x fewer frames and bytes than its own rate
+    const fast = revealDecodeArgs({ ...solve, source: { ...solve.source, fps: 120 } }, "clip.mp4", size);
+    expect(fast[fast.indexOf("-vf") + 1]).toMatch(/^fps=30,/);
+    expect(fast[fast.indexOf("-frames:v") + 1]).toBe("175");
   });
 
   const ffmpeg = process.env.FFMPEG_PATH ?? "ffmpeg";
@@ -203,19 +269,24 @@ describe("the reveal's decode", () => {
     try {
       const clip = path.join(dir, "vfr.mp4");
       const bits = 8;
-      const frames = Buffer.alloc(160 * size.width * size.height);
-      for (let k = 0; k < 160; k++)
+      const frames = Buffer.alloc(120 * size.width * size.height);
+      for (let k = 0; k < 120; k++)
         for (let y = 0; y < size.height; y++)
           for (let b = 0; b < bits; b++)
             if ((k >> b) & 1) frames.fill(255, k * size.width * size.height + y * size.width + (b * size.width) / bits, k * size.width * size.height + y * size.width + ((b + 1) * size.width) / bits);
       const made = spawnSync(ffmpeg, ["-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "gray", "-s", `${size.width}x${size.height}`, "-r", "40", "-i", "-",
-        "-vf", "setpts='if(lt(N,80),N/10,8+(N-80)/40)/TB'", "-fps_mode", "vfr", "-c:v", "libx264", "-crf", "8", "-pix_fmt", "yuv420p", clip], { input: frames });
+        "-vf", "setpts='if(lt(N,40),N/10,4+(N-40)/40)/TB'", "-fps_mode", "vfr", "-c:v", "libx264", "-crf", "8", "-pix_fmt", "yuv420p", clip], { input: frames });
       expect(made.status).toBe(0);
       const out = spawnSync(ffmpeg, revealDecodeArgs(solve, clip, size), { maxBuffer: 300 * size.width * size.height * 3 });
       expect(out.status).toBe(0);
       const frameBytes = size.width * size.height * 3;
       const decoded = out.stdout.length / frameBytes;
-      expect(decoded).toBe(240); // 8 s of source at 30 fps, not 240 of the clip's own frames (which run to 9.0 s)
+      // all the frames renderReveal asks for, right to the end of the file (one short is the rounding it allows): 5.85 s
+      // of source at 30 fps, not the clip's own 120 frames
+      const wanted = Number(revealDecodeArgs(solve, clip, size)[revealDecodeArgs(solve, clip, size).indexOf("-frames:v") + 1]);
+      expect(wanted).toBe(175);
+      expect(decoded).toBeGreaterThanOrEqual(wanted - 1);
+      expect(decoded).toBeLessThanOrEqual(wanted);
       const indexAt = (k: number) => {
         let n = 0;
         for (let b = 0; b < bits; b++) {
@@ -225,9 +296,9 @@ describe("the reveal's decode", () => {
         }
         return n;
       };
-      for (const k of [0, 60, 150, 239]) {
+      for (const k of [0, 60, 110, 125, 150, decoded - 1]) {
         const t = k / 30;
-        const expected = t < 8 ? t * 10 : 80 + (t - 8) * 40;
+        const expected = t < 4 ? t * 10 : 40 + (t - 4) * 40;
         expect(Math.abs(indexAt(k) - expected)).toBeLessThanOrEqual(1);
       }
     } finally {

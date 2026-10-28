@@ -107,6 +107,18 @@ long afternoon shadows) flagged `assumed`, and the person turns it on the pin sc
    again (the claim refuses a stopped run at every delivery).
 8. **Pool water on top.** The water is drawn after the deck's faces.
 
+Round 3 (at e238f5d9):
+
+9. **A stop that cannot wait for stuck work.** `runInStepScope` force-closes a stopped step's scope 5 s after the
+   stop (`STEP_FORCE_CLOSE_MS`, under the attempt's 10 s grace) even if its work is still pending, say on a storage
+   request that ignores its abort: processes killed, temp dirs removed, and the stop returned at once, so a retry does
+   not run beside it. Every write the step makes (uploads, the stored solve, the asset and reel rows) checks the stop
+   first, so work that settles late writes nothing. What it still holds in memory is freed when it settles.
+10. **Bounded output.** The reveal is at most 30 fps (`REVEAL_MAX_FPS`; the decode resamples a 60 or 120 fps clip),
+   its encode is capped at 16 Mbit/s, and a file over 40 MB (`MAX_REVEAL_BYTES`) fails before the upload reads it.
+11. **The end of the file.** A decode resampled right up to a clip's end comes out a frame or two short (a VFR test that
+   ran to the end found 178 of 180), so the reveal stops 0.15 s before the clip's end (`REVEAL_END_MARGIN_S`).
+
 ## Consequences
 
 - A drone clip becomes a scale-true reveal for no credits in about two minutes of worker time (solve ~1 min on 2 vCPU

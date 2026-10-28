@@ -70,7 +70,12 @@ export function WalkBlock({ initialAssetId = null }: { initialAssetId?: string |
   const [altitude, setAltitude] = useState<number | null>(null);
   const [ready, setReady] = useState<Ready | null>(null);
   const stop = useRef({ stopped: false });
-  useEffect(() => () => void (stop.current.stopped = true), []);
+  useEffect(() => {
+    // Set again on every mount: a remount (React's development double mount, a fast refresh) must not stay stopped.
+    const flag = { stopped: false };
+    stop.current = flag;
+    return () => void (flag.stopped = true);
+  }, []);
 
   // Read the land as soon as the clip is in storage; the questions are answered meanwhile.
   useEffect(() => {

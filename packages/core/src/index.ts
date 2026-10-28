@@ -61,6 +61,7 @@ export * from "./uploads";
 export * from "./venue";
 export * from "./vibes";
 export * from "./walk";
+export * from "./walk-block";
 export * from "./ai-director";
 export * from "./transcript";
 export * from "./speech-onset";

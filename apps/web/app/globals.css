@@ -4146,6 +4146,7 @@ input.inspect-scrub {
   min-height: 44px;
   display: flex;
   align-items: center;
+}
 
 /* ── Render checks and the Judge view (ADR 0071) ───────────────── */
 
@@ -4514,3 +4515,202 @@ input.inspect-scrub {
   margin-top: 6px;
 }
 
+
+/* ── Walk the block (ADR 0093) ─────────────────────────────────── */
+
+.walk-title {
+  font-family: var(--display);
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+
+.walk {
+  display: grid;
+  gap: 18px;
+}
+
+.walk-drop {
+  position: relative;
+  min-height: 132px;
+}
+
+.walk-status {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: var(--radius-m);
+  background: var(--ink-deep);
+  color: var(--paper);
+}
+
+.walk-status progress {
+  width: 100%;
+  height: 4px;
+  accent-color: var(--paper);
+}
+
+.walk-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--paper);
+  animation: walk-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes walk-pulse {
+  50% { opacity: 0.25; }
+}
+
+.walk-q {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.walk-q legend {
+  margin-bottom: 10px;
+  font-family: var(--display);
+  font-size: 1.25rem;
+}
+
+/* The pin screen: the frame of the land full screen at 9:16, the controls in one bar under it. */
+.walk-pin {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  background: var(--ink);
+}
+
+.walk-stage {
+  position: relative;
+  width: min(100vw, calc((100dvh - 168px - var(--safe-bottom)) * 9 / 16));
+  aspect-ratio: 9 / 16;
+  margin: 0 auto;
+  overflow: hidden;
+  background: #000;
+  touch-action: none;
+}
+
+.walk-video {
+  position: absolute;
+  max-width: none;
+  object-fit: fill;
+}
+
+.walk-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+}
+
+.walk-handle circle {
+  fill: rgb(10 10 10 / 0.55);
+  stroke: var(--paper);
+  stroke-width: 4;
+}
+
+.walk-handle path {
+  fill: none;
+  stroke: var(--paper);
+  stroke-width: 4;
+  stroke-linecap: round;
+}
+
+.walk-sun circle {
+  stroke: #ffd98a;
+}
+
+.walk-sun .walk-sun-core {
+  fill: #ffd98a;
+  stroke: none;
+}
+
+.walk-mark {
+  fill: var(--signal);
+  stroke: #fff;
+  stroke-width: 4;
+}
+
+.walk-measure-line {
+  stroke: #fff;
+  stroke-width: 5;
+  stroke-dasharray: 14 10;
+}
+
+.walk-scale {
+  position: absolute;
+  top: calc(10px + var(--safe-top));
+  left: 10px;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: rgb(10 10 10 / 0.6);
+  color: var(--paper);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.walk-scale[aria-pressed="true"] {
+  background: var(--signal);
+  color: #fff;
+}
+
+/* Play sits in the corner, off the picture's centre. */
+.walk-play {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  background: rgb(10 10 10 / 0.6);
+}
+
+.walk-bar {
+  display: grid;
+  gap: 8px;
+  width: min(100%, 520px);
+  margin: 0 auto;
+  padding: 10px 14px calc(12px + var(--safe-bottom));
+}
+
+.walk-size {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.walk-area {
+  font-family: var(--display);
+  font-size: 1.5rem;
+}
+
+.walk-dims {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+.walk-step {
+  width: var(--tap);
+  height: var(--tap);
+  border: 0;
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--paper);
+  font-size: 1.2rem;
+}
+
+.walk-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+}

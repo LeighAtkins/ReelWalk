@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { acceptFor, vibeById, VIBES } from "@reelwalk/core";
 import { createReel, createReelFromTour } from "@/app/actions";
 import { setPendingFiles } from "@/lib/pending-files";
-import { CheckIcon, DishIcon, PanoIcon, PlusIcon, SparkIcon } from "./icons";
+import { CheckIcon, DishIcon, PanoIcon, PlanIcon, PlusIcon, SparkIcon } from "./icons";
 
 /**
  * The way Instagram starts a reel: pick photos and videos first, then edit.
@@ -144,6 +144,12 @@ export function NewReelPicker({ librarySize = 0, tours = [] }: { librarySize?: n
             <span className="start-tile-sub">360 rooms and songs</span>
           </button>
         ) : null}
+        {/* Walk the block (ADR 0093): a drone clip of the land, the home drawn on it to scale. */}
+        <Link href="/new/block" className="start-tile" prefetch={false} data-testid="walk-the-block">
+          <PlanIcon size={20} />
+          <span className="start-tile-title">Walk the block</span>
+          <span className="start-tile-sub">A home drawn to scale on your land</span>
+        </Link>
         <Link href="/new/venue" className="start-tile" prefetch={false} data-testid="new-venue-reel">
           <DishIcon size={20} />
           <span className="start-tile-title">Restaurant or café</span>

@@ -209,7 +209,7 @@ export function WalkBlock({ initialAssetId = null }: { initialAssetId?: string |
   );
 }
 
-type Drag = { kind: "move"; dx: number; dz: number } | { kind: "turn" } | { kind: "sun" } | null;
+type Drag = { kind: "move"; dx: number; dz: number } | { kind: "turn"; offsetDeg: number } | { kind: "sun" } | null;
 
 /** Output pixels (the 1080 × 1920 stage) of a pointer event on the stage. */
 function stagePoint(event: ReactPointerEvent<Element>, stage: SVGSVGElement): [number, number] {
@@ -237,7 +237,8 @@ function PinScreen({ ready, build, altitude, onMake }: { ready: Ready; build: Bu
   const scale = { x: OUTPUT.width / shownWin.w, y: OUTPUT.height / shownWin.h };
   const { width, height } = solve.intrinsics;
 
-  // Handles, in stage pixels on the still: the end of the long side (turn) and the sun, out past the corner it lights.
+  // Handles, in stage pixels on the still. Turn: out past whichever side of the outline lands farthest from it on screen
+  // (the end of the long side hides behind the house when that side points at the drone). Sun: out towards the sun.
   const handles = useMemo(() => {
     const cam = blockCameraAt(solve, solve.still.t);
     const y = groundYAt(solve, pin.x, pin.z);
@@ -245,15 +246,22 @@ function PinScreen({ ready, build, altitude, onMake }: { ready: Ready; build: Bu
       const q = projectPoint(cam, [x, y, z]);
       return q.z > 0 ? ([((q.u - win.x) * OUTPUT.width) / win.w, ((q.v - win.y) * OUTPUT.height) / win.h] as [number, number]) : null;
     };
-    const a = (pin.yawDeg * Math.PI) / 180;
-    const half = (pin.length / 2 + 4) / pin.scale.factor;
+    const centre = at(pin.x, pin.z);
+    let turn: { at: [number, number]; offsetDeg: number } | null = null;
+    for (const offsetDeg of [0, 90, 180, 270]) {
+      const a = ((pin.yawDeg + offsetDeg) * Math.PI) / 180;
+      const reachOut = ((offsetDeg % 180 === 0 ? pin.length : pin.width) / 2 + Math.max(8, 0.35 * pin.length)) / pin.scale.factor;
+      const p = at(pin.x + Math.cos(a) * reachOut, pin.z - Math.sin(a) * reachOut);
+      const d = p && centre ? Math.hypot(p[0] - centre[0], p[1] - centre[1]) : -1;
+      if (p && p[0] > 40 && p[0] < OUTPUT.width - 40 && p[1] < OUTPUT.height - 40 && (!turn || d > Math.hypot(turn.at[0] - centre![0], turn.at[1] - centre![1]))) turn = { at: p, offsetDeg };
+    }
     const sun = sunVector(pin.sun);
     const h = Math.hypot(sun[0], sun[2]) || 1;
     const reach = (Math.max(pin.length, pin.width) * 0.85) / pin.scale.factor;
     return {
-      turn: at(pin.x + Math.cos(a) * half, pin.z - Math.sin(a) * half),
+      turn,
       sun: at(pin.x + (sun[0] / h) * reach, pin.z + (sun[2] / h) * reach),
-      centre: at(pin.x, pin.z),
+      centre,
     };
   }, [solve, pin, win]);
 
@@ -293,9 +301,13 @@ function PinScreen({ ready, build, altitude, onMake }: { ready: Ready; build: Bu
       return;
     }
     const near = (h: [number, number] | null) => h && Math.hypot(h[0] - x, h[1] - y) < 90;
-    stage.current.setPointerCapture(event.pointerId);
+    try {
+      stage.current.setPointerCapture(event.pointerId);
+    } catch {
+      // A pointer the browser no longer tracks (or a synthetic one): the drag still follows pointermove on the stage.
+    }
     if (near(handles.sun)) return setDrag({ kind: "sun" });
-    if (near(handles.turn)) return setDrag({ kind: "turn" });
+    if (handles.turn && near(handles.turn.at)) return setDrag({ kind: "turn", offsetDeg: handles.turn.offsetDeg });
     const hit = placeAt(solve, win, x, y);
     if (hit) setDrag({ kind: "move", dx: pin.x - hit.x, dz: pin.z - hit.z });
   }
@@ -308,7 +320,7 @@ function PinScreen({ ready, build, altitude, onMake }: { ready: Ready; build: Bu
     if (drag.kind === "move") setPin((p) => ({ ...p, x: hit.x + drag.dx, z: hit.z + drag.dz }));
     else {
       const deg = (Math.atan2(-(hit.z - pin.z), hit.x - pin.x) * 180) / Math.PI;
-      if (drag.kind === "turn") setPin((p) => ({ ...p, yawDeg: Math.round(deg) }));
+      if (drag.kind === "turn") setPin((p) => ({ ...p, yawDeg: Math.round(((deg - drag.offsetDeg + 540) % 360) - 180) }));
       else setPin((p) => ({ ...p, sun: { ...p.sun, azimuthDeg: Math.round((deg + 360) % 360) } }));
     }
   }
@@ -341,7 +353,7 @@ function PinScreen({ ready, build, altitude, onMake }: { ready: Ready; build: Bu
           {playMs === null && !measure ? (
             <>
               {handles.turn ? (
-                <g className="walk-handle" transform={`translate(${handles.turn[0]} ${handles.turn[1]})`}>
+                <g className="walk-handle" transform={`translate(${handles.turn.at[0]} ${handles.turn.at[1]})`}>
                   <circle r="34" />
                   <path d="M-12 -4a13 13 0 1 1 4 13M-12 -4v-10M-12 -4h10" />
                 </g>

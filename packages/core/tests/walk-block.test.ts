@@ -15,6 +15,7 @@ import {
   parseBlockSolve,
   placeAt,
   projectPoint,
+  pushInFor,
   revealDurationMs,
   scaleFromAltitude,
   scaleFromLength,
@@ -116,7 +117,12 @@ describe("the frame", () => {
       expect(w.x + w.w).toBeLessThanOrEqual(solve.intrinsics.width + 1e-9);
       expect(w.y + w.h).toBeLessThanOrEqual(solve.intrinsics.height + 1e-9);
     }
-    expect(viewAt(solve, pin, dur).w).toBeCloseTo(base.w / 1.16, 3);
+    // a far outline gets the deeper push, a near one the gentle 1.16
+    const push = pushInFor(solve, pin);
+    expect(push).toBeGreaterThanOrEqual(1.16);
+    expect(push).toBeLessThanOrEqual(1.45);
+    expect(viewAt(solve, pin, dur).w).toBeCloseTo(base.w / push, 3);
+    expect(pushInFor(solve, { ...pin, length: 120, width: 90 })).toBeCloseTo(1.16, 6);
   });
 });
 

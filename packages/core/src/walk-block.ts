@@ -262,13 +262,27 @@ export function cropXFor(solve: BlockSolve, u: number): number {
   return width - w <= 0 ? 0.5 : Math.min(1, Math.max(0, (u - w / 2) / (width - w)));
 }
 
-/** A slow push-in over the clip (1 → 1.16, eased) towards the outline, keeping the frame covered. */
-export const PUSH_IN = 0.16;
+/**
+ * The push-in over the clip, eased: at least 1.16, and more for a far-off outline, until it spans about a third of the
+ * frame's width at the end of the clip (the prototype's reveal pushed to 1.42), never past 1.45 (a 4K source is then
+ * upscaled about 1.3×).
+ */
+export const PUSH_IN = { min: 1.16, max: 1.45, span: 0.32 } as const;
+
+/** How far the reveal pushes in by its end, for this pin. */
+export function pushInFor(solve: BlockSolve, pin: BlockPin): number {
+  const base = baseWindow(solve, pin.cropX);
+  const cam = blockCameraAt(solve, solve.still.t + revealDurationMs(solve) / 1000);
+  const us = footprintCorners(solve, pin).map((p) => projectPoint(cam, p)).filter((q) => q.z > 0).map((q) => q.u);
+  if (us.length < 4) return PUSH_IN.min;
+  const spanPx = ((Math.max(...us) - Math.min(...us)) * OUTPUT.width) / base.w;
+  return Math.min(PUSH_IN.max, Math.max(PUSH_IN.min, (PUSH_IN.span * OUTPUT.width) / Math.max(1, spanPx)));
+}
 
 export function viewAt(solve: BlockSolve, pin: BlockPin, tMs: number): ViewWindow {
   const base = baseWindow(solve, pin.cropX);
   const dur = revealDurationMs(solve);
-  const zoom = 1 + PUSH_IN * smooth(tMs / dur);
+  const zoom = 1 + (pushInFor(solve, pin) - 1) * smooth(tMs / dur);
   const cam = blockCameraAt(solve, solve.still.t + tMs / 1000);
   const c = projectPoint(cam, [pin.x, groundYAt(solve, pin.x, pin.z), pin.z]);
   const fu = c.z > 0 ? Math.min(base.x + base.w, Math.max(base.x, c.u)) : base.x + base.w / 2;
@@ -564,9 +578,10 @@ function labelOnGround(solve: BlockSolve, pin: BlockPin, cam: BlockCamera, win: 
   lengthM /= k;
   depthM /= k;
   // Playfair's figures average ~0.52 em and the main line is set at 1.45 cap heights, so a line of n characters is ~0.75 n
-  // caps wide: keep it inside three quarters of the side it runs along, and the two lines inside the other side.
+  // caps wide: as large as fits, inside 92% of the side it runs along and a third of the other (the sub line may run
+  // a little past it; legible from a drone's height matters more).
   const { text } = areaText(pin);
-  const size = Math.min((0.75 * lengthM) / (0.754 * text.length), 0.22 * depthM);
+  const size = Math.min((0.92 * lengthM) / (0.754 * text.length), 0.34 * depthM);
   return { kind: "label", ...areaText(pin), matrix: [p1[0] - o[0], p1[1] - o[1], p2[0] - o[0], p2[1] - o[1], o[0], o[1]], size, opacity: 1 };
 }
 

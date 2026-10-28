@@ -135,6 +135,17 @@ the house is finished 0.6 s before it ends):
 | 3.5–4.5 s | gable roof trusses every 1.2 m go on end to end, then the ridge; the massing's shadow begins, faint |
 | 4.5–5.4 s | the walls and roof close over the frame into the finished white massing, with its full shadow |
 
+**The push-in follows the build.** In the full frame a house 200 m out was a speck, so the close-ups never reached the
+reel. The crop now stays put until the outline appears (never a push into empty ground), then eases in so that when
+the walls start to close the house spans about 35% of the frame's width (2.5× at most), steered so it settles centred
+at 0.58 of the height (clear of the title at 0.16 and of the like/share column), and holds to the end; a short clip
+compresses it with the stages. The worker cuts each frame from the source at its full size to a fraction of a pixel
+(sharp's affine on a whole-pixel piece), and every shape is projected through the same fractional window, so the
+drawing stays on the ground. At 2.5× a 4K source's crop is 486 px wide, upscaled 2.2×: a little soft. A house pinned
+low in the drone's frame cannot be lifted by any crop: near the end of the flight it sits as low on screen as it does
+in the source (the default suggested site stays above the caption zone; a site dragged to the frame's foot does not).
+The "24 × 11 m" line under the area is gone: unreadable from a drone (the dimensions are on the pin screen).
+
 A pool's deck is its slab (the water on top of it); "Just the land" keeps its outline and area for the whole clip. The
 pin screen still shows the finished house (`still.rise` 1). Shapes carry roles `slab`, `frame` and `roof-frame`
 besides the existing ones. House style kept: white model, no sound, the push-in only towards the outline.

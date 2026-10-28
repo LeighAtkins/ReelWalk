@@ -119,7 +119,8 @@ export async function solveClip(videoPath: string, outDir: string, scope: Attemp
   const started = Date.now();
   const { stdout } = await run(PYTHON, [path.join(BLOCK_DIR, "run.py"), videoPath, outDir], {
     scope,
-    timeoutMs: 12 * 60_000,
+    // Below the step's 10-minute deadline; run.py refuses a clip it can see will overrun well before this (420 s).
+    timeoutMs: 9 * 60_000,
     maxBuffer: 4 * 1024 * 1024,
     env: { ...process.env, FFMPEG_PATH: FFMPEG, PYTHONUNBUFFERED: "1" },
   });

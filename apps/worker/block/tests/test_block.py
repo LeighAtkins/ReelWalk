@@ -3,6 +3,7 @@
 # fixtures/drone-14194694/SOURCE.md), 7 frames at 1.5 fps, 960 px wide.
 import os
 import sys
+import time
 import unittest
 
 import numpy as np
@@ -10,7 +11,7 @@ import cv2
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
-from solve import SolveError, solve  # noqa: E402
+from solve import SolveError, overruns, solve  # noqa: E402
 from measure import ASSUMED_ALTITUDE_M, world  # noqa: E402
 
 FIXTURE = os.path.join(HERE, "fixtures", "drone-14194694")
@@ -67,6 +68,22 @@ class RealClip(unittest.TestCase):
         w = world(self.sol, altitude_m=92.0)
         self.assertEqual(w["scale"]["basis"], "stated")
         self.assertAlmostEqual(w["cameras"][0][1][1], 92.0, places=6)
+
+
+class Budget(unittest.TestCase):
+    def test_projects_an_overrun_from_the_frames_done(self):
+        # 10 frames in 20 s, 60 to go: 120 s more. Finishing at t = 150 misses a deadline at 140, makes one at 160.
+        self.assertTrue(overruns(30.0, 10.0, 10, 60, 140.0))
+        self.assertFalse(overruns(30.0, 10.0, 10, 60, 160.0))
+        self.assertFalse(overruns(30.0, 10.0, 4, 600, 31.0))  # too few frames to judge yet
+
+    def test_stops_early_with_a_clear_reason(self):
+        names = sorted(n for n in os.listdir(FIXTURE) if n.endswith(".jpg"))
+        images = [cv2.imread(os.path.join(FIXTURE, n)) for n in names]
+        with self.assertRaises(SolveError) as e:
+            solve(images, fps=1.5, log=quiet, deadline=(time.monotonic(), 420))
+        self.assertEqual(e.exception.code, "too-slow")
+        self.assertIn("420 seconds", e.exception.message)
 
 
 class Refusals(unittest.TestCase):

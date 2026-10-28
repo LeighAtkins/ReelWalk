@@ -58,7 +58,7 @@ class Plan(unittest.TestCase):
         p = run.plan(3840, 2160, 25.3, 29.97)
         self.assertEqual(p["step"], 10)
         self.assertAlmostEqual(p["fps"], 2.997, places=3)
-        self.assertEqual((p["width"], p["height"]), (1920, 1080))
+        self.assertEqual((p["width"], p["height"]), (1280, 720))  # the solve reads 1280-wide frames (ADR 0093, speed)
         self.assertLessEqual(p["count"] * p["width"] * p["height"] * 3, run.DECODE_BUDGET_BYTES)
         self.assertEqual(run.plan(3840, 2160, 25.3, 23.976)["step"], 8)
 
@@ -94,6 +94,17 @@ class Frames(unittest.TestCase):
         self.assertEqual(run.main([video, out]), 0)
         self.assertEqual(read_code(out), "portrait")
         self.assertFalse(os.path.exists(os.path.join(out, "frames")))
+
+    def test_a_clip_past_the_time_budget_is_refused_as_too_slow(self):
+        video = os.path.join(self.dir, "b.mp4")
+        numbered_video(video, 180)
+        out = os.path.join(self.dir, "out")
+        os.environ["BLOCK_SOLVE_BUDGET_S"] = "0"
+        try:
+            self.assertEqual(run.main([video, out]), 0)
+        finally:
+            del os.environ["BLOCK_SOLVE_BUDGET_S"]
+        self.assertEqual(read_code(out), "too-slow")
 
     def test_a_short_clip_is_refused(self):
         video = os.path.join(self.dir, "s.mp4")

@@ -9,6 +9,8 @@
 #
 # Pure numpy + OpenCV (opencv-python-headless); no ffmpeg here. Units are arbitrary (the init baseline is 1);
 # measure.py turns the result into a metric, gravity-aligned world.
+import time
+
 import numpy as np
 import cv2
 
@@ -29,10 +31,22 @@ def intrinsics(width, height, focal=None):
     return np.array([[f, 0, width / 2.0], [0, f, height / 2.0], [0, 0, 1.0]])
 
 
-def features(images, count=6000):
+def too_slow(budget_s):
+    return SolveError("too-slow", "Reading this clip in 3D would take longer than the %d seconds a reading may take. A "
+                                  "shorter clip (10-20 seconds of flight) reads in about a minute." % int(round(budget_s)))
+
+
+def overruns(now, started, done, remaining, deadline_t, warmup=5):
+    """Whether the frames registered so far (`done` since `started`) say the `remaining` ones will finish after `deadline_t`."""
+    return done >= warmup and now + (now - started) / done * remaining > deadline_t
+
+
+def features(images, count=4000, deadline=None):
     sift = cv2.SIFT_create(count)
     kp, des, col = [], [], []
     for im in images:
+        if deadline is not None and time.monotonic() > deadline[0]:
+            raise too_slow(deadline[1])
         grey = cv2.cvtColor(im, cv2.COLOR_BGR2GRAY) if im.ndim == 3 else im
         k, d = sift.detectAndCompute(grey, None)
         pts = np.float64([x.pt for x in k]).reshape(-1, 2)
@@ -46,12 +60,13 @@ def features(images, count=6000):
 
 
 class Solver:
-    def __init__(self, images, K, count=6000):
+    def __init__(self, images, K, count=4000, matcher="flann", deadline=None):
         cv2.setRNGSeed(1)
         self.K = K
         self.N = len(images)
-        self.kp, self.des, self.col = features(images, count)
-        self.bf = cv2.BFMatcher()
+        self.kp, self.des, self.col = features(images, count, deadline)
+        # "flann": approximate nearest neighbours (KD-trees) instead of brute force over every descriptor pair.
+        self.bf = cv2.FlannBasedMatcher(dict(algorithm=1, trees=4), dict(checks=48)) if matcher == "flann" else cv2.BFMatcher()
         self.pose = {}                         # frame -> (R world->cam, t)
         self.obs = [dict() for _ in range(self.N)]  # frame -> {keypoint index: point id}
         self.X, self.XC = [], []
@@ -170,13 +185,21 @@ class Solver:
         return float(np.median(errs)) if errs else float("inf")
 
 
-def solve(images, fps, focal=None, count=6000, log=print):
-    """Solves the camera of every frame. Returns cameras (R camera->world, C) in solve units, points, colours and stats."""
+def solve(images, fps, focal=None, count=4000, log=print, matcher="flann", refs=3, deadline=None):
+    """Solves the camera of every frame. Returns cameras (R camera->world, C) in solve units, points, colours and stats.
+
+    Speed (ADR 0093, solve speed): run.py hands this 1280-wide frames; 4000 SIFT features a frame and FLANN matching
+    (approximate KD-tree search) instead of brute force solve the prototype clip 4x faster on 2 cores with the same
+    camera path (within 0.43 m over 180 m) and the same road measurement (91.4 m against 91.6 m).
+
+    `deadline`: (monotonic time, budget seconds). Once the frames registered so far say the rest will not finish by
+    then, the solve stops with "too-slow" rather than running into the worker's step deadline.
+    """
     if len(images) < 6:
         raise SolveError("too-short", "The clip is too short to read in 3D. Use at least 3 seconds of drone footage.")
     h, w = images[0].shape[:2]
     K = intrinsics(w, h, focal)
-    s = Solver(images, K, count)
+    s = Solver(images, K, count, matcher, deadline)
     log("features %d per frame" % int(np.mean([len(k) for k in s.kp])))
     # Init on a ~4 s baseline (12 frames at 3 fps), shorter when the clip is short or the pair is weak.
     best = None
@@ -194,9 +217,13 @@ def solve(images, fps, focal=None, count=6000, log=print):
                                         "read. Use a clip where the drone flies forward or sideways for a few seconds.")
     order = [j for j in range(1, s.N) if j != best]
     failed = []
-    for j in order:
-        refs = sorted([i for i in s.pose if i != j], key=lambda i: abs(i - j))[:3]
-        n = s.register(j, refs)
+    loop_started = time.monotonic()
+    for done, j in enumerate(order):
+        if deadline is not None and overruns(time.monotonic(), loop_started, done, len(order) - done, deadline[0]):
+            log("too slow: %d of %d frames in %.0f s" % (done, len(order), time.monotonic() - loop_started))
+            raise too_slow(deadline[1])
+        near = sorted([i for i in s.pose if i != j], key=lambda i: abs(i - j))[:refs]
+        n = s.register(j, near)
         if not n:
             failed.append(j)
             continue

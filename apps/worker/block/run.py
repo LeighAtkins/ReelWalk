@@ -1,6 +1,9 @@
 # Walk the block, step 1 (ADR 0093): read a drone clip in 3D. Called by the worker (src/walk-block.ts):
 #
-#   python run.py <video> <out-dir> [--seconds 24] [--fps 3] [--width 1920] [--altitude-m 92]
+#   python run.py <video> <out-dir> [--seconds 24] [--fps 3] [--width 1280] [--altitude-m 92]
+#
+# BLOCK_SOLVE_BUDGET_S (default 420): seconds the whole reading may take, from the start of this script. The worker's
+# step deadline is 600 s; past the budget (or once the solve can see it will be) the clip is refused as "too-slow".
 #
 # Writes <out-dir>/solve.json (cameras in metres, ground, scale, sun, a sample of ground points) and <out-dir>/still.jpg
 # (the first frame, for the pin screen). Prints progress lines; on a clip it refuses, writes solve.json with
@@ -17,7 +20,7 @@ import numpy as np
 import cv2
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from solve import SolveError, solve  # noqa: E402
+from solve import SolveError, solve, too_slow  # noqa: E402
 from measure import DEFAULT_SUN, world  # noqa: E402
 
 VERSION = 1
@@ -54,7 +57,7 @@ def probe(ffmpeg, video):
     return w, h, seconds, float(rate.group(1)) if rate else 0.0
 
 
-def plan(src_w, src_h, seconds, src_fps, want_fps=3.0, max_seconds=24.0, max_width=1920):
+def plan(src_w, src_h, seconds, src_fps, want_fps=3.0, max_seconds=24.0, max_width=1280):
     """What to decode, or a SolveError for a clip the solve will not read. Decided from the probe alone."""
     if src_w <= 0 or src_h <= 0:
         raise SolveError("unreadable", "This file could not be read as a video.")
@@ -105,14 +108,18 @@ def main(argv=None):
     ap.add_argument("out")
     ap.add_argument("--seconds", type=float, default=24.0)
     ap.add_argument("--fps", type=float, default=3.0)
-    ap.add_argument("--width", type=int, default=1920)
+    ap.add_argument("--width", type=int, default=1280)
     ap.add_argument("--altitude-m", type=float, default=None)
     ap.add_argument("--frames-dir", default=None, help="solve these frames (sorted, at --fps) instead of decoding the video")
     a = ap.parse_args(argv)
     ffmpeg = os.environ.get("FFMPEG_PATH", "ffmpeg")
     os.makedirs(a.out, exist_ok=True)
     started = time.time()
-    cv2.setNumThreads(max(1, os.cpu_count() or 1))
+    # The CPUs this process may use (a container's share, not the host's count), so OpenCV does not oversubscribe them.
+    cpus = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else (os.cpu_count() or 1)
+    cv2.setNumThreads(max(1, cpus))
+    budget = float(os.environ.get("BLOCK_SOLVE_BUDGET_S", "420"))
+    deadline = (time.monotonic() - (time.time() - started) + budget, budget)
     src_w, src_h, duration, src_fps = probe(ffmpeg, a.video)
     result = {"version": VERSION, "ok": True}
     try:
@@ -124,7 +131,9 @@ def main(argv=None):
         else:
             images, times = frames(ffmpeg, a.video, a.out, p)
         log("frames %d at %dx%d, every %d of %.3f fps (%.1f s)" % (len(images), images[0].shape[1], images[0].shape[0], p["step"], src_fps, time.time() - started))
-        sol = solve(images, p["fps"], log=log)
+        if time.monotonic() > deadline[0]:
+            raise too_slow(budget)
+        sol = solve(images, p["fps"], log=log, deadline=deadline)
         last = max(sol["cameras"])
         if times[last] - times[0] < MIN_REVEAL_SECONDS:
             raise SolveError("too-short", "Only the first %.1f seconds of the flight could be followed; the reveal needs %g." % (times[last], MIN_REVEAL_SECONDS))

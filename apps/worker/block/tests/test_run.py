@@ -63,6 +63,66 @@ class Plan(unittest.TestCase):
         self.assertEqual(run.plan(3840, 2160, 25.3, 23.976)["step"], 8)
 
 
+class Cgroups(unittest.TestCase):
+    """The process's own cgroup, found the way Go's runtime finds it (review round 2)."""
+
+    def files(self, table):
+        return lambda path: table.get(path)
+
+    def test_v2_with_the_quota_on_a_parent_of_the_process_cgroup(self):
+        proc = "0::/ecs/task-1/container-a\n"
+        mounts = "30 23 0:26 / /sys/fs/cgroup rw,nosuid - cgroup2 cgroup2 rw\n"
+        read = self.files({"/sys/fs/cgroup/ecs/task-1/container-a/cpu.max": "max 100000\n",
+                           "/sys/fs/cgroup/ecs/task-1/cpu.max": "200000 100000\n",
+                           "/sys/fs/cgroup/cpu.max": "max 100000\n"})
+        self.assertEqual(run.cgroup_cpu_max(proc, mounts, read), "200000 100000")
+        self.assertEqual(run.cpu_budget(8, run.cgroup_cpu_max(proc, mounts, read)), 2)
+
+    def test_a_combined_v1_cpu_cpuacct_mount(self):
+        proc = "12:memory:/docker/abc\n4:cpu,cpuacct:/docker/abc\n"
+        mounts = ("31 23 0:27 / /sys/fs/cgroup/memory rw - cgroup cgroup rw,memory\n"
+                  "32 23 0:28 / /sys/fs/cgroup/cpu,cpuacct rw - cgroup cgroup rw,cpu,cpuacct\n")
+        read = self.files({"/sys/fs/cgroup/cpu,cpuacct/docker/abc/cpu.cfs_quota_us": "200000\n",
+                           "/sys/fs/cgroup/cpu,cpuacct/docker/abc/cpu.cfs_period_us": "100000\n"})
+        self.assertEqual(run.cgroup_cpu_max(proc, mounts, read), "200000 100000")
+
+    def test_a_container_whose_mount_root_is_its_own_cgroup(self):
+        # inside a container the hierarchy is mounted from the container's cgroup: root /docker/abc, process in /docker/abc
+        proc = "0::/docker/abc\n"
+        mounts = "40 30 0:30 /docker/abc /sys/fs/cgroup ro - cgroup2 cgroup2 rw\n"
+        read = self.files({"/sys/fs/cgroup/cpu.max": "150000 100000\n"})
+        self.assertEqual(run.cgroup_cpu_max(proc, mounts, read), "150000 100000")
+
+    def test_no_quota(self):
+        proc = "0::/user.slice\n"
+        mounts = "30 23 0:26 / /sys/fs/cgroup rw - cgroup2 cgroup2 rw\n"
+        read = self.files({"/sys/fs/cgroup/user.slice/cpu.max": "max 100000\n", "/sys/fs/cgroup/cpu.max": None})
+        self.assertIsNone(run.cgroup_cpu_max(proc, mounts, read))
+        self.assertIsNone(run.cgroup_cpu_max("", "", read))
+
+
+class Probe(unittest.TestCase):
+    def test_a_stalled_probe_is_a_too_slow_refusal_within_the_budget(self):
+        calls = []
+        real = run.subprocess.run
+
+        def stalled(cmd, **kw):
+            calls.append(kw.get("timeout"))
+            raise subprocess.TimeoutExpired(cmd, kw.get("timeout"))
+        out = tempfile.mkdtemp()
+        os.environ["BLOCK_SOLVE_BUDGET_S"] = "30"
+        run.subprocess.run = stalled
+        try:
+            self.assertEqual(run.main(["clip.mp4", out]), 0)
+        finally:
+            run.subprocess.run = real
+            del os.environ["BLOCK_SOLVE_BUDGET_S"]
+        self.assertEqual(read_code(out), "too-slow")
+        self.assertEqual(len(calls), 1)
+        self.assertLessEqual(calls[0], 30)
+        shutil.rmtree(out, ignore_errors=True)
+
+
 class Threads(unittest.TestCase):
     def test_follows_the_cgroup_quota_not_the_cpus_visible(self):
         self.assertEqual(run.cpu_budget(8, "200000 100000"), 2)   # a 2-vCPU task that can see 8 CPUs

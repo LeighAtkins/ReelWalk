@@ -150,8 +150,12 @@ It also refuses early on a projection, but only on sustained evidence: at least 
 registered, judged at the more optimistic of the overall and the recent rate, so a slow start (5 frames at 30 s, then
 65 at 3 s: done at 345 s) is not refused while a steady 10 s a frame is, at 180 s. The worker measures from the step's
 start, download included: it kills the Python process 60 s before the 10 min step deadline and hands run.py a budget a
-minute inside that (`solveLimits`). OpenCV's threads follow the container's CPU quota (cgroup `cpu.max`), not the CPUs it
-can see; `BLOCK_SOLVE_THREADS` overrides.
+30 s inside that (`solveLimits`), from the configured step deadline (`AI_STEP_TIMEOUT_SECONDS`). Nothing is ever added
+to what is left: with under a 20 s budget the step stops at once ("too-slow", the step fails so it can be asked again;
+it is the attempt that ran out, not the clip that is refused). The probe runs inside the budget too. OpenCV's threads
+follow the process's own cgroup CPU quota, found as Go's runtime finds it (/proc/self/cgroup and /proc/self/mountinfo,
+v1 or v2, the tightest quota up to the mount), not the CPUs it can see; `BLOCK_SOLVE_THREADS` overrides, and Terraform
+sets it to the worker task's vCPUs.
 
 ## Consequences
 

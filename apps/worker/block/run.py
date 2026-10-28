@@ -45,9 +45,9 @@ def log(line):
     print(line, flush=True)
 
 
-def probe(ffmpeg, video):
+def probe(ffmpeg, video, timeout=None):
     # ffmpeg -i prints the stream line to stderr; enough to get the size, frame rate and duration without ffprobe.
-    out = subprocess.run([ffmpeg, "-hide_banner", "-i", video], capture_output=True, text=True).stderr
+    out = subprocess.run([ffmpeg, "-hide_banner", "-i", video], capture_output=True, text=True, timeout=timeout).stderr
     stream = re.search(r"Stream[^\n]*Video:[^\n]*", out)
     line = stream.group(0) if stream else ""
     size = re.search(r", (\d{2,6})x(\d{2,6})", line)
@@ -97,19 +97,70 @@ def cpu_budget(affinity, cpu_max=None, override=None):
     return cpus
 
 
+def cgroup_cpu_max(proc_cgroup, mountinfo, read):
+    """This process's CPU quota as a cgroup v2 `cpu.max` string ("quota period"), or None when it has none.
+
+    Resolved as Go's runtime does: /proc/self/cgroup names the process's cgroup (v2 "0::/path", or a v1 line whose
+    controllers include "cpu", e.g. "4:cpu,cpuacct:/path"); /proc/self/mountinfo says where that hierarchy is mounted
+    (fstype cgroup2, or cgroup with "cpu" among its super options) and from which root. The cgroup's directory under the
+    mount, and every parent up to the mount point, is read; the tightest quota wins (a limit set on an ancestor applies).
+    `read(path)` returns a file's text or None.
+    """
+    v2_path, v1_path = None, None
+    for line in proc_cgroup.splitlines():
+        parts = line.split(":", 2)
+        if len(parts) != 3:
+            continue
+        if parts[0] == "0" and parts[1] == "":
+            v2_path = parts[2]
+        elif "cpu" in parts[1].split(","):
+            v1_path = parts[2]
+    best = None
+    for line in mountinfo.splitlines():
+        fields = line.split()
+        if "-" not in fields:
+            continue
+        dash = fields.index("-")
+        fstype, options = fields[dash + 1], fields[dash + 3] if len(fields) > dash + 3 else ""
+        root_dir, mount_point = fields[3], fields[4]
+        if fstype == "cgroup2" and v2_path is not None:
+            path, v1 = v2_path, False
+        elif fstype == "cgroup" and v1_path is not None and "cpu" in options.split(","):
+            path, v1 = v1_path, True
+        else:
+            continue
+        rel = path[len(root_dir):] if root_dir != "/" and path.startswith(root_dir) else (path if root_dir == "/" else None)
+        if rel is None:
+            continue
+        here = os.path.normpath(mount_point + "/" + rel.lstrip("/")).replace("\\", "/")
+        while True:
+            if v1:
+                q, per = read(here + "/cpu.cfs_quota_us"), read(here + "/cpu.cfs_period_us")
+                text = None if q is None or per is None or q.strip() == "-1" else q.strip() + " " + per.strip()
+            else:
+                text = read(here + "/cpu.max")
+            if text and not text.strip().startswith("max"):
+                quota, _, period = text.strip().partition(" ")
+                cpus = int(quota) / int(period)
+                if best is None or cpus < best[0]:
+                    best = (cpus, text.strip())
+            if here.rstrip("/") == mount_point.rstrip("/") or len(here) <= len(mount_point):
+                break
+            here = os.path.dirname(here).replace("\\", "/")
+    return best[1] if best else None
+
+
 def read_cpu_max():
-    for path in ("/sys/fs/cgroup/cpu.max",):
+    def read(path):
         try:
             with open(path) as f:
                 return f.read()
         except OSError:
-            pass
-    try:  # cgroup v1
-        with open("/sys/fs/cgroup/cpu/cpu.cfs_quota_us") as q, open("/sys/fs/cgroup/cpu/cpu.cfs_period_us") as p:
-            quota = q.read().strip()
-            return ("max" if quota == "-1" else quota) + " " + p.read().strip()
-    except OSError:
+            return None
+    proc_cgroup, mountinfo = read("/proc/self/cgroup"), read("/proc/self/mountinfo")
+    if not proc_cgroup or not mountinfo:
         return None
+    return cgroup_cpu_max(proc_cgroup, mountinfo, read)
 
 
 def frames(ffmpeg, video, out_dir, p, timeout=None):
@@ -149,9 +200,13 @@ def main(argv=None):
     affinity = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else (os.cpu_count() or 1)
     cv2.setNumThreads(cpu_budget(affinity, read_cpu_max(), os.environ.get("BLOCK_SOLVE_THREADS")))
     budget = Budget(float(os.environ.get("BLOCK_SOLVE_BUDGET_S", "420")))
-    src_w, src_h, duration, src_fps = probe(ffmpeg, a.video)
     result = {"version": VERSION, "ok": True}
     try:
+        # Inside the budget like everything else: a probe that stalls is a "too-slow" refusal, not a crashed command.
+        try:
+            src_w, src_h, duration, src_fps = probe(ffmpeg, a.video, timeout=max(0.1, min(60.0, budget.remaining())))
+        except subprocess.TimeoutExpired:
+            raise too_slow(budget.seconds)
         p = plan(src_w, src_h, duration, src_fps, a.fps, a.seconds, a.width)
         if a.frames_dir:
             names = sorted(n for n in os.listdir(a.frames_dir) if n.endswith(".jpg"))

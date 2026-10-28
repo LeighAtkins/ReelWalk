@@ -27,7 +27,7 @@ vi.mock("../src/library/tools", () => ({
   },
   run: (file: string, args: string[], options: unknown) => python(file, args, options),
 }));
-import { solveLimits } from "../src/walk-block";
+import { solveLimits, stepDeadlineSeconds } from "../src/walk-block";
 import { blockRevealPayloadSchema, renderReveal, revealDecodeArgs, runBlockSolveStep, runInStepScope, scopeFor, sourceRect, upload, type FfmpegCommand } from "../src/walk-block";
 
 beforeEach(() => {
@@ -67,11 +67,34 @@ describe("solveLimits", () => {
   it("counts from the step's start, so a slow download leaves the solve less time, never past the step's deadline", () => {
     const start = 1_000_000;
     // straight away: killed at 9 min, its own budget at the 420 s cap
-    expect(solveLimits(start, start)).toEqual({ timeoutMs: 540_000, budgetS: 420 });
-    // 3 min of download: 6 min left before the kill, the budget a minute inside that
-    expect(solveLimits(start, start + 180_000)).toEqual({ timeoutMs: 360_000, budgetS: 300 });
-    // a download that ate it all: still a short, bounded attempt rather than none
-    expect(solveLimits(start, start + 600_000)).toEqual({ timeoutMs: 15_000, budgetS: 5 });
+    expect(solveLimits(start, start, 600)).toEqual({ timeoutMs: 540_000, budgetS: 420 });
+    // 3 min of download: 6 min left before the kill, the budget 30 s inside that
+    expect(solveLimits(start, start + 180_000, 600)).toEqual({ timeoutMs: 360_000, budgetS: 330 });
+    // a download that ends at 598 s: nothing is started (no minimum is ever added past the deadline)
+    expect(solveLimits(start, start + 598_000, 600)).toBeNull();
+    expect(solveLimits(start, start + 495_000, 600)).toBeNull(); // 45 s left before the kill: a 15 s budget, under the 20 s worth starting
+    expect(solveLimits(start, start + 480_000, 600)).toEqual({ timeoutMs: 60_000, budgetS: 30 });
+    // never more time than is left, whatever is left
+    for (const elapsed of [0, 100_000, 300_000, 450_000, 489_000]) {
+      const limits = solveLimits(start, start + elapsed, 600);
+      if (limits) expect(start + elapsed + limits.timeoutMs).toBeLessThanOrEqual(start + 540_000);
+    }
+    // the configured step deadline, not an assumed 600 s
+    expect(solveLimits(start, start, 300)).toEqual({ timeoutMs: 240_000, budgetS: 210 });
+    expect(stepDeadlineSeconds({ AI_STEP_TIMEOUT_SECONDS: "900" })).toBe(900);
+    expect(stepDeadlineSeconds({})).toBe(600);
+  });
+
+  it("stops a step with too little time left without starting the solve", async () => {
+    db.mediaAsset.findFirst.mockResolvedValue({ id: "clip1", objectKey: "uploads/w/clip1.mp4", fileName: "drone.mp4" });
+    process.env.AI_STEP_TIMEOUT_SECONDS = "60";
+    try {
+      await expect(runBlockSolveStep({ payload: { assetId: "clip1" }, user: { workspaceId: "w" } })).rejects.toThrow(/could not finish in time/);
+    } finally {
+      delete process.env.AI_STEP_TIMEOUT_SECONDS;
+    }
+    expect(python).not.toHaveBeenCalled();
+    expect(sent.filter((s) => s.name === "PutObjectCommand")).toEqual([]);
   });
 
   it("is what the solve step hands the Python process", async () => {

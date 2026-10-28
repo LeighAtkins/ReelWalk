@@ -82,6 +82,42 @@ search over sun hypotheses scoring the ground where every tall point's shadow wo
 the massing's shadow against the real trees' shadows, so the sun is a default (135°, 35°: ahead-left of the drone,
 long afternoon shadows) flagged `assumed`, and the person turns it on the pin screen.
 
+## Addendum: build stages (2026-10-28)
+
+A white box rising read as a placeholder, not as a house being built. The reveal now builds it, all still drawn from the
+solve (deterministic, no generator, no credits), every stage from the solved camera of its moment (locked to the
+ground) and shaded by the pinned sun (`REVEAL`, ms into an 8 s clip; `revealBeats` compresses them for a shorter one so
+the house is finished 0.6 s before it ends):
+
+| beat | what |
+|---|---|
+| 0.3–1.3 s | the dashed outline draws on; 0.9–1.5 s its area is written on the ground |
+| 1.5–2.2 s | the slab is poured (0.3 m of concrete, its faces lit by the sun); the outline goes under it; the area stays, written on the slab |
+| 2.2–3.5 s | the wall frame goes up: studs every 1.2 m rise in turn around the walls, then the top plates (and a floor plate between two storeys); each stud is lit like the wall it stands in |
+| 3.4–4.0 s | the area fades as the trusses arrive |
+| 3.5–4.5 s | gable roof trusses every 1.2 m go on end to end, then the ridge; the massing's shadow begins, faint |
+| 4.5–5.4 s | the walls and roof close over the frame into the finished white massing, with its full shadow |
+
+**The push-in follows the build.** In the full frame a house 200 m out was a speck, so the close-ups never reached the
+reel. The crop now stays put until the outline appears (never a push into empty ground), then eases in so that when
+the walls start to close the house spans about 35% of the frame's width (2.5× at most), steered so it settles centred
+at 0.58 of the height (clear of the title at 0.16 and of the like/share column), and holds to the end; a short clip
+compresses it with the stages. The worker cuts each frame from the source at its full size to a fraction of a pixel
+(sharp's affine on a whole-pixel piece), and every shape is projected through the same fractional window, so the
+drawing stays on the ground. At 2.5× a 4K source's crop is 486 px wide, upscaled 2.2×: a little soft. A house pinned
+low in the drone's frame cannot be lifted by any crop: near the end of the flight it sits as low on screen as it does
+in the source (the default suggested site stays above the caption zone; a site dragged to the frame's foot does not).
+The "24 × 11 m" line under the area is gone: unreadable from a drone (the dimensions are on the pin screen).
+Review of #261: the crop's piece is padded with copies of its edge pixels before the bicubic affine (it read black past
+the frame: a 150-grey frame came out 66 at a bottom/right 2.5× crop), and each roof slope's rafters take that slope's
+normal from the finished roof (the far slope's were lit as flat). Measured on the prototype clip pinned to 2 cores: the
+whole render 54 s, the process tree's peak RSS 1.58 GB (node 0.3 GB, the 4K decoder 0.8 GB); production should be about
+1.8× slower, so ~95 s against the 600 s step deadline, in an 8 GB task.
+
+A pool's deck is its slab (the water on top of it); "Just the land" keeps its outline and area for the whole clip. The
+pin screen still shows the finished house (`still.rise` 1). Shapes carry roles `slab`, `frame` and `roof-frame`
+besides the existing ones. House style kept: white model, no sound, the push-in only towards the outline.
+
 ## Review fixes (GPT-6.1 Sol, PR #259 at 5c524c7)
 
 1. **Not behind AI_JOBS_DURABLE.** That flag moves *paid* AI steps onto the worker and is off in production; the block
@@ -118,42 +154,6 @@ Round 3 (at e238f5d9):
    its encode is capped at 16 Mbit/s, and a file over 40 MB (`MAX_REVEAL_BYTES`) fails before the upload reads it.
 11. **The end of the file.** A decode resampled right up to a clip's end comes out a frame or two short (a VFR test that
    ran to the end found 178 of 180), so the reveal stops 0.15 s before the clip's end (`REVEAL_END_MARGIN_S`).
-
-## Addendum: build stages (2026-10-28)
-
-A white box rising read as a placeholder, not as a house being built. The reveal now builds it, all still drawn from the
-solve (deterministic, no generator, no credits), every stage from the solved camera of its moment (locked to the
-ground) and shaded by the pinned sun (`REVEAL`, ms into an 8 s clip; `revealBeats` compresses them for a shorter one so
-the house is finished 0.6 s before it ends):
-
-| beat | what |
-|---|---|
-| 0.3–1.3 s | the dashed outline draws on; 0.9–1.5 s its area is written on the ground |
-| 1.5–2.2 s | the slab is poured (0.3 m of concrete, its faces lit by the sun); the outline goes under it; the area stays, written on the slab |
-| 2.2–3.5 s | the wall frame goes up: studs every 1.2 m rise in turn around the walls, then the top plates (and a floor plate between two storeys); each stud is lit like the wall it stands in |
-| 3.4–4.0 s | the area fades as the trusses arrive |
-| 3.5–4.5 s | gable roof trusses every 1.2 m go on end to end, then the ridge; the massing's shadow begins, faint |
-| 4.5–5.4 s | the walls and roof close over the frame into the finished white massing, with its full shadow |
-
-**The push-in follows the build.** In the full frame a house 200 m out was a speck, so the close-ups never reached the
-reel. The crop now stays put until the outline appears (never a push into empty ground), then eases in so that when
-the walls start to close the house spans about 35% of the frame's width (2.5× at most), steered so it settles centred
-at 0.58 of the height (clear of the title at 0.16 and of the like/share column), and holds to the end; a short clip
-compresses it with the stages. The worker cuts each frame from the source at its full size to a fraction of a pixel
-(sharp's affine on a whole-pixel piece), and every shape is projected through the same fractional window, so the
-drawing stays on the ground. At 2.5× a 4K source's crop is 486 px wide, upscaled 2.2×: a little soft. A house pinned
-low in the drone's frame cannot be lifted by any crop: near the end of the flight it sits as low on screen as it does
-in the source (the default suggested site stays above the caption zone; a site dragged to the frame's foot does not).
-The "24 × 11 m" line under the area is gone: unreadable from a drone (the dimensions are on the pin screen).
-Review of #261: the crop's piece is padded with copies of its edge pixels before the bicubic affine (it read black past
-the frame: a 150-grey frame came out 66 at a bottom/right 2.5× crop), and each roof slope's rafters take that slope's
-normal from the finished roof (the far slope's were lit as flat). Measured on the prototype clip pinned to 2 cores: the
-whole render 54 s, the process tree's peak RSS 1.58 GB (node 0.3 GB, the 4K decoder 0.8 GB); production should be about
-1.8× slower, so ~95 s against the 600 s step deadline, in an 8 GB task.
-
-A pool's deck is its slab (the water on top of it); "Just the land" keeps its outline and area for the whole clip. The
-pin screen still shows the finished house (`still.rise` 1). Shapes carry roles `slab`, `frame` and `roof-frame`
-besides the existing ones. House style kept: white model, no sound, the push-in only towards the outline.
 
 ## Consequences
 

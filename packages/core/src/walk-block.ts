@@ -286,34 +286,52 @@ export function cropXFor(solve: BlockSolve, u: number): number {
 }
 
 /**
- * The push-in over the clip, eased: at least 1.16, and more for a far-off outline, until it spans about a third of the
- * frame's width at the end of the clip (the prototype's reveal pushed to 1.42), never past 1.45 (a 4K source is then
- * upscaled about 1.3×).
+ * The push-in towards the house (build stages addendum): none before the outline appears (never a push into empty
+ * ground), then eased in so that by the time the walls close the house spans `span` of the frame's width (2.5× at most:
+ * a 4K source's 9:16 crop is then 486 px wide, upscaled 2.2×), held to the end. As it pushes, the crop is steered so the
+ * house settles at `focusX`, `focusY` of the frame: centred, a little low, clear of the title at 0.16 and of the
+ * like/share column on the right. Short clips compress it with the stages (`revealBeats`).
  */
-export const PUSH_IN = { min: 1.16, max: 1.45, span: 0.32 } as const;
+export const PUSH_IN = { max: 2.5, span: 0.35, focusX: 0.5, focusY: 0.58 } as const;
 
-/** How far the reveal pushes in by its end, for this pin. */
+/** How far the reveal pushes in, for this pin: the house's width on screen when the walls start to close, against `span`. */
 export function pushInFor(solve: BlockSolve, pin: BlockPin): number {
   const base = baseWindow(solve, pin.cropX);
-  const cam = blockCameraAt(solve, solve.still.t + revealDurationMs(solve) / 1000);
+  const beats = revealBeats(revealDurationMs(solve));
+  const cam = blockCameraAt(solve, solve.still.t + beats.clad[0] / 1000);
   const us = footprintCorners(solve, pin).map((p) => projectPoint(cam, p)).filter((q) => q.z > 0).map((q) => q.u);
-  if (us.length < 4) return PUSH_IN.min;
+  if (us.length < 4) return 1;
   const spanPx = ((Math.max(...us) - Math.min(...us)) * OUTPUT.width) / base.w;
-  return Math.min(PUSH_IN.max, Math.max(PUSH_IN.min, (PUSH_IN.span * OUTPUT.width) / Math.max(1, spanPx)));
+  return Math.min(PUSH_IN.max, Math.max(1, (PUSH_IN.span * OUTPUT.width) / Math.max(1, spanPx)));
 }
 
+/** How far the push has gone at `tMs`: 0 until the outline starts to draw, 1 when the walls start to close, eased both ends. */
+export function pushProgress(solve: BlockSolve, tMs: number): number {
+  const beats = revealBeats(revealDurationMs(solve));
+  return ramp(tMs, beats.outline[0], beats.clad[0]);
+}
+
+/**
+ * The part of the solve's frame the output shows at `tMs`: the 9:16 crop, pushed in and steered towards the house. A
+ * fractional window: the worker crops the source to it exactly (sub-pixel), and every shape is projected through it, so
+ * the drawing stays on the ground whatever the crop does.
+ */
 export function viewAt(solve: BlockSolve, pin: BlockPin, tMs: number): ViewWindow {
   const base = baseWindow(solve, pin.cropX);
-  const dur = revealDurationMs(solve);
-  const zoom = 1 + (pushInFor(solve, pin) - 1) * smooth(tMs / dur);
-  const cam = blockCameraAt(solve, solve.still.t + tMs / 1000);
-  const c = projectPoint(cam, [pin.x, groundYAt(solve, pin.x, pin.z), pin.z]);
-  const fu = c.z > 0 ? Math.min(base.x + base.w, Math.max(base.x, c.u)) : base.x + base.w / 2;
-  const fv = c.z > 0 ? Math.min(base.h, Math.max(0, c.v)) : base.h / 2;
+  const { width, height } = solve.intrinsics;
+  const p = pushProgress(solve, tMs);
+  const zoom = 1 + (pushInFor(solve, pin) - 1) * p;
   const w = base.w / zoom;
   const h = base.h / zoom;
-  const x = Math.min(base.x + base.w - w, Math.max(base.x, fu - (fu - base.x) / zoom));
-  const y = Math.min(base.h - h, Math.max(0, fv - fv / zoom));
+  const cam = blockCameraAt(solve, solve.still.t + tMs / 1000);
+  const c = projectPoint(cam, [pin.x, groundYAt(solve, pin.x, pin.z), pin.z]);
+  // from the base crop's middle (p = 0: exactly the base crop) to the house at its focus point (p = 1)
+  const fromX = base.x + (base.w - w) / 2;
+  const fromY = (base.h - h) / 2;
+  const toX = c.z > 0 ? c.u - PUSH_IN.focusX * w : fromX;
+  const toY = c.z > 0 ? c.v - PUSH_IN.focusY * h : fromY;
+  const x = Math.min(width - w, Math.max(0, fromX + (toX - fromX) * p));
+  const y = Math.min(height - h, Math.max(0, fromY + (toY - fromY) * p));
   return { x, y, w, h };
 }
 
@@ -756,12 +774,12 @@ function labelOnGround(solve: BlockSolve, pin: BlockPin, cam: BlockCamera, win: 
   const k = pin.scale.factor;
   lengthM /= k;
   depthM /= k;
-  // Playfair's figures average ~0.52 em and the main line is set at 1.45 cap heights, so a line of n characters is ~0.75 n
-  // caps wide: as large as fits, inside 92% of the side it runs along and a third of the other (the sub line may run
-  // a little past it; legible from a drone's height matters more).
+  // Playfair's figures average ~0.52 em and the line is set at 1.45 cap heights, so a line of n characters is ~0.75 n
+  // caps wide: as large as fits, inside 92% of the side it runs along and half the other.
   const { text } = areaText(pin);
-  const size = Math.min((0.92 * lengthM) / (0.754 * text.length), 0.34 * depthM);
-  return { kind: "label", ...areaText(pin), matrix: [p1[0] - o[0], p1[1] - o[1], p2[0] - o[0], p2[1] - o[1], o[0], o[1]], size, opacity: 1 };
+  const size = Math.min((0.92 * lengthM) / (0.754 * text.length), 0.5 * depthM);
+  // Just the area: the "24 × 11 m" line under it was unreadable at a drone's distance (the dimensions are on the pin screen).
+  return { kind: "label", text, sub: "", matrix: [p1[0] - o[0], p1[1] - o[1], p2[0] - o[0], p2[1] - o[1], o[0], o[1]], size, opacity: 1 };
 }
 
 // ---------------------------------------------------------------------------------------------------------- the site
@@ -890,8 +908,8 @@ export function blockSvgBody(shapes: BlockShape[], labelImage?: { href: string; 
       const [a, b, c, d, e, f] = s.matrix.map(num);
       const inner = labelImage
         ? `<image href="${esc(labelImage.href)}" x="${num(-labelImage.width / 2)}" y="${num(-labelImage.height / 2)}" width="${num(labelImage.width)}" height="${num(labelImage.height)}"/>`
-        : `<text x="0" y="${num(s.size * 0.35)}" text-anchor="middle" font-family="${LABEL_FONT}" font-size="${num(s.size * 1.45)}" font-weight="500" fill="#FFFFFF">${esc(s.text)}</text>` +
-          `<text x="0" y="${num(s.size * 1.25)}" text-anchor="middle" font-family="${LABEL_FONT}" font-size="${num(s.size * 0.62)}" fill="#FFFFFF" fill-opacity="0.9">${esc(s.sub)}</text>`;
+        : `<text x="0" y="${num(s.size * 0.5)}" text-anchor="middle" font-family="${LABEL_FONT}" font-size="${num(s.size * 1.45)}" font-weight="500" fill="#FFFFFF">${esc(s.text)}</text>` +
+          (s.sub ? `<text x="0" y="${num(s.size * 1.4)}" text-anchor="middle" font-family="${LABEL_FONT}" font-size="${num(s.size * 0.62)}" fill="#FFFFFF" fill-opacity="0.9">${esc(s.sub)}</text>` : "");
       parts.push(`<g transform="matrix(${a} ${b} ${c} ${d} ${e} ${f})" opacity="${num(s.opacity)}">${inner}</g>`);
     }
   }

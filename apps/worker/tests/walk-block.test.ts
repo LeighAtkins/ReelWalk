@@ -27,7 +27,7 @@ vi.mock("../src/library/tools", () => ({
   },
   run: (file: string, args: string[]) => python(file, args),
 }));
-import { blockRevealPayloadSchema, renderReveal, revealDecodeArgs, runBlockSolveStep, runInStepScope, scopeFor, sourceRect, upload, type FfmpegCommand } from "../src/walk-block";
+import { blockRevealPayloadSchema, renderReveal, revealDecodeArgs, runBlockSolveStep, cropFrame, runInStepScope, scopeFor, upload, type FfmpegCommand } from "../src/walk-block";
 
 beforeEach(() => {
   hooks.onSend = null;
@@ -72,17 +72,29 @@ describe("block-reveal payload", () => {
 });
 
 describe("the crop", () => {
-  it("takes whole source pixels at 9:16 inside the frame and says which window that is", () => {
-    const decoded = { width: 3840, height: 2160 };
-    const { rect, window } = sourceRect({ x: 300.3, y: 10.7, w: 523.9, h: 931.4 }, 2, decoded);
-    expect(Number.isInteger(rect.left) && Number.isInteger(rect.top) && Number.isInteger(rect.width) && Number.isInteger(rect.height)).toBe(true);
-    expect(rect.width / rect.height).toBeCloseTo(OUTPUT.width / OUTPUT.height, 2);
-    expect(rect.left + rect.width).toBeLessThanOrEqual(decoded.width);
-    expect(rect.top + rect.height).toBeLessThanOrEqual(decoded.height);
-    expect(window.x).toBeCloseTo(rect.left / 2, 9);
-    // a window past the edge is pulled back in
-    const edge = sourceRect({ x: 1700, y: 0, w: 607.5, h: 1080 }, 2, decoded);
-    expect(edge.rect.left + edge.rect.width).toBe(3840);
+  // A decoded frame whose red channel is 0.4 × its column: each output column must show the fractional source column
+  // the window puts there, so a moving push-in glides rather than stepping in whole source pixels.
+  const decoded = { width: 600, height: 340 };
+  const frame = Buffer.alloc(decoded.width * decoded.height * 3);
+  for (let y = 0; y < decoded.height; y++) for (let x = 0; x < decoded.width; x++) frame[(y * decoded.width + x) * 3] = Math.round(0.4 * x);
+  const m = decoded.width / 1920;
+
+  it("cuts the window to a fraction of a source pixel", async () => {
+    for (const x of [700, 700.4, 700.8]) {
+      const win = { x, y: 300.6, w: 243, h: 432 };
+      const out = await cropFrame(frame, decoded, win, m);
+      expect(out.length).toBe(OUTPUT.width * OUTPUT.height * 3);
+      const s = OUTPUT.width / (win.w * m);
+      for (const col of [100, 500, 900]) {
+        const sourceX = win.x * m + col / s;
+        expect(Math.abs(out[(960 * OUTPUT.width + col) * 3] - 0.4 * sourceX)).toBeLessThan(1.5);
+      }
+    }
+  });
+
+  it("works at the frame's edges", async () => {
+    const out = await cropFrame(frame, decoded, { x: 1920 - 607.5, y: 0, w: 607.5, h: 1080 }, m);
+    expect(out.length).toBe(OUTPUT.width * OUTPUT.height * 3);
   });
 });
 

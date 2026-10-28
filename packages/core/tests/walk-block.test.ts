@@ -15,6 +15,9 @@ import {
   parseBlockSolve,
   placeAt,
   projectPoint,
+  PUSH_IN,
+  pushProgress,
+  groundYAt,
   pushInFor,
   MIN_REVEAL_SECONDS,
   REVEAL,
@@ -121,12 +124,50 @@ describe("the frame", () => {
       expect(w.x + w.w).toBeLessThanOrEqual(solve.intrinsics.width + 1e-9);
       expect(w.y + w.h).toBeLessThanOrEqual(solve.intrinsics.height + 1e-9);
     }
-    // a far outline gets the deeper push, a near one the gentle 1.16
+    // this outline is ~320 m out: the push goes as deep as allowed; one already wide on screen is not pushed at all
     const push = pushInFor(solve, pin);
-    expect(push).toBeGreaterThanOrEqual(1.16);
-    expect(push).toBeLessThanOrEqual(1.45);
+    expect(push).toBeGreaterThan(1.5);
+    expect(push).toBeLessThanOrEqual(PUSH_IN.max);
     expect(viewAt(solve, pin, dur).w).toBeCloseTo(base.w / push, 3);
-    expect(pushInFor(solve, { ...pin, length: 120, width: 90 })).toBeCloseTo(1.16, 6);
+    expect(pushInFor(solve, { ...pin, length: 200, width: 150 })).toBe(1);
+  });
+
+  it("never pushes before the outline appears, then settles the house a little low in the middle, filling ~35% of the width", () => {
+    // a nearer outline, so the push is not at its cap
+    const pin = pinAt(11.46, -197.9, { cropX: 0.5585, yawDeg: 90 });
+    const base = baseWindow(solve, pin.cropX);
+    const beats = revealBeats(revealDurationMs(solve));
+    for (const t of [0, beats.outline[0]]) expect(viewAt(solve, pin, t)).toEqual(base); // no push into empty ground
+    expect(pushProgress(solve, beats.outline[0] + 200)).toBeGreaterThan(0);
+    const t = beats.clad[0];
+    const win = viewAt(solve, pin, t);
+    expect(pushProgress(solve, t)).toBe(1);
+    const cam = blockCameraAt(solve, t / 1000);
+    const toOut = (p: Vec3) => {
+      const q = projectPoint(cam, p);
+      return [(q.u - win.x) / win.w, (q.v - win.y) / win.h];
+    };
+    const centre = toOut([pin.x, groundYAt(solve, pin.x, pin.z), pin.z]);
+    expect(centre[0]).toBeCloseTo(PUSH_IN.focusX, 2);
+    expect(centre[1]).toBeCloseTo(PUSH_IN.focusY, 2);
+    // clear of the title (y 0.16) and above the caption zone (0.72)
+    expect(centre[1]).toBeGreaterThan(0.3);
+    expect(centre[1]).toBeLessThan(0.72);
+    const xs = footprintCorners(solve, pin).map((c) => toOut(c)[0]);
+    const span = Math.max(...xs) - Math.min(...xs);
+    if (pushInFor(solve, pin) < PUSH_IN.max) expect(span).toBeCloseTo(PUSH_IN.span, 2);
+    else expect(span).toBeLessThan(PUSH_IN.span);
+    // held after: the zoom does not change once the walls are closing
+    expect(viewAt(solve, pin, 7000).w).toBeCloseTo(win.w, 6);
+  });
+
+  it("compresses the push with the stages on a short clip", () => {
+    const pin = pinAt(11.46, -197.9, { cropX: 0.5585, yawDeg: 90 });
+    const short = { ...solve, source: { ...solve.source, durationMs: 4800 } };
+    const beats = revealBeats(revealDurationMs(short));
+    expect(pushProgress(short, beats.clad[0])).toBe(1);
+    expect(beats.clad[0]).toBeLessThan(revealDurationMs(short));
+    expect(viewAt(short, pin, 0)).toEqual(baseWindow(short, pin.cropX));
   });
 });
 
@@ -139,7 +180,7 @@ describe("drawBlock", () => {
     expect(mid.map((s) => (s.kind === "poly" ? s.role : "label"))).toEqual(["fill", "outline", "label"]);
     const label = mid.find((s) => s.kind === "label")!;
     expect(label.kind === "label" && label.text).toBe("264 m²");
-    expect(label.kind === "label" && label.sub).toBe("24 × 11 m");
+    expect(label.kind === "label" && label.sub).toBe(""); // the dimensions line was unreadable from a drone; just the area
   });
 
   it("finishes as a shaded white massing with its shadow, showing only the faces turned to the camera", () => {

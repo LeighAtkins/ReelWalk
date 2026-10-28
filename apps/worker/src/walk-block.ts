@@ -155,15 +155,15 @@ async function drawLabel(text: string, sub: string, px: number): Promise<{ png: 
   const line = async (markup: string, pt: number) =>
     sharp({ text: { text: markup, font: `Playfair Display ${pt}`, fontfile: LABEL_FONT_FILE, rgba: true, dpi: 72 } }).png().toBuffer({ resolveWithObject: true });
   const escape = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
-  // The same layout as blockSvg's text: main line's cap height `px`, baseline 0.35 px under the centre; sub line under it.
   const main = await line(`<span foreground="white" weight="500">${escape(text)}</span>`, Math.round(px * 1.45));
-  const second = await line(`<span foreground="white" alpha="90%">${escape(sub)}</span>`, Math.round(px * 0.62));
-  const mainTop = Math.round(height / 2 + 0.35 * px - main.info.height * 0.78);
-  const subTop = Math.round(height / 2 + 1.25 * px - second.info.height * 0.78);
-  const layers = [
-    { input: main.data, left: Math.round((width - main.info.width) / 2), top: mainTop },
-    { input: second.data, left: Math.round((width - second.info.width) / 2), top: subTop },
-  ];
+  // The same layout as blockSvg's text: the main line's baseline half a cap height under the centre, the sub line (when
+  // there is one) under it.
+  const mainTop = Math.round(height / 2 + 0.5 * px - main.info.height * 0.78);
+  const layers = [{ input: main.data, left: Math.round((width - main.info.width) / 2), top: mainTop }];
+  if (sub) {
+    const second = await line(`<span foreground="white" alpha="90%">${escape(sub)}</span>`, Math.round(px * 0.62));
+    layers.push({ input: second.data, left: Math.round((width - second.info.width) / 2), top: Math.round(height / 2 + 1.4 * px - second.info.height * 0.78) });
+  }
   const text$ = await sharp({ create: { width, height, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } }).composite(layers).png().toBuffer();
   // shadow: the text's alpha, blurred, as black at 45%
   const alpha = await sharp(text$).extractChannel(3).blur(px * 0.06).linear(0.45, 0).toBuffer();
@@ -231,13 +231,30 @@ function spawnOwned(command: FfmpegCommand, args: string[], scope: AttemptScope,
   return { child, done };
 }
 
-/** The source rectangle (decoded pixels) for a window of solve pixels, whole pixels, 9:16, inside the frame; and that rectangle back in solve pixels. */
-export function sourceRect(win: ViewWindow, m: number, decoded: { width: number; height: number }) {
-  const width = Math.min(decoded.width, Math.max(16, Math.round(win.w * m)));
-  const height = Math.min(decoded.height, Math.round((width * OUTPUT.height) / OUTPUT.width));
-  const left = Math.min(decoded.width - width, Math.max(0, Math.round(win.x * m)));
-  const top = Math.min(decoded.height - height, Math.max(0, Math.round(win.y * m)));
-  return { rect: { left, top, width, height }, window: { x: left / m, y: top / m, w: width / m, h: height / m } };
+/**
+ * The output frame (1080 × 1920, RGB) for a window of solve pixels, cut from a decoded source frame (`m` decoded pixels
+ * per solve pixel) to sub-pixel precision: a whole-pixel piece with a pixel of margin, then scaled and shifted by the
+ * fraction (sharp's affine: input x = (output x − odx) / s). A push-in that moved the crop in whole source pixels would
+ * step; this one glides, and the overlay, projected through the same fractional window, stays on the ground.
+ */
+export async function cropFrame(frame: Buffer, decoded: { width: number; height: number }, win: ViewWindow, m: number): Promise<Buffer> {
+  const x = win.x * m;
+  const y = win.y * m;
+  const s = OUTPUT.width / (win.w * m);
+  const left = Math.max(0, Math.floor(x) - 1);
+  const top = Math.max(0, Math.floor(y) - 1);
+  const width = Math.min(decoded.width - left, Math.ceil(win.w * m) + 3);
+  const height = Math.min(decoded.height - top, Math.ceil(win.h * m) + 3);
+  const piece = await sharp(frame, { raw: { width: decoded.width, height: decoded.height, channels: 3 } }).extract({ left, top, width, height }).raw().toBuffer();
+  const scaled = await sharp(piece, { raw: { width, height, channels: 3 } })
+    .affine([s, 0, 0, s], { odx: -(x - left) * s, ody: -(y - top) * s, interpolator: sharp.interpolators.bicubic })
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  return sharp(scaled.data, { raw: { width: scaled.info.width, height: scaled.info.height, channels: 3 } })
+    .extract({ left: 0, top: 0, width: Math.min(OUTPUT.width, scaled.info.width), height: Math.min(OUTPUT.height, scaled.info.height) })
+    .resize(OUTPUT.width, OUTPUT.height, { fit: "fill" })
+    .raw()
+    .toBuffer();
 }
 
 /**
@@ -276,7 +293,7 @@ export async function renderReveal(input: { videoPath: string; solve: BlockSolve
   const decoded = { width: Math.round((solve.source.width * decodedHeight) / solve.source.height / 2) * 2, height: decodedHeight };
   const m = decoded.width / solve.intrinsics.width;
   const label = areaText(pin);
-  const labelPicture = await renderLabel(label.text, label.sub);
+  const labelPicture = await renderLabel(label.text, ""); // the area alone: the sub-line was unreadable from a drone
   const labelHref = `data:image/png;base64,${labelPicture.png.toString("base64")}`;
   scope.throwIfStopped();
   const decoder = spawnOwned(ffmpeg, revealDecodeArgs(solve, videoPath, decoded), scope, "decode");
@@ -308,13 +325,11 @@ export async function renderReveal(input: { videoPath: string; solve: BlockSolve
       scope.throwIfStopped();
       if (n >= count) break;
       const tMs = (n * 1000) / fps;
-      const { rect, window } = sourceRect(viewAt(solve, pin, tMs), m, decoded);
+      const window = viewAt(solve, pin, tMs);
       const shapes: BlockShape[] = drawBlock(solve, pin, tMs, { window });
       const label = shapes.find((s) => s.kind === "label");
       const svg = blockSvg(shapes, OUTPUT, label?.kind === "label" ? { href: labelHref, ...labelImageSize(label.size) } : undefined);
-      const out = await sharp(frame, { raw: { width: decoded.width, height: decoded.height, channels: 3 } })
-        .extract(rect)
-        .resize(OUTPUT.width, OUTPUT.height, { kernel: "lanczos3" })
+      const out = await sharp(await cropFrame(frame, decoded, window, m), { raw: { width: OUTPUT.width, height: OUTPUT.height, channels: 3 } })
         .composite([{ input: Buffer.from(svg) }])
         .removeAlpha()
         .raw()

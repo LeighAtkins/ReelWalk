@@ -8,7 +8,7 @@ setup("sign in to the demo studio", async ({ page }) => {
   await page.getByLabel("Password").fill(DEMO_PASSWORD);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page).toHaveURL(/\/$/);
-  await expect(page.getByRole("heading", { name: "Reels" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Reels", exact: true })).toBeVisible();
   await page.context().storageState({ path: demoState });
 });
 

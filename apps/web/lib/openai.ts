@@ -388,6 +388,100 @@ async function vertexAnswer(options: AnswerOptions): Promise<{ json: unknown; us
   return decodeClaudeMessage(data, wire, model);
 }
 
+// ── Tool turns (ADR 0095) ────────────────────────────────────────
+
+/** A content block of a Claude message, kept as sent and as answered (thinking blocks go back unchanged). */
+export type ToolTurnBlock = { type: string } & Record<string, unknown>;
+export type ToolTurnMessage = { role: "user" | "assistant"; content: ToolTurnBlock[] };
+export type ToolTurnTool = { name: string; description: string; input_schema: Record<string, unknown> };
+export type ToolTurn = { content: ToolTurnBlock[]; stopReason: string; usage: AiUsage; model: string };
+export type ToolTurnOptions = {
+  /** Whose AI switch this request is under (ADR 0079). */
+  workspaceId: string;
+  system: string;
+  tools: ToolTurnTool[];
+  /** The whole conversation so far, append-only. */
+  messages: ToolTurnMessage[];
+  /** "none" asks for the final answer without another tool call. */
+  toolChoice?: "auto" | "none";
+  maxTokens?: number;
+  signal?: AbortSignal;
+};
+
+/**
+ * One turn of a Claude tool-use conversation (the reel notes agent, ADR
+ * 0095), through the same provider, gate and AI switch as `structuredAnswer`.
+ * Claude only: the OpenAI transport has no tool loop here. The system prompt
+ * and the tools are one cache breakpoint; the growing conversation is cached
+ * automatically, so each turn pays fresh input only for what was added.
+ */
+export async function claudeToolTurn(options: ToolTurnOptions): Promise<ToolTurn> {
+  await assertAiOn(options.workspaceId);
+  const provider = aiProvider();
+  if (provider === "openai") throw new AiError("Notes need Claude, which is not configured on this deployment.", false);
+  const model = aiModel();
+  const body = {
+    model,
+    max_tokens: options.maxTokens ?? 16000,
+    system: [{ type: "text" as const, text: options.system, cache_control: { type: "ephemeral" as const } }],
+    tools: options.tools,
+    tool_choice: { type: options.toolChoice ?? "auto" },
+    messages: options.messages,
+    cache_control: { type: "ephemeral" as const },
+    output_config: { effort: "medium" as const },
+  };
+  const signal = providerSignal(options.signal ?? AbortSignal.timeout(180_000));
+  await beforeProviderRequest();
+  let data: Omit<ClaudeMessage, "content"> & { content?: ToolTurnBlock[] };
+  if (provider === "vertex") {
+    const config = vertexConfig();
+    if (!config) throw new AiError("Claude on Google Cloud is not configured on this deployment.", false);
+    try {
+      const client = await vertexClient(config);
+      data = (await client.messages.create(body as never, { signal })) as unknown as typeof data;
+    } catch (error) {
+      providerAnswered();
+      throw vertexError(error);
+    }
+  } else {
+    const key = configuredKey("ANTHROPIC_API_KEY");
+    if (!key) throw new AiError("Claude editing is not configured on this deployment.", false);
+    let response: Response;
+    try {
+      response = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+        body: JSON.stringify(body),
+        signal,
+      });
+    } catch {
+      throw new AiError("Could not reach Claude.", true);
+    }
+    data = (await response.json().catch(() => ({}))) as typeof data;
+    if (!response.ok) {
+      providerAnswered();
+      // Do not echo provider error bodies: they can contain request content or credentials.
+      throw new AiError(`Claude could not answer (HTTP ${response.status}).`, response.status === 429 || response.status >= 500);
+    }
+  }
+  providerAnswered();
+  if (data.stop_reason === "refusal") throw new AiError("Claude declined this note.", false);
+  const usage = data.usage;
+  const cachedTokens = usage?.cache_read_input_tokens ?? 0;
+  const cacheWriteTokens = usage?.cache_creation_input_tokens ?? 0;
+  return {
+    content: data.content ?? [],
+    stopReason: data.stop_reason ?? "end_turn",
+    model: data.model ?? model,
+    usage: { inputTokens: (usage?.input_tokens ?? 0) + cachedTokens + cacheWriteTokens, outputTokens: usage?.output_tokens ?? 0, cachedTokens, cacheWriteTokens },
+  };
+}
+
+/** Token counts of several calls added up. */
+export function addUsage(a: AiUsage, b: AiUsage): AiUsage {
+  return { inputTokens: a.inputTokens + b.inputTokens, cachedTokens: a.cachedTokens + b.cachedTokens, outputTokens: a.outputTokens + b.outputTokens, cacheWriteTokens: (a.cacheWriteTokens ?? 0) + (b.cacheWriteTokens ?? 0) };
+}
+
 /**
  * Google's list prices for Claude at the global endpoint equal Anthropic's;
  * its regional endpoints (us-east5, europe-west1, ...) are listed 10% higher

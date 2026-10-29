@@ -15,8 +15,10 @@ import { instagramChoiceForSound, instagramSoundAssetId, outputSize, parseReelEx
 import { ExportStage, ExportVideo } from "@/components/export-sound";
 import { InstagramPublishing } from "@/components/instagram-publishing";
 import { RenderChecksPanel } from "@/components/render-checks";
+import { ReelThread } from "@/components/reel-thread";
 import { MixPreview } from "@/components/mix-preview";
 import { aiEditUsage } from "@/lib/ai-edit";
+import { notesAvailable, reelThread } from "@/lib/reel-thread";
 import { firstExportNudge } from "@/lib/first-export-nudge";
 import { claimUpgradePrompt } from "@/lib/funnel";
 import { isFakeInstagram, isInstagramConfigured } from "@/lib/instagram";
@@ -39,16 +41,18 @@ export default async function ExportPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ featured?: string }>;
+  searchParams: Promise<{ featured?: string; v?: string }>;
 }) {
-  const [{ id }, { featured }] = await Promise.all([params, searchParams]);
+  const [{ id }, { featured, v }] = await Promise.all([params, searchParams]);
   const user = await getCurrentUser();
   const reel = await prisma.reel.findFirst({
     where: { id, workspaceId: user.workspaceId },
     include: { renderJobs: { orderBy: { createdAt: "desc" }, take: 1, include: { output: true } } },
   });
   if (!reel) notFound();
-  const job = reel.renderJobs[0];
+  // A version picked in the notes thread (ADR 0095): one of this reel's own exports; otherwise the latest.
+  const picked = v ? await prisma.renderJob.findFirst({ where: { id: v, reelId: reel.id, workspaceId: user.workspaceId, kind: "REEL" }, include: { output: true } }) : null;
+  const job = picked ?? reel.renderJobs[0];
   if (!job) redirect(`/reels/${reel.id}`);
   // AI clips carry an "ai-" id and a completed generation record; either marks the reel as AI content.
   const assetIds = referencedAssetIds(readTimeline(reel.timeline));
@@ -95,6 +99,10 @@ export default async function ExportPage({
       ? { audioId: scheduled.audioId, title: scheduled.audioTitle ?? scheduled.audioId, artist: scheduled.audioArtist, audioVolume: scheduled.audioVolume ?? 100, videoVolume: scheduled.videoVolume ?? 0 }
       : null
     : undefined;
+  const thread = await reelThread(user.workspaceId, reel.id);
+  const notesOn = notesAvailable() && user.workspace.aiGeneration !== "off";
+  // Refresh while this export renders, a note is being worked on, or the version it made is rendering.
+  const working = Boolean(thread.working) || thread.versions.some((version) => isActive(version.status as typeof job.status));
   const active = isActive(job.status);
   const progress = exportProgressText(job, new Date());
   // Stories (ADR 0065): the cut already made for this export, and whether the whole reel fits a story.
@@ -119,7 +127,7 @@ export default async function ExportPage({
 
   return (
     <main className="shell">
-      <AutoRefresh active={active} />
+      <AutoRefresh active={active || working} intervalMs={active ? 2000 : 4000} />
       <header className="shell-head">
         <Link href={`/reels/${reel.id}`} className="btn btn-quiet" prefetch={false}>
           <BackIcon size={18} />
@@ -205,6 +213,16 @@ export default async function ExportPage({
             </p>
           )}
   
+          {/* Notes on a version (ADR 0095): the back-and-forth on this screen, one version per note. */}
+          <ReelThread
+            reelId={reel.id}
+            thread={thread}
+            viewing={job.id}
+            available={notesOn}
+            left={aiUsage ? Math.max(0, aiUsage.allowed - aiUsage.used) : null}
+            allowed={aiUsage?.allowed ?? null}
+          />
+
           {urls && isAiAvailable() && user.workspace.aiGeneration !== "off" ? <AskForChange reelId={reel.id} usage={aiUsage} /> : null}
 
           <CaptionEditor reelId={reel.id} initial={reel.caption} />

@@ -26,7 +26,7 @@ async function load(env: Record<string, string>) {
     command instanceof RunTaskCommand ? { tasks: tasks(command.input.count ?? 1) } : { taskArns: [] }) as never);
   vi.spyOn(SQSClient.prototype, "send").mockImplementation((async () => ({ Attributes: {} })) as never);
   const capacity = await import("./render-capacity");
-  const runTasks = () => ecsSend.mock.calls.map(([command]) => command).filter((command): command is RunTaskCommand => command instanceof RunTaskCommand);
+  const runTasks = () => ecsSend.mock.calls.map(([command]) => command as unknown).filter((command): command is RunTaskCommand => command instanceof RunTaskCommand);
   return { capacity, moveStalledLocalRenders, flushOutbox, reconcileLocks, runTasks };
 }
 
@@ -43,7 +43,7 @@ function tasks(n: number) { return Array.from({ length: n }, (_, i) => ({ taskAr
 describe("startWorkerTasks", () => {
   it("launches on Fargate Spot and stops there when Spot places every task", async () => {
     const { capacity } = await load({});
-    const send = vi.fn(async (_command: RunTaskCommand) => ({ tasks: tasks(2), failures: [] }));
+    const send = vi.fn<(command: RunTaskCommand) => Promise<{ tasks: { taskArn: string }[]; failures: never[] }>>(async () => ({ tasks: tasks(2), failures: [] }));
     expect(await capacity.startWorkerTasks({ send } as never, base, { spot: true })).toEqual({ started: 2, spot: 2 });
     expect(send).toHaveBeenCalledTimes(1);
     const input = send.mock.calls[0]![0].input;

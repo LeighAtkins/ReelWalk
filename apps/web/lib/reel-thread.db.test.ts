@@ -236,15 +236,15 @@ describe.skipIf(!enabled)("notes on a version against a real database", () => {
     it("refuses a save after the note was expired, and the expiry's words follow what the note had committed", async () => {
       const user = await studio();
       const reelId = await newReel(user);
-      let fence!: ReturnType<typeof noteFences>;
+      const held: { fence?: ReturnType<typeof noteFences> } = {};
       const results: unknown[] = [];
       const gate = gated(async () => {
-        results.push(await agentSave(user, reelId, fence, "deleteClip {}"));
+        results.push(await agentSave(user, reelId, held.fence!, "deleteClip {}"));
         return outcome();
       });
       const started = await note(user, reelId, deps({ run: gate.run, timing: { deadlineMs: 1500, saveGuardMs: 0, graceMs: 500 } }));
-      fence = noteFences((started as any).noteId);
-      expect((await agentSave(user, reelId, fence)).ok).toBe(true); // one save inside the window
+      held.fence = noteFences((started as any).noteId);
+      expect((await agentSave(user, reelId, held.fence)).ok).toBe(true); // one save inside the window
       await sleep(2300);
       const [expired] = await reelNotes(user.workspaceId, reelId);
       expect(expired).toMatchObject({ status: "expired", reply: expect.stringContaining("saving its change (revision 1)") });

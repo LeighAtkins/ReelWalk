@@ -1,7 +1,7 @@
 import { ECSClient, ListTasksCommand, RunTaskCommand, type RunTaskCommandInput } from "@aws-sdk/client-ecs";
 import { GetQueueAttributesCommand, SQSClient } from "@aws-sdk/client-sqs";
 import { serializeRenderJobMessage } from "@reelwalk/core";
-import { localRenderPolicyFromEnv, moveStalledLocalRenders, prisma, type RenderRoute } from "@reelwalk/db";
+import { localRenderPolicyFromEnv, moveStalledLocalRenders, prisma, type LocalRenderPolicy, type RenderRoute } from "@reelwalk/db";
 import { flushOutbox } from "./render-jobs";
 
 /**
@@ -22,7 +22,12 @@ const queueUrl = process.env.SQS_QUEUE_URL;
 const jobsPerWorker = Math.max(1, Number(process.env.RENDER_JOBS_PER_WORKER ?? 1));
 // Fargate Spot first (ADR 0094); ECS_SPOT=false launches on-demand Fargate only.
 const useSpot = (process.env.ECS_SPOT ?? "true").toLowerCase() !== "false";
-const localRender = localRenderPolicyFromEnv();
+let policy: LocalRenderPolicy | null | undefined;
+/** Read on first use, so tests that mock @reelwalk/db without it can still import this module. */
+function localRender(): LocalRenderPolicy | null {
+  if (policy === undefined) policy = localRenderPolicyFromEnv();
+  return policy;
+}
 
 export function onDemandWorkersConfigured(): boolean {
   return Boolean(cluster && taskDefinition && subnets.length > 0);
@@ -171,11 +176,12 @@ export async function ensureWorkerRunning(route: RenderRoute = "cloud"): Promise
  * queue and starts a worker for them. Never throws.
  */
 export async function rescueStalledLocalRenders(now = new Date()): Promise<number> {
-  if (!localRender) return 0;
+  const local = localRender();
+  if (!local) return 0;
   try {
-    const moved = await moveStalledLocalRenders(prisma, localRender, { now, serialize: serializeRenderJobMessage });
+    const moved = await moveStalledLocalRenders(prisma, local, { now, serialize: serializeRenderJobMessage });
     if (moved.length === 0) return 0;
-    console.log(`render-capacity: ${moved.length} local render(s) waited over ${localRender.fallbackMs / 1000}s, moved to the cloud queue: ${moved.join(", ")}`);
+    console.log(`render-capacity: ${moved.length} local render(s) waited over ${local.fallbackMs / 1000}s, moved to the cloud queue: ${moved.join(", ")}`);
     await flushOutbox();
     await reconcile({ atLeastOne: true });
     return moved.length;
@@ -195,7 +201,7 @@ let lastReconcile = 0;
  * first moves local renders the PC has not taken to the cloud queue.
  */
 export function reconcileWorkersInBackground(): void {
-  if ((!onDemandWorkersConfigured() && !localRender) || Date.now() - lastReconcile < 60_000) return;
+  if ((!onDemandWorkersConfigured() && !localRender()) || Date.now() - lastReconcile < 60_000) return;
   lastReconcile = Date.now();
   void rescueStalledLocalRenders().then(() => reconcile({ atLeastOne: false }));
 }

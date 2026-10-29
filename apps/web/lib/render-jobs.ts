@@ -8,14 +8,19 @@ import {
   RENDER_JOBS_TOPIC,
   renderJobsTopic,
   renderRouteFor,
+  type LocalRenderPolicy,
   type Prisma,
   type RenderRoute,
 } from "@reelwalk/db";
 import { sendRenderJobMessage } from "./queue";
 import { mediaUrl } from "./storage";
 
-/** Our own workspaces render on the owner's PC (ADR 0094); null routes every job to the cloud queue. */
-const localRender = localRenderPolicyFromEnv();
+let policy: LocalRenderPolicy | null | undefined;
+/** Our own workspaces render on the owner's PC (ADR 0094); null routes every job to the cloud queue. Read on first use. */
+function localRender(): LocalRenderPolicy | null {
+  if (policy === undefined) policy = localRenderPolicyFromEnv();
+  return policy;
+}
 
 /**
  * Records the queue message for a job in the transaction that writes the job
@@ -25,7 +30,7 @@ const localRender = localRenderPolicyFromEnv();
  * no cloud worker for a local job.
  */
 export async function queueRenderJob(tx: Prisma.TransactionClient, job: { id: string; generation: number; workspaceId: string }): Promise<RenderRoute> {
-  const route = await renderRouteFor(tx, localRender, job.workspaceId);
+  const route = await renderRouteFor(tx, localRender(), job.workspaceId);
   await addToOutbox(tx, renderJobsTopic(route), serializeRenderJobMessage({ jobId: job.id, generation: job.generation }));
   return route;
 }
@@ -40,7 +45,7 @@ export async function flushOutbox(): Promise<void> {
     const [cloud, local] = await Promise.all([
       relayOutbox(prisma, { topic: RENDER_JOBS_TOPIC, send: (body) => sendRenderJobMessage(body) }),
       // Local messages left behind after the local queue was switched off go to the cloud queue.
-      relayOutbox(prisma, { topic: LOCAL_RENDER_JOBS_TOPIC, send: (body) => sendRenderJobMessage(body, localRender?.queueUrl) }),
+      relayOutbox(prisma, { topic: LOCAL_RENDER_JOBS_TOPIC, send: (body) => sendRenderJobMessage(body, localRender()?.queueUrl) }),
     ]);
     const failed = cloud.failed + local.failed;
     if (failed > 0) console.error(`Could not send ${failed} render queue message(s); the outbox relay will retry`);

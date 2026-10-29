@@ -89,7 +89,8 @@ export function toToolResultContent(result: ToolResult): ToolTurnBlock[] {
 
 type CallState = { reelId: string; exportIds: Set<string>; dryRuns: Set<string>; calls: number };
 
-const commandsKey = (commands: unknown) => JSON.stringify(commands ?? null);
+/** A dry run approves exactly this command list at exactly this revision; any other revision needs a new dry run. */
+export const approvalKey = (revision: unknown, commands: unknown) => `${String(revision)}|${JSON.stringify(commands ?? null)}`;
 
 /**
  * Whether one call may run, and its arguments bound to this reel. Returns the
@@ -106,7 +107,7 @@ export function checkCall(state: CallState, name: string, raw: Record<string, un
   if (exportBound.has(name) && !state.exportIds.has(String(args.exportId))) return { ok: false, reason: `That is not an export of this reel. Its exports are: ${[...state.exportIds].join(", ") || "none"}.` };
   if (name === "apply_commands" && args.dryRun !== true) {
     if (typeof args.revision !== "number") return { ok: false, reason: "Pass the revision you read (get_reel) when applying." };
-    if (!state.dryRuns.has(commandsKey(args.commands))) return { ok: false, reason: "Run these exact commands with dryRun: true first, then apply the same list." };
+    if (!state.dryRuns.has(approvalKey(args.revision, args.commands))) return { ok: false, reason: `Run these exact commands with dryRun: true at revision ${args.revision} first, then apply the same list at that revision.` };
   }
   return { ok: true, args };
 }
@@ -143,11 +144,30 @@ export function noteBrief(input: { title: string; reelId: string; revision: numb
   return lines.join("\n\n");
 }
 
+export type NoteGuards = {
+  /** Epoch ms after which the note stops: no further model turn, no save. */
+  deadline?: number;
+  /** Asked before every save; a reason refuses the save (the note was stopped or is out of time). */
+  beforeSave?: () => Promise<string | null>;
+  /** Told after every save, so the record holds the committed change even if the run dies later. */
+  onSaved?: (saved: { revisionAfter: number; applied: string[] }) => Promise<void>;
+};
+
+/** A note that stopped part-way: `partial` is what it had done (saves, calls, tokens) when it stopped. */
+export class NoteRunError extends Error {
+  constructor(message: string, public readonly partial: NoteOutcome) {
+    super(message);
+    this.name = "NoteRunError";
+  }
+}
+
 /**
  * Runs one note: Opus and the tools, until it answers or the calls run out.
- * Runs as `user` (getSessionUser answers with them inside, as on /mcp).
+ * Runs as `user` (getSessionUser answers with them inside, as on /mcp). A
+ * failure part-way (the provider, a tool, the deadline) throws NoteRunError
+ * with what was already saved and spent.
  */
-export async function runNote(input: { user: ActingUser; reelId: string; note: string; origin: string; brief: string; exportIds: string[]; revision: number }, deps: NoteDeps = { turn: claudeToolTurn, gate: allow, tools: noteToolSpecs() }): Promise<NoteOutcome> {
+export async function runNote(input: { user: ActingUser; reelId: string; note: string; origin: string; brief: string; exportIds: string[]; revision: number } & NoteGuards, deps: NoteDeps = { turn: claudeToolTurn, gate: allow, tools: noteToolSpecs() }): Promise<NoteOutcome> {
   return runAsUser(input.user, async () => {
     const ctx = { user: input.user, scopes: NOTE_SCOPES, origin: input.origin };
     const specs = new Map(deps.tools.map((spec) => [spec.name, spec]));
@@ -160,72 +180,91 @@ export async function runNote(input: { user: ActingUser; reelId: string; note: s
     let model = "";
     let revisionAfter = input.revision;
     let reply = "";
+    const snapshot = (): NoteOutcome => {
+      const changed = revisionAfter !== input.revision;
+      return {
+        reply: reply || (changed ? "Done." : "I could not work out a change for that note."),
+        changed,
+        revisionBefore: input.revision,
+        revisionAfter,
+        applied: [...applied],
+        calls: [...calls],
+        usage,
+        model,
+        costUsd: model ? usageCostUsd(model, usage, { provider: aiProvider() }) : 0,
+      };
+    };
 
-    for (let turnNo = 0; turnNo < MAX_TURNS; turnNo++) {
-      const out = state.calls >= NOTE_MAX_CALLS;
-      const answer = await deps.turn({ workspaceId: input.user.workspaceId, system: NOTE_INSTRUCTIONS, tools, messages, toolChoice: out ? "none" : "auto" });
-      usage = addUsage(usage, answer.usage);
-      model = answer.model;
-      // The answer goes back exactly as it came, thinking blocks included.
-      messages.push({ role: "assistant", content: answer.content });
-      const uses = answer.content.filter((block) => block.type === "tool_use") as Array<ToolTurnBlock & { id: string; name: string; input: Record<string, unknown> }>;
-      if (answer.stopReason !== "tool_use" || uses.length === 0) {
-        reply = answer.content.filter((block) => block.type === "text").map((block) => String(block.text ?? "")).join(" ").trim();
-        if (answer.stopReason === "max_tokens" && !reply) reply = "I ran out of room before finishing.";
-        break;
-      }
-      const results: ToolTurnBlock[] = [];
-      for (const use of uses) {
-        const checked = checkCall(state, use.name, use.input ?? {});
-        let result: ToolResult;
-        if (!checked.ok) {
-          calls.push({ tool: use.name, ok: false, refused: checked.reason });
-          result = refusal(checked.reason);
-        } else {
-          state.calls++;
-          const spec = specs.get(use.name)!;
-          const parsed = z.object(spec.input).safeParse(checked.args);
-          result = parsed.success ? await runTool(spec, ctx, parsed.data as Record<string, unknown>, deps.gate) : refusal(`The arguments do not fit ${spec.name}: ${parsed.error.issues.map((issue) => `${issue.path.join(".")} ${issue.message}`).join("; ")}`);
-          const json = resultJson(result);
-          const dryRun = use.name === "apply_commands" ? checked.args.dryRun === true : undefined;
-          calls.push({ tool: use.name, ok: !result.isError, ...(dryRun !== undefined ? { dryRun } : {}) });
-          if (use.name === "apply_commands" && !result.isError && json) {
-            if (dryRun) state.dryRuns.add(commandsKey(checked.args.commands));
-            else {
-              revisionAfter = typeof json.revision === "number" ? json.revision : revisionAfter;
-              applied.push(...(Array.isArray(checked.args.commands) ? checked.args.commands.map(describeCommand) : []));
+    try {
+      for (let turnNo = 0; turnNo < MAX_TURNS; turnNo++) {
+        const left = input.deadline === undefined ? 180_000 : input.deadline - Date.now();
+        if (left <= 0) throw new Error("The note ran out of time.");
+        const out = state.calls >= NOTE_MAX_CALLS;
+        const answer = await deps.turn({ workspaceId: input.user.workspaceId, system: NOTE_INSTRUCTIONS, tools, messages, toolChoice: out ? "none" : "auto", signal: AbortSignal.timeout(Math.min(180_000, left)) });
+        usage = addUsage(usage, answer.usage);
+        model = answer.model;
+        // The answer goes back exactly as it came, thinking blocks included.
+        messages.push({ role: "assistant", content: answer.content });
+        const uses = answer.content.filter((block) => block.type === "tool_use") as Array<ToolTurnBlock & { id: string; name: string; input: Record<string, unknown> }>;
+        if (answer.stopReason !== "tool_use" || uses.length === 0) {
+          reply = answer.content.filter((block) => block.type === "text").map((block) => String(block.text ?? "")).join(" ").trim();
+          if (answer.stopReason === "max_tokens" && !reply) reply = "I ran out of room before finishing.";
+          break;
+        }
+        const results: ToolTurnBlock[] = [];
+        for (const use of uses) {
+          const checked = checkCall(state, use.name, use.input ?? {});
+          let result: ToolResult;
+          const saving = checked.ok && use.name === "apply_commands" && checked.args.dryRun !== true;
+          const fenced = saving ? await input.beforeSave?.() : null;
+          if (!checked.ok || fenced) {
+            const reason = checked.ok ? fenced! : checked.reason;
+            calls.push({ tool: use.name, ok: false, refused: reason });
+            result = refusal(reason);
+          } else {
+            state.calls++;
+            const spec = specs.get(use.name)!;
+            const parsed = z.object(spec.input).safeParse(checked.args);
+            result = parsed.success ? await runTool(spec, ctx, parsed.data as Record<string, unknown>, deps.gate) : refusal(`The arguments do not fit ${spec.name}: ${parsed.error.issues.map((issue) => `${issue.path.join(".")} ${issue.message}`).join("; ")}`);
+            const json = resultJson(result);
+            const dryRun = use.name === "apply_commands" ? checked.args.dryRun === true : undefined;
+            calls.push({ tool: use.name, ok: !result.isError, ...(dryRun !== undefined ? { dryRun } : {}) });
+            if (use.name === "apply_commands" && !result.isError && json) {
+              // The approval is for the revision the dry run checked against (its answer's revision).
+              if (dryRun) state.dryRuns.add(approvalKey(json.revision, checked.args.commands));
+              else {
+                revisionAfter = typeof json.revision === "number" ? json.revision : revisionAfter;
+                applied.push(...(Array.isArray(checked.args.commands) ? checked.args.commands.map(describeCommand) : []));
+                // A new revision: every earlier approval is for a cut that no longer exists.
+                state.dryRuns.clear();
+                await input.onSaved?.({ revisionAfter, applied: [...applied] });
+              }
             }
           }
+          results.push({ type: "tool_result", tool_use_id: use.id, content: toToolResultContent(result), ...(result.isError ? { is_error: true } : {}) });
         }
-        results.push({ type: "tool_result", tool_use_id: use.id, content: toToolResultContent(result), ...(result.isError ? { is_error: true } : {}) });
+        if (state.calls >= NOTE_MAX_CALLS) results.push({ type: "text", text: `That was the last of your ${NOTE_MAX_CALLS} tool calls. Answer the owner now.` });
+        messages.push({ role: "user", content: results });
       }
-      if (state.calls >= NOTE_MAX_CALLS) results.push({ type: "text", text: `That was the last of your ${NOTE_MAX_CALLS} tool calls. Answer the owner now.` });
-      messages.push({ role: "user", content: results });
+    } catch (error) {
+      throw new NoteRunError(error instanceof Error ? error.message : String(error), snapshot());
     }
-
-    const changed = revisionAfter !== input.revision;
-    return {
-      reply: reply || (changed ? "Done." : "I could not work out a change for that note."),
-      changed,
-      revisionBefore: input.revision,
-      revisionAfter,
-      applied,
-      calls,
-      usage,
-      model,
-      costUsd: model ? usageCostUsd(model, usage, { provider: aiProvider() }) : 0,
-    };
+    return snapshot();
   });
 }
 
-/** The latest REEL exports of a reel, oldest first, as the versions v1, v2, … */
-export async function reelVersions(workspaceId: string, reelId: string) {
-  const jobs = await prisma.renderJob.findMany({
-    where: { workspaceId, reelId, kind: "REEL" },
-    orderBy: { createdAt: "asc" },
-    select: { id: true, status: true, createdAt: true },
+/** A reel's REEL exports as the versions v1, v2, …: the `last` newest (all by default), oldest first, numbered from the first ever. */
+export async function reelVersions(workspaceId: string, reelId: string, options: { last?: number } = {}) {
+  const where = { workspaceId, reelId, kind: "REEL" as const };
+  const [total, newest] = await Promise.all([
+    prisma.renderJob.count({ where }),
+    prisma.renderJob.findMany({ where, orderBy: [{ createdAt: "desc" }, { id: "desc" }], ...(options.last ? { take: options.last } : {}), select: { id: true, status: true, createdAt: true } }),
+  ]);
+  const jobs = newest.reverse();
+  return jobs.map((job, index) => {
+    const n = total - jobs.length + index + 1;
+    return { ...job, n, label: `v${n}` };
   });
-  return jobs.map((job, index) => ({ ...job, n: index + 1, label: `v${index + 1}` }));
 }
 
 // ── The stand-in (DEV_FAKE_AI) ───────────────────────────────────

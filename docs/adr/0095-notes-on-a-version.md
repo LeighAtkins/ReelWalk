@@ -36,8 +36,15 @@ works or its version renders, so the phone can sleep.
 
 **What the server does** (`lib/reel-notes.ts`, `lib/reel-thread.ts`, `POST|GET /api/reels/:id/notes`):
 
-1. **Start.** `startNote` checks AI is on and the month's AI requests (`aiEditBlockedReason`; a note counts as one).
-   It allows one working note per reel. It records the note and starts an `AiJob` (ADR 0021), then answers at once.
+1. **Start.** `startNote` reserves the note in one transaction. A transaction-scoped advisory lock per workspace makes
+   the checks atomic, and it is safe on the transaction pooler. The transaction:
+   - gives a retry of the same request id the same note, and refuses that id for another reel or other words;
+   - expires the reel's overdue working notes, and refuses while one is still live (one working note per reel);
+   - counts the month's AI requests against the allowance (a note counts as one);
+   - creates the note and its `AiJob` (ADR 0021) together.
+
+   Parallel requests can therefore neither start two agents nor go past the allowance. The run starts after commit, and
+   the route answers at once.
 2. **The agent.** Opus 5.5 (`aiModel()`, `claude-opus-5-5` by default) runs a tool loop through a new provider call,
    `claudeToolTurn`, next to `structuredAnswer`. It uses the same AI switch, provider gate, and direct or Vertex route,
    and is Claude only. The system prompt and the tools are one cache breakpoint, and the conversation is auto-cached.
@@ -52,26 +59,46 @@ works or its version renders, so the phone can sleep.
      spending tool that slipped into the list would be refused by `runTool`, and `noteToolSpecs` drops any tool that
      needs either scope.
    - **This reel only.** Every `reelId` is bound to the note's reel, and every `exportId` must be one of its exports.
-   - **Dry run first.** A saving `apply_commands` must carry a revision and exactly the command list that was dry-run
-     earlier in the same note. The revision guard answers 409 if the owner edited meanwhile.
+   - **Dry run first, at the same revision.** A saving `apply_commands` must carry a revision, and a dry run of exactly
+     that command list must have passed *at that revision*. After a 409 (the owner edited) or after any save, the agent
+     needs a new dry run: an absolute-time `splitClip` checked against one cut never lands on another.
+   - **A deadline.** A note has 10 minutes (`deadlineAt`, stored with it) for every turn and tool. No model turn starts
+     after the deadline. No save starts in its last 30 s or once the note is no longer working (each save asks first).
    - **At most 12 tool calls.** After the twelfth, the next turn is sent with `tool_choice: none`, so the agent must
      answer.
    - **Arguments are checked** against the tool's zod shape before it runs.
-4. **Export.** When a batch was saved, the server queues the export itself (`queueReelExport`). The agent cannot export.
-   Leaving the export out of the loop keeps a note's cost and time bounded: the agent never polls a render. That render
-   becomes v(n+1).
+4. **Export.** When a batch was saved, the server queues the export itself; the agent cannot export.
+   - Leaving the export out of the loop keeps a note's cost and time bounded: the agent never polls a render.
+   - The export is of exactly the revision the note saved (`queueReelExport(…, { revision })`). If the owner saved in
+     between, nothing is exported and the note says why, rather than shipping the owner's edit as the note's version.
+   - The export is claimed while the note is still working, so a stopped note never exports.
+   - The created job's id comes back from `queueReelExport`, not from "the newest job". That render becomes v(n+1).
 5. **Record.** The note is stored as an `AiEdit` row:
    - `request` is the note and `note` is the answer;
-   - `plan` is `{ kind: "note", status, fromExportId, toExportId, revisionBefore, revisionAfter, calls, costUsd }`;
-   - `applied` is the change lines, and the token counts are stored too.
+   - `plan` is `{ kind: "note", requestId, status, deadlineAt, fromExportId, toExportId, revisionBefore, revisionAfter,
+     calls, costUsd, error? }`;
+   - `applied` is one line per saved command, and the token counts are stored too.
 
-   Each note logs one JSON line: `event: "reel-note"`, the tokens (with cache read and write) and `costUsd` at list
-   price.
+   **Facts are recorded the moment they happen**, merged atomically into the plan: a saved revision when it saves, the
+   export's job id when it is queued. The **status** moves only from `working`, to one of:
+   - `exported`;
+   - `saved` (changed, not exported, with the reason);
+   - `no-change`;
+   - `failed`;
+   - `expired`.
+
+   A provider or tool failure part-way keeps what the run had done, spent and saved (`NoteRunError.partial`). A change
+   that was saved is still exported, and the note says Opus stopped before summing up. A note still working past its
+   deadline plus a minute is marked `expired` for good, with a reply built from what it had committed, and the reel is
+   free for the next note. Each note logs one JSON line on every path: `event: "reel-note"`, the status, any failure, the
+   tokens (with cache read and write) and `costUsd` at list price.
 
 **Versions are the reel's REEL exports.** They are numbered v1… in order of creation. A version is the *current cut*
 when its payload timeline has the same `timelineGeneration` as the saved reel. *Go back to vN* saves vN's payload
-timeline as a new revision (`saveReelFor`, so the editor can undo it like any save). It renders nothing: vN's export is
-already there to watch and post (`?v=`).
+timeline as a new revision. It uses `saveReelFor`'s exact mode, with the same access, validation and revision checks and
+the editor can undo it like any save. Exact mode does not keep the current text fields that the incoming timeline omits:
+a plain save would carry v2's font, blend or brand over into v1. It renders nothing: vN's export is already there to
+watch and post (`?v=`). The thread reads the newest 50 notes and the 6 newest versions, numbered from the first.
 
 **No new table.** Notes are `AiEdit` rows with a `kind`, the way the director stored its plans (ADR 0034). Versions are
 `RenderJob` rows, which already carry the frozen timeline and the checks. The job is an `AiJob` with `kind: "note"`
@@ -95,9 +122,10 @@ by a quarter, and "earlier" starts the first clip a second later in its file.
 - **What a note can't do.** It can only change what is in the app timeline. A note about something drawn inside a baked
   clip (a three.js render, a title burnt into the file), new footage, a voice or an AI shot gets "changed nothing,
   because…". Phase 3 brings quoted AI shots into the thread through the director's `quotedCredits` path.
-- **Not durable.** The agent runs in the web process (the in-process `AiJob` path). A deploy mid-note loses it; after
-  15 minutes the thread shows it as failed and nothing was exported. Moving it onto the worker's durable steps (ADR 0049)
-  needs the connector tools to run without Next.js. That is a follow-up.
+- **Not durable.** The agent runs in the web process (the in-process `AiJob` path). A deploy mid-note loses the run.
+  After its deadline the note is expired, with what it had committed: "saved revision N, not exported" or "changed
+  nothing". Nothing can save or export for it after that. Moving it onto the worker's durable steps (ADR 0049) needs the
+  connector tools to run without Next.js. That is a follow-up.
 - **Not yet built** (phases 2–5 of the plan):
   - the LLM retention and glitch judges;
   - *Save as rule* and per-workspace rules (the agent gets the house style, `STYLE_HINTS`, only);

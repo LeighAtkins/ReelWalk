@@ -7,18 +7,22 @@ import { ensureWorkerRunning } from "@/lib/render-capacity";
 import { flushOutbox, queueRenderJob } from "@/lib/render-jobs";
 import { mediaScope } from "@/lib/media-scope";
 
-export type ExportResult = { ok: false; issues: Issue[]; message?: string; /** A bigger plan would lift the limit that stopped it. */ upgrade?: boolean };
+export type ExportResult = { ok: false; issues: Issue[]; message?: string; /** A bigger plan would lift the limit that stopped it. */ upgrade?: boolean; /** The reel is no longer at the revision asked for. */ conflict?: boolean };
 
 /**
  * Freezes the current timeline into a render job and queues it. The checks
  * run again here, on the server, whatever the browser showed. The job row and
  * its queue message are written in one transaction (the outbox). Used by
  * Export (which then opens the export screen) and by a variant set's
- * Export all (ADR 0063), which queues several.
+ * Export all (ADR 0063), which queues several. With `revision`, only that
+ * revision is exported: a reel saved since answers `conflict` and nothing is
+ * queued (a note exports exactly the cut it made, ADR 0095). Answers with the
+ * id of the job it created.
  */
-export async function queueReelExport(user: { id: string; workspaceId: string }, reelId: string): Promise<{ ok: true } | ExportResult> {
+export async function queueReelExport(user: { id: string; workspaceId: string }, reelId: string, options: { revision?: number } = {}): Promise<{ ok: true; jobId: string } | ExportResult> {
   const reel = await prisma.reel.findFirst({ where: { id: reelId, workspaceId: user.workspaceId } });
   if (!reel) return { ok: false, issues: [], message: "This reel was deleted." };
+  if (options.revision !== undefined && reel.revision !== options.revision) return { ok: false, issues: [], conflict: true, message: "The reel was changed after that edit, so it was not exported." };
 
   const timeline = parseTimeline(reel.timeline);
   const issues = instagramIssues(timeline, reel.caption);
@@ -39,7 +43,7 @@ export async function queueReelExport(user: { id: string; workspaceId: string },
     return { ok: false, issues: [], message: error instanceof Error ? error.message : "Could not export." };
   }
 
-  await prisma.$transaction(async (tx) => {
+  const jobId = await prisma.$transaction(async (tx) => {
     const job = await tx.renderJob.create({
       data: {
         workspaceId: user.workspaceId,
@@ -51,10 +55,11 @@ export async function queueReelExport(user: { id: string; workspaceId: string },
       },
     });
     await queueRenderJob(tx, job);
+    return job.id;
   });
   // Once per studio, the key makes later exports a no-op (ADR 0080).
   await recordFunnelEvent({ name: "first_export", userId: user.id, workspaceId: user.workspaceId, key: `first_export:${user.workspaceId}`, data: { plan: plan.id } });
   await flushOutbox();
   await ensureWorkerRunning();
-  return { ok: true };
+  return { ok: true, jobId };
 }

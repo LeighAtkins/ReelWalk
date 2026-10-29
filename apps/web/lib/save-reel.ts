@@ -17,16 +17,17 @@ export type SaveResult = { ok: true; revision: number } | { ok: false; reason: "
  * browser last saw; otherwise another tab saved in between and this tab is
  * told to reload rather than overwriting that work.
  */
-export async function saveReelFor(user: { workspaceId: string }, input: unknown): Promise<SaveResult> {
+export async function saveReelFor(user: { workspaceId: string }, input: unknown, options: { exact?: boolean } = {}): Promise<SaveResult> {
   const parsed = saveSchema.safeParse(input);
   if (!parsed.success) return { ok: false, reason: "invalid", message: "Could not read the changes." };
 
   // Texts keep the saved values of fields the save leaves out (an explicit null clears one); see keepSavedTextFields.
-  const current = await prisma.reel.findFirst({ where: { id: parsed.data.id, workspaceId: user.workspaceId }, select: { timeline: true } });
+  // `exact` replaces the whole timeline instead (going back to an export's cut, ADR 0095): nothing of the current one survives.
+  const current = options.exact ? null : await prisma.reel.findFirst({ where: { id: parsed.data.id, workspaceId: user.workspaceId }, select: { timeline: true } });
   const before = current ? timelineSchema.safeParse(current.timeline) : null;
   let timeline: Timeline;
   try {
-    timeline = parseTimeline(keepSavedTextFields(parsed.data.timeline, before?.success ? before.data : null));
+    timeline = parseTimeline(options.exact ? parsed.data.timeline : keepSavedTextFields(parsed.data.timeline, before?.success ? before.data : null));
   } catch {
     return { ok: false, reason: "invalid", message: "The edit is not valid and was not saved." };
   }

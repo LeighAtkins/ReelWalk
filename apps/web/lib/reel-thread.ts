@@ -1,31 +1,44 @@
-import { timelineDurationMs, timelineGeneration } from "@reelwalk/core";
+import { monthStart, timelineDurationMs, timelineGeneration } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
-import { aiEditBlockedReason } from "./ai-edit";
-import { startAiJob } from "./ai-jobs";
+import { aiEditAllowance, aiEditBlockedReason } from "./ai-edit";
+import { runAiJobInBackground } from "./ai-jobs";
+import type { ExportResult } from "./export-reel";
 import type { ActingUser } from "./mcp/acting-user";
+import { allow } from "./mcp/http";
 import { aiProvider, claudeToolTurn, isAiConfigured, isFakeAi } from "./openai";
-import { fakeNoteTurn, noteBrief, noteToolSpecs, reelVersions, runNote, type NoteCall } from "./reel-notes";
+import { NoteRunError, fakeNoteTurn, noteBrief, noteToolSpecs, reelVersions, runNote, type NoteCall, type NoteDeps, type NoteOutcome } from "./reel-notes";
 import { ensureChecks, exportTimeline, type ChecksResult } from "./render-verify";
 import { readTimeline } from "./reels";
 import { saveReelFor } from "./save-reel";
-import { allow } from "./mcp/http";
 
 /**
  * A reel's thread (ADR 0095): its versions (the REEL exports, v1 first) and
  * the notes that made them. Notes are AiEdit rows with `plan.kind: "note"`,
  * so they count against the month's AI requests like Ask and the director,
  * and need no table of their own.
+ *
+ * A note's life: reserved (in one transaction with its quota, its request id
+ * and the reel's one working note), working until its deadline, then one of
+ * exported / saved (changed but not exported) / no-change / failed, or
+ * expired when its run never finished. What it commits (a saved revision, a
+ * queued export) is recorded the moment it happens, so the thread never says
+ * "nothing was exported" about a version that exists.
  */
 
-export type NoteStatus = "working" | "exported" | "no-change" | "failed";
+export type NoteStatus = "working" | "exported" | "saved" | "no-change" | "failed" | "expired";
 
 export type NotePlan = {
   kind: "note";
+  requestId: string;
   status: NoteStatus;
+  /** When the run must have stopped (ISO): no model turn and no save after it. */
+  deadlineAt: string;
   fromExportId: string | null;
   toExportId: string | null;
   revisionBefore: number;
   revisionAfter: number | null;
+  /** Set while the export is being queued, so expiry does not race it. */
+  exporting?: boolean;
   calls: NoteCall[];
   costUsd: number;
   error?: string;
@@ -48,22 +61,69 @@ export type ThreadVersion = {
 
 export type Thread = { versions: ThreadVersion[]; notes: ThreadNote[]; working: ThreadNote | null };
 
-/** A note still marked working after this long lost its server (a deploy) and is shown as failed. */
-const STALE_MS = 15 * 60_000;
+/** How long a note may run, all turns and tools included. */
+export const NOTE_DEADLINE_MS = 10 * 60_000;
+/** No save starts this close to the deadline, so none can land after it. */
+export const NOTE_SAVE_GUARD_MS = 30_000;
+/** After the deadline and this grace a note still marked working lost its run (a deploy): it is expired and the reel is free. */
+export const NOTE_EXPIRY_GRACE_MS = 60_000;
 /** Earlier notes the agent is reminded of. */
 const HISTORY = 5;
+/** Notes read for the thread, newest first. */
+const NOTES_SHOWN = 50;
 
 const asPlan = (value: unknown): NotePlan | null => (value && typeof value === "object" && (value as { kind?: unknown }).kind === "note" ? (value as NotePlan) : null);
 
-function toNote(row: { id: string; request: string; note: string; plan: unknown; applied: unknown; createdAt: Date }, now: number): ThreadNote | null {
+/** Notes from before deadlines were recorded run until 10 minutes after they were made. */
+const deadlineOf = (plan: NotePlan, createdAt: Date) => (plan.deadlineAt ? Date.parse(plan.deadlineAt) : createdAt.getTime() + NOTE_DEADLINE_MS);
+
+/** A working note whose run is over: past its deadline and the grace (or long past it, if it was caught mid-export). */
+export function isOverdue(plan: NotePlan, createdAt: Date, now: number): boolean {
+  if (plan.status !== "working") return false;
+  const deadline = deadlineOf(plan, createdAt);
+  return now > deadline + NOTE_EXPIRY_GRACE_MS * (plan.exporting ? 10 : 1);
+}
+
+/** What an expired note says, from what it is known to have committed. */
+export function expiredReply(plan: NotePlan): string {
+  if (plan.toExportId) return "This note stopped after its version was queued; the version is below.";
+  if (plan.revisionAfter !== null && plan.revisionAfter !== plan.revisionBefore) {
+    return `This note stopped after saving its change (revision ${plan.revisionAfter}) but before exporting it. The change is in the editor: export it from there, or go back to a version.`;
+  }
+  return "This note stopped before it changed anything (the server restarted or it ran out of time). Send it again.";
+}
+
+type Db = Pick<typeof prisma, "$executeRaw">;
+
+/** Marks a working note expired, once, with what it committed. Answers whether it did. */
+async function expire(db: Db, id: string, plan: NotePlan): Promise<boolean> {
+  const count = await db.$executeRaw`UPDATE "AiEdit" SET plan = jsonb_set(plan, '{status}', '"expired"'), note = ${expiredReply(plan)} WHERE id = ${id} AND plan->>'status' = 'working'`;
+  return count > 0;
+}
+
+/**
+ * Records facts about a note (a saved revision, a queued export, calls, cost)
+ * whatever its status, merged into its plan atomically, so a concurrent
+ * expiry and a late run never overwrite each other's keys.
+ */
+async function recordFacts(id: string, facts: Partial<NotePlan>): Promise<void> {
+  await prisma.$executeRaw`UPDATE "AiEdit" SET plan = plan || ${JSON.stringify(facts)}::jsonb WHERE id = ${id}`;
+}
+
+/** Moves a note from working to `status`; answers false when it was no longer working (expired meanwhile). */
+async function settle(id: string, status: NoteStatus, reply: string): Promise<boolean> {
+  const count = await prisma.$executeRaw`UPDATE "AiEdit" SET plan = jsonb_set(plan, '{status}', to_jsonb(${status}::text)), note = ${reply} WHERE id = ${id} AND plan->>'status' = 'working'`;
+  return count > 0;
+}
+
+function toNote(row: { id: string; request: string; note: string; plan: unknown; applied: unknown; createdAt: Date }): ThreadNote | null {
   const plan = asPlan(row.plan);
   if (!plan) return null;
-  const stale = plan.status === "working" && now - row.createdAt.getTime() > STALE_MS;
   return {
     id: row.id,
     note: row.request,
-    reply: stale ? "This note stopped before it finished (the server restarted). Nothing was exported; send it again." : row.note,
-    status: stale ? "failed" : plan.status,
+    reply: row.note,
+    status: plan.status,
     fromExportId: plan.fromExportId,
     toExportId: plan.toExportId,
     applied: Array.isArray(row.applied) ? row.applied.map(String) : [],
@@ -72,24 +132,28 @@ function toNote(row: { id: string; request: string; note: string; plan: unknown;
   };
 }
 
-export async function reelNotes(workspaceId: string, reelId: string): Promise<ThreadNote[]> {
-  const rows = await prisma.aiEdit.findMany({
-    where: { workspaceId, reelId, plan: { path: ["kind"], equals: "note" } },
-    orderBy: { createdAt: "asc" },
-    select: { id: true, request: true, note: true, plan: true, applied: true, createdAt: true },
-  });
-  const now = Date.now();
-  return rows.map((row) => toNote(row, now)).filter((note): note is ThreadNote => note !== null);
+/** The reel's newest notes (oldest first in the answer), with overdue ones expired on the way. */
+export async function reelNotes(workspaceId: string, reelId: string, options: { limit?: number; now?: number } = {}): Promise<ThreadNote[]> {
+  const select = { id: true, request: true, note: true, plan: true, applied: true, createdAt: true } as const;
+  const where = { workspaceId, reelId, plan: { path: ["kind"], equals: "note" } };
+  const read = () => prisma.aiEdit.findMany({ where, orderBy: { createdAt: "desc" }, take: options.limit ?? NOTES_SHOWN, select });
+  let rows = await read();
+  const now = options.now ?? Date.now();
+  const overdue = rows.filter((row) => { const plan = asPlan(row.plan); return plan ? isOverdue(plan, row.createdAt, now) : false; });
+  if (overdue.length) {
+    for (const row of overdue) await expire(prisma, row.id, asPlan(row.plan)!);
+    rows = await read();
+  }
+  return rows.reverse().map(toNote).filter((note): note is ThreadNote => note !== null);
 }
 
-/** The thread for the export screen: up to `limit` newest versions with their checks, and every note. */
+/** The thread for the export screen: up to `limit` newest versions with their checks, and the recent notes. */
 export async function reelThread(workspaceId: string, reelId: string, options: { limit?: number } = {}): Promise<Thread> {
-  const [reel, versions, notes] = await Promise.all([
+  const [reel, shown, notes] = await Promise.all([
     prisma.reel.findFirst({ where: { id: reelId, workspaceId }, select: { timeline: true } }),
-    reelVersions(workspaceId, reelId),
+    reelVersions(workspaceId, reelId, { last: options.limit ?? 6 }),
     reelNotes(workspaceId, reelId),
   ]);
-  const shown = versions.slice(-(options.limit ?? 6));
   const jobs = await prisma.renderJob.findMany({ where: { id: { in: shown.map((version) => version.id) } }, select: { id: true, payload: true, output: { select: { objectKey: true } } } });
   const byId = new Map(jobs.map((job) => [job.id, job]));
   const current = reel ? timelineGeneration(readTimeline(reel.timeline)) : null;
@@ -124,90 +188,182 @@ export function notesAvailable(): boolean {
   }
 }
 
-export type StartNote = { ok: true; noteId: string; jobId: string } | { ok: false; status: number; message: string; upgrade?: boolean };
+export type StartNote =
+  | { ok: true; noteId: string; jobId: string; /** Settles when the note's run is over (tests; routes ignore it). */ settled: Promise<void> }
+  | { ok: false; status: number; message: string; upgrade?: boolean };
+
+/** What a note runs with; tests replace these. */
+export type NoteRunDeps = {
+  run: typeof runNote;
+  tools: NoteDeps;
+  queueExport: (user: { id: string; workspaceId: string }, reelId: string, options: { revision: number }) => Promise<{ ok: true; jobId: string } | ExportResult>;
+  now: () => number;
+};
+
+const defaultDeps = (): NoteRunDeps => ({
+  run: runNote,
+  tools: { turn: isFakeAi() ? fakeNoteTurn : claudeToolTurn, gate: allow, tools: noteToolSpecs() },
+  queueExport: async (user, reelId, options) => (await import("./export-reel")).queueReelExport(user, reelId, options),
+  now: Date.now,
+});
+
+type Reserved =
+  | { kind: "created"; noteId: string; jobId: string; plan: NotePlan; title: string; revision: number }
+  | { kind: "existing"; noteId: string; jobId: string }
+  | { kind: "conflict" }
+  | { kind: "busy" }
+  | { kind: "quota" }
+  | { kind: "missing" };
 
 /**
- * Starts a note in the background (an AiJob, ADR 0021) and answers at once:
- * a phone that sleeps does not stop it. One note at a time per reel.
+ * Starts a note in the background (ADR 0021's AiJob) and answers at once: a
+ * phone that sleeps does not stop it. One transaction, serialised per
+ * workspace by an advisory lock, decides everything that must not race: a
+ * retry of the same request id gets the same note (only for the same reel and
+ * words), the month's allowance is counted, the reel has no other working
+ * note, and the note and its job are created together.
  */
-export async function startNote(input: { user: ActingUser; reelId: string; note: string; origin: string; requestId: string }): Promise<StartNote> {
-  const { user, reelId } = input;
+export async function startNote(input: { user: ActingUser; reelId: string; note: string; origin: string; requestId: string }, deps: NoteRunDeps = defaultDeps()): Promise<StartNote> {
+  const { user, reelId, requestId } = input;
+  const workspaceId = user.workspaceId;
   const note = input.note.trim();
   if (note.length < 3 || note.length > 600) return { ok: false, status: 400, message: "Write the note in a few words (up to 600 characters)." };
   if (!notesAvailable()) return { ok: false, status: 503, message: "Notes need Claude, which is not set up on this deployment." };
-  const blocked = await aiEditBlockedReason(user.workspaceId);
+  const blocked = await aiEditBlockedReason(workspaceId);
   if (blocked) return { ok: false, status: 403, message: blocked.message, upgrade: blocked.upgrade };
-  const reel = await prisma.reel.findFirst({ where: { id: reelId, workspaceId: user.workspaceId }, select: { id: true, title: true, revision: true } });
-  if (!reel) return { ok: false, status: 404, message: "This reel was deleted." };
-  const existing = await prisma.aiJob.findFirst({ where: { id: `note-${input.requestId}`, workspaceId: user.workspaceId }, select: { id: true, result: true } });
-  if (existing) {
-    const noteId = (existing.result as { noteId?: string } | null)?.noteId;
-    const row = noteId ? null : await prisma.aiEdit.findFirst({ where: { workspaceId: user.workspaceId, reelId, plan: { path: ["requestId"], equals: input.requestId } }, select: { id: true } });
-    return { ok: true, noteId: noteId ?? row?.id ?? "", jobId: existing.id };
-  }
-  const [all, notes] = await Promise.all([reelVersions(user.workspaceId, reelId), reelNotes(user.workspaceId, reelId)]);
-  if (notes.some((entry) => entry.status === "working")) return { ok: false, status: 409, message: "A note on this reel is still being worked on. Wait for its version." };
-  const versions = all.map((version) => ({ label: version.label, exportId: version.id, status: version.status }));
-  const latest = versions[versions.length - 1] ?? null;
+  const allowance = await aiEditAllowance(workspaceId);
+  const latest = (await reelVersions(workspaceId, reelId, { last: 1 }))[0] ?? null;
+  const jobId = `note-${requestId}`;
 
-  const plan: NotePlan & { requestId: string } = { kind: "note", status: "working", fromExportId: latest?.exportId ?? null, toExportId: null, revisionBefore: reel.revision, revisionAfter: null, calls: [], costUsd: 0, requestId: input.requestId };
-  const row = await prisma.aiEdit.create({
-    data: { workspaceId: user.workspaceId, userId: user.id, reelId, request: note, note: "Working on it", model: "pending", plan, applied: [], skipped: [] },
-    select: { id: true },
+  const reserved: Reserved = await prisma.$transaction(async (tx) => {
+    // Transaction-scoped (released at commit), so it is safe on the transaction pooler.
+    await tx.$queryRaw`SELECT 1 AS locked FROM (SELECT pg_advisory_xact_lock(hashtextextended(${`reel-notes:${workspaceId}`}, 0))) AS lock`;
+    const same = await tx.aiEdit.findFirst({ where: { workspaceId, plan: { path: ["requestId"], equals: requestId } }, select: { id: true, reelId: true, request: true } });
+    if (same) return same.reelId === reelId && same.request === note ? { kind: "existing", noteId: same.id, jobId } : { kind: "conflict" };
+    const reel = await tx.reel.findFirst({ where: { id: reelId, workspaceId }, select: { title: true, revision: true } });
+    if (!reel) return { kind: "missing" };
+    const now = deps.now();
+    const working = await tx.aiEdit.findMany({ where: { workspaceId, reelId, plan: { path: ["status"], equals: "working" } }, select: { id: true, plan: true, createdAt: true } });
+    for (const row of working) {
+      const plan = asPlan(row.plan)!;
+      if (!isOverdue(plan, row.createdAt, now)) return { kind: "busy" };
+      await expire(tx, row.id, plan);
+    }
+    const used = await tx.aiEdit.count({ where: { workspaceId, createdAt: { gte: monthStart(new Date(now)) } } });
+    if (!allowance.unlimited && used >= allowance.allowed) return { kind: "quota" };
+    const plan: NotePlan = {
+      kind: "note", requestId, status: "working", deadlineAt: new Date(now + NOTE_DEADLINE_MS).toISOString(),
+      fromExportId: latest?.id ?? null, toExportId: null, revisionBefore: reel.revision, revisionAfter: null, calls: [], costUsd: 0,
+    };
+    const row = await tx.aiEdit.create({ data: { workspaceId, userId: user.id, reelId, request: note, note: "Working on it", model: "pending", plan, applied: [], skipped: [] }, select: { id: true } });
+    await tx.aiJob.create({ data: { id: jobId, workspaceId, reelId, kind: "note" } });
+    return { kind: "created", noteId: row.id, jobId, plan, title: reel.title, revision: reel.revision };
   });
+
+  if (reserved.kind === "conflict") return { ok: false, status: 409, message: "That request was already used for a different note. Send the note again." };
+  if (reserved.kind === "missing") return { ok: false, status: 404, message: "This reel was deleted." };
+  if (reserved.kind === "busy") return { ok: false, status: 409, message: "A note on this reel is still being worked on. Wait for its version." };
+  if (reserved.kind === "quota") {
+    const why = await aiEditBlockedReason(workspaceId);
+    return { ok: false, status: 403, message: why?.message ?? "That is all of this month's AI requests.", upgrade: why?.upgrade ?? false };
+  }
+  if (reserved.kind === "existing") return { ok: true, noteId: reserved.noteId, jobId: reserved.jobId, settled: Promise.resolve() };
+
+  const [versions, history] = await Promise.all([reelVersions(workspaceId, reelId, { last: 20 }), reelNotes(workspaceId, reelId, { limit: HISTORY + 1 })]);
   const brief = noteBrief({
-    title: reel.title,
+    title: reserved.title,
     reelId,
-    revision: reel.revision,
-    versions,
-    history: notes.filter((entry) => entry.status !== "working").slice(-HISTORY).map((entry) => ({ note: entry.note, reply: entry.reply })),
+    revision: reserved.revision,
+    versions: versions.map((version) => ({ label: version.label, exportId: version.id, status: version.status })),
+    history: history.filter((entry) => entry.id !== reserved.noteId && entry.status !== "working").slice(-HISTORY).map((entry) => ({ note: entry.note, reply: entry.reply })),
     note,
   });
+  const exportIds = versions.filter((version) => version.status === "SUCCEEDED").map((version) => version.id);
+  const settled = runAiJobInBackground(reserved.jobId, () => executeNote({ user, reelId, note, origin: input.origin, brief, exportIds, noteId: reserved.noteId, plan: reserved.plan }, deps));
+  return { ok: true, noteId: reserved.noteId, jobId: reserved.jobId, settled };
+}
 
-  const jobId = await startAiJob({ workspaceId: user.workspaceId, reelId, kind: "note", requestId: input.requestId }, async () => {
-    const finish = (data: Partial<NotePlan>, extra: Record<string, unknown>) =>
-      prisma.aiEdit.update({ where: { id: row.id }, data: { plan: { ...plan, ...data }, ...extra } });
-    try {
-      const outcome = await runNote(
-        { user, reelId, note, origin: input.origin, brief, exportIds: versions.filter((version) => version.status === "SUCCEEDED").map((version) => version.exportId), revision: reel.revision },
-        { turn: isFakeAi() ? fakeNoteTurn : claudeToolTurn, gate: allow, tools: noteToolSpecs() },
-      );
-      let toExportId: string | null = null;
-      let reply = outcome.reply;
-      if (outcome.changed) {
-        const { queueReelExport } = await import("./export-reel");
-        const startedAt = new Date(Date.now() - 1000);
-        const queued = await queueReelExport(user, reelId);
-        if (queued.ok) {
-          toExportId = (await prisma.renderJob.findFirst({ where: { reelId, workspaceId: user.workspaceId, kind: "REEL", createdAt: { gte: startedAt } }, orderBy: { createdAt: "desc" }, select: { id: true } }))?.id ?? null;
-        } else {
-          const why = queued.message ?? queued.issues.filter((issue) => issue.level === "error").map((issue) => issue.message).join(" ");
-          reply = `${reply} The new version could not be exported: ${why || "the export was refused"}. The change is saved in the editor.`;
-        }
+const emptyOutcome = (revision: number): NoteOutcome => ({ reply: "", changed: false, revisionBefore: revision, revisionAfter: revision, applied: [], calls: [], usage: { inputTokens: 0, cachedTokens: 0, outputTokens: 0, cacheWriteTokens: 0 }, model: "", costUsd: 0 });
+
+/** One note's run, after its reservation: the agent, then the export of exactly the revision it saved, then the record. */
+async function executeNote(input: { user: ActingUser; reelId: string; note: string; origin: string; brief: string; exportIds: string[]; noteId: string; plan: NotePlan }, deps: NoteRunDeps) {
+  const { user, reelId, noteId, plan } = input;
+  const deadline = Date.parse(plan.deadlineAt);
+  // A save may start only while the note is still working and well inside its deadline.
+  const beforeSave = async (): Promise<string | null> => {
+    if (deps.now() > deadline - NOTE_SAVE_GUARD_MS) return "The note is out of time; nothing more can be saved. Answer the owner now.";
+    const open = await prisma.aiEdit.count({ where: { id: noteId, plan: { path: ["status"], equals: "working" } } });
+    return open ? null : "This note was stopped; nothing more can be saved. Answer the owner now.";
+  };
+
+  let outcome: NoteOutcome;
+  let failure: string | null = null;
+  try {
+    outcome = await deps.run(
+      {
+        user, reelId, note: input.note, origin: input.origin, brief: input.brief, exportIds: input.exportIds, revision: plan.revisionBefore, deadline, beforeSave,
+        onSaved: async (saved) => {
+          await recordFacts(noteId, { revisionAfter: saved.revisionAfter });
+          await prisma.aiEdit.update({ where: { id: noteId }, data: { applied: saved.applied } });
+        },
+      },
+      deps.tools,
+    );
+  } catch (error) {
+    outcome = error instanceof NoteRunError ? error.partial : emptyOutcome(plan.revisionBefore);
+    failure = error instanceof Error ? error.message : String(error);
+  }
+
+  let toExportId: string | null = null;
+  let exportLine = "";
+  if (outcome.changed) {
+    // Claim the export while still working, so an expiry cannot run in between and a stopped note never exports.
+    const claimed = await prisma.$executeRaw`UPDATE "AiEdit" SET plan = plan || '{"exporting": true}'::jsonb WHERE id = ${noteId} AND plan->>'status' = 'working'`;
+    if (!claimed) exportLine = " The note had been stopped, so the change was not exported; it is in the editor.";
+    else {
+      const queued = await deps.queueExport(user, reelId, { revision: outcome.revisionAfter }).catch((error: unknown): ExportResult => ({ ok: false, issues: [], message: error instanceof Error ? error.message : String(error) }));
+      if (queued.ok) {
+        toExportId = queued.jobId;
+        await recordFacts(noteId, { toExportId, exporting: false });
+      } else {
+        await recordFacts(noteId, { exporting: false });
+        const why = queued.message ?? queued.issues.filter((issue) => issue.level === "error").map((issue) => issue.message).join(" ");
+        exportLine = queued.conflict
+          ? " The reel was edited while the note was being worked on, so this version was not exported on its own; the change is in the editor."
+          : ` The new version could not be exported: ${why || "the export was refused"}. The change is in the editor.`;
       }
-      const status: NoteStatus = toExportId ? "exported" : outcome.changed ? "failed" : "no-change";
-      await finish(
-        { status, toExportId, revisionAfter: outcome.revisionAfter, calls: outcome.calls, costUsd: outcome.costUsd },
-        { note: reply.slice(0, 2000), model: outcome.model, applied: outcome.applied, inputTokens: outcome.usage.inputTokens, cachedTokens: outcome.usage.cachedTokens, outputTokens: outcome.usage.outputTokens },
-      );
-      // One line per note for the logs and the cost dashboard.
-      console.log(JSON.stringify({ event: "reel-note", noteId: row.id, reelId, workspaceId: user.workspaceId, status, model: outcome.model, calls: outcome.calls.length, refused: outcome.calls.filter((call) => call.refused).length, inputTokens: outcome.usage.inputTokens, cachedTokens: outcome.usage.cachedTokens, cacheWriteTokens: outcome.usage.cacheWriteTokens ?? 0, outputTokens: outcome.usage.outputTokens, costUsd: Number(outcome.costUsd.toFixed(4)), toExportId }));
-      return { ok: true, noteId: row.id, status, toExportId };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      await finish({ status: "failed", error: message.slice(0, 500) }, { note: `That note did not work: ${message.slice(0, 300)}` }).catch(() => undefined);
-      throw error;
     }
+  }
+
+  const status: NoteStatus = toExportId ? "exported" : outcome.changed ? "saved" : failure ? "failed" : "no-change";
+  const reply = (failure
+    ? outcome.changed
+      ? `The change was saved${toExportId ? " and the new version exported" : ""}, but Opus stopped before summing it up (${failure}).`
+      : `That note did not work: ${failure}`
+    : outcome.reply) + exportLine;
+  await recordFacts(noteId, { revisionAfter: outcome.revisionAfter, calls: outcome.calls, costUsd: outcome.costUsd, ...(failure ? { error: failure.slice(0, 500) } : {}) });
+  await prisma.aiEdit.update({
+    where: { id: noteId },
+    data: { model: outcome.model || "none", applied: outcome.applied, inputTokens: outcome.usage.inputTokens, cachedTokens: outcome.usage.cachedTokens, outputTokens: outcome.usage.outputTokens },
   });
-  return { ok: true, noteId: row.id, jobId };
+  const settledNow = await settle(noteId, status, reply.slice(0, 2000));
+  // One line per note for the logs and the cost dashboard, whatever happened.
+  console.log(JSON.stringify({
+    event: "reel-note", noteId, reelId, workspaceId: user.workspaceId, status: settledNow ? status : "expired", failure, model: outcome.model, calls: outcome.calls.length,
+    refused: outcome.calls.filter((call) => call.refused).length, inputTokens: outcome.usage.inputTokens, cachedTokens: outcome.usage.cachedTokens,
+    cacheWriteTokens: outcome.usage.cacheWriteTokens ?? 0, outputTokens: outcome.usage.outputTokens, costUsd: Number(outcome.costUsd.toFixed(4)), toExportId,
+  }));
+  return { ok: !failure, noteId, status, toExportId };
 }
 
 export type Restore = { ok: true; revision: number; exportId: string } | { ok: false; status: number; message: string };
 
 /**
- * "Back to vN": the reel's cut becomes the timeline that version was rendered
- * from, as one new revision (the editor can undo it like any save). Nothing is
- * rendered: vN's export is already there to post.
+ * "Back to vN": the reel's cut becomes exactly the timeline that version was
+ * rendered from, as one new revision (the editor can undo it like any save).
+ * Exact: no field of the current cut survives (a plain save keeps text fields
+ * the incoming timeline leaves out). Nothing is rendered: vN's export is
+ * already there to post.
  */
 export async function restoreVersion(user: { workspaceId: string }, reelId: string, exportId: string): Promise<Restore> {
   const [reel, job] = await Promise.all([
@@ -217,7 +373,7 @@ export async function restoreVersion(user: { workspaceId: string }, reelId: stri
   if (!reel) return { ok: false, status: 404, message: "This reel was deleted." };
   const timeline = job ? exportTimeline(job.payload) : null;
   if (!timeline) return { ok: false, status: 404, message: "That version is not a finished export of this reel." };
-  const saved = await saveReelFor(user, { id: reelId, revision: reel.revision, timeline });
+  const saved = await saveReelFor(user, { id: reelId, revision: reel.revision, timeline }, { exact: true });
   if (!saved.ok) return { ok: false, status: saved.reason === "conflict" ? 409 : 400, message: saved.message };
   return { ok: true, revision: saved.revision, exportId };
 }

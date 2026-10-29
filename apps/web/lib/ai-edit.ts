@@ -58,6 +58,12 @@ export function aiEditsThisMonth(workspaceId: string, now: Date = new Date()): P
   return prisma.aiEdit.count({ where: { workspaceId, createdAt: { gte: monthStart(now) } } });
 }
 
+/** The month's allowance of AI requests (Ask, director, notes), for a caller that counts inside its own transaction. */
+export async function aiEditAllowance(workspaceId: string): Promise<{ allowed: number; unlimited: boolean }> {
+  const [{ plan }, unlimited] = await Promise.all([workspacePlan(workspaceId), isUnlimited(workspaceId)]);
+  return { allowed: plan.aiEditsPerMonth, unlimited };
+}
+
 /** Why another request cannot be made now, or null if it can. */
 export async function aiEditBlockedReason(workspaceId: string): Promise<{ message: string; upgrade: boolean } | null> {
   if (!isAiAvailable()) return { message: "Asking for changes is not set up on this deployment.", upgrade: false };

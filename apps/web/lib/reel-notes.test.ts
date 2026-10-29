@@ -9,7 +9,7 @@ vi.mock("./ai-gate", () => ({ aiIsOff: async () => false, assertAiOn: async () =
 import type { ToolResult, ToolSpec } from "./mcp/tools";
 import { TOOLS } from "./mcp/tools";
 import type { ToolTurn, ToolTurnBlock, ToolTurnOptions } from "./openai";
-import { NOTE_MAX_CALLS, NOTE_SCOPES, NOTE_TOOLS, checkCall, fakeNoteTurn, noteBrief, noteToolSpecs, runNote, toClaudeTool, toToolResultContent } from "./reel-notes";
+import { NOTE_MAX_CALLS, NOTE_SCOPES, NOTE_TOOLS, NoteRunError, approvalKey, checkCall, fakeNoteTurn, noteBrief, noteToolSpecs, runNote, toClaudeTool, toToolResultContent } from "./reel-notes";
 
 const user = { id: "u1", workspaceId: "w1" } as any;
 const usage = { inputTokens: 1000, cachedTokens: 400, outputTokens: 100, cacheWriteTokens: 0 };
@@ -74,10 +74,17 @@ describe("what a note can reach", () => {
     const commands = [{ type: "updateText", textId: "t1", patch: { size: 1.25 } }];
     expect(checkCall(state, "apply_commands", { commands, revision: 3 })).toMatchObject({ ok: false, reason: expect.stringContaining("dryRun") });
     expect(checkCall(state, "apply_commands", { commands, dryRun: true })).toMatchObject({ ok: true });
-    state.dryRuns.add(JSON.stringify(commands));
+    state.dryRuns.add(approvalKey(3, commands));
     expect(checkCall(state, "apply_commands", { commands })).toMatchObject({ ok: false, reason: expect.stringContaining("revision") });
     expect(checkCall(state, "apply_commands", { commands, revision: 3 })).toMatchObject({ ok: true });
     expect(checkCall(state, "apply_commands", { commands: [{ type: "deleteClip", clipId: "c1" }], revision: 3 })).toMatchObject({ ok: false });
+  });
+
+  it("approves a dry run for its revision only: after the reel moves on, the same commands need a new dry run", () => {
+    const state = { reelId: "r1", exportIds: new Set<string>(), dryRuns: new Set<string>([approvalKey(3, [{ type: "splitClip", atMs: 6000, newId: "a" }])]), calls: 0 };
+    // The owner saved (revision 4) and the agent re-read: an absolute-time split checked at 3 must not land on 4.
+    expect(checkCall(state, "apply_commands", { commands: [{ type: "splitClip", atMs: 6000, newId: "a" }], revision: 4 })).toMatchObject({ ok: false, reason: expect.stringContaining("revision 4") });
+    expect(checkCall(state, "apply_commands", { commands: [{ type: "splitClip", atMs: 6000, newId: "a" }], revision: 3 })).toMatchObject({ ok: true });
   });
 
   it("stops at the call limit", () => {
@@ -151,6 +158,77 @@ describe("running a note", () => {
     expect(ran).toHaveLength(NOTE_MAX_CALLS);
     expect(seen[NOTE_MAX_CALLS].toolChoice).toBe("none");
     expect(out.reply).toBe("I looked but changed nothing.");
+  });
+
+  it("after a 409 and a re-read, the old dry run does not let the same commands land on the new revision", async () => {
+    const ran: { name: string; args: Record<string, unknown> }[] = [];
+    const commands = [{ type: "splitClip", atMs: 6000, newId: "a" }];
+    const reel = { revision: 3, texts: [], clips: [{ id: "c1", sourceWindowMs: [0, 12000] }] };
+    const tools = stubTools(ran, reel as any).map((spec) => (spec.name === "apply_commands"
+      ? { ...spec, async run(_ctx: any, args: any) { ran.push({ name: spec.name, args }); if (args.revision !== reel.revision) return { isError: true, content: [{ type: "text" as const, text: JSON.stringify({ ok: false, status: 409 }) }] }; return okText({ dryRun: args.dryRun, revision: args.dryRun ? reel.revision : reel.revision + 1, changes: [] }); } }
+      : spec));
+    const { turn } = scripted([
+      () => [use("apply_commands", { commands, dryRun: true, revision: 3 })],
+      () => { reel.revision = 4; return [use("apply_commands", { commands, revision: 3 })]; }, // the owner saved meanwhile: 409
+      () => [use("apply_commands", { commands, revision: 4 })], // re-read, then tries the old approval at the new revision
+      () => "Stopped.",
+    ]);
+    const out = await runNote(base, { turn, gate: always, tools });
+    expect(ran.filter((call) => call.name === "apply_commands" && call.args.dryRun === false).map((call) => call.args.revision)).toEqual([3]);
+    expect(out.calls[2]).toMatchObject({ tool: "apply_commands", ok: false, refused: expect.stringContaining("revision 4") });
+    expect(out.changed).toBe(false);
+  });
+
+  it("an approval is spent by its save: the same list cannot be applied twice", async () => {
+    const ran: { name: string; args: Record<string, unknown> }[] = [];
+    const commands = [{ type: "updateText", textId: "t1", patch: { size: 1.25 } }];
+    const { turn } = scripted([
+      () => [use("apply_commands", { commands, dryRun: true })],
+      () => [use("apply_commands", { commands, revision: 3 })],
+      () => [use("apply_commands", { commands, revision: 3 })],
+      () => "ok",
+    ]);
+    const out = await runNote(base, { turn, gate: always, tools: stubTools(ran) });
+    expect(ran.filter((call) => call.name === "apply_commands")).toHaveLength(2);
+    expect(out.calls[2].refused).toBeTruthy();
+  });
+
+  it("a failure after a save throws what was saved and spent, not nothing", async () => {
+    const ran: { name: string; args: Record<string, unknown> }[] = [];
+    const commands = [{ type: "updateText", textId: "t1", patch: { size: 1.25 } }];
+    const saved: unknown[] = [];
+    const { turn } = scripted([
+      () => [use("apply_commands", { commands, dryRun: true })],
+      () => [use("apply_commands", { commands, revision: 3 })],
+      () => { throw new Error("Claude could not answer (HTTP 529)."); },
+    ]);
+    const error = await runNote({ ...base, onSaved: async (state) => void saved.push(state) }, { turn, gate: always, tools: stubTools(ran) }).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(NoteRunError);
+    const partial = (error as NoteRunError).partial;
+    expect(partial).toMatchObject({ changed: true, revisionAfter: 4, applied: ['updateText {"textId":"t1","patch":{"size":1.25}}'], model: "claude-opus-5-5" });
+    expect(partial.usage.inputTokens).toBe(2000);
+    expect(partial.costUsd).toBeGreaterThan(0);
+    expect((error as Error).message).toContain("529");
+    expect(saved).toEqual([{ revisionAfter: 4, applied: partial.applied }]);
+  });
+
+  it("stops at its deadline before asking the model again", async () => {
+    const ran: { name: string; args: Record<string, unknown> }[] = [];
+    const { turn, seen } = scripted([() => [use("get_reel", {})], () => "never"]);
+    const error = await runNote({ ...base, deadline: Date.now() - 1 }, { turn, gate: always, tools: stubTools(ran) }).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(NoteRunError);
+    expect((error as Error).message).toContain("out of time");
+    expect(seen).toHaveLength(0);
+  });
+
+  it("asks before every save, and a refusal saves nothing", async () => {
+    const ran: { name: string; args: Record<string, unknown> }[] = [];
+    const commands = [{ type: "updateText", textId: "t1", patch: { size: 1.25 } }];
+    const { turn } = scripted([() => [use("apply_commands", { commands, dryRun: true })], () => [use("apply_commands", { commands, revision: 3 })], () => "Stopped."]);
+    const out = await runNote({ ...base, beforeSave: async () => "This note was stopped." }, { turn, gate: always, tools: stubTools(ran) });
+    expect(ran.map((call) => call.args.dryRun)).toEqual([true]);
+    expect(out.calls[1]).toMatchObject({ ok: false, refused: "This note was stopped." });
+    expect(out.changed).toBe(false);
   });
 
   it("validates arguments against the tool's shape", async () => {

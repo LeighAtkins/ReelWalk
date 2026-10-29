@@ -235,7 +235,8 @@ describe("scoring", () => {
     expect(covered.every((f) => f.confidence < 0.5)).toBe(true);
     // Frames it does claim are right.
     for (const f of occluded.frames) if (f.confidence >= 0.5) expect(cornerError(f.quad, heavy.truth[f.index])).toBeLessThan(1.2);
-  });
+    // Two full tracks: about 4.5 s on a shared CI runner, so the default 5 s limit timed it out on busy runs.
+  }, 15_000);
 });
 
 describe("rejection", () => {

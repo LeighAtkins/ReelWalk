@@ -8,10 +8,11 @@ async function load(env: Record<string, string>) {
   for (const [key, value] of Object.entries(env)) vi.stubEnv(key, value);
   const reconcileLocks: unknown[] = [];
   const moveStalledLocalRenders = vi.fn(async () => [] as string[]);
-  vi.doMock("@reelwalk/db", async (original) => {
-    const actual = await original<typeof import("@reelwalk/db")>();
+  // Only what render-capacity uses: the real package would load the Prisma client for every test.
+  vi.doMock("@reelwalk/db", async () => {
+    const { localRenderPolicyFromEnv } = await import("../../../packages/db/src/local-render");
     return {
-      ...actual,
+      localRenderPolicyFromEnv,
       moveStalledLocalRenders,
       prisma: {
         $transaction: vi.fn(async (fn: (tx: unknown) => unknown) => fn({ $queryRaw: async () => (reconcileLocks.push(1), [{ locked: true }]) })),
@@ -19,6 +20,8 @@ async function load(env: Record<string, string>) {
       },
     };
   });
+  // The whole of core is re-evaluated per test otherwise; the launcher only serialises a message with it.
+  vi.doMock("@reelwalk/core", () => ({ serializeRenderJobMessage: (message: unknown) => JSON.stringify(message) }));
   const flushOutbox = vi.fn(async () => undefined);
   vi.doMock("./render-jobs", () => ({ flushOutbox }));
   // No AWS here: ECS lists no tasks and accepts every RunTask; the cloud queue holds nothing.
@@ -34,6 +37,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
   vi.doUnmock("@reelwalk/db");
+  vi.doUnmock("@reelwalk/core");
   vi.doUnmock("./render-jobs");
 });
 

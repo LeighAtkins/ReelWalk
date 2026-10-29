@@ -81,13 +81,12 @@ export async function ensureStoryCut(user: { id: string; workspaceId: string }, 
         payload,
         caption: `${job.reel?.title ?? job.caption ?? "Reel"} · Story`,
       },
-      select: { id: true, status: true, generation: true },
+      select: { id: true, status: true, generation: true, workspaceId: true },
     });
-    await queueRenderJob(tx, story);
-    return story;
+    return { ...story, route: await queueRenderJob(tx, story) };
   });
   await flushOutbox();
-  await ensureWorkerRunning();
+  await ensureWorkerRunning(created.route);
   return { id: created.id, status: created.status };
 }
 

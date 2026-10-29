@@ -34,6 +34,8 @@ data "aws_iam_policy_document" "app" {
     resources = [
       aws_sqs_queue.render_jobs.arn,
       aws_sqs_queue.render_jobs_dlq.arn,
+      aws_sqs_queue.render_jobs_local.arn,
+      aws_sqs_queue.render_jobs_local_dlq.arn,
     ]
   }
 }

@@ -39,7 +39,7 @@ export async function queueReelExport(user: { id: string; workspaceId: string },
     return { ok: false, issues: [], message: error instanceof Error ? error.message : "Could not export." };
   }
 
-  await prisma.$transaction(async (tx) => {
+  const route = await prisma.$transaction(async (tx) => {
     const job = await tx.renderJob.create({
       data: {
         workspaceId: user.workspaceId,
@@ -50,11 +50,11 @@ export async function queueReelExport(user: { id: string; workspaceId: string },
         caption: reel.title,
       },
     });
-    await queueRenderJob(tx, job);
+    return queueRenderJob(tx, job);
   });
   // Once per studio, the key makes later exports a no-op (ADR 0080).
   await recordFunnelEvent({ name: "first_export", userId: user.id, workspaceId: user.workspaceId, key: `first_export:${user.workspaceId}`, data: { plan: plan.id } });
   await flushOutbox();
-  await ensureWorkerRunning();
+  await ensureWorkerRunning(route);
   return { ok: true };
 }

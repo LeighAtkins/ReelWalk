@@ -14,6 +14,14 @@ output "render_jobs_dlq_url" {
   value = aws_sqs_queue.render_jobs_dlq.url
 }
 
+output "render_jobs_local_queue_url" {
+  value = aws_sqs_queue.render_jobs_local.url
+}
+
+output "render_jobs_local_dlq_url" {
+  value = aws_sqs_queue.render_jobs_local_dlq.url
+}
+
 output "ecr_repository_urls" {
   value = { for k, r in aws_ecr_repository.app : k => r.repository_url }
 }

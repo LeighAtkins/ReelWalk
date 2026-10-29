@@ -9,7 +9,7 @@ import {
   SQSClient,
   type Message,
 } from "@aws-sdk/client-sqs";
-import { prisma, relayOutbox, RENDER_JOBS_TOPIC } from "@reelwalk/db";
+import { LOCAL_RENDER_JOBS_TOPIC, prisma, relayOutbox, RENDER_JOBS_TOPIC } from "@reelwalk/db";
 import { getConfig } from "./config";
 import { handleDeadLetter, handleDelivery, type Delivery } from "./handler";
 import { renderJob } from "./render";
@@ -19,6 +19,7 @@ import { processPresenterKit } from "./presenter-kits";
 import { AI_STEP_QUEUE_RETENTION_MS, AI_STEP_REAP_AFTER_MS } from "@reelwalk/core";
 import { createAiStepStore, type AiStepDeps } from "./ai-jobs";
 import { aiStepExecutor } from "./ai-executor";
+import { checkHeavyLockDir, createHeavyLock } from "./heavy-lock";
 
 const config = getConfig();
 
@@ -40,6 +41,11 @@ const s3 = new S3Client({
 });
 
 const store = createJobStore(prisma);
+// A local worker (ADR 0094) shares the PC: each render waits for the machine-wide heavy lock.
+const heavyLock = config.heavyLockDir
+  ? createHeavyLock({ dir: config.heavyLockDir, owner: config.heavyLockOwner, cooldownMs: Number(process.env.HEAVY_LOCK_COOLDOWN_SECONDS ?? 60) * 1000 })
+  : undefined;
+if (config.heavyLockDir) await checkHeavyLockDir(config.heavyLockDir);
 // Durable AI steps (ADR 0049) arrive on the render queue and use the same lease settings.
 const aiSteps: AiStepDeps = { store: createAiStepStore(prisma), executor: aiStepExecutor, config: { ...config, aiStepTimeoutSeconds: Number(process.env.AI_STEP_TIMEOUT_SECONDS ?? 600) } };
 
@@ -134,24 +140,32 @@ async function reapAiSteps() {
   }
 }
 
+// Which outbox topics this worker relays, and where to. A local worker (ADR 0094) consumes the local
+// queue as its queueUrl and relays only local messages; a cloud worker relays both.
+const relays: { topic: string; queueUrl: string }[] = config.mode === "local"
+  ? [{ topic: LOCAL_RENDER_JOBS_TOPIC, queueUrl: config.queueUrl }]
+  : [{ topic: RENDER_JOBS_TOPIC, queueUrl: config.queueUrl }, { topic: LOCAL_RENDER_JOBS_TOPIC, queueUrl: config.localQueueUrl ?? config.queueUrl }];
+
 async function outboxLoop() {
-  console.log(`outbox: relaying to ${config.queueUrl}`);
+  for (const relay of relays) console.log(`outbox: relaying ${relay.topic} to ${relay.queueUrl}`);
   while (!stopping) {
-    try {
-      const { sent, failed } = await relayOutbox(prisma, {
-        topic: RENDER_JOBS_TOPIC,
-        send: async (body) => {
-          await sqs.send(new SendMessageCommand({ QueueUrl: config.queueUrl, MessageBody: body }), {
-            abortSignal: AbortSignal.timeout(10_000),
-          });
-        },
-      });
-      if (sent > 0 || failed > 0) console.log(`outbox: sent ${sent}, failed ${failed}`);
-    } catch (error) {
-      if (stopping) break;
-      console.error("outbox: relay error", error);
+    for (const relay of relays) {
+      try {
+        const { sent, failed } = await relayOutbox(prisma, {
+          topic: relay.topic,
+          send: async (body) => {
+            await sqs.send(new SendMessageCommand({ QueueUrl: relay.queueUrl, MessageBody: body }), {
+              abortSignal: AbortSignal.timeout(10_000),
+            });
+          },
+        });
+        if (sent > 0 || failed > 0) console.log(`outbox: ${relay.topic} sent ${sent}, failed ${failed}`);
+      } catch (error) {
+        if (stopping) break;
+        console.error("outbox: relay error", error);
+      }
     }
-    await reapAiSteps();
+    if (config.mode === "cloud") await reapAiSteps();
     await sleep(config.outboxPollSeconds * 1000, undefined, { signal: shutdown.signal }).catch(() => {});
   }
   console.log("outbox: stopped");
@@ -195,7 +209,8 @@ async function aiVideoLoop() {
 }
 
 const loops = [
-  aiVideoLoop(),
+  // AI video needs Google credentials only the cloud worker has; a local worker renders only (ADR 0094).
+  ...(config.mode === "cloud" ? [aiVideoLoop()] : []),
   outboxLoop(),
   pollLoop(
     "render-queue",
@@ -207,7 +222,11 @@ const loops = [
           config,
           aiSteps,
           shutdown: shutdown.signal,
-          render: (job, onProgress, scope) => renderJob(job, s3, config.s3Bucket, onProgress, config.renderConcurrency, scope),
+          render: async (job, onProgress, scope) => {
+            // Owned by the attempt, so it is released after Chrome and ffmpeg, however the attempt ends.
+            if (heavyLock) scope.own("heavy lock", await heavyLock.acquire(`render ${job.id}`, scope.signal));
+            return renderJob(job, s3, config.s3Bucket, onProgress, config.renderConcurrency, scope);
+          },
         },
         delivery,
       ),

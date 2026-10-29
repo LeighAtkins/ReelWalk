@@ -1,0 +1,40 @@
+# The render worker on the owner's PC (ADR 0094): production's worker image,
+# against production's database, bucket and the local render queue. Start it
+# with `bash infra/local-worker/start.sh`, which fills in everything below; see
+# README.md. Nothing here is secret: credentials come from the shell that runs
+# compose, never from a file in the repository.
+name: reelwalk-local-worker
+
+services:
+  worker-local:
+    image: ${REELWALK_WORKER_IMAGE:?run start.sh}
+    # Production's own worker settings (bucket, CloudFront, render limits),
+    # copied from the live task definition by start.sh; the lines below win.
+    env_file: .env.task
+    environment:
+      WORKER_MODE: local
+      SQS_ENDPOINT_URL: ""
+      SQS_QUEUE_URL: ${LOCAL_RENDER_QUEUE_URL:?run start.sh}
+      SQS_DLQ_URL: ${LOCAL_RENDER_DLQ_URL:?run start.sh}
+      # Runtime access as the reelwalk-app user (from .env.aws); on ECS this is the task role.
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:?run start.sh}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:?run start.sh}
+      DATABASE_URL: ${DATABASE_URL:?run start.sh}
+      DATABASE_POOL_MAX: "3"
+      # Always on: it costs nothing while idle.
+      WORKER_IDLE_EXIT_SECONDS: "0"
+      # Browser tabs per render; the PC has more cores than a 2-vCPU task.
+      RENDER_CONCURRENCY: ${RENDER_CONCURRENCY:-4}
+      # Each render takes the shared-PC heavy lock (C:\dev\lm\.heavy.lock).
+      HEAVY_LOCK_DIR: /heavy/.heavy.lock
+      HEAVY_LOCK_OWNER: reelwalk-local-worker
+      HEAVY_LOCK_COOLDOWN_SECONDS: ${HEAVY_LOCK_COOLDOWN_SECONDS:-60}
+    volumes:
+      - type: bind
+        source: ${HEAVY_LOCK_PARENT:-C:/dev/lm}
+        target: /heavy
+    # docker stop sends SIGTERM: the render in progress is handed back to the
+    # queue within RENDER_STOP_TIMEOUT_SECONDS (30 s), then the fallback or the
+    # next start picks it up.
+    stop_grace_period: 35s
+    restart: unless-stopped

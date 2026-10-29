@@ -186,12 +186,12 @@ export async function retryRenderJob(formData: FormData): Promise<void> {
         finishedAt: null,
       },
     });
-    if (retried[0]) await queueRenderJob(tx, retried[0]);
-    return retried[0];
+    if (!retried[0]) return null;
+    return { reelId: retried[0].reelId, route: await queueRenderJob(tx, retried[0]) };
   });
   if (job) {
     await flushOutbox();
-    await ensureWorkerRunning();
+    await ensureWorkerRunning(job.route);
   }
 
   if (job?.reelId) revalidatePath(`/reels/${job.reelId}/export`);
@@ -349,14 +349,14 @@ export async function confirmUpload(input: z.input<typeof confirmSchema>): Promi
   // editor switches to it on the next load. The job goes through the same
   // queue and outbox as an export.
   if (asset.kind === "VIDEO" && !asset.previewKey) {
-    await prisma.$transaction(async (tx) => {
+    const route = await prisma.$transaction(async (tx) => {
       const job = await tx.renderJob.create({
         data: { workspaceId: user.workspaceId, createdById: user.id, mediaAssetId: asset.id, kind: "PREVIEW", caption: data.fileName },
       });
-      await queueRenderJob(tx, job);
+      return queueRenderJob(tx, job);
     });
     await flushOutbox();
-    await ensureWorkerRunning();
+    await ensureWorkerRunning(route);
   }
   return { ok: true, asset: await toLibraryAsset(asset) };
 }

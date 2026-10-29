@@ -16,4 +16,11 @@ describe("getConfig", () => {
     expect(() => getConfig({ RENDER_SHUTDOWN_DRAIN_SECONDS: "20" })).toThrow(/RENDER_STOP_TIMEOUT_SECONDS/);
     expect(() => getConfig({ RENDER_ABORT_GRACE_SECONDS: "15" })).toThrow(/RENDER_STOP_TIMEOUT_SECONDS/);
   });
+
+  it("is a cloud worker unless WORKER_MODE=local, which takes the heavy lock it is given (ADR 0094)", () => {
+    expect(getConfig({})).toMatchObject({ mode: "cloud", localQueueUrl: undefined, heavyLockDir: undefined });
+    expect(getConfig({ WORKER_MODE: "local", SQS_QUEUE_URL: "https://sqs/local", HEAVY_LOCK_DIR: "/heavy/.heavy.lock" }))
+      .toMatchObject({ mode: "local", queueUrl: "https://sqs/local", heavyLockDir: "/heavy/.heavy.lock", heavyLockOwner: "reelwalk-local-worker" });
+    expect(getConfig({ LOCAL_RENDER_QUEUE_URL: "https://sqs/local" }).localQueueUrl).toBe("https://sqs/local");
+  });
 });

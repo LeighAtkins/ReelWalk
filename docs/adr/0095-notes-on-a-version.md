@@ -36,14 +36,19 @@ works or its version renders, so the phone can sleep.
 
 **What the server does** (`lib/reel-notes.ts`, `lib/reel-thread.ts`, `POST|GET /api/reels/:id/notes`):
 
-1. **Start.** `startNote` reserves the note in one transaction. A transaction-scoped advisory lock per workspace makes
-   the checks atomic, and it is safe on the transaction pooler. The transaction:
-   - gives a retry of the same request id the same note, and refuses that id for another reel or other words;
-   - expires the reel's overdue working notes, and refuses while one is still live (one working note per reel);
-   - counts the month's AI requests against the allowance (a note counts as one);
-   - creates the note and its `AiJob` (ADR 0021) together.
+1. **Start.** Every AI request that spends the month's allowance reserves through one function, `reserveAiEdit`: Ask,
+   the director, Plan my shoot and notes. Each creates its `AiEdit` row there, *before* any model call. The reservation
+   is one transaction under a transaction-scoped advisory lock per workspace, which is safe on the transaction pooler.
+   It counts the month and creates the row together, so requests of any kind racing for the last slot can never pass the
+   allowance. Ask and Plan my shoot used to write their row after the model answered.
 
-   Parallel requests can therefore neither start two agents nor go past the allowance. The run starts after commit, and
+   A note's reservation also runs its own checks under the same lock, *before* the allowance is counted:
+   - a retry of the same request id gets the same note, refused for another reel or other words, so the last allowed
+     note can be retried;
+   - the reel's notes whose time is up are expired, and a live one refuses (one working note per reel).
+
+   Then it creates the note and its `AiJob` (ADR 0021) together. The note's times come from the database's clock. The AI
+   switch and availability are checked before the reservation; the allowance is not. The run starts after commit, and
    the route answers at once.
 2. **The agent.** Opus 5.5 (`aiModel()`, `claude-opus-5-5` by default) runs a tool loop through a new provider call,
    `claudeToolTurn`, next to `structuredAnswer`. It uses the same AI switch, provider gate, and direct or Vertex route,
@@ -62,8 +67,16 @@ works or its version renders, so the phone can sleep.
    - **Dry run first, at the same revision.** A saving `apply_commands` must carry a revision, and a dry run of exactly
      that command list must have passed *at that revision*. After a 409 (the owner edited) or after any save, the agent
      needs a new dry run: an absolute-time `splitClip` checked against one cut never lands on another.
-   - **A deadline.** A note has 10 minutes (`deadlineAt`, stored with it) for every turn and tool. No model turn starts
-     after the deadline. No save starts in its last 30 s or once the note is no longer working (each save asks first).
+   - **Times, held at the write.** A note stores, in database time:
+     - `deadlineAt`, 10 minutes: no model turn after it;
+     - `saveBy`, 30 s earlier: no save after it;
+     - `expiresAt`, a minute later: no export after it, and from then it can be expired.
+
+     Saves are fenced inside the save itself. The agent's saves run inside a save fence (`lib/save-fence.ts`). In the
+     save's own transaction, `saveReelFor` locks the note's row (`FOR UPDATE`) and checks two things: the note is still
+     `working`, and `now() < saveBy`, which is closed at the instant itself. Only then does it write the reel and record
+     the new revision and the saved command lines on the note. A slow tool, rate limit or validation cannot slip a save
+     past the time, or past an expiry.
    - **At most 12 tool calls.** After the twelfth, the next turn is sent with `tool_choice: none`, so the agent must
      answer.
    - **Arguments are checked** against the tool's zod shape before it runs.
@@ -71,16 +84,20 @@ works or its version renders, so the phone can sleep.
    - Leaving the export out of the loop keeps a note's cost and time bounded: the agent never polls a render.
    - The export is of exactly the revision the note saved (`queueReelExport(…, { revision })`). If the owner saved in
      between, nothing is exported and the note says why, rather than shipping the owner's edit as the note's version.
-   - The export is claimed while the note is still working, so a stopped note never exports.
-   - The created job's id comes back from `queueReelExport`, not from "the newest job". That render becomes v(n+1).
+   - The export is fenced the same way. `commitReelExport` creates the job and its outbox message in one transaction. In
+     that transaction it locks the note, checks that it is still working and that `now() < expiresAt`, re-checks the
+     reel's revision, and records the job's id on the note. A note that expired, or whose time ran out, creates no job.
+     A note that holds the row while exporting is waited for by expiry, never overtaken.
+   - The created job's id is the one recorded, not "the newest job". That render becomes v(n+1).
 5. **Record.** The note is stored as an `AiEdit` row:
    - `request` is the note and `note` is the answer;
-   - `plan` is `{ kind: "note", requestId, status, deadlineAt, fromExportId, toExportId, revisionBefore, revisionAfter,
-     calls, costUsd, error? }`;
+   - `plan` is `{ kind: "note", requestId, status, deadlineAt, saveBy, expiresAt, fromExportId, toExportId,
+     revisionBefore, revisionAfter, calls, costUsd, error? }`;
    - `applied` is one line per saved command, and the token counts are stored too.
 
-   **Facts are recorded the moment they happen**, merged atomically into the plan: a saved revision when it saves, the
-   export's job id when it is queued. The **status** moves only from `working`, to one of:
+   **Facts are committed with their effects.** The saved revision and lines go in the save's transaction, and the job's
+   id in the export's. A restart between an effect and the run's report can therefore never lose either. The **status**
+   moves only from `working`, to one of:
    - `exported`;
    - `saved` (changed, not exported, with the reason);
    - `no-change`;
@@ -88,10 +105,16 @@ works or its version renders, so the phone can sleep.
    - `expired`.
 
    A provider or tool failure part-way keeps what the run had done, spent and saved (`NoteRunError.partial`). A change
-   that was saved is still exported, and the note says Opus stopped before summing up. A note still working past its
-   deadline plus a minute is marked `expired` for good, with a reply built from what it had committed, and the reel is
-   free for the next note. Each note logs one JSON line on every path: `event: "reel-note"`, the status, any failure, the
-   tokens (with cache read and write) and `costUsd` at list price.
+   that was saved is still exported, and the note says Opus stopped before summing up.
+
+   Expiry is one conditional `UPDATE` by the database's clock, so eligibility is decided at the write, under the row's
+   lock. An expired note's reply is built when it is *read*, from its current facts: "saved revision N", "its version
+   was queued", or "changed nothing". It is never stored at the moment of expiry, so it can't go stale. Expiry frees the
+   reel for the next note.
+
+   Each note logs one JSON line on every path: `event: "reel-note"`, the status, any failure (including a failure to
+   record the note), the tokens (with cache read and write) and `costUsd` at list price. The log line is in a `finally`
+   block, so it can't be skipped.
 
 **Versions are the reel's REEL exports.** They are numbered v1… in order of creation. A version is the *current cut*
 when its payload timeline has the same `timelineGeneration` as the saved reel. *Go back to vN* saves vN's payload

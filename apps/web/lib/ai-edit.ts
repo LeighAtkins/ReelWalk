@@ -58,22 +58,71 @@ export function aiEditsThisMonth(workspaceId: string, now: Date = new Date()): P
   return prisma.aiEdit.count({ where: { workspaceId, createdAt: { gte: monthStart(now) } } });
 }
 
-/** The month's allowance of AI requests (Ask, director, notes), for a caller that counts inside its own transaction. */
-export async function aiEditAllowance(workspaceId: string): Promise<{ allowed: number; unlimited: boolean }> {
-  const [{ plan }, unlimited] = await Promise.all([workspacePlan(workspaceId), isUnlimited(workspaceId)]);
-  return { allowed: plan.aiEditsPerMonth, unlimited };
+type Allowance = { allowed: number; unlimited: boolean; planId: keyof typeof PLANS; planName: string };
+
+/** The month's allowance of AI requests (Ask, director, Plan my shoot, notes). */
+export async function aiEditAllowance(workspaceId: string): Promise<Allowance> {
+  const [{ plan, id }, unlimited] = await Promise.all([workspacePlan(workspaceId), isUnlimited(workspaceId)]);
+  return { allowed: plan.aiEditsPerMonth, unlimited, planId: id, planName: plan.name };
 }
 
-/** Why another request cannot be made now, or null if it can. */
-export async function aiEditBlockedReason(workspaceId: string): Promise<{ message: string; upgrade: boolean } | null> {
+/** What the studio is told when the month's requests are used up. */
+function allowanceSpent(allowance: Allowance): { message: string; upgrade: boolean } {
+  const next = nextPlan(allowance.planId);
+  return allowance.planId === "FREE"
+    ? { message: `That is all ${allowance.allowed} of this month's free requests. The ${PLANS.AGENT.name} plan has ${PLANS.AGENT.aiEditsPerMonth} a month.`, upgrade: true }
+    : { message: `That makes ${allowance.allowed} requests this month, the ${allowance.planName} plan's allowance. It resets on the 1st${next ? `; ${next.name} has ${next.aiEditsPerMonth}` : ""}.`, upgrade: next !== null };
+}
+
+/** Why AI requests cannot be made here at all (not set up, or AI off for the workspace), or null. Says nothing of the allowance. */
+export async function aiAvailabilityReason(workspaceId: string): Promise<{ message: string; upgrade: boolean } | null> {
   if (!isAiAvailable()) return { message: "Asking for changes is not set up on this deployment.", upgrade: false };
   if (await aiIsOff(workspaceId)) return { message: AI_OFF_MESSAGE, upgrade: false };
-  const [{ plan, id }, used, unlimited] = await Promise.all([workspacePlan(workspaceId), aiEditsThisMonth(workspaceId), isUnlimited(workspaceId)]);
-  if (unlimited || used < plan.aiEditsPerMonth) return null;
-  const next = nextPlan(id);
-  return id === "FREE"
-    ? { message: `That is all ${plan.aiEditsPerMonth} of this month's free requests. The ${PLANS.AGENT.name} plan has ${PLANS.AGENT.aiEditsPerMonth} a month.`, upgrade: true }
-    : { message: `That makes ${plan.aiEditsPerMonth} requests this month, the ${plan.name} plan's allowance. It resets on the 1st${next ? `; ${next.name} has ${next.aiEditsPerMonth}` : ""}.`, upgrade: next !== null };
+  return null;
+}
+
+/**
+ * Why another request cannot be made now, or null if it can. A quick answer
+ * for screens and early refusals only: it is not a reservation, and two
+ * requests can both pass it. What spends a request goes through reserveAiEdit.
+ */
+export async function aiEditBlockedReason(workspaceId: string): Promise<{ message: string; upgrade: boolean } | null> {
+  const unavailable = await aiAvailabilityReason(workspaceId);
+  if (unavailable) return unavailable;
+  const [allowance, used] = await Promise.all([aiEditAllowance(workspaceId), aiEditsThisMonth(workspaceId)]);
+  return allowance.unlimited || used < allowance.allowed ? null : allowanceSpent(allowance);
+}
+
+type Tx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
+
+/**
+ * Takes one of the month's AI requests, atomically (ADR 0095). Every consumer
+ * (Ask, the director, Plan my shoot, notes) creates its AiEdit row here, before
+ * any model call: under a transaction-scoped advisory lock per workspace
+ * (safe on the transaction pooler) the month is counted and the row created in
+ * one transaction, so parallel requests of any kind can never pass the
+ * allowance. `before` runs first under the same lock (a note's retry and
+ * one-per-reel checks) and may answer instead, without spending anything.
+ */
+export async function reserveAiEdit<T, E = never>(
+  workspaceId: string,
+  create: (tx: Tx) => Promise<T>,
+  options: { before?: (tx: Tx) => Promise<E | null>; now?: Date } = {},
+): Promise<{ ok: true; value: T } | { ok: false; early: E } | { ok: false; blocked: { message: string; upgrade: boolean } }> {
+  const allowance = await aiEditAllowance(workspaceId);
+  return prisma.$transaction(
+    async (tx) => {
+      await tx.$queryRaw`SELECT 1 AS locked FROM (SELECT pg_advisory_xact_lock(hashtextextended(${`ai-allowance:${workspaceId}`}, 0))) AS lock`;
+      const early = options.before ? await options.before(tx) : null;
+      if (early !== null) return { ok: false as const, early };
+      if (!allowance.unlimited) {
+        const used = await tx.aiEdit.count({ where: { workspaceId, createdAt: { gte: monthStart(options.now ?? new Date()) } } });
+        if (used >= allowance.allowed) return { ok: false as const, blocked: allowanceSpent(allowance) };
+      }
+      return { ok: true as const, value: await create(tx) };
+    },
+    { timeout: 15_000 },
+  );
 }
 
 const title = (fileName: string) => fileName.replace(/\.[a-z0-9]{2,4}$/i, "");
@@ -150,8 +199,18 @@ export async function askForChange(input: {
   const maxLength = input.maxLength ?? 600;
   if (request.length < 3) return { ok: false, message: "Say what you would like changed." };
   if (request.length > maxLength) return { ok: false, message: `Keep the request under ${maxLength} characters.` };
-  const blocked = await aiEditBlockedReason(input.user.workspaceId);
-  if (blocked) return { ok: false, message: blocked.message, upgrade: blocked.upgrade };
+  const unavailable = await aiAvailabilityReason(input.user.workspaceId);
+  if (unavailable) return { ok: false, message: unavailable.message, upgrade: unavailable.upgrade };
+  // The request is taken from the month's allowance before anything is asked of a model (reserveAiEdit).
+  const reserved = await reserveAiEdit(input.user.workspaceId, (tx) =>
+    tx.aiEdit.create({ data: { workspaceId: input.user.workspaceId, userId: input.user.id, reelId: input.reel.id, request, note: "Working on it", plan: { kind: "ask-pending" }, applied: [], skipped: [], model: "pending" }, select: { id: true } }),
+  );
+  if (!reserved.ok) return "blocked" in reserved ? { ok: false, message: reserved.blocked.message, upgrade: reserved.blocked.upgrade } : { ok: false, message: "Try again." };
+  const recordId = reserved.value.id;
+  const fail = async (message: string): Promise<AskResult> => {
+    await prisma.aiEdit.update({ where: { id: recordId }, data: { note: message } }).catch(() => undefined);
+    return { ok: false, message };
+  };
 
   // Shots that do not know their room are looked at once and named, so the
   // walk can be ordered and room labels shown; the names go on the clips too.
@@ -190,7 +249,7 @@ export async function askForChange(input: {
     } catch (error) {
       if (error instanceof AiError) {
         console.error("ai edit:", error.message);
-        return { ok: false, message: error.transient ? "The model did not answer. Try again in a moment." : error.message };
+        return fail(error.transient ? "The model did not answer. Try again in a moment." : error.message);
       }
       throw error;
     }
@@ -199,7 +258,7 @@ export async function askForChange(input: {
     const parsed = aiEditPlanSchema.safeParse(answer.json);
     if (!parsed.success) {
       console.error("ai edit: answer did not fit the plan schema", parsed.error.issues.slice(0, 3));
-      return { ok: false, message: "The model's answer did not make sense for this reel. Try putting it another way." };
+      return fail("The model's answer did not make sense for this reel. Try putting it another way.");
     }
     plan = parsed.data;
   }
@@ -216,11 +275,9 @@ export async function askForChange(input: {
     }
   }
   const result = applyAiEditPlan(input.timeline, plan, { assets, songs, unused, newId: () => crypto.randomUUID(), namedCuts: namesCuts(request) });
-  const record = await prisma.aiEdit.create({
+  const record = await prisma.aiEdit.update({
+    where: { id: recordId },
     data: {
-      workspaceId: input.user.workspaceId,
-      userId: input.user.id,
-      reelId: input.reel.id,
       request: answers.length ? `${request}${asked}` : request,
       note: plan.note,
       plan,

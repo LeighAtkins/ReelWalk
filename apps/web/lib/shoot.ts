@@ -8,7 +8,7 @@ import {
   type ShotList,
 } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
-import { aiEditBlockedReason } from "@/lib/ai-edit";
+import { aiEditBlockedReason, reserveAiEdit } from "@/lib/ai-edit";
 import { AiError, aiModel, isFakeAi, structuredAnswer, usageCostUsd } from "@/lib/openai";
 import { insideProviderGate } from "@/lib/provider-gate";
 
@@ -30,6 +30,11 @@ export async function planShoot(user: { id: string; workspaceId: string }, reque
   if (isFakeAi()) return standard("The model is not set up here, so this is the standard list.");
   const blocked = await aiEditBlockedReason(user.workspaceId);
   if (blocked) return standard(`${blocked.message} Here is the standard list.`);
+  // The request is taken from the month's allowance before the model is asked (reserveAiEdit, ADR 0095).
+  const reserved = await reserveAiEdit(user.workspaceId, (tx) =>
+    tx.aiEdit.create({ data: { workspaceId: user.workspaceId, userId: user.id, request: `Plan my shoot: ${describeShootRequest(request)}`.slice(0, 2000), note: "Working on it", plan: { kind: "shoot-pending" }, applied: [], skipped: [], model: "pending" }, select: { id: true } }),
+  );
+  if (!reserved.ok) return standard(`${"blocked" in reserved ? reserved.blocked.message : "Try again."} Here is the standard list.`);
 
   const ask = () =>
     structuredAnswer({
@@ -46,14 +51,13 @@ export async function planShoot(user: { id: string; workspaceId: string }, reque
   } catch (error) {
     if (!(error instanceof AiError)) throw error;
     console.error("shot list:", error.message);
+    await prisma.aiEdit.update({ where: { id: reserved.value.id }, data: { note: "The model did not answer." } }).catch(() => undefined);
     return standard("The model did not answer, so this is the standard list.");
   }
   const parsed = shotListSchema.safeParse(answer.json);
-  await prisma.aiEdit.create({
+  await prisma.aiEdit.update({
+    where: { id: reserved.value.id },
     data: {
-      workspaceId: user.workspaceId,
-      userId: user.id,
-      request: `Plan my shoot: ${describeShootRequest(request)}`.slice(0, 2000),
       note: parsed.success ? parsed.data.note : "The answer did not fit the shot list.",
       plan: (answer.json ?? {}) as object,
       applied: [],

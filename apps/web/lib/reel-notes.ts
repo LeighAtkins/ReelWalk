@@ -149,7 +149,9 @@ export type NoteGuards = {
   deadline?: number;
   /** Asked before every save; a reason refuses the save (the note was stopped or is out of time). */
   beforeSave?: () => Promise<string | null>;
-  /** Told after every save, so the record holds the committed change even if the run dies later. */
+  /** Told the lines of a save just before it is attempted, so the save's own transaction can record them (ADR 0095). */
+  onApplying?: (lines: string[]) => void;
+  /** Told after every save. */
   onSaved?: (saved: { revisionAfter: number; applied: string[] }) => Promise<void>;
 };
 
@@ -224,6 +226,7 @@ export async function runNote(input: { user: ActingUser; reelId: string; note: s
           } else {
             state.calls++;
             const spec = specs.get(use.name)!;
+            if (saving) input.onApplying?.(Array.isArray(checked.args.commands) ? checked.args.commands.map(describeCommand) : []);
             const parsed = z.object(spec.input).safeParse(checked.args);
             result = parsed.success ? await runTool(spec, ctx, parsed.data as Record<string, unknown>, deps.gate) : refusal(`The arguments do not fit ${spec.name}: ${parsed.error.issues.map((issue) => `${issue.path.join(".")} ${issue.message}`).join("; ")}`);
             const json = resultJson(result);

@@ -6,8 +6,54 @@ import { exportBlockedReason } from "@/lib/quotas";
 import { ensureWorkerRunning } from "@/lib/render-capacity";
 import { flushOutbox, queueRenderJob } from "@/lib/render-jobs";
 import { mediaScope } from "@/lib/media-scope";
+import type { Tx } from "@/lib/save-fence";
 
-export type ExportResult = { ok: false; issues: Issue[]; message?: string; /** A bigger plan would lift the limit that stopped it. */ upgrade?: boolean; /** The reel is no longer at the revision asked for. */ conflict?: boolean };
+export type ExportResult = { ok: false; issues: Issue[]; message?: string; /** A bigger plan would lift the limit that stopped it. */ upgrade?: boolean; /** The reel is no longer at the revision asked for. */ conflict?: boolean; /** The caller's fence refused it (a stopped note). */ fenced?: boolean };
+
+/**
+ * A condition on an export, checked and recorded inside the transaction that
+ * creates the job and its queue message (a note's export, ADR 0095): `check`
+ * may refuse (nothing is created), `committed` records the job with it.
+ */
+export type ExportFence = { check(tx: Tx): Promise<string | null>; committed(tx: Tx, jobId: string): Promise<void> };
+
+type ExportOptions = { revision?: number; fence?: ExportFence };
+
+class ExportRefused extends Error {
+  constructor(message: string, readonly result: ExportResult) {
+    super(message);
+  }
+}
+
+/**
+ * The job row, its outbox message, and the caller's fence, in one
+ * transaction. With `revision`, the reel must still be at it when the job is
+ * written. Answers the job's id.
+ */
+export async function commitReelExport(input: { user: { id: string; workspaceId: string }; reelId: string; payload: unknown; caption: string } & ExportOptions): Promise<{ ok: true; jobId: string } | ExportResult> {
+  try {
+    const jobId = await prisma.$transaction(
+      async (tx) => {
+        const refused = input.fence ? await input.fence.check(tx) : null;
+        if (refused) throw new ExportRefused(refused, { ok: false, issues: [], fenced: true, message: refused });
+        if (input.revision !== undefined && (await tx.reel.count({ where: { id: input.reelId, workspaceId: input.user.workspaceId, revision: input.revision } })) === 0) {
+          throw new ExportRefused("conflict", { ok: false, issues: [], conflict: true, message: "The reel was changed after that edit, so it was not exported." });
+        }
+        const job = await tx.renderJob.create({
+          data: { workspaceId: input.user.workspaceId, createdById: input.user.id, reelId: input.reelId, kind: "REEL", payload: input.payload as never, caption: input.caption },
+        });
+        await queueRenderJob(tx, job);
+        await input.fence?.committed(tx, job.id);
+        return job.id;
+      },
+      { timeout: 15_000 },
+    );
+    return { ok: true, jobId };
+  } catch (error) {
+    if (error instanceof ExportRefused) return error.result;
+    throw error;
+  }
+}
 
 /**
  * Freezes the current timeline into a render job and queues it. The checks
@@ -19,7 +65,7 @@ export type ExportResult = { ok: false; issues: Issue[]; message?: string; /** A
  * queued (a note exports exactly the cut it made, ADR 0095). Answers with the
  * id of the job it created.
  */
-export async function queueReelExport(user: { id: string; workspaceId: string }, reelId: string, options: { revision?: number } = {}): Promise<{ ok: true; jobId: string } | ExportResult> {
+export async function queueReelExport(user: { id: string; workspaceId: string }, reelId: string, options: ExportOptions = {}): Promise<{ ok: true; jobId: string } | ExportResult> {
   const reel = await prisma.reel.findFirst({ where: { id: reelId, workspaceId: user.workspaceId } });
   if (!reel) return { ok: false, issues: [], message: "This reel was deleted." };
   if (options.revision !== undefined && reel.revision !== options.revision) return { ok: false, issues: [], conflict: true, message: "The reel was changed after that edit, so it was not exported." };
@@ -43,20 +89,9 @@ export async function queueReelExport(user: { id: string; workspaceId: string },
     return { ok: false, issues: [], message: error instanceof Error ? error.message : "Could not export." };
   }
 
-  const jobId = await prisma.$transaction(async (tx) => {
-    const job = await tx.renderJob.create({
-      data: {
-        workspaceId: user.workspaceId,
-        createdById: user.id,
-        reelId: reel.id,
-        kind: "REEL",
-        payload,
-        caption: reel.title,
-      },
-    });
-    await queueRenderJob(tx, job);
-    return job.id;
-  });
+  const committed = await commitReelExport({ user, reelId: reel.id, payload, caption: reel.title, ...options });
+  if (!committed.ok) return committed;
+  const { jobId } = committed;
   // Once per studio, the key makes later exports a no-op (ADR 0080).
   await recordFunnelEvent({ name: "first_export", userId: user.id, workspaceId: user.workspaceId, key: `first_export:${user.workspaceId}`, data: { plan: plan.id } });
   await flushOutbox();

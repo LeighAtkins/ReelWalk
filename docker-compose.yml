@@ -16,9 +16,11 @@ x-app-env: &app-env
   SQS_QUEUE_URL: http://elasticmq:9324/000000000000/render-jobs
   SQS_DLQ_URL: http://elasticmq:9324/000000000000/render-jobs-dlq
   # The local render queue (ADR 0094). The web app routes the workspaces in
-  # LOCAL_RENDER_WORKSPACES / LOCAL_RENDER_EMAILS to it (none by default), and
+  # LOCAL_RENDER_WORKSPACES to it (none by default; the worker-local service
+  # renders only those, as production's PC worker does), and
   # the worker-local service (profile local-render) consumes it.
   LOCAL_RENDER_QUEUE_URL: http://elasticmq:9324/000000000000/render-jobs-local
+  LOCAL_RENDER_WORKSPACES: ${LOCAL_RENDER_WORKSPACES:-}
   # Lets the login page offer the seeded demo studio. Leave unset on a public deployment.
   DEMO_PASSWORD: ${DEMO_PASSWORD:-reelwalk-demo}
   # Public address of the web app, for share links, OAuth callbacks and
@@ -212,8 +214,6 @@ services:
     image: reelwalk-web
     environment:
       <<: *app-env
-      LOCAL_RENDER_WORKSPACES: ${LOCAL_RENDER_WORKSPACES:-}
-      LOCAL_RENDER_EMAILS: ${LOCAL_RENDER_EMAILS:-}
       LOCAL_RENDER_FALLBACK_SECONDS: ${LOCAL_RENDER_FALLBACK_SECONDS:-600}
       CLOUDFRONT_BASE_URL: ""
       # No EMAIL_FROM here, so mail is logged, and kept for /api/dev/mailbox

@@ -52,6 +52,7 @@ export function createJobStore(prisma: PrismaClient): JobStore {
         // This run's own key: a run that loses the job never overwrites the current run's file (ADR 0094).
         previewKey: job.mediaAsset ? previewKeyFor(job.mediaAsset.workspaceId, job.mediaAsset.id, { jobId: job.id, generation: job.generation, attempt: job.attempt }) : null,
         interruptions: job.interruptions,
+        workspaceId: job.workspaceId,
       } satisfies ClaimedJob;
     },
 

@@ -70,6 +70,7 @@ model Workspace {
   // "on" or "off" (ADR 0079). Off refuses every AI generation path server-side: no AI video, no model calls, no credits spent.
   aiGeneration String @default("on")
   funnelEvents FunnelEvent[]
+  renderArtifacts RenderArtifact[]
 
   // Set by the Stripe webhook from the subscription (plans in @reelwalk/core).
   plan                 Plan      @default(FREE)
@@ -921,6 +922,23 @@ model RenderJob {
   @@index([sourceJobId])
   // The fallback's sweep: local jobs still QUEUED or RUNNING.
   @@index([route, status])
+}
+
+// An object a render run uploaded before it knew whether it would win the job (ADR 0094): a preview, a
+// frame thumbnail, an export, or a re-encoded source cached by a PC worker. Written before the upload, so a
+// run that loses or dies still leaves a record. "run" objects nothing references after a grace period are
+// deleted by the web app's sweep; "cache" objects (render sources) stay until their workspace is deleted.
+model RenderArtifact {
+  id          String    @id @default(cuid())
+  key         String    @unique
+  kind        String    @default("run")
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  jobId       String
+  createdAt   DateTime  @default(now())
+
+  @@index([kind, createdAt])
+  @@index([workspaceId])
 }
 
 // Transactional outbox: a queue message that still has to be sent. The row is

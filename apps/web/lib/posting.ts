@@ -71,7 +71,7 @@ export async function ensureStoryCut(user: { id: string; workspaceId: string }, 
   const existing = await storyCutOf(user.workspaceId, job.id);
   if (existing) return existing;
   const payload = storyCutPayload(parseReelExportPayload(job.payload), handle);
-  const route = await renderRouteFor(user.workspaceId);
+  const route = renderRouteFor(user.workspaceId);
   const created = await prisma.$transaction(async (tx) => {
     const story = await tx.renderJob.create({
       data: {

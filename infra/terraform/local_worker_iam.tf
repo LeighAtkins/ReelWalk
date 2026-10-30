@@ -1,7 +1,8 @@
 # The render worker on the owner's PC (ADR 0094) runs as its own IAM user, not
 # as reelwalk-app. It may use only the local render queue and its dead-letter
-# queue, read media, and write the objects a render makes. It cannot touch the
-# customers' queue, list the bucket, or delete anything. Its access key is made
+# queue, read media, and write under local/<workspace>/ for our own workspaces
+# (the PC worker puts every key it writes there). It cannot touch the
+# customers' queue or objects, list the bucket, or delete anything. Its access key is made
 # by hand (infra/local-worker/start.sh key), never by Terraform, so it is not
 # written into the state file.
 
@@ -28,13 +29,13 @@ data "aws_iam_policy_document" "local_worker" {
     resources = ["${aws_s3_bucket.media.arn}/*"]
   }
 
-  # What a render writes: the export with its checks and audio (renders/), a
-  # preview and its frame thumbnail (previews/, thumbs/) and the re-encoded
-  # source an export reuses (render-sources/). No delete, no list.
+  # What a render writes (exports with their checks and audio, previews, frame
+  # thumbnails, re-encoded sources), all under local/<workspace>/ for the
+  # workspaces routed to the PC: never an object of anyone else's. No delete, no list.
   statement {
-    sid       = "WriteRenders"
+    sid       = "WriteOurRenders"
     actions   = ["s3:PutObject", "s3:AbortMultipartUpload"]
-    resources = [for prefix in ["renders", "previews", "thumbs", "render-sources"] : "${aws_s3_bucket.media.arn}/${prefix}/*"]
+    resources = [for id in var.local_render_workspace_ids : "${aws_s3_bucket.media.arn}/local/${id}/*"]
   }
 }
 

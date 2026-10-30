@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
-import os from "node:os";
+import { mkdir, readFile, rename, rm, rmdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 
@@ -9,21 +8,32 @@ import { setTimeout as sleep } from "node:timers/promises";
  * work (the Last Mile game's captures and builds, other agents' builds), and
  * they agree on one lock: a directory, taken with an atomic mkdir, holding an
  * owner.txt that names the holder and is refreshed while held. A local
- * render worker takes it around each render and releases it after.
+ * render worker takes it before each render and releases it after.
  *
- * It never steals: a held lock is waited out however old its owner.txt is.
- * From inside a container the worker cannot see whether another holder's
- * processes are still running, which is what the protocol's stale rule needs.
- * The one exception is a lock that this same container's previous process
- * left when it crashed, was OOM-killed or the PC rebooted. owner.txt names
- * the container (host=) and the process (boot=), and only a worker in that
- * container with a different boot may remove it. A lock left by a container
- * that no longer runs is cleared on the host by infra/local-worker/start.sh,
- * which can see the containers. Callers bound the wait with their signal.
+ * It never steals. The one lock it may remove is one it can PROVE was left by
+ * a dead process of its own: owner.txt names our owner, this very container
+ * (its full id), and a process (PID and start time) that, seen from inside
+ * this container, no longer exists, or a kernel boot that is not the current
+ * one. Anything it cannot read or prove is left alone. Removal is a rename to
+ * a tombstone (atomic), then a check that the tombstone holds exactly the
+ * owner.txt that was judged dead; if not, the lock is put back. Our cleaners
+ * (this worker and infra/local-worker/start.sh) also serialise on a sibling
+ * `.cleanup` directory. Callers bound the wait with their signal.
  */
 
-/** This process's identity in owner.txt: a crashed predecessor in the same container had another. */
-const BOOT = randomUUID().slice(0, 8);
+/** Who holds the lock, as owner.txt records it. */
+export type Holder = { container: string; pid: number; start: string; boot: string };
+
+/**
+ * What a worker can see from inside its container: who it is, and whether a
+ * process of this container still runs. Null means "cannot tell", which never
+ * counts as dead.
+ */
+export type ProcessProbe = {
+  self(): Promise<Holder | null>;
+  alive(pid: number, start: string): Promise<boolean | null>;
+};
+
 export type HeavyLockOptions = {
   /** The lock directory, e.g. /heavy/.heavy.lock (C:\dev\lm\.heavy.lock mounted). */
   dir: string;
@@ -37,9 +47,8 @@ export type HeavyLockOptions = {
   cooldownMs?: number;
   log?: (message: string) => void;
   now?: () => Date;
-  /** The container (its hostname) and process this worker is; tests set them. */
-  host?: string;
-  boot?: string;
+  /** Reads /proc by default; tests stand in for it. */
+  probe?: ProcessProbe;
 };
 
 export type HeavyLock = {
@@ -47,21 +56,99 @@ export type HeavyLock = {
   acquire(label: string, signal?: AbortSignal): Promise<() => Promise<void>>;
 };
 
+/** Parses the identity fields of an owner.txt line; null if any is missing. */
+export function parseHolder(line: string): Holder | null {
+  const field = (name: string) => new RegExp(` ${name}=(\\S+)`).exec(line)?.[1];
+  const container = field("container"), pid = Number(field("pid")), start = field("start"), boot = field("boot");
+  return container && Number.isInteger(pid) && pid > 0 && start && boot ? { container, pid, start, boot } : null;
+}
+
+/** The process start time from /proc/<pid>/stat (field 22, after the parenthesised name). */
+function startTime(stat: string): string | null {
+  return stat.slice(stat.lastIndexOf(")") + 2).split(" ")[19] ?? null;
+}
+
+/** The real probe: the container id from mountinfo, the process start time from /proc, the kernel boot id. */
+export const procProbe: ProcessProbe = {
+  async self() {
+    try {
+      const [mountinfo, stat, boot] = await Promise.all([
+        readFile("/proc/self/mountinfo", "utf8"),
+        readFile("/proc/self/stat", "utf8"),
+        readFile("/proc/sys/kernel/random/boot_id", "utf8"),
+      ]);
+      const container = /\/containers\/([0-9a-f]{64})\//.exec(mountinfo)?.[1];
+      const start = startTime(stat);
+      return container && start ? { container, pid: process.pid, start, boot: boot.trim() } : null;
+    } catch {
+      return null;
+    }
+  },
+  async alive(pid, start) {
+    try {
+      return startTime(await readFile(`/proc/${pid}/stat`, "utf8")) === start;
+    } catch (error) {
+      return (error as NodeJS.ErrnoException).code === "ENOENT" ? false : null;
+    }
+  },
+};
+
 export function createHeavyLock(options: HeavyLockOptions): HeavyLock {
-  const { dir, owner, pollMs = 30_000, refreshMs = 4 * 60_000, cooldownMs = 60_000, host = os.hostname(), boot = BOOT } = options;
+  const { dir, owner, pollMs = 30_000, refreshMs = 4 * 60_000, cooldownMs = 60_000, probe = procProbe } = options;
   const log = options.log ?? ((message) => console.log(message));
   const now = options.now ?? (() => new Date());
   const ownerFile = path.join(dir, "owner.txt");
   let releasedAt = 0;
+  let me: Promise<Holder | null> | undefined;
+  const self = () => (me ??= probe.self());
 
-  const line = (label: string, token: string) => `${owner} ${now().toISOString()} ${label} host=${host} boot=${boot} #${token}\n`;
-  /** owner.txt written by an earlier process of this same container, which is gone: this process replaced it. */
-  const deadPredecessor = (holder: string) => {
-    if (!holder.startsWith(`${owner} `) || !holder.includes(` host=${host} `)) return false;
-    const previous = / boot=(\S+)/.exec(holder)?.[1];
-    return previous !== undefined && previous !== boot;
+  const line = async (label: string, token: string) => {
+    const id = await self();
+    const identity = id ? ` container=${id.container} pid=${id.pid} start=${id.start} boot=${id.boot}` : "";
+    return `${owner} ${now().toISOString()} ${label}${identity} #${token}\n`;
   };
   const ours = async (token: string) => (await readFile(ownerFile, "utf8").catch(() => "")).includes(`#${token}`);
+
+  /**
+   * Proof that `holder` (an owner.txt line) is a dead process of ours: our owner, this container, and either
+   * another kernel boot or a process that is gone. Anything unreadable or unprovable is not proof.
+   */
+  const provablyDead = async (holder: string): Promise<boolean> => {
+    if (!holder.startsWith(`${owner} `)) return false;
+    const [them, us] = [parseHolder(holder), await self()];
+    if (!them || !us || them.container !== us.container) return false;
+    if (them.pid === us.pid && them.start === us.start) return false; // that is this very process
+    if (them.boot !== us.boot) return true; // the kernel restarted: every process of that boot is gone
+    return (await probe.alive(them.pid, them.start)) === false;
+  };
+
+  /** Removes the lock if it still holds exactly `holder`: rename (atomic), check, and put it back on a mismatch. */
+  const removeDead = async (holder: string): Promise<boolean> => {
+    const cleanup = `${dir}.cleanup`;
+    try {
+      await mkdir(cleanup);
+    } catch {
+      return false; // another of our cleaners is at it
+    }
+    try {
+      const tomb = `${dir}.dead-${randomUUID()}`;
+      try {
+        await rename(dir, tomb);
+      } catch {
+        return false; // gone already, or not ours to move
+      }
+      const moved = (await readFile(path.join(tomb, "owner.txt"), "utf8").catch(() => "")).trim();
+      if (moved !== holder) {
+        // Between the judgement and the rename someone else took the lock: give it back.
+        await rename(tomb, dir).catch(() => log(`heavy-lock: moved a live lock aside by mistake and could not put it back (${tomb})`));
+        return false;
+      }
+      await rm(tomb, { recursive: true, force: true });
+      return true;
+    } finally {
+      await rmdir(cleanup).catch(() => undefined);
+    }
+  };
 
   return {
     async acquire(label, signal) {
@@ -77,12 +164,8 @@ export function createHeavyLock(options: HeavyLockOptions): HeavyLock {
           if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
         }
         const holder = (await readFile(ownerFile, "utf8").catch(() => "")).trim();
-        if (deadPredecessor(holder)) {
-          // Removed only if owner.txt still says the same, so nobody else can have taken it in between.
-          if ((await readFile(ownerFile, "utf8").catch(() => "")).trim() === holder) {
-            await rm(dir, { recursive: true, force: true });
-            log(`heavy-lock: removed the lock this container's previous process left (${holder})`);
-          }
+        if (holder && (await provablyDead(holder)) && (await removeDead(holder))) {
+          log(`heavy-lock: removed the lock a dead process of this container left (${holder})`);
           continue;
         }
         if (waitingSince === undefined) {
@@ -95,7 +178,7 @@ export function createHeavyLock(options: HeavyLockOptions): HeavyLock {
       // owner.txt is written and read back in the same step as the mkdir, so the lock is never ownerless.
       const token = randomUUID();
       try {
-        await writeFile(ownerFile, line(label, token));
+        await writeFile(ownerFile, await line(label, token));
         if (!(await ours(token))) throw new Error("owner.txt did not read back");
       } catch (error) {
         await rm(dir, { recursive: true, force: true });
@@ -106,7 +189,7 @@ export function createHeavyLock(options: HeavyLockOptions): HeavyLock {
       // A refresh in flight is awaited before releasing: a read during its write sees an empty owner.txt.
       let refreshing: Promise<unknown> = Promise.resolve();
       const refresh = setInterval(() => {
-        refreshing = ours(token).then((still) => (still ? writeFile(ownerFile, line(label, token)) : undefined)).catch(() => undefined);
+        refreshing = ours(token).then(async (still) => (still ? writeFile(ownerFile, await line(label, token)) : undefined)).catch(() => undefined);
       }, refreshMs);
       refresh.unref?.();
 

@@ -22,6 +22,7 @@ const MAX_RENDER_SIDE = 1920;
  * slow and was what ran the worker out of memory.
  */
 async function renderSourceKey(
+  storage: RunStorage,
   s3: S3Client,
   bucket: string,
   workdir: string,
@@ -32,12 +33,16 @@ async function renderSourceKey(
   /** The original, when it is already on disk. */
   localPath?: string,
 ): Promise<string> {
-  const key = renderSourceKeyFor(assetId);
-  try {
-    await s3.send(new HeadObjectCommand({ Bucket: bucket, Key: key }), { abortSignal: scope.signal });
-    return key;
-  } catch {
-    // Not made yet.
+  // The shared copy first; a PC worker, which may not write it, keeps its own under its prefix.
+  const shared = renderSourceKeyFor(assetId);
+  const key = storage.keyFor(shared);
+  for (const candidate of new Set([shared, key])) {
+    try {
+      await s3.send(new HeadObjectCommand({ Bucket: bucket, Key: candidate }), { abortSignal: scope.signal });
+      return candidate;
+    } catch {
+      // Not made yet.
+    }
   }
   scope.throwIfStopped();
   const inputPath = localPath ?? path.join(workdir, `src-${inputFilenameFor(objectKey)}`);
@@ -56,6 +61,7 @@ async function renderSourceKey(
     "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", outPath,
   ], { scope });
   const { size } = await stat(outPath);
+  await storage.record(key, "cache");
   await s3.send(new PutObjectCommand({ Bucket: bucket, Key: key, Body: createReadStream(outPath), ContentLength: size, ContentType: "video/mp4" }), { abortSignal: scope.signal });
   if (!localPath) await rm(inputPath, { force: true });
   await rm(outPath, { force: true });
@@ -66,6 +72,20 @@ import type { ReelAsset } from "@reelwalk/render/reel-types";
 import { renderStubReel } from "@reelwalk/render/render-job";
 import { preflightReel, renderReel } from "@reelwalk/render/render-reel";
 import type { ClaimedJob, RenderResult } from "./handler";
+
+/**
+ * Where one run writes, and its record of what it wrote (ADR 0094). A PC
+ * worker maps every key under its workspace's own prefix; every upload is
+ * recorded before it starts, so the files of a run that loses or dies can be
+ * found and deleted.
+ */
+export type RunStorage = {
+  keyFor(key: string): string;
+  record(key: string, kind: "run" | "cache"): Promise<void>;
+};
+
+/** A cloud run: keys as they are, nothing recorded (for scripts and tests). */
+export const plainStorage: RunStorage = { keyFor: (key) => key, record: async () => undefined };
 
 /**
  * A 240 px high JPEG of a representative frame: ffmpeg's thumbnail filter
@@ -106,6 +126,7 @@ export async function renderJob(
   onProgress: (percent: number) => void,
   concurrency?: number,
   scope?: AttemptScope,
+  storage: RunStorage = plainStorage,
 ): Promise<RenderResult> {
   const privateScope = scope ? null : createAttemptScope();
   const attempt = scope ?? privateScope!;
@@ -121,6 +142,7 @@ export async function renderJob(
   try {
     if (job.kind === "PREVIEW") {
       if (!job.inputKey || !job.previewKey || !job.mediaAssetId) throw new Error("The uploaded video for this preview was deleted");
+      const previewKey = storage.keyFor(job.previewKey);
       const inputPath = path.join(workdir, inputFilenameFor(job.inputKey));
       console.log(`[${job.id}] download s3://${bucket}/${job.inputKey}`);
       await downloadObject(s3, bucket, job.inputKey, inputPath, signal);
@@ -135,12 +157,13 @@ export async function renderJob(
       ], { scope: attempt });
       report(0.9);
       const { size: previewSize } = await stat(outputPath);
-      console.log(`[${job.id}] upload ${previewSize} bytes to s3://${bucket}/${job.previewKey}`);
+      console.log(`[${job.id}] upload ${previewSize} bytes to s3://${bucket}/${previewKey}`);
+      await storage.record(previewKey, "run");
       // The key never gets new content, so browsers may keep it for a year.
       await s3.send(
         new PutObjectCommand({
           Bucket: bucket,
-          Key: job.previewKey,
+          Key: previewKey,
           Body: createReadStream(outputPath),
           ContentLength: previewSize,
           ContentType: "video/mp4",
@@ -154,7 +177,8 @@ export async function renderJob(
         const thumbPath = path.join(workdir, "thumb.jpg");
         await frameThumbnail(outputPath, thumbPath, attempt);
         const { size: thumbSize } = await stat(thumbPath);
-        thumbKey = frameThumbKeyFor(job.inputKey, { jobId: job.id, generation: job.generation, attempt: job.attempt });
+        thumbKey = storage.keyFor(frameThumbKeyFor(job.inputKey, { jobId: job.id, generation: job.generation, attempt: job.attempt }));
+        await storage.record(thumbKey, "run");
         await s3.send(new PutObjectCommand({ Bucket: bucket, Key: thumbKey, Body: createReadStream(thumbPath), ContentLength: thumbSize, ContentType: "image/jpeg" }), { abortSignal: signal });
       } catch (error) {
         attempt.throwIfStopped();
@@ -177,13 +201,13 @@ export async function renderJob(
       // first export of phone footage does not spend minutes re-encoding.
       // An export makes it itself if this fails.
       try {
-        await renderSourceKey(s3, bucket, workdir, job.mediaAssetId, job.inputKey, (line) => console.log(`[${job.id}] ${line}`), attempt, inputPath);
+        await renderSourceKey(storage, s3, bucket, workdir, job.mediaAssetId, job.inputKey, (line) => console.log(`[${job.id}] ${line}`), attempt, inputPath);
       } catch (error) {
         attempt.throwIfStopped();
         console.warn(`[${job.id}] render source not made ahead: ${error instanceof Error ? error.message : error}`);
       }
       // Published with the job's success, only if this run still holds it (ADR 0094).
-      return { objectKey: job.previewKey, contentType: "video/mp4", sizeBytes: previewSize, asset: { id: job.mediaAssetId, previewKey: job.previewKey, thumbKey, transcript } };
+      return { objectKey: previewKey, contentType: "video/mp4", sizeBytes: previewSize, asset: { id: job.mediaAssetId, previewKey, thumbKey, transcript } };
     }
     if (job.kind === "REEL" || job.kind === "STORY" || job.kind === "TEMPLATE") {
       // Remotion closes the Chrome it opened without waiting for it, also when cancelled: whatever is left
@@ -202,7 +226,7 @@ export async function renderJob(
       const assets: Record<string, ReelAsset> = {};
       const entries = Object.entries(plan.assets);
       for (const [index, [id, asset]] of entries.entries()) {
-        const key = asset.kind === "VIDEO" ? await renderSourceKey(s3, bucket, workdir, id, asset.objectKey, (line) => console.log(`[${job.id}] ${line}`), attempt) : asset.objectKey;
+        const key = asset.kind === "VIDEO" ? await renderSourceKey(storage, s3, bucket, workdir, id, asset.objectKey, (line) => console.log(`[${job.id}] ${line}`), attempt) : asset.objectKey;
         const src = await getSignedUrl(s3, new GetObjectCommand({ Bucket: bucket, Key: key }), { expiresIn: 3600 });
         assets[id] = { src, kind: asset.kind, ...(asset.transcript ? { transcript: asset.transcript } : {}), ...(asset.durationMs != null ? { durationMs: asset.durationMs } : {}) };
         // Preparing sources is the first fifth of the bar; Remotion reports the rest.
@@ -257,7 +281,9 @@ export async function renderJob(
 
     // Each attempt uploads to its own key: a worker that was declared stale and finishes late cannot
     // overwrite the file the job's current attempt published (the output row names the key that won).
-    const objectKey = outputKeyFor(job.id, job.attempt);
+    const objectKey = storage.keyFor(outputKeyFor(job.id, job.attempt));
+    // Recorded once for the file and its companions (checks, audio), before any of them is written.
+    await storage.record(objectKey, "run");
     if (exportAudio) {
       await s3.send(new PutObjectCommand({ Bucket: bucket, Key: exportAudioKeyFor(objectKey), Body: exportAudio, ContentLength: exportAudio.byteLength, ContentType: "application/json" }), { abortSignal: signal });
     }

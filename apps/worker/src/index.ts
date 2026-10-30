@@ -9,14 +9,14 @@ import {
   SQSClient,
   type Message,
 } from "@aws-sdk/client-sqs";
-import { handOffLocalRender, LOCAL_RENDER_JOBS_TOPIC, prisma, relayOutbox, RENDER_JOBS_TOPIC } from "@reelwalk/db";
+import { handOffLocalRender, LOCAL_RENDER_JOBS_TOPIC, localRenderWorkspacesFromEnv, prisma, recordRenderArtifact, relayOutbox, RENDER_JOBS_TOPIC } from "@reelwalk/db";
 import { getConfig } from "./config";
-import { handleDeadLetter, handleDelivery, type Delivery } from "./handler";
-import { renderJob } from "./render";
+import { handleDeadLetter, handleDelivery, type ClaimedJob, type Delivery } from "./handler";
+import { renderJob, type RunStorage } from "./render";
 import { createJobStore } from "./store";
 import { processAiVideo } from "./ai-video";
 import { processPresenterKit } from "./presenter-kits";
-import { AI_STEP_QUEUE_RETENTION_MS, AI_STEP_REAP_AFTER_MS, serializeRenderJobMessage } from "@reelwalk/core";
+import { AI_STEP_QUEUE_RETENTION_MS, AI_STEP_REAP_AFTER_MS, localKeyFor, serializeRenderJobMessage } from "@reelwalk/core";
 import { createAiStepStore, type AiStepDeps } from "./ai-jobs";
 import { aiStepExecutor } from "./ai-executor";
 import { checkHeavyLockDir, createHeavyLock } from "./heavy-lock";
@@ -42,6 +42,19 @@ const s3 = new S3Client({
 });
 
 const store = createJobStore(prisma);
+// The workspaces a PC worker renders for: the ones its IAM user may write for (ADR 0094). Anything else is handed to the cloud.
+const localWorkspaces = localRenderWorkspacesFromEnv();
+if (config.mode === "local" && localWorkspaces.size === 0) console.warn("local mode without LOCAL_RENDER_WORKSPACES: every job will be handed to the cloud");
+
+/** Where a run writes, and the record of what it wrote (ADR 0094): a PC worker writes only under its workspace's prefix. */
+function runStorage(job: ClaimedJob): RunStorage {
+  if (!job.workspaceId) throw new Error(`render job ${job.id} has no workspace`);
+  const workspaceId = job.workspaceId;
+  return {
+    keyFor: (key) => (config.mode === "local" ? localKeyFor(workspaceId, key) : key),
+    record: (key, kind) => recordRenderArtifact(prisma, { key, kind, workspaceId, jobId: job.id }),
+  };
+}
 // A local worker (ADR 0094) shares the PC: each render waits for the machine-wide heavy lock.
 const heavyLock = config.heavyLockDir
   ? createHeavyLock({ dir: config.heavyLockDir, owner: config.heavyLockOwner, cooldownMs: Number(process.env.HEAVY_LOCK_COOLDOWN_SECONDS ?? 60) * 1000 })
@@ -224,7 +237,7 @@ const loops = [
             config,
             aiSteps,
             shutdown: shutdown.signal,
-            render: (job, onProgress, scope) => renderJob(job, s3, config.s3Bucket, onProgress, config.renderConcurrency, scope),
+            render: (job, onProgress, scope) => renderJob(job, s3, config.s3Bucket, onProgress, config.renderConcurrency, scope, runStorage(job)),
           },
           received,
         );
@@ -236,6 +249,11 @@ const loops = [
         keepHiddenMs: config.heartbeatSeconds * 1000,
         visibilitySeconds: config.visibilitySeconds,
         handOff: (message) => handOffLocalRender(prisma, message, serializeRenderJobMessage),
+        // A job of a workspace this PC may not write for (the list changed after it was queued) goes straight to the cloud.
+        allowed: async (message) => {
+          const job = await prisma.renderJob.findUnique({ where: { id: message.jobId }, select: { workspaceId: true } });
+          return !job || localWorkspaces.has(job.workspaceId);
+        },
         handle,
         shutdown: shutdown.signal,
       }, delivery);

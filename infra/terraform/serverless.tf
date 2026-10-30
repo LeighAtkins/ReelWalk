@@ -15,7 +15,9 @@ locals {
     SQS_QUEUE_URL       = aws_sqs_queue.render_jobs.url
     SQS_DLQ_URL         = aws_sqs_queue.render_jobs_dlq.url
     # Our own renders' queue (ADR 0094): the web app routes to it, workers relay its outbox messages to it.
-    LOCAL_RENDER_QUEUE_URL       = aws_sqs_queue.render_jobs_local.url
+    LOCAL_RENDER_QUEUE_URL = aws_sqs_queue.render_jobs_local.url
+    # Whose renders go to it; the PC worker also refuses (hands to the cloud) any other workspace's job.
+    LOCAL_RENDER_WORKSPACES      = join(",", var.local_render_workspace_ids)
     CLOUDFRONT_BASE_URL          = "https://${aws_cloudfront_distribution.media.domain_name}"
     APP_URL                      = "https://${var.app_domain}"
     RENDER_MAX_ATTEMPTS          = "3"
@@ -48,9 +50,7 @@ locals {
     GOOGLE_WORKLOAD_IDENTITY_AUDIENCE = var.google_workload_identity_audience
     GOOGLE_SERVICE_ACCOUNT_EMAIL      = var.google_service_account_email
     VERTEX_CLAUDE_REGION              = var.vertex_claude_region
-    # Whose renders go to the local queue, and when they fall back to Fargate (ADR 0094).
-    LOCAL_RENDER_WORKSPACES       = join(",", var.local_render_workspace_ids)
-    LOCAL_RENDER_EMAILS           = join(",", var.local_render_emails)
+    # When a local render falls back to Fargate (ADR 0094).
     LOCAL_RENDER_FALLBACK_SECONDS = tostring(var.local_render_fallback_seconds)
   }
 

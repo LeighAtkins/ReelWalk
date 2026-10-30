@@ -3,7 +3,8 @@ import os from "node:os";
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { checkHeavyLockDir, createHeavyLock } from "../src/heavy-lock";
+import fs from "node:fs";
+import { checkHeavyLockDir, createHeavyLock, parseHolder, type Holder, type ProcessProbe } from "../src/heavy-lock";
 
 let root: string;
 let dir: string;
@@ -20,7 +21,7 @@ describe("heavy lock", () => {
   it("takes the lock with an owner.txt naming the holder, and removes it on release", async () => {
     const lock = createHeavyLock({ dir, owner: "reelwalk-local-worker", cooldownMs: 0, log: quiet });
     const release = await lock.acquire("render job-1");
-    expect(await readFile(path.join(dir, "owner.txt"), "utf8")).toMatch(/^reelwalk-local-worker \d{4}-\d\d-\d\dT[\d:.]+Z render job-1 host=\S+ boot=\S+ #[0-9a-f-]+\n$/);
+    expect(await readFile(path.join(dir, "owner.txt"), "utf8")).toMatch(/^reelwalk-local-worker \d{4}-\d\d-\d\dT[\d:.]+Z render job-1( container=\S+ pid=\d+ start=\S+ boot=\S+)? #[0-9a-f-]+\n$/);
     await release();
     expect(await exists(dir)).toBe(false);
     await release(); // idempotent
@@ -86,41 +87,90 @@ describe("heavy lock", () => {
     expect(Date.now() - started).toBeGreaterThanOrEqual(140);
   });
 
-  it("names the container and process in owner.txt", async () => {
-    const lock = createHeavyLock({ dir, owner: "reelwalk-local-worker", cooldownMs: 0, log: quiet, host: "c0ffee", boot: "b1" });
-    const release = await lock.acquire("render job-6");
-    expect(await readFile(path.join(dir, "owner.txt"), "utf8")).toMatch(/ render job-6 host=c0ffee boot=b1 #/);
-    await release();
-  });
-
-  it("removes a lock this container's previous process left when it died, and takes it", async () => {
+  // Identity and liveness as seen from inside the worker's container, stood in for here.
+  const C = "a".repeat(64), OTHER = "b".repeat(64);
+  const line = (container: string, pid: number, start: string, boot: string) =>
+    `reelwalk-local-worker 2026-10-29T15:00:00.000Z render old-job container=${container} pid=${pid} start=${start} boot=${boot} #t`;
+  function probe(alive: (pid: number, start: string) => boolean | null, self: Holder | null = { container: C, pid: 1, start: "500", boot: "k1" }): ProcessProbe {
+    return { self: async () => self, alive: async (pid, start) => alive(pid, start) };
+  }
+  async function holding(holder: string) {
     await mkdir(dir);
-    await writeFile(path.join(dir, "owner.txt"), "reelwalk-local-worker 2026-10-29T15:00:00.000Z render job-7 host=c0ffee boot=dead #t\n");
-    const messages: string[] = [];
-    const lock = createHeavyLock({ dir, owner: "reelwalk-local-worker", pollMs: 20, cooldownMs: 0, log: (m) => messages.push(m), host: "c0ffee", boot: "b2" });
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(new Error("still waiting")), 500);
-    const release = await lock.acquire("render job-8", controller.signal);
-    clearTimeout(timer);
-    expect(messages.some((m) => m.includes("previous process left"))).toBe(true);
-    expect(await readFile(path.join(dir, "owner.txt"), "utf8")).toContain("render job-8 host=c0ffee boot=b2");
+    await writeFile(path.join(dir, "owner.txt"), `${holder}\n`);
+  }
+  /** Tries for the lock briefly; true if taken (then released), false if it kept waiting. */
+  async function tryTake(p: ProcessProbe, ms = 150) {
+    const lock = createHeavyLock({ dir, owner: "reelwalk-local-worker", pollMs: 20, cooldownMs: 0, log: quiet, probe: p });
+    try {
+      await (await lock.acquire("render new-job", AbortSignal.timeout(ms)))();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  const lockText = () => readFile(path.join(dir, "owner.txt"), "utf8").then((text) => text.trim(), () => null);
+
+  it("names the container, process, start time and kernel boot in owner.txt", async () => {
+    const lock = createHeavyLock({ dir, owner: "reelwalk-local-worker", cooldownMs: 0, log: quiet, probe: probe(() => true) });
+    const release = await lock.acquire("render job-6");
+    expect(parseHolder(await readFile(path.join(dir, "owner.txt"), "utf8"))).toEqual({ container: C, pid: 1, start: "500", boot: "k1" });
     await release();
   });
 
-  it("never removes a lock another container, or another owner, holds", async () => {
-    for (const holder of [
-      "reelwalk-local-worker 2026-10-29T15:00:00.000Z render job-9 host=beef01 boot=dead #t\n",
-      "lastmile-capture 2026-10-29T15:00:00.000Z host=c0ffee boot=dead\n",
-    ]) {
-      await mkdir(dir);
-      await writeFile(path.join(dir, "owner.txt"), holder);
-      const lock = createHeavyLock({ dir, owner: "reelwalk-local-worker", pollMs: 20, cooldownMs: 0, log: quiet, host: "c0ffee", boot: "b3" });
-      const controller = new AbortController();
-      setTimeout(() => controller.abort(new Error("gave up")), 120);
-      await expect(lock.acquire("render job-10", controller.signal)).rejects.toThrow("gave up");
-      expect(await readFile(path.join(dir, "owner.txt"), "utf8")).toBe(holder);
+  it("never removes a live holder in the same container (another process, reproduced in review)", async () => {
+    await holding(line(C, 42, "900", "k1"));
+    expect(await tryTake(probe((pid, start) => pid === 42 && start === "900"))).toBe(false);
+    expect(await lockText()).toBe(line(C, 42, "900", "k1"));
+  });
+
+  it("removes a lock whose process provably died: gone from this container, its PID reused, or another kernel boot", async () => {
+    for (const [holder, alive] of [
+      [line(C, 42, "900", "k1"), () => false], // no such process any more
+      [line(C, 42, "900", "k1"), (_pid: number, start: string) => start === "1234"], // PID 42 now belongs to a newer process
+      [line(C, 42, "900", "k0"), () => true], // written before the kernel last booted
+    ] as const) {
+      await holding(holder);
+      expect(await tryTake(probe(alive))).toBe(true);
+      expect(await lockText()).toBeNull();
+    }
+  });
+
+  it("fails closed: an unreadable process, another container, another owner, or no identity of its own leaves the lock", async () => {
+    for (const [holder, p] of [
+      [line(C, 42, "900", "k1"), probe(() => null)], // cannot tell
+      [line(OTHER, 42, "900", "k0"), probe(() => false)], // not this container: its processes are not visible here
+      ["lastmile-capture 2026-10-29T15:00:00Z container=" + C + " pid=42 start=900 boot=k0", probe(() => false)],
+      ["reelwalk-local-worker 2026-10-29T15:00:00Z render old-job #t", probe(() => false)], // no identity recorded
+      [line(C, 42, "900", "k0"), probe(() => false, null)], // this worker cannot see who it is (not in a container)
+    ] as const) {
+      await holding(holder);
+      expect(await tryTake(p, 100)).toBe(false);
+      expect(await lockText()).toBe(holder);
       await rm(dir, { recursive: true });
     }
+  });
+
+  it("puts the lock back when someone else took it between the judgement and the removal", async () => {
+    const dead = line(C, 42, "900", "k1");
+    const newcomer = "lastmile-capture 2026-10-30T00:00:00Z godot";
+    await holding(dead);
+    // While this worker judges the dead holder, the lock changes hands (another cleaner removed it and a live job took it).
+    const racing = probe(() => {
+      fs.rmSync(dir, { recursive: true });
+      fs.mkdirSync(dir);
+      fs.writeFileSync(path.join(dir, "owner.txt"), newcomer + "\n");
+      return false;
+    });
+    expect(await tryTake(racing, 60)).toBe(false);
+    expect(await lockText()).toBe(newcomer);
+  });
+
+  it("leaves the cleanup to another of our cleaners already at it", async () => {
+    await holding(line(C, 42, "900", "k1"));
+    await mkdir(`${dir}.cleanup`);
+    expect(await tryTake(probe(() => false), 100)).toBe(false);
+    expect(await lockText()).toBe(line(C, 42, "900", "k1"));
+    await rm(`${dir}.cleanup`, { recursive: true });
   });
 
   it("refuses a lock directory whose parent is missing", async () => {

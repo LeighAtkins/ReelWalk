@@ -87,17 +87,12 @@ variable "worker_spot" {
 }
 
 # Workspaces whose renders go to the local queue and a worker on the owner's
-# PC instead of Fargate (ADR 0094). Ours: the @reelwalking studio and Last Mile.
+# PC instead of Fargate (ADR 0094). Ours: the @reelwalking studio and Last Mile
+# (leigh.atkins1@gmail.com's two). The same list scopes what the PC may write
+# (local_worker_iam.tf), so a new studio of ours is added here.
 variable "local_render_workspace_ids" {
   type    = list(string)
   default = ["cmuy51nnw000h01adf9ks11xo", "cmvny3ai60000bkuumm4q6nha"]
-}
-
-# People whose home workspace, and every workspace they own, render locally too
-# (so a studio the owner creates later needs no change here).
-variable "local_render_emails" {
-  type    = list(string)
-  default = ["leigh.atkins1@gmail.com"]
 }
 
 # How long a local render may wait unclaimed (the PC is off) before it moves to Fargate.

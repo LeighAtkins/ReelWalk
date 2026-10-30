@@ -6,11 +6,12 @@ Our own workspaces' renders run on the owner's PC instead of Fargate
 consumes only that queue. Every other workspace still renders on Fargate
 (Spot first).
 
-Which workspaces count is set in Terraform (`local_render_workspace_ids`, `local_render_emails`):
+Which workspaces count is set in one Terraform list, `local_render_workspace_ids`:
 
 - the @reelwalking studio
 - Last Mile
-- every workspace leigh.atkins1@gmail.com owns
+
+These are leigh.atkins1@gmail.com's two. The same list decides what the PC may write (`local/<id>/`), so a new studio of ours is added there.
 
 ## Start
 
@@ -23,14 +24,21 @@ bash infra/local-worker/start.sh       # starts it
 
 `key` creates an access key for the IAM user `reelwalk-local-worker` and
 writes it to `~/.reelwalk/aws-credentials`. The key is never printed and never
-written inside a checkout. That user may only:
+written inside a checkout.
+
+Running `key` again is safe:
+
+- runs are serialised;
+- it keeps a key this PC already holds;
+- it refuses to make a second key while IAM holds one this PC lacks, unless you run `key --replace`, which deletes
+  those first;
+- it writes a temp file, checks it, and moves it into place, so a failed AWS call installs nothing. That user may only:
 
 - use the local queue and its dead-letter queue;
 - read media;
-- write render outputs (`renders/`, `previews/`, `thumbs/`, `render-sources/`).
+- write under `local/<id>/` for our listed workspaces.
 
-It cannot touch the customers' queue, list the bucket or delete anything. To
-replace the key, delete it in IAM, delete the file, and run `key` again.
+It cannot touch the customers' queue or objects, list the bucket or delete anything.
 
 The start command:
 
@@ -65,19 +73,24 @@ These need no settings, so they work from a fresh shell:
   claims a job. While it waits, the job stays queued and nothing looks busy
   that isn't.
   - It takes the lock with `mkdir` and writes `owner.txt` as
-    `reelwalk-local-worker <time> render <job> host=<container> boot=<process> #<token>`.
+    `reelwalk-local-worker <time> render <job> container=<id> pid=<pid> start=<start time> boot=<kernel boot> #<token>`.
   - It refreshes `owner.txt` every 4 minutes and removes the lock once the
     render has ended (after Chrome and ffmpeg exit).
   - It waits 60 s before taking the lock again (`HEAVY_LOCK_COOLDOWN_SECONDS`).
 - It never steals someone else's lock. If the lock is not free within 8 minutes
   (`HEAVY_LOCK_WAIT_SECONDS`), it hands the job to Fargate. The job was never
   claimed, so the hand-off spends no attempt.
-- It cleans up its own dead locks, and only its own:
-  - When this container's previous process left a lock (a crash, an OOM kill,
-    the PC rebooting), the restarted worker sees the same `host` with a
-    different `boot` and removes it.
-  - When the container itself is gone, `start.sh` removes the lock, but only
-    if `owner.txt` names our worker and a container that is no longer running.
+- It removes a lock of its own only on proof that its holder is dead, and nothing else:
+  - In the worker, the lock must name this same container, and the holder's process must be gone (its PID missing,
+    or now another process) or have run under an earlier kernel boot.
+  - In `start.sh`, the lock must name our worker and a container that `docker inspect` reports as stopped or gone.
+    Any Docker error leaves the lock.
+  - Removal renames the lock to a tombstone and checks it still holds what was judged dead, putting it back if not,
+    so a lock that changed hands meanwhile is never lost.
+- It writes only under `local/<workspace>/` for our workspaces; its IAM user may write nowhere else. It hands a job
+  of any other workspace to Fargate at once.
+- Every file a render run uploads is recorded first. The web app deletes, after 24 hours, the files of runs that
+  lost their job or died (nothing points at them), and account deletion removes them all.
 - While the PC is off or asleep, or the worker is stopped, nothing gets stuck.
   After 10 minutes the web app moves a job that was sent to the local queue
   and never claimed, or whose render stopped heartbeating, to the Fargate

@@ -172,8 +172,8 @@ export async function retryRenderJob(formData: FormData): Promise<void> {
 
   // FAILED -> QUEUED as a single conditional write: two taps (or two tabs)
   // can only ever produce one new generation and one new message.
-  // A retry is a new generation, routed afresh (outside the transaction, ADR 0094).
-  const route = await renderRouteFor(user.workspaceId);
+  // A retry is a new generation, routed afresh (ADR 0094).
+  const route = renderRouteFor(user.workspaceId);
   const job = await prisma.$transaction(async (tx) => {
     const retried = await tx.renderJob.updateManyAndReturn({
       where: { id: jobId, workspaceId: user.workspaceId, status: "FAILED" },
@@ -353,7 +353,7 @@ export async function confirmUpload(input: z.input<typeof confirmSchema>): Promi
   // editor switches to it on the next load. The job goes through the same
   // queue and outbox as an export.
   if (asset.kind === "VIDEO" && !asset.previewKey) {
-    const route = await renderRouteFor(user.workspaceId);
+    const route = renderRouteFor(user.workspaceId);
     await prisma.$transaction(async (tx) => {
       const job = await tx.renderJob.create({
         data: { route, workspaceId: user.workspaceId, createdById: user.id, mediaAssetId: asset.id, kind: "PREVIEW", caption: data.fileName },

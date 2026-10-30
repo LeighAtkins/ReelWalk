@@ -1,33 +1,27 @@
 import { randomUUID } from "node:crypto";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
-  createRenderRouter,
   handOffLocalRender,
   LOCAL_RENDER_JOBS_TOPIC,
   localRenderFallbackMs,
   localRenderPolicyFromEnv,
-  localRenderWorkspaceIds,
   moveStalledLocalRenders,
   prisma,
   RENDER_JOBS_TOPIC,
   renderJobsTopic,
-  type LocalRenderPolicy,
+  renderRouteFor,
 } from "../src/index";
 
 describe("localRenderPolicyFromEnv", () => {
   it("is off without a queue, or with nobody on the list", () => {
     expect(localRenderPolicyFromEnv({})).toBeNull();
     expect(localRenderPolicyFromEnv({ LOCAL_RENDER_WORKSPACES: "ws-1" })).toBeNull();
-    expect(localRenderPolicyFromEnv({ LOCAL_RENDER_QUEUE_URL: "https://sqs/local", LOCAL_RENDER_WORKSPACES: " ", LOCAL_RENDER_EMAILS: "" })).toBeNull();
+    expect(localRenderPolicyFromEnv({ LOCAL_RENDER_QUEUE_URL: "https://sqs/local", LOCAL_RENDER_WORKSPACES: " " })).toBeNull();
   });
 
-  it("reads comma or space separated lists and lower-cases emails", () => {
-    const policy = localRenderPolicyFromEnv({
-      LOCAL_RENDER_QUEUE_URL: "https://sqs/local",
-      LOCAL_RENDER_WORKSPACES: "ws-1, ws-2  ws-3",
-      LOCAL_RENDER_EMAILS: "Leigh@Example.com",
-    });
-    expect(policy).toEqual({ queueUrl: "https://sqs/local", workspaceIds: new Set(["ws-1", "ws-2", "ws-3"]), emails: new Set(["leigh@example.com"]) });
+  it("reads a comma or space separated list of workspaces", () => {
+    const policy = localRenderPolicyFromEnv({ LOCAL_RENDER_QUEUE_URL: "https://sqs/local", LOCAL_RENDER_WORKSPACES: "ws-1, ws-2  ws-3" });
+    expect(policy).toEqual({ queueUrl: "https://sqs/local", workspaceIds: new Set(["ws-1", "ws-2", "ws-3"]) });
   });
 
   it("waits ten minutes before the fallback unless LOCAL_RENDER_FALLBACK_SECONDS says otherwise, ignoring nonsense", () => {
@@ -43,44 +37,13 @@ describe("localRenderPolicyFromEnv", () => {
   });
 });
 
-describe("createRenderRouter", () => {
-  const policy: LocalRenderPolicy = { queueUrl: "q", workspaceIds: new Set(["listed"]), emails: new Set(["owner@example.com"]) };
-  /** A database whose owner lookup answers `rows`, fails, or hangs. */
-  function db(behaviour: "ok" | "fail" | "hang", rows = [{ workspaceId: "owned" }]) {
-    const answer = () => (behaviour === "ok" ? Promise.resolve(rows) : behaviour === "fail" ? Promise.reject(new Error("connection reset")) : new Promise<never>(() => undefined));
-    return { user: { findMany: vi.fn(answer) }, workspaceMember: { findMany: vi.fn(answer) } };
-  }
-  const quiet = { log: () => undefined };
+describe("renderRouteFor", () => {
+  const policy = localRenderPolicyFromEnv({ LOCAL_RENDER_QUEUE_URL: "q", LOCAL_RENDER_WORKSPACES: "ours" });
 
-  it("routes listed and owned workspaces locally and everything else to the cloud", async () => {
-    const route = createRenderRouter(db("ok") as never, policy, quiet);
-    expect(await route("listed")).toBe("local");
-    expect(await route("owned")).toBe("local");
-    expect(await route("customer")).toBe("cloud");
-    expect(await createRenderRouter(db("ok") as never, null, quiet)("listed")).toBe("cloud");
-  });
-
-  it("answers the cloud instead of throwing when the owner lookup fails, so an export never fails on it", async () => {
-    await expect(createRenderRouter(db("fail") as never, policy, quiet)("customer")).resolves.toBe("cloud");
-    await expect(createRenderRouter(db("fail") as never, policy, quiet)("owned")).resolves.toBe("cloud");
-  });
-
-  it("gives up on a slow lookup after its timeout", async () => {
-    const started = Date.now();
-    await expect(createRenderRouter(db("hang") as never, policy, { ...quiet, timeoutMs: 50 })("owned")).resolves.toBe("cloud");
-    expect(Date.now() - started).toBeLessThan(1_000);
-  });
-
-  it("caches the owners' workspaces, and keeps the last good answer when a refresh fails", async () => {
-    let clock = 0;
-    const database = db("ok");
-    const route = createRenderRouter(database as never, policy, { ...quiet, ttlMs: 1_000, now: () => clock });
-    expect(await route("owned")).toBe("local");
-    expect(await route("customer")).toBe("cloud");
-    expect(database.user.findMany).toHaveBeenCalledTimes(1);
-    clock = 5_000;
-    database.user.findMany.mockImplementation(() => Promise.reject(new Error("down")));
-    expect(await route("owned")).toBe("local");
+  it("sends only listed workspaces to the PC, with no lookup that could fail, stall or go stale", () => {
+    expect(renderRouteFor(policy, "ours")).toBe("local");
+    expect(renderRouteFor(policy, "customer")).toBe("cloud");
+    expect(renderRouteFor(null, "ours")).toBe("cloud");
   });
 });
 
@@ -88,48 +51,23 @@ describe("createRenderRouter", () => {
 // migrated Postgres; skipped without DATABASE_URL, as in outbox.test.ts.
 describe.skipIf(!process.env.DATABASE_URL)("local render routing (Postgres)", () => {
   const tag = randomUUID().slice(0, 8);
-  const email = `owner-${tag}@example.com`;
-  let home: string, owned: string, edited: string, listed: string, customer: string;
-  let policy: LocalRenderPolicy;
+  let home: string, owned: string, customer: string;
   const serialize = (message: { jobId: string; generation: number }) => JSON.stringify(message);
   const fallbackMs = 10 * 60_000;
   const minutesAgo = (minutes: number, from = new Date()) => new Date(from.getTime() - minutes * 60_000);
 
   beforeAll(async () => {
     const workspace = (name: string) => prisma.workspace.create({ data: { slug: `test-local-${name}-${tag}`, name } }).then((w) => w.id);
-    [home, owned, edited, listed, customer] = await Promise.all(["home", "owned", "edited", "listed", "customer"].map(workspace)) as [string, string, string, string, string];
-    const user = await prisma.user.create({ data: { email, name: "Owner", workspaceId: home } });
-    const other = await prisma.user.create({ data: { email: `customer-${tag}@example.com`, name: "Customer", workspaceId: customer } });
-    await prisma.workspaceMember.createMany({
-      data: [
-        { userId: user.id, workspaceId: home, role: "OWNER" },
-        { userId: user.id, workspaceId: owned, role: "OWNER" },
-        // Invited as an editor into someone else's studio: that studio stays on the cloud.
-        { userId: user.id, workspaceId: edited, role: "EDITOR" },
-        { userId: other.id, workspaceId: customer, role: "OWNER" },
-      ],
-    });
-    policy = { queueUrl: "https://sqs/local", workspaceIds: new Set([listed]), emails: new Set([email]) };
+    [home, owned, customer] = await Promise.all(["home", "owned", "customer"].map(workspace)) as [string, string, string];
   });
 
   afterAll(async () => {
-    const ids = [home, owned, edited, listed, customer].filter(Boolean);
+    const ids = [home, owned, customer].filter(Boolean);
     const jobs = await prisma.renderJob.findMany({ where: { workspaceId: { in: ids } }, select: { id: true } });
     if (jobs.length) await prisma.outboxMessage.deleteMany({ where: { OR: jobs.map((j) => ({ body: { contains: j.id } })) } });
     await prisma.renderJob.deleteMany({ where: { workspaceId: { in: ids } } });
-    await prisma.user.deleteMany({ where: { email: { endsWith: `${tag}@example.com` } } });
     await prisma.workspace.deleteMany({ where: { id: { in: ids } } });
     await prisma.$disconnect();
-  });
-
-  it("routes listed workspaces and the owner's home and owned workspaces to the local queue", async () => {
-    expect(new Set(await localRenderWorkspaceIds(prisma, policy))).toEqual(new Set([listed, home, owned]));
-    const route = createRenderRouter(prisma, policy);
-    expect(await route(home)).toBe("local");
-    expect(await route(owned)).toBe("local");
-    expect(await route(listed)).toBe("local");
-    expect(await route(edited)).toBe("cloud");
-    expect(await route(customer)).toBe("cloud");
   });
 
   /** A job sent to `route`, whose row says it was queued (or last heartbeat) `minutes` ago. */
@@ -178,8 +116,7 @@ describe.skipIf(!process.env.DATABASE_URL)("local render routing (Postgres)", ()
   });
 
   it("rescues by the route the job was sent on, not by who owns the workspace now", async () => {
-    // The customer's studio is on no list, but this job was sent to the PC (the owner gave the studio away
-    // after queueing it, or the list changed while the PC was off).
+    // The customer's studio is on no list, but this job was sent to the PC (the list changed while the PC was off).
     const orphan = await job(customer, "QUEUED", 15);
     expect(await moveStalledLocalRenders(prisma, { fallbackMs, serialize })).toContain(orphan);
   });

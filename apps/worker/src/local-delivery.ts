@@ -22,6 +22,8 @@ export type LocalDeliveryDeps = {
   visibilitySeconds: number;
   /** Moves the job to the cloud queue; false if it is no longer this queued local generation. */
   handOff: (message: RenderJobMessage) => Promise<boolean>;
+  /** Whether this PC may render the job (its workspace is one the PC's IAM user may write for). */
+  allowed?: (message: RenderJobMessage) => Promise<boolean>;
   /** The normal handler: claims, renders, reports. */
   handle: (delivery: Delivery) => Promise<Outcome>;
   shutdown?: AbortSignal;
@@ -36,6 +38,13 @@ export async function handleLocalDelivery(deps: LocalDeliveryDeps, delivery: Del
     message = parseRenderJobMessage(delivery.body);
   } catch {
     return deps.handle(delivery); // unparseable: the handler leaves it for the dead-letter queue
+  }
+
+  if (deps.allowed && !(await deps.allowed(message))) {
+    const moved = await deps.handOff(message);
+    log(`[${message.jobId}] not a workspace this PC renders for; ${moved ? "handed the job to the cloud queue" : "the job has moved on already"}`);
+    await delivery.delete();
+    return moved ? "handed-off" : "discarded";
   }
 
   const keepHidden = setInterval(() => {

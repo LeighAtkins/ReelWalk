@@ -10,12 +10,14 @@ async function load(env: Record<string, string>) {
   const moveStalledLocalRenders = vi.fn(async () => [] as string[]);
   // Cloud jobs already handed back (Spot reclaims) as often as Spot is allowed.
   const interruptedJobs = vi.fn(async () => 0);
+  const sweepRenderArtifacts = vi.fn(async () => [] as string[]);
   // Only what render-capacity uses: the real package would load the Prisma client for every test.
   vi.doMock("@reelwalk/db", async () => {
     const { localRenderFallbackMs } = await import("../../../packages/db/src/local-render");
     return {
       localRenderFallbackMs,
       moveStalledLocalRenders,
+      sweepRenderArtifacts,
       prisma: {
         $transaction: vi.fn(async (fn: (tx: unknown) => unknown) => fn({ $queryRaw: async () => (reconcileLocks.push(1), [{ locked: true }]) })),
         aiGeneration: { count: async () => 0 },
@@ -27,13 +29,15 @@ async function load(env: Record<string, string>) {
   vi.doMock("@reelwalk/core", () => ({ serializeRenderJobMessage: (message: unknown) => JSON.stringify(message) }));
   const flushOutbox = vi.fn(async () => undefined);
   vi.doMock("./render-jobs", () => ({ flushOutbox }));
+  const deleteObjects = vi.fn(async () => undefined);
+  vi.doMock("./storage", () => ({ deleteObjects }));
   // No AWS here: ECS lists no tasks and accepts every RunTask; the cloud queue holds nothing.
   const ecsSend = vi.spyOn(ECSClient.prototype, "send").mockImplementation((async (command: { input: { count?: number } }) =>
     command instanceof RunTaskCommand ? { tasks: tasks(command.input.count ?? 1) } : { taskArns: [] }) as never);
   vi.spyOn(SQSClient.prototype, "send").mockImplementation((async () => ({ Attributes: {} })) as never);
   const capacity = await import("./render-capacity");
   const runTasks = () => ecsSend.mock.calls.map(([command]) => command as unknown).filter((command): command is RunTaskCommand => command instanceof RunTaskCommand);
-  return { capacity, moveStalledLocalRenders, flushOutbox, reconcileLocks, runTasks, interruptedJobs };
+  return { capacity, moveStalledLocalRenders, flushOutbox, reconcileLocks, runTasks, interruptedJobs, sweepRenderArtifacts, deleteObjects };
 }
 
 afterEach(() => {
@@ -42,6 +46,7 @@ afterEach(() => {
   vi.doUnmock("@reelwalk/db");
   vi.doUnmock("@reelwalk/core");
   vi.doUnmock("./render-jobs");
+  vi.doUnmock("./storage");
 });
 
 const base = { cluster: "reelwalk-renders", taskDefinition: "reelwalk-worker", count: 2, startedBy: "reelwalk-web" };
@@ -163,5 +168,20 @@ describe("rescueStalledLocalRenders", () => {
     expect(await capacity.rescueStalledLocalRenders()).toBe(0);
     expect(flushOutbox).not.toHaveBeenCalled();
     expect(reconcileLocks).toHaveLength(0);
+  });
+});
+
+describe("sweepOrphanedRenderFiles", () => {
+  it("deletes losing runs' files through storage after a day, and never throws", async () => {
+    const { capacity, sweepRenderArtifacts, deleteObjects } = await load({});
+    sweepRenderArtifacts.mockResolvedValueOnce(["previews/ws/a-job-g1a1.mp4"]);
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    expect(await capacity.sweepOrphanedRenderFiles()).toBe(1);
+    const [, options] = sweepRenderArtifacts.mock.calls[0] as unknown as [unknown, { graceMs: number; deleteObjects: unknown }];
+    expect(options.graceMs).toBe(24 * 3_600_000);
+    expect(options.deleteObjects).toBe(deleteObjects);
+    sweepRenderArtifacts.mockRejectedValueOnce(new Error("db down"));
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    expect(await capacity.sweepOrphanedRenderFiles()).toBe(0);
   });
 });

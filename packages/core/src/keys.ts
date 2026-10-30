@@ -22,6 +22,16 @@ export function frameThumbKeyFor(objectKey: string, run?: RenderRun): string {
   return thumbKeyFor(objectKey).replace(/\.jpg$/, `-frame${runSuffix(run)}.jpg`);
 }
 
+/**
+ * Where the render worker on the owner's PC writes (ADR 0094): everything it
+ * uploads goes under its workspace's own prefix, the only place its IAM user
+ * may write, so it can never overwrite a customer's object. Readers follow the
+ * keys stored on the rows, so they need no change.
+ */
+export function localKeyFor(workspaceId: string, key: string): string {
+  return `local/${workspaceId}/${key}`;
+}
+
 /** One run of a render job: its generation and the attempt the claim wrote. */
 export type RenderRun = { jobId: string; generation: number; attempt: number };
 

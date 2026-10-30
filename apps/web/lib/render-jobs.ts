@@ -1,17 +1,16 @@
 import { serializeRenderJobMessage } from "@reelwalk/core";
 import {
   addToOutbox,
-  createRenderRouter,
   LOCAL_RENDER_JOBS_TOPIC,
   localRenderPolicyFromEnv,
   prisma,
   relayOutbox,
   RENDER_JOBS_TOPIC,
   renderJobsTopic,
+  renderRouteFor as routeFor,
   type LocalRenderPolicy,
   type Prisma,
   type RenderRoute,
-  type RenderRouter,
 } from "@reelwalk/db";
 import { sendRenderJobMessage } from "./queue";
 import { mediaUrl } from "./storage";
@@ -23,16 +22,13 @@ function localRender(): LocalRenderPolicy | null {
   return policy;
 }
 
-let router: RenderRouter | undefined;
 /**
- * Which queue a new render job of this workspace goes to (ADR 0094). Call it
- * before the transaction that writes the job, and store the answer as the
- * job's `route`: the owner lookup behind it is bounded and cached, and when
- * it fails the job simply goes to the cloud, so it can never fail an export.
+ * Which queue a new render job of this workspace goes to (ADR 0094): the local
+ * one only for a workspace on LOCAL_RENDER_WORKSPACES. Store the answer as the
+ * job's `route`. A list check, no lookup, so it cannot fail an export.
  */
-export function renderRouteFor(workspaceId: string): Promise<RenderRoute> {
-  router ??= createRenderRouter(prisma, localRender());
-  return router(workspaceId);
+export function renderRouteFor(workspaceId: string): RenderRoute {
+  return routeFor(localRender(), workspaceId);
 }
 
 /**

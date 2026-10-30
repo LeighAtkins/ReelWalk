@@ -72,3 +72,20 @@ describe("a local worker's delivery", () => {
     expect(d.handle).not.toHaveBeenCalled();
   });
 });
+
+describe("a local worker's allowlist (ADR 0094)", () => {
+  it("hands a job of a workspace it may not write for to the cloud at once, without waiting or claiming", async () => {
+    const d = deps({ lock: lock("held"), waitMs: 60_000, allowed: vi.fn(async () => false) });
+    const message = delivery();
+    expect(await handleLocalDelivery(d, message)).toBe("handed-off");
+    expect(d.handOff).toHaveBeenCalledWith({ jobId: "job-1", generation: 2 });
+    expect(d.handle).not.toHaveBeenCalled();
+    expect(message.delete).toHaveBeenCalled();
+  });
+
+  it("renders a job of one of its workspaces", async () => {
+    const d = deps({ allowed: vi.fn(async () => true) });
+    expect(await handleLocalDelivery(d, delivery())).toBe("succeeded");
+    expect(d.handOff).not.toHaveBeenCalled();
+  });
+});

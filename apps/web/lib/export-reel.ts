@@ -39,7 +39,7 @@ export async function queueReelExport(user: { id: string; workspaceId: string },
     return { ok: false, issues: [], message: error instanceof Error ? error.message : "Could not export." };
   }
 
-  const route = await renderRouteFor(user.workspaceId);
+  const route = renderRouteFor(user.workspaceId);
   await prisma.$transaction(async (tx) => {
     const job = await tx.renderJob.create({
       data: {

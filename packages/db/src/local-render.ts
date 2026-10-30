@@ -6,8 +6,9 @@ import { addToOutbox, RENDER_JOBS_TOPIC } from "./outbox";
  * own) go to a second queue that a worker on the owner's PC consumes, instead
  * of starting a Fargate task. Everything else is unchanged.
  *
- * The route is decided once, when a generation is queued, and stored on the
- * job (`RenderJob.route`). Everything after that (the relay, the fallback,
+ * Which workspaces is an explicit list (LOCAL_RENDER_WORKSPACES), the same
+ * one the PC worker's IAM user may write for. The route is decided once, when
+ * a generation is queued, and stored on the job (`RenderJob.route`). Everything after that (the relay, the fallback,
  * the PC worker's hand-off) follows the stored route, never who owns the
  * workspace now.
  */
@@ -20,10 +21,12 @@ export type RenderRoute = "local" | "cloud";
 export type LocalRenderPolicy = {
   /** The local queue. */
   queueUrl: string;
-  /** Workspaces whose renders go to it. */
+  /**
+   * Workspaces whose renders go to it: an explicit list, the same one the PC
+   * worker's IAM user may write for (`local/<workspaceId>/`), so routing and
+   * permissions can never disagree.
+   */
   workspaceIds: ReadonlySet<string>;
-  /** People (by sign-in email) whose own workspaces, home and owned, go to it. */
-  emails: ReadonlySet<string>;
 };
 
 const DEFAULT_FALLBACK_SECONDS = 600;
@@ -32,17 +35,21 @@ function list(value: string | undefined): string[] {
   return (value ?? "").split(/[\s,]+/).map((item) => item.trim()).filter(Boolean);
 }
 
+/** The workspaces in LOCAL_RENDER_WORKSPACES (comma or space separated). */
+export function localRenderWorkspacesFromEnv(env: Record<string, string | undefined> = process.env): ReadonlySet<string> {
+  return new Set(list(env.LOCAL_RENDER_WORKSPACES));
+}
+
 /**
- * The policy from LOCAL_RENDER_QUEUE_URL, LOCAL_RENDER_WORKSPACES and
- * LOCAL_RENDER_EMAILS. Null (route everything to the cloud queue) unless
- * there is a queue and someone on the list.
+ * The policy from LOCAL_RENDER_QUEUE_URL and LOCAL_RENDER_WORKSPACES. Null
+ * (route everything to the cloud queue) unless there is a queue and a
+ * workspace on the list.
  */
 export function localRenderPolicyFromEnv(env: Record<string, string | undefined> = process.env): LocalRenderPolicy | null {
   const queueUrl = env.LOCAL_RENDER_QUEUE_URL?.trim();
-  const workspaceIds = new Set(list(env.LOCAL_RENDER_WORKSPACES));
-  const emails = new Set(list(env.LOCAL_RENDER_EMAILS).map((email) => email.toLowerCase()));
-  if (!queueUrl || (workspaceIds.size === 0 && emails.size === 0)) return null;
-  return { queueUrl, workspaceIds, emails };
+  const workspaceIds = localRenderWorkspacesFromEnv(env);
+  if (!queueUrl || workspaceIds.size === 0) return null;
+  return { queueUrl, workspaceIds };
 }
 
 /** How long a local job may wait unclaimed, or sit with a dead heartbeat, before it moves to the cloud queue. */
@@ -51,69 +58,13 @@ export function localRenderFallbackMs(env: Record<string, string | undefined> = 
   return (env.LOCAL_RENDER_FALLBACK_SECONDS && Number.isFinite(seconds) && seconds > 0 ? seconds : DEFAULT_FALLBACK_SECONDS) * 1000;
 }
 
-type Db = Pick<PrismaClient | Prisma.TransactionClient, "user" | "workspaceMember">;
-
 /**
- * Every workspace whose renders go to the local queue: the listed ones, plus
- * the home workspace and every workspace OWNED by a listed person. An EDITOR
- * membership does not count, so a customer's studio that invites us stays on
- * the cloud.
+ * Where a new render job of a workspace goes: local only if the workspace is
+ * on the list. No database lookup, so routing can neither fail nor slow an
+ * export, and nothing is cached that could go stale.
  */
-export async function localRenderWorkspaceIds(db: Db, policy: LocalRenderPolicy): Promise<string[]> {
-  const ids = new Set(policy.workspaceIds);
-  if (policy.emails.size > 0) {
-    const emails = [...policy.emails];
-    const [homes, owned] = await Promise.all([
-      db.user.findMany({ where: { email: { in: emails } }, select: { workspaceId: true } }),
-      db.workspaceMember.findMany({ where: { role: "OWNER", user: { email: { in: emails } } }, select: { workspaceId: true } }),
-    ]);
-    for (const row of [...homes, ...owned]) ids.add(row.workspaceId);
-  }
-  return [...ids];
-}
-
-export type RenderRouter = (workspaceId: string) => Promise<RenderRoute>;
-
-/**
- * Where a new render job of a workspace goes. Call it before the transaction
- * that writes the job: the owner lookup is a separate, bounded query whose
- * failure or slowness routes to the cloud (the default every customer gets)
- * instead of failing, or aborting, the export's own transaction. The owned
- * workspaces are cached for `ttlMs`; a failed refresh keeps the last good set.
- */
-export function createRenderRouter(
-  db: Db,
-  policy: LocalRenderPolicy | null,
-  options: { ttlMs?: number; timeoutMs?: number; now?: () => number; log?: (message: string, error?: unknown) => void } = {},
-): RenderRouter {
-  const { ttlMs = 60_000, timeoutMs = 1_500, now = Date.now } = options;
-  const log = options.log ?? ((message, error) => console.error(message, error));
-  let cached: { ids: ReadonlySet<string>; at: number } | null = null;
-  let refreshing: Promise<ReadonlySet<string> | null> | null = null;
-
-  const refresh = (p: LocalRenderPolicy) => (refreshing ??= (async () => {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    try {
-      const timeout = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(`owner lookup took over ${timeoutMs} ms`)), timeoutMs); });
-      const ids = new Set(await Promise.race([localRenderWorkspaceIds(db, p), timeout]));
-      cached = { ids, at: now() };
-      return ids;
-    } catch (error) {
-      log("local-render: could not look up the owners' workspaces; routing to the cloud", error);
-      return cached?.ids ?? null;
-    } finally {
-      clearTimeout(timer);
-      refreshing = null;
-    }
-  })());
-
-  return async (workspaceId) => {
-    if (!policy) return "cloud";
-    if (policy.workspaceIds.has(workspaceId)) return "local";
-    if (policy.emails.size === 0) return "cloud";
-    const ids = cached && now() - cached.at < ttlMs ? cached.ids : await refresh(policy);
-    return ids?.has(workspaceId) ? "local" : "cloud";
-  };
+export function renderRouteFor(policy: LocalRenderPolicy | null, workspaceId: string): RenderRoute {
+  return policy?.workspaceIds.has(workspaceId) ? "local" : "cloud";
 }
 
 /** The outbox topic for a route. */

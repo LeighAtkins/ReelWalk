@@ -1,8 +1,9 @@
 import { ECSClient, ListTasksCommand, RunTaskCommand, type RunTaskCommandInput } from "@aws-sdk/client-ecs";
 import { GetQueueAttributesCommand, SQSClient } from "@aws-sdk/client-sqs";
 import { serializeRenderJobMessage } from "@reelwalk/core";
-import { localRenderFallbackMs, moveStalledLocalRenders, prisma, type RenderRoute } from "@reelwalk/db";
+import { localRenderFallbackMs, moveStalledLocalRenders, prisma, sweepRenderArtifacts, type RenderRoute } from "@reelwalk/db";
 import { flushOutbox } from "./render-jobs";
+import { deleteObjects } from "./storage";
 
 /**
  * On-demand rendering. In the serverless deployment no worker runs between
@@ -202,6 +203,21 @@ export async function rescueStalledLocalRenders(now = new Date()): Promise<numbe
   }
 }
 
+/** Run objects (a losing preview run's files, ADR 0094) older than this and referenced by nothing are deleted. */
+const artifactGraceMs = Number(process.env.RENDER_ARTIFACT_GRACE_HOURS ?? 24) * 3_600_000;
+
+/** Deletes losing and dead runs' files. Never throws. */
+export async function sweepOrphanedRenderFiles(now = new Date()): Promise<number> {
+  try {
+    const deleted = await sweepRenderArtifacts(prisma, { graceMs: artifactGraceMs, now, deleteObjects });
+    if (deleted.length > 0) console.log(`render-capacity: deleted ${deleted.length} file(s) no run published`);
+    return deleted.length;
+  } catch (error) {
+    console.error("render-capacity: could not sweep orphaned render files", error);
+    return 0;
+  }
+}
+
 let lastReconcile = 0;
 
 /**
@@ -216,5 +232,5 @@ export function reconcileWorkersInBackground(): void {
   if (Date.now() - lastReconcile < 60_000) return;
   lastReconcile = Date.now();
   // The flush sends what the PC worker handed off (it writes the cloud message to the outbox, ADR 0094).
-  void rescueStalledLocalRenders().then(() => flushOutbox()).then(() => reconcile({ atLeastOne: false }));
+  void rescueStalledLocalRenders().then(() => flushOutbox()).then(() => reconcile({ atLeastOne: false })).then(() => sweepOrphanedRenderFiles());
 }

@@ -22,7 +22,7 @@ steal the lock, and wait 60 s before taking it again.
 
 ### 1. Route by workspace, at enqueue time, through the outbox
 
-`queueRenderJob` asks `renderRouteFor(tx, policy, job.workspaceId)` which queue the job belongs on. It writes the
+The web app asks `renderRouteFor(workspaceId)` which queue a new job belongs on, and stores the answer as the job's `route`. `queueRenderJob` follows it. It writes the
 message to the outbox under topic `render-jobs` (the cloud queue, unchanged) or `render-jobs-local` (new). The route
 goes back to the caller, and `ensureWorkerRunning(route)` starts no Fargate task for a local job. The relays send
 each topic to its own queue:
@@ -40,29 +40,25 @@ Google credentials only the task role federates, and they spend most of their ti
 - Veo generations, polled from the database;
 - the nightly backup.
 
-**Who is local.** A workspace is local if either:
+**Who is local:** the workspaces listed in `LOCAL_RENDER_WORKSPACES`, and nothing else. The production value is a
+Terraform variable with a default, so `ship.sh` applies it with no tfvars edit:
 
-- it is listed in `LOCAL_RENDER_WORKSPACES`; or
-- its owner is listed in `LOCAL_RENDER_EMAILS`. This covers the person's home workspace and every workspace where
-  they hold an OWNER membership, so a studio the owner creates later is covered without a change. An EDITOR seat in
-  someone else's studio does not count: a customer who invites us keeps rendering on Fargate.
+- `local_render_workspace_ids` = the @reelwalking studio and Last Mile (`cmvny3ai60000bkuumm4q6nha`), the two
+  workspaces leigh.atkins1@gmail.com owns. They were resolved read-only from the production database.
 
-The production values are Terraform variables with defaults, so `ship.sh` applies them with no tfvars edit:
+The same list scopes what the PC's IAM user may write (`local/<id>/*`, section 3). Routing and permissions therefore
+cannot disagree, and a new studio of ours is added to the list.
 
-- `local_render_workspace_ids` = the @reelwalking studio and Last Mile (`cmvny3ai60000bkuumm4q6nha`);
-- `local_render_emails` = `leigh.atkins1@gmail.com`.
+Before review round 2, the list also took owner emails (`LOCAL_RENDER_EMAILS`): every workspace a listed person
+owned, looked up per enqueue with a bounded, cached query. That was dropped, for two reasons:
 
-These values were resolved read-only from the production database. Neither is secret: the email is already in the
-repository's commit history and in ADR 0079.
+- IAM cannot follow an email, so a workspace routed by email would have been one the PC could not write for;
+- the cache could hand out a stale answer after an ownership change.
 
-**The route is decided once and stored on the job.** The web app resolves it before the transaction that writes the
-job (`renderRouteFor`), and writes it to the job's new `route` column. The rest follows the stored route, never who
-owns the workspace now: the outbox topic, the fallback, and the PC worker's hand-off.
-
-- **Resolving before the transaction keeps the lookup out of the export's failure path.** The owner lookup
-  (`createRenderRouter`) is a separate query. It is bounded to 1.5 s and cached for a minute. If it fails or times out,
-  it answers "cloud", the default every customer gets, and keeps the last good set if it had one. A lookup error inside
-  the enqueue transaction would have aborted that transaction, and with it the export, even for an ordinary customer.
+**The route is decided once and stored on the job.** The web app decides it before the transaction that writes the
+job, as a list check with no lookup, so it cannot fail or slow an export, and nothing is cached that could go stale.
+It is written to the job's new `route` column. Everything after that follows the stored route, never the current
+list: the outbox topic, the fallback, and the PC worker's hand-off.
 
 **Why environment variables decide who is local, not a DB flag or SSM.**
 
@@ -120,11 +116,32 @@ The worker gains `WORKER_MODE=local`, which:
 - relays only local outbox messages;
 - never exits for idleness.
 
+**It renders only for its own workspaces, and writes only under them.**
+
+- Every key a PC run writes goes under `local/<workspaceId>/` (`localKeyFor`): the export with its checks and
+  audio, a preview, a frame thumbnail, a re-encoded render source. Its IAM user may write nowhere else. Readers follow
+  the keys stored on the rows, so the cloud's key layout is unchanged.
+- A job of a workspace not on its `LOCAL_RENDER_WORKSPACES` (the list changed after the job was queued) is handed to
+  the cloud at once, unclaimed.
+- Render sources: the PC reads the shared `render-sources/<asset>.mp4` cache when it exists, and otherwise makes its
+  own under its prefix.
+
+**Every object a run uploads is recorded before the upload** (`RenderArtifact`, kind "run"; render sources are
+"cache"). Recording a key again makes its record new, because an export's key repeats when a failed job is retried.
+Once a minute the web app sweeps the records:
+
+- a record more than `RENDER_ARTIFACT_GRACE_HOURS` (24) old whose key nothing references (no asset's preview or
+  thumbnail, no render output) is the file of a run that lost its job or died. The record is deleted first, and only
+  if it is still old; then the object, with an export's checks and audio, is deleted from storage;
+- a referenced record is simply dropped.
+
+Account deletion also deletes every recorded object of the workspaces it removes, render-source caches included.
+
 With `HEAVY_LOCK_DIR` set, it takes the shared lock before it claims each job (`apps/worker/src/local-delivery.ts`,
 `heavy-lock.ts`):
 
 - **taking it:** `mkdir`, then writes `owner.txt` and reads it back in the same step. The line is
-  `reelwalk-local-worker <ISO time> render <job> host=<container> boot=<process> #<token>`;
+  `reelwalk-local-worker <ISO time> render <job> container=<id> pid=<pid> start=<start time> boot=<kernel boot> #<token>`;
 - **holding it:** rewrites `owner.txt` every 4 min;
 - **releasing it:** after the handler returns, when the attempt's scope has closed and Chrome and ffmpeg have gone. It
   is removed only if `owner.txt` still carries our token;
@@ -140,22 +157,44 @@ Before this, the worker claimed the job first and then waited for the lock, with
 while, so the fallback took it for healthy. A lock left by a dead worker therefore stranded the job: attempts burned
 without rendering.
 
-**It never steals another holder's lock.** From inside a container the worker cannot see whether another holder's
-process is alive, which the protocol's stale rule needs. Our own dead locks are recovered in two places, and only when
-the lock is provably ours and dead:
+**It never steals another holder's lock, and removes one of its own only on proof of death.** `owner.txt` records
+the holder as `container=<full id> pid=<pid> start=<process start time> boot=<kernel boot id>`, read from `/proc`
+inside the container. A worker may remove a lock only when all of these hold:
 
-- **in the worker:** `owner.txt` naming this container (`host=`) with a different `boot=` was left by this
-  container's previous process, after a crash, an OOM kill or a reboot with `restart: unless-stopped`. It is removed
-  if it is unchanged on a second read;
-- **on the host:** `start.sh` removes a lock whose `owner.txt` names `reelwalk-local-worker` and a container that is
-  not running, again only if it is unchanged.
+- it names our owner and this same container;
+- it is not this very process;
+- the recorded process provably no longer exists. From inside the same container, `/proc/<pid>` is gone, or now
+  belongs to a process with another start time, or the kernel has booted since.
+
+Anything it cannot read or prove leaves the lock alone:
+
+- an unreadable `/proc`;
+- another container, whose processes it cannot see;
+- a missing identity (a worker not in a container never removes anything).
+
+Before review round 2 a different random boot token counted as proof, and it was not: a second live process in the
+same container lost its lock.
+
+On the host, `start.sh` removes a lock that names our worker and a full container id only on positive evidence:
+`docker inspect` reports it not running, or "No such object". Any other Docker error leaves the lock. Before round 2,
+a failed `docker ps` read as "container gone".
+
+**Removal itself cannot take a live lock.** The cleaner first takes a sibling `.cleanup` directory, which serialises
+our cleaners. It then renames the lock to a tombstone, which is atomic, and checks that the tombstone holds exactly
+the `owner.txt` it judged dead. If not, someone took the lock in between, and it is renamed back. Acquisition is the
+atomic `mkdir`, so a cleanup and an acquisition never both succeed on the same lock.
 
 `infra/local-worker/start.sh` is the one-command setup:
 
 - it runs the image of the live `reelwalk-worker` task definition, so the worker matches the production schema;
 - its plain settings come from the same task definition;
 - the worker runs as its own IAM user, `reelwalk-local-worker`, not reelwalk-app. `start.sh key` writes that user's
-  key to `~/.reelwalk/aws-credentials` without printing it;
+  key to `~/.reelwalk/aws-credentials` without printing it, and is safe to run again:
+  - runs are serialised by a guard directory;
+  - it keeps a key the PC already holds;
+  - it refuses to mint a second key while IAM holds one the PC lacks, unless given `--replace`, which deletes those;
+  - it writes to a temp file, checks it, and moves it into place, so a failed AWS call installs nothing and blocks no
+    retry;
 - `DATABASE_URL` goes from SSM straight into `~/.reelwalk/database-url`;
 - both files are mounted read-only and read by the container (`AWS_SHARED_CREDENTIALS_FILE`, and `cat` in its
   command), so neither is in its environment for `docker inspect` to show;
@@ -204,14 +243,14 @@ one. Past that, keeping the task alive costs more than a cold start.
 - the IAM user `reelwalk-local-worker` (`local_worker_iam.tf`). It may:
   - receive, delete, change visibility on and send to the local queue and its DLQ;
   - get any object in the media bucket;
-  - put (and abort multipart uploads) under `renders/`, `previews/`, `thumbs/` and `render-sources/`.
+  - put (and abort multipart uploads) only under `local/<id>/`, for each id in `local_render_workspace_ids`.
 
-  It may not touch the customers' queue, list the bucket or delete anything. Its read reach is no wider than the
+  It may not touch the customers' queue or objects, list the bucket, or delete anything. Its read reach is no wider than the
   database URL it needs anyway. Its key is made by hand, so it never enters Terraform state;
 - the worker task's `stopTimeout` = 120 s, with `RENDER_SHUTDOWN_DRAIN_SECONDS` = 90 and
   `RENDER_STOP_TIMEOUT_SECONDS` = 120;
 - `LOCAL_RENDER_QUEUE_URL` for web and worker;
-- `LOCAL_RENDER_WORKSPACES`, `_EMAILS` and `_FALLBACK_SECONDS` for web;
+- `LOCAL_RENDER_WORKSPACES` for web and worker, and `LOCAL_RENDER_FALLBACK_SECONDS` for web;
 - `ECS_SPOT` for web;
 - the cluster's capacity providers;
 - outputs for the new queue URLs.
@@ -224,12 +263,23 @@ one. Past that, keeping the task alive costs more than a cold start.
 - **Our renders are faster when the PC is on:** no 60–70 s cold start, and more cores than a 2-vCPU task.
 - **When the PC is off, our renders wait 10 minutes,** then run on Fargate as before.
 - **A render waits while Last Mile holds the heavy lock.** That is the trade the lock exists for.
-- **There is a migration** (`20261030010000_render_job_route`: `RenderJob.route` and `interruptions`, plus an
-  index). It is additive with defaults, and code from before it ignores both columns. Apply it before the deploy: the
-  new code writes `route` on every enqueue. `ship.sh` does not apply migrations.
+- **There is a migration, and it must run BEFORE the new code deploys.** It is
+  `20261030010000_render_job_route`:
+  - `RenderJob.route` and `interruptions`, and an index on `(route, status)`;
+  - the `RenderArtifact` table.
+
+  It is additive with defaults, and the old code ignores the new columns and table, so applying it early is safe. The
+  new Prisma client reads both columns on every render-job query, so the new code cannot work without it.
+  `ship.sh` does not apply migrations.
+
+  RenderJob is about 2.6 MB in production, so the plain `CREATE INDEX` takes a moment. The script sets a
+  transaction-scoped `SET LOCAL lock_timeout = '5s'` (never a session setting) so it fails fast, and can be run again,
+  rather than queue exports behind a long lock. Run it through the 5432 session pooler.
 - **Shipping changes the worker's environment** (`LOCAL_RENDER_QUEUE_URL`, `WORKER_IDLE_EXIT_SECONDS`, the drain and
   stop timeout), so `infra/deploy.sh` and `ship.sh` need `ALLOW_WORKER_ENV_CHANGE=1` for this deploy.
 - **Before the first start,** run `start.sh key` once, after the apply has created the IAM user.
+- **A new studio of ours renders locally only once its id is added** to `local_render_workspace_ids` and applied.
+  The email expansion is gone.
 - **The local worker only matches production while it runs the deployed image.** Re-run `start.sh` after each deploy.
 - **To retire it:** empty the lists and apply. New jobs go to the cloud. The fallback moves any job still routed to
   the PC after 10 minutes, whatever the lists say.
@@ -328,3 +378,45 @@ lock so a held lock could be staged, and `heavy.sh` held the real lock around ea
 
 **A read-only `terraform plan`** against production state: 8 to add (now also the `reelwalk-local-worker` user, its
 policy and the attachment), 5 to change, and 1 to destroy (the replaced task definition). Not applied.
+
+### Review round 2 (GPT Sol, 2026-10-30): five findings, all fixed
+
+Round 2 confirmed three round-1 fixes: per-job route (#3), Spot loops (#4) and `start.sh` (#6). #2 was fixed for new
+workers, and the migration's defaults are fine for old code. Five items remained; each fix has a test for the
+interleaving named.
+
+- **F1. The PC's key could overwrite customer objects** under `renders/` and the other prefixes.
+  - PC writes now all go under `local/<workspace>/`, and IAM allows only those of the listed workspaces.
+  - The PC hands off a job of any other workspace (`local-delivery.test.ts`).
+  - Routing is the same explicit list, so it cannot route a workspace the PC may not write for.
+- **F2. Lock cleanup removed a live holder,** with a non-atomic check, and failed open on Docker errors.
+  - The fix is positive proof of death from `/proc` (container, PID, start time, kernel boot), atomic
+    rename-and-verify, a cleanup guard, and `docker inspect` failing closed.
+  - Tests:
+    - a live holder in the same container is kept;
+    - dead, reused-PID and rebooted holders are removed;
+    - unreadable, other-container, other-owner and identity-less holders are kept;
+    - a lock that changes hands mid-removal is put back;
+    - another cleaner's guard is respected;
+    - in bash: Docker stopped or gone means removed; running or an error means kept; a race puts it back.
+- **F3. Losing preview runs left orphaned objects.** The fix is the `RenderArtifact` manifest, the 24 h sweep and
+  account deletion.
+  - Tests:
+    - the loser's preview and thumbnail are deleted after the grace and the winner's kept;
+    - a dead export goes with its checks and audio;
+    - a retry re-recording the same key is never swept;
+    - caches stay until the workspace goes, and are listed for deletion.
+- **F4. A stale cache could keep routing after an ownership change.** The cache is gone with the email expansion, and
+  routing is a list check.
+- **F5. Key creation was not atomic.** It is now serialised, reconciled with IAM's key ids, written to a temp file,
+  checked and moved into place. Tests, in bash with `aws` stubbed:
+  - one complete key is made;
+  - an already-held key is left alone;
+  - a second key is refused without `--replace`, and `--replace` deletes then creates;
+  - a failed create installs nothing and the retry succeeds;
+  - a concurrent run is refused.
+
+Against d7c78f0's sources, 14 of the new tests fail: 12 of 28 in the worker's heavy-lock, start.sh and local-delivery
+tests, and 2 of 10 in db routing. The reviewer's two exact reproductions cannot be replayed against the new code,
+because the decisions they exploited are gone: the old lock had only `host=` and `boot=`, and the old script used
+`docker ps`.

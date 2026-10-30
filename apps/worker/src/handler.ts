@@ -12,6 +12,8 @@ import { handleAiStepDeadLetter, handleAiStepDelivery, type AiStepDeps } from ".
 
 export type ClaimedJob = {
   id: string;
+  /** The job's workspace: a PC worker writes under it (ADR 0094). */
+  workspaceId?: string;
   generation: number;
   /** The attempt this claim wrote (a per-job counter the claim increments), part of the lease and of the output's key. */
   attempt: number;

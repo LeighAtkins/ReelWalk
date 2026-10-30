@@ -1,7 +1,7 @@
 import { ECSClient, ListTasksCommand, RunTaskCommand, type RunTaskCommandInput } from "@aws-sdk/client-ecs";
 import { GetQueueAttributesCommand, SQSClient } from "@aws-sdk/client-sqs";
 import { serializeRenderJobMessage } from "@reelwalk/core";
-import { localRenderPolicyFromEnv, moveStalledLocalRenders, prisma, type LocalRenderPolicy, type RenderRoute } from "@reelwalk/db";
+import { localRenderFallbackMs, moveStalledLocalRenders, prisma, type RenderRoute } from "@reelwalk/db";
 import { flushOutbox } from "./render-jobs";
 
 /**
@@ -22,12 +22,8 @@ const queueUrl = process.env.SQS_QUEUE_URL;
 const jobsPerWorker = Math.max(1, Number(process.env.RENDER_JOBS_PER_WORKER ?? 1));
 // Fargate Spot first (ADR 0094); ECS_SPOT=false launches on-demand Fargate only.
 const useSpot = (process.env.ECS_SPOT ?? "true").toLowerCase() !== "false";
-let policy: LocalRenderPolicy | null | undefined;
-/** Read on first use, so tests that mock @reelwalk/db without it can still import this module. */
-function localRender(): LocalRenderPolicy | null {
-  if (policy === undefined) policy = localRenderPolicyFromEnv();
-  return policy;
-}
+// Once a waiting cloud job has been handed back this many times (Spot reclaims), launches are on-demand.
+const spotInterruptionsAllowed = Math.max(1, Number(process.env.ECS_SPOT_MAX_INTERRUPTIONS ?? 1));
 
 export function onDemandWorkersConfigured(): boolean {
   return Boolean(cluster && taskDefinition && subnets.length > 0);
@@ -129,9 +125,24 @@ async function reconcileLocked({ atLeastOne }: { atLeastOne: boolean }): Promise
         awsvpcConfiguration: { subnets, securityGroups, assignPublicIp: "ENABLED" },
       },
       startedBy: "reelwalk-web",
-    }, { spot: useSpot });
+    }, { spot: useSpot && !(await interruptedJobWaiting()) });
     for (let i = 0; i < started; i++) launched.push(Date.now());
     console.log(`render-capacity: started ${started} of ${toStart} worker task(s) (${spot} on Spot); ${active} already up, ${outstanding ?? "?"} job(s) outstanding`);
+  }
+}
+
+/**
+ * Whether a cloud job waiting for a worker has already been interrupted
+ * (handed back on SIGTERM, usually a Spot reclaim) as often as Spot is
+ * allowed: then the next worker is on-demand, so a job is not restarted by
+ * reclaim after reclaim. If the count cannot be read, Spot is not used.
+ */
+export async function interruptedJobWaiting(): Promise<boolean> {
+  try {
+    return (await prisma.renderJob.count({ where: { route: "cloud", status: { in: ["QUEUED", "RUNNING"] }, interruptions: { gte: spotInterruptionsAllowed } } })) > 0;
+  } catch (error) {
+    console.error("render-capacity: could not count interrupted jobs; launching on-demand", error);
+    return true;
   }
 }
 
@@ -172,16 +183,16 @@ export async function ensureWorkerRunning(route: RenderRoute = "cloud"): Promise
 }
 
 /**
- * Moves local render jobs nobody has picked up (the PC is off) to the cloud
- * queue and starts a worker for them. Never throws.
+ * Moves jobs sent to the local queue that nobody has picked up (the PC is
+ * off) to the cloud queue and starts a worker for them. It follows each job's
+ * stored route, so it runs whatever the current policy says. Never throws.
  */
 export async function rescueStalledLocalRenders(now = new Date()): Promise<number> {
-  const local = localRender();
-  if (!local) return 0;
+  const fallbackMs = localRenderFallbackMs();
   try {
-    const moved = await moveStalledLocalRenders(prisma, local, { now, serialize: serializeRenderJobMessage });
+    const moved = await moveStalledLocalRenders(prisma, { fallbackMs, now, serialize: serializeRenderJobMessage });
     if (moved.length === 0) return 0;
-    console.log(`render-capacity: ${moved.length} local render(s) waited over ${local.fallbackMs / 1000}s, moved to the cloud queue: ${moved.join(", ")}`);
+    console.log(`render-capacity: ${moved.length} local render(s) waited over ${fallbackMs / 1000}s, moved to the cloud queue: ${moved.join(", ")}`);
     await flushOutbox();
     await reconcile({ atLeastOne: true });
     return moved.length;
@@ -198,10 +209,12 @@ let lastReconcile = 0;
  * minute per instance. Starts workers for messages nobody is working on: for
  * instance a render whose worker was killed comes back on the queue after its
  * visibility timeout, and without this would wait for the next export. It
- * first moves local renders the PC has not taken to the cloud queue.
+ * first moves local renders the PC has not taken to the cloud queue, and
+ * sends what is waiting in the outbox.
  */
 export function reconcileWorkersInBackground(): void {
-  if ((!onDemandWorkersConfigured() && !localRender()) || Date.now() - lastReconcile < 60_000) return;
+  if (Date.now() - lastReconcile < 60_000) return;
   lastReconcile = Date.now();
-  void rescueStalledLocalRenders().then(() => reconcile({ atLeastOne: false }));
+  // The flush sends what the PC worker handed off (it writes the cloud message to the outbox, ADR 0094).
+  void rescueStalledLocalRenders().then(() => flushOutbox()).then(() => reconcile({ atLeastOne: false }));
 }

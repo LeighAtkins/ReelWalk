@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 
@@ -11,9 +12,18 @@ import { setTimeout as sleep } from "node:timers/promises";
  * render worker takes it around each render and releases it after.
  *
  * It never steals: a held lock is waited out however old its owner.txt is.
- * From inside a container the worker cannot see whether the holder's
+ * From inside a container the worker cannot see whether another holder's
  * processes are still running, which is what the protocol's stale rule needs.
+ * The one exception is a lock that this same container's previous process
+ * left when it crashed, was OOM-killed or the PC rebooted. owner.txt names
+ * the container (host=) and the process (boot=), and only a worker in that
+ * container with a different boot may remove it. A lock left by a container
+ * that no longer runs is cleared on the host by infra/local-worker/start.sh,
+ * which can see the containers. Callers bound the wait with their signal.
  */
+
+/** This process's identity in owner.txt: a crashed predecessor in the same container had another. */
+const BOOT = randomUUID().slice(0, 8);
 export type HeavyLockOptions = {
   /** The lock directory, e.g. /heavy/.heavy.lock (C:\dev\lm\.heavy.lock mounted). */
   dir: string;
@@ -27,6 +37,9 @@ export type HeavyLockOptions = {
   cooldownMs?: number;
   log?: (message: string) => void;
   now?: () => Date;
+  /** The container (its hostname) and process this worker is; tests set them. */
+  host?: string;
+  boot?: string;
 };
 
 export type HeavyLock = {
@@ -35,13 +48,19 @@ export type HeavyLock = {
 };
 
 export function createHeavyLock(options: HeavyLockOptions): HeavyLock {
-  const { dir, owner, pollMs = 30_000, refreshMs = 4 * 60_000, cooldownMs = 60_000 } = options;
+  const { dir, owner, pollMs = 30_000, refreshMs = 4 * 60_000, cooldownMs = 60_000, host = os.hostname(), boot = BOOT } = options;
   const log = options.log ?? ((message) => console.log(message));
   const now = options.now ?? (() => new Date());
   const ownerFile = path.join(dir, "owner.txt");
   let releasedAt = 0;
 
-  const line = (label: string, token: string) => `${owner} ${now().toISOString()} ${label} #${token}\n`;
+  const line = (label: string, token: string) => `${owner} ${now().toISOString()} ${label} host=${host} boot=${boot} #${token}\n`;
+  /** owner.txt written by an earlier process of this same container, which is gone: this process replaced it. */
+  const deadPredecessor = (holder: string) => {
+    if (!holder.startsWith(`${owner} `) || !holder.includes(` host=${host} `)) return false;
+    const previous = / boot=(\S+)/.exec(holder)?.[1];
+    return previous !== undefined && previous !== boot;
+  };
   const ours = async (token: string) => (await readFile(ownerFile, "utf8").catch(() => "")).includes(`#${token}`);
 
   return {
@@ -57,10 +76,18 @@ export function createHeavyLock(options: HeavyLockOptions): HeavyLock {
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
         }
+        const holder = (await readFile(ownerFile, "utf8").catch(() => "")).trim();
+        if (deadPredecessor(holder)) {
+          // Removed only if owner.txt still says the same, so nobody else can have taken it in between.
+          if ((await readFile(ownerFile, "utf8").catch(() => "")).trim() === holder) {
+            await rm(dir, { recursive: true, force: true });
+            log(`heavy-lock: removed the lock this container's previous process left (${holder})`);
+          }
+          continue;
+        }
         if (waitingSince === undefined) {
           waitingSince = Date.now();
-          const holder = (await readFile(ownerFile, "utf8").catch(() => "(no owner.txt yet)")).trim();
-          log(`heavy-lock: ${label} waiting for ${dir}, held by ${holder}`);
+          log(`heavy-lock: ${label} waiting for ${dir}, held by ${holder || "(no owner.txt yet)"}`);
         }
         await wait(pollMs, signal);
       }

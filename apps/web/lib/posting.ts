@@ -2,7 +2,7 @@ import { fullReelStoryProblem, parseReelExportPayload, planStoryCut, referencedA
 import { prisma, type Prisma, type ScheduledPost } from "@reelwalk/db";
 import { COVER_FRAME_MS, reelCoverMs } from "@/lib/instagram";
 import { ensureWorkerRunning } from "@/lib/render-capacity";
-import { flushOutbox, queueRenderJob } from "@/lib/render-jobs";
+import { flushOutbox, queueRenderJob, renderRouteFor } from "@/lib/render-jobs";
 import { publishDueScheduledPosts } from "@/lib/scheduled-posts";
 
 /**
@@ -71,9 +71,11 @@ export async function ensureStoryCut(user: { id: string; workspaceId: string }, 
   const existing = await storyCutOf(user.workspaceId, job.id);
   if (existing) return existing;
   const payload = storyCutPayload(parseReelExportPayload(job.payload), handle);
+  const route = await renderRouteFor(user.workspaceId);
   const created = await prisma.$transaction(async (tx) => {
     const story = await tx.renderJob.create({
       data: {
+        route,
         workspaceId: user.workspaceId,
         createdById: user.id,
         kind: "STORY",
@@ -81,12 +83,13 @@ export async function ensureStoryCut(user: { id: string; workspaceId: string }, 
         payload,
         caption: `${job.reel?.title ?? job.caption ?? "Reel"} · Story`,
       },
-      select: { id: true, status: true, generation: true, workspaceId: true },
+      select: { id: true, status: true, generation: true, route: true },
     });
-    return { ...story, route: await queueRenderJob(tx, story) };
+    await queueRenderJob(tx, story);
+    return story;
   });
   await flushOutbox();
-  await ensureWorkerRunning(created.route);
+  await ensureWorkerRunning(route);
   return { id: created.id, status: created.status };
 }
 

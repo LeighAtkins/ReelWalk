@@ -897,6 +897,12 @@ model RenderJob {
   attempt      Int             @default(0)
   // Bumped on every manual retry; messages from older generations are ignored.
   generation   Int             @default(1)
+  // Which queue the current generation was sent to (ADR 0094): "local" (the owner's PC) or "cloud".
+  // The fallback moves a stalled local job by flipping this with the generation, never by who owns the workspace now.
+  route        String          @default("cloud")
+  // Shutdown hand-backs (a Spot reclaim, a stopped PC worker) of this generation, which spend no attempt:
+  // past a budget the next launch is on-demand, and past another the interruption counts as a failure.
+  interruptions Int            @default(0)
   caption      String?
   // Timeline project JSON for EDITOR jobs.
   payload      Json?
@@ -913,6 +919,8 @@ model RenderJob {
   @@index([propertyId, createdAt])
   @@index([reelId, createdAt])
   @@index([sourceJobId])
+  // The fallback's sweep: local jobs still QUEUED or RUNNING.
+  @@index([route, status])
 }
 
 // Transactional outbox: a queue message that still has to be sent. The row is

@@ -16,6 +16,10 @@ export type WorkerConfig = {
    */
   heavyLockDir?: string;
   heavyLockOwner: string;
+  /** How long a local worker waits for the heavy lock before handing the unclaimed job to the cloud. */
+  heavyLockWaitSeconds: number;
+  /** Shutdown hand-backs a job's generation gets without spending an attempt (Spot reclaims, a stopped PC). */
+  maxInterruptions: number;
   deadLetterQueueUrl?: string;
   awsRegion: string;
   s3EndpointUrl?: string;
@@ -82,6 +86,9 @@ export function getConfig(env = process.env): WorkerConfig {
     localQueueUrl: valueOrUndefined(env, "LOCAL_RENDER_QUEUE_URL"),
     heavyLockDir: valueOrUndefined(env, "HEAVY_LOCK_DIR"),
     heavyLockOwner: env.HEAVY_LOCK_OWNER || "reelwalk-local-worker",
+    // Under the web app's 10-minute fallback, so the worker hands off first and says why.
+    heavyLockWaitSeconds: numberFrom(env, "HEAVY_LOCK_WAIT_SECONDS", 480),
+    maxInterruptions: numberFrom(env, "RENDER_MAX_INTERRUPTIONS", 3),
     deadLetterQueueUrl: valueOrUndefined(env, "SQS_DLQ_URL"),
     awsRegion: env.AWS_REGION ?? env.S3_REGION ?? "us-east-1",
     s3EndpointUrl: valueOrUndefined(env, "S3_ENDPOINT_URL"),

@@ -4,7 +4,7 @@ import { recordFunnelEvent } from "@/lib/funnel";
 import { workspacePlan } from "@/lib/plans";
 import { exportBlockedReason } from "@/lib/quotas";
 import { ensureWorkerRunning } from "@/lib/render-capacity";
-import { flushOutbox, queueRenderJob } from "@/lib/render-jobs";
+import { flushOutbox, queueRenderJob, renderRouteFor } from "@/lib/render-jobs";
 import { mediaScope } from "@/lib/media-scope";
 
 export type ExportResult = { ok: false; issues: Issue[]; message?: string; /** A bigger plan would lift the limit that stopped it. */ upgrade?: boolean };
@@ -39,9 +39,11 @@ export async function queueReelExport(user: { id: string; workspaceId: string },
     return { ok: false, issues: [], message: error instanceof Error ? error.message : "Could not export." };
   }
 
-  const route = await prisma.$transaction(async (tx) => {
+  const route = await renderRouteFor(user.workspaceId);
+  await prisma.$transaction(async (tx) => {
     const job = await tx.renderJob.create({
       data: {
+        route,
         workspaceId: user.workspaceId,
         createdById: user.id,
         reelId: reel.id,
@@ -50,7 +52,7 @@ export async function queueReelExport(user: { id: string; workspaceId: string },
         caption: reel.title,
       },
     });
-    return queueRenderJob(tx, job);
+    await queueRenderJob(tx, job);
   });
   // Once per studio, the key makes later exports a no-op (ADR 0080).
   await recordFunnelEvent({ name: "first_export", userId: user.id, workspaceId: user.workspaceId, key: `first_export:${user.workspaceId}`, data: { plan: plan.id } });

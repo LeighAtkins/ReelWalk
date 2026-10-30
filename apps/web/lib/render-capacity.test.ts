@@ -8,15 +8,18 @@ async function load(env: Record<string, string>) {
   for (const [key, value] of Object.entries(env)) vi.stubEnv(key, value);
   const reconcileLocks: unknown[] = [];
   const moveStalledLocalRenders = vi.fn(async () => [] as string[]);
+  // Cloud jobs already handed back (Spot reclaims) as often as Spot is allowed.
+  const interruptedJobs = vi.fn(async () => 0);
   // Only what render-capacity uses: the real package would load the Prisma client for every test.
   vi.doMock("@reelwalk/db", async () => {
-    const { localRenderPolicyFromEnv } = await import("../../../packages/db/src/local-render");
+    const { localRenderFallbackMs } = await import("../../../packages/db/src/local-render");
     return {
-      localRenderPolicyFromEnv,
+      localRenderFallbackMs,
       moveStalledLocalRenders,
       prisma: {
         $transaction: vi.fn(async (fn: (tx: unknown) => unknown) => fn({ $queryRaw: async () => (reconcileLocks.push(1), [{ locked: true }]) })),
         aiGeneration: { count: async () => 0 },
+        renderJob: { count: interruptedJobs },
       },
     };
   });
@@ -30,7 +33,7 @@ async function load(env: Record<string, string>) {
   vi.spyOn(SQSClient.prototype, "send").mockImplementation((async () => ({ Attributes: {} })) as never);
   const capacity = await import("./render-capacity");
   const runTasks = () => ecsSend.mock.calls.map(([command]) => command as unknown).filter((command): command is RunTaskCommand => command instanceof RunTaskCommand);
-  return { capacity, moveStalledLocalRenders, flushOutbox, reconcileLocks, runTasks };
+  return { capacity, moveStalledLocalRenders, flushOutbox, reconcileLocks, runTasks, interruptedJobs };
 }
 
 afterEach(() => {
@@ -113,13 +116,33 @@ describe("ensureWorkerRunning", () => {
     expect(reconcileLocks).toHaveLength(1);
     expect(runTasks().map((command) => command.input.capacityProviderStrategy?.[0]?.capacityProvider)).toEqual(["FARGATE_SPOT"]);
   });
+
+  it("launches on-demand once a waiting job has been interrupted as often as Spot is allowed", async () => {
+    const { capacity, runTasks, interruptedJobs } = await load({ ...ecsEnv, ...localEnv });
+    interruptedJobs.mockResolvedValue(1);
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    await capacity.ensureWorkerRunning("cloud");
+    expect(runTasks().map((command) => command.input.capacityProviderStrategy?.[0]?.capacityProvider)).toEqual(["FARGATE"]);
+    expect(interruptedJobs).toHaveBeenCalledWith({ where: { route: "cloud", status: { in: ["QUEUED", "RUNNING"] }, interruptions: { gte: 1 } } });
+  });
+
+  it("launches on-demand when the interruptions cannot be counted", async () => {
+    const { capacity, runTasks, interruptedJobs } = await load({ ...ecsEnv, ...localEnv });
+    interruptedJobs.mockRejectedValue(new Error("db down"));
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    await capacity.ensureWorkerRunning("cloud");
+    expect(runTasks().map((command) => command.input.capacityProviderStrategy?.[0]?.capacityProvider)).toEqual(["FARGATE"]);
+  });
 });
 
 describe("rescueStalledLocalRenders", () => {
-  it("does nothing without a local queue", async () => {
+  it("sweeps by the stored route even with no local policy any more (the lists emptied while the PC was off)", async () => {
     const { capacity, moveStalledLocalRenders } = await load({});
     expect(await capacity.rescueStalledLocalRenders()).toBe(0);
-    expect(moveStalledLocalRenders).not.toHaveBeenCalled();
+    expect(moveStalledLocalRenders).toHaveBeenCalledTimes(1);
+    const [, options] = moveStalledLocalRenders.mock.calls[0] as unknown as [unknown, { fallbackMs: number }];
+    expect(options.fallbackMs).toBe(600_000);
   });
 
   it("moves stalled local jobs, flushes them to the cloud queue and starts a worker", async () => {
@@ -128,8 +151,8 @@ describe("rescueStalledLocalRenders", () => {
     vi.spyOn(console, "log").mockImplementation(() => undefined);
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     expect(await capacity.rescueStalledLocalRenders()).toBe(1);
-    const [, policy] = moveStalledLocalRenders.mock.calls[0] as unknown as [unknown, { fallbackMs: number; queueUrl: string }];
-    expect(policy).toMatchObject({ fallbackMs: 600_000, queueUrl: localEnv.LOCAL_RENDER_QUEUE_URL });
+    const [, options] = moveStalledLocalRenders.mock.calls[0] as unknown as [unknown, { fallbackMs: number }];
+    expect(options.fallbackMs).toBe(600_000);
     expect(flushOutbox).toHaveBeenCalledTimes(1);
     expect(reconcileLocks).toHaveLength(1);
     expect(runTasks()).toHaveLength(1);

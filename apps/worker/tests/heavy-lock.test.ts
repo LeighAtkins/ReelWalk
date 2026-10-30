@@ -20,7 +20,7 @@ describe("heavy lock", () => {
   it("takes the lock with an owner.txt naming the holder, and removes it on release", async () => {
     const lock = createHeavyLock({ dir, owner: "reelwalk-local-worker", cooldownMs: 0, log: quiet });
     const release = await lock.acquire("render job-1");
-    expect(await readFile(path.join(dir, "owner.txt"), "utf8")).toMatch(/^reelwalk-local-worker \d{4}-\d\d-\d\dT[\d:.]+Z render job-1 #[0-9a-f-]+\n$/);
+    expect(await readFile(path.join(dir, "owner.txt"), "utf8")).toMatch(/^reelwalk-local-worker \d{4}-\d\d-\d\dT[\d:.]+Z render job-1 host=\S+ boot=\S+ #[0-9a-f-]+\n$/);
     await release();
     expect(await exists(dir)).toBe(false);
     await release(); // idempotent
@@ -84,6 +84,43 @@ describe("heavy lock", () => {
     const started = Date.now();
     await (await lock.acquire("render b"))();
     expect(Date.now() - started).toBeGreaterThanOrEqual(140);
+  });
+
+  it("names the container and process in owner.txt", async () => {
+    const lock = createHeavyLock({ dir, owner: "reelwalk-local-worker", cooldownMs: 0, log: quiet, host: "c0ffee", boot: "b1" });
+    const release = await lock.acquire("render job-6");
+    expect(await readFile(path.join(dir, "owner.txt"), "utf8")).toMatch(/ render job-6 host=c0ffee boot=b1 #/);
+    await release();
+  });
+
+  it("removes a lock this container's previous process left when it died, and takes it", async () => {
+    await mkdir(dir);
+    await writeFile(path.join(dir, "owner.txt"), "reelwalk-local-worker 2026-10-29T15:00:00.000Z render job-7 host=c0ffee boot=dead #t\n");
+    const messages: string[] = [];
+    const lock = createHeavyLock({ dir, owner: "reelwalk-local-worker", pollMs: 20, cooldownMs: 0, log: (m) => messages.push(m), host: "c0ffee", boot: "b2" });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(new Error("still waiting")), 500);
+    const release = await lock.acquire("render job-8", controller.signal);
+    clearTimeout(timer);
+    expect(messages.some((m) => m.includes("previous process left"))).toBe(true);
+    expect(await readFile(path.join(dir, "owner.txt"), "utf8")).toContain("render job-8 host=c0ffee boot=b2");
+    await release();
+  });
+
+  it("never removes a lock another container, or another owner, holds", async () => {
+    for (const holder of [
+      "reelwalk-local-worker 2026-10-29T15:00:00.000Z render job-9 host=beef01 boot=dead #t\n",
+      "lastmile-capture 2026-10-29T15:00:00.000Z host=c0ffee boot=dead\n",
+    ]) {
+      await mkdir(dir);
+      await writeFile(path.join(dir, "owner.txt"), holder);
+      const lock = createHeavyLock({ dir, owner: "reelwalk-local-worker", pollMs: 20, cooldownMs: 0, log: quiet, host: "c0ffee", boot: "b3" });
+      const controller = new AbortController();
+      setTimeout(() => controller.abort(new Error("gave up")), 120);
+      await expect(lock.acquire("render job-10", controller.signal)).rejects.toThrow("gave up");
+      expect(await readFile(path.join(dir, "owner.txt"), "utf8")).toBe(holder);
+      await rm(dir, { recursive: true });
+    }
   });
 
   it("refuses a lock directory whose parent is missing", async () => {

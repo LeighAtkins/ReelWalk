@@ -5,7 +5,6 @@ import { pipeline } from "node:stream/promises";
 import { GetObjectCommand, HeadObjectCommand, PutObjectCommand, type S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { checksKeyFor, exportAudioKeyFor, frameThumbKeyFor, inputFilenameFor, outputKeyFor, parseReelExportPayload, reelRenderPlan, renderSourceKeyFor, type RenderChecks } from "@reelwalk/core";
-import { prisma } from "@reelwalk/db";
 import { probe, run } from "./library/tools";
 import { createAttemptScope, killDescendants, REMOTION_PROCESSES, type AttemptScope } from "./lifecycle";
 import { measureExportAudio, normaliseLoudness } from "./loudness";
@@ -155,7 +154,7 @@ export async function renderJob(
         const thumbPath = path.join(workdir, "thumb.jpg");
         await frameThumbnail(outputPath, thumbPath, attempt);
         const { size: thumbSize } = await stat(thumbPath);
-        thumbKey = frameThumbKeyFor(job.inputKey);
+        thumbKey = frameThumbKeyFor(job.inputKey, { jobId: job.id, generation: job.generation, attempt: job.attempt });
         await s3.send(new PutObjectCommand({ Bucket: bucket, Key: thumbKey, Body: createReadStream(thumbPath), ContentLength: thumbSize, ContentType: "image/jpeg" }), { abortSignal: signal });
       } catch (error) {
         attempt.throwIfStopped();
@@ -174,7 +173,6 @@ export async function renderJob(
         }
       }
       attempt.throwIfStopped();
-      await prisma.mediaAsset.update({ where: { id: job.mediaAssetId }, data: { previewKey: job.previewKey, ...(thumbKey ? { thumbKey } : {}), ...(transcript ? { transcript: transcript as never } : {}) } });
       // While the original is here, make the copy an export will need, so the
       // first export of phone footage does not spend minutes re-encoding.
       // An export makes it itself if this fails.
@@ -184,7 +182,8 @@ export async function renderJob(
         attempt.throwIfStopped();
         console.warn(`[${job.id}] render source not made ahead: ${error instanceof Error ? error.message : error}`);
       }
-      return { objectKey: job.previewKey, contentType: "video/mp4", sizeBytes: previewSize };
+      // Published with the job's success, only if this run still holds it (ADR 0094).
+      return { objectKey: job.previewKey, contentType: "video/mp4", sizeBytes: previewSize, asset: { id: job.mediaAssetId, previewKey: job.previewKey, thumbKey, transcript } };
     }
     if (job.kind === "REEL" || job.kind === "STORY" || job.kind === "TEMPLATE") {
       // Remotion closes the Chrome it opened without waiting for it, also when cancelled: whatever is left

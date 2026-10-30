@@ -9,17 +9,18 @@ import {
   SQSClient,
   type Message,
 } from "@aws-sdk/client-sqs";
-import { LOCAL_RENDER_JOBS_TOPIC, prisma, relayOutbox, RENDER_JOBS_TOPIC } from "@reelwalk/db";
+import { handOffLocalRender, LOCAL_RENDER_JOBS_TOPIC, prisma, relayOutbox, RENDER_JOBS_TOPIC } from "@reelwalk/db";
 import { getConfig } from "./config";
 import { handleDeadLetter, handleDelivery, type Delivery } from "./handler";
 import { renderJob } from "./render";
 import { createJobStore } from "./store";
 import { processAiVideo } from "./ai-video";
 import { processPresenterKit } from "./presenter-kits";
-import { AI_STEP_QUEUE_RETENTION_MS, AI_STEP_REAP_AFTER_MS } from "@reelwalk/core";
+import { AI_STEP_QUEUE_RETENTION_MS, AI_STEP_REAP_AFTER_MS, serializeRenderJobMessage } from "@reelwalk/core";
 import { createAiStepStore, type AiStepDeps } from "./ai-jobs";
 import { aiStepExecutor } from "./ai-executor";
 import { checkHeavyLockDir, createHeavyLock } from "./heavy-lock";
+import { handleLocalDelivery } from "./local-delivery";
 
 const config = getConfig();
 
@@ -215,21 +216,30 @@ const loops = [
   pollLoop(
     "render-queue",
     config.queueUrl,
-    (delivery) =>
-      handleDelivery(
-        {
-          store,
-          config,
-          aiSteps,
-          shutdown: shutdown.signal,
-          render: async (job, onProgress, scope) => {
-            // Owned by the attempt, so it is released after Chrome and ffmpeg, however the attempt ends.
-            if (heavyLock) scope.own("heavy lock", await heavyLock.acquire(`render ${job.id}`, scope.signal));
-            return renderJob(job, s3, config.s3Bucket, onProgress, config.renderConcurrency, scope);
+    (delivery) => {
+      const handle = (received: Delivery) =>
+        handleDelivery(
+          {
+            store,
+            config,
+            aiSteps,
+            shutdown: shutdown.signal,
+            render: (job, onProgress, scope) => renderJob(job, s3, config.s3Bucket, onProgress, config.renderConcurrency, scope),
           },
-        },
-        delivery,
-      ),
+          received,
+        );
+      // A local worker waits for the shared-PC lock before claiming, and hands the job to the cloud if the wait is too long (ADR 0094).
+      if (!heavyLock) return handle(delivery);
+      return handleLocalDelivery({
+        lock: heavyLock,
+        waitMs: config.heavyLockWaitSeconds * 1000,
+        keepHiddenMs: config.heartbeatSeconds * 1000,
+        visibilitySeconds: config.visibilitySeconds,
+        handOff: (message) => handOffLocalRender(prisma, message, serializeRenderJobMessage),
+        handle,
+        shutdown: shutdown.signal,
+      }, delivery);
+    },
     // Only the render loop decides the task is idle; the outbox loop never has work of its own.
     true,
   ),

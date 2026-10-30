@@ -1,16 +1,17 @@
 import { serializeRenderJobMessage } from "@reelwalk/core";
 import {
   addToOutbox,
+  createRenderRouter,
   LOCAL_RENDER_JOBS_TOPIC,
   localRenderPolicyFromEnv,
   prisma,
   relayOutbox,
   RENDER_JOBS_TOPIC,
   renderJobsTopic,
-  renderRouteFor,
   type LocalRenderPolicy,
   type Prisma,
   type RenderRoute,
+  type RenderRouter,
 } from "@reelwalk/db";
 import { sendRenderJobMessage } from "./queue";
 import { mediaUrl } from "./storage";
@@ -22,15 +23,27 @@ function localRender(): LocalRenderPolicy | null {
   return policy;
 }
 
+let router: RenderRouter | undefined;
+/**
+ * Which queue a new render job of this workspace goes to (ADR 0094). Call it
+ * before the transaction that writes the job, and store the answer as the
+ * job's `route`: the owner lookup behind it is bounded and cached, and when
+ * it fails the job simply goes to the cloud, so it can never fail an export.
+ */
+export function renderRouteFor(workspaceId: string): Promise<RenderRoute> {
+  router ??= createRenderRouter(prisma, localRender());
+  return router(workspaceId);
+}
+
 /**
  * Records the queue message for a job in the transaction that writes the job
  * as QUEUED. The two commit together or not at all, so there is never a
  * QUEUED job without a message, nor a message for a job that was rolled back.
- * Returns the queue it goes to: pass it to ensureWorkerRunning, which starts
- * no cloud worker for a local job.
+ * The topic follows the route stored on the job; the route comes back for
+ * ensureWorkerRunning, which starts no cloud worker for a local job.
  */
-export async function queueRenderJob(tx: Prisma.TransactionClient, job: { id: string; generation: number; workspaceId: string }): Promise<RenderRoute> {
-  const route = await renderRouteFor(tx, localRender(), job.workspaceId);
+export async function queueRenderJob(tx: Prisma.TransactionClient, job: { id: string; generation: number; route: string }): Promise<RenderRoute> {
+  const route: RenderRoute = job.route === "local" ? "local" : "cloud";
   await addToOutbox(tx, renderJobsTopic(route), serializeRenderJobMessage({ jobId: job.id, generation: job.generation }));
   return route;
 }

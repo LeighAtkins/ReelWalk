@@ -188,9 +188,14 @@ resource "aws_ecs_task_definition" "worker" {
       name      = "worker"
       image     = "${local.ecr_worker}:${var.image_tag}"
       essential = true
+      # Fargate Spot warns two minutes before a reclaim (SIGTERM), and 120 s is ECS's longest stop timeout:
+      # a render gets 90 s of it to finish before it is stopped and handed back (ADR 0094).
+      stopTimeout = 120
       environment = [
         for k, v in merge(local.app_env, {
-          RENDER_CONCURRENCY = tostring(var.worker_render_concurrency)
+          RENDER_CONCURRENCY            = tostring(var.worker_render_concurrency)
+          RENDER_SHUTDOWN_DRAIN_SECONDS = "90"
+          RENDER_STOP_TIMEOUT_SECONDS   = "120"
           # A warm task picks up the next export at once; past 90 s idle it is cheaper to cold-start one (ADR 0094).
           WORKER_IDLE_EXIT_SECONDS = "90"
           # Walk the block's solve (ADR 0093): OpenCV threads, one per vCPU of the task (it also reads the cgroup quota).

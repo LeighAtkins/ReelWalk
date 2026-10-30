@@ -65,6 +65,21 @@ describe("heavy lock", () => {
     expect(await readFile(path.join(dir, "owner.txt"), "utf8")).toBe("lastmile-build now\n");
   });
 
+  it("waits out the cooldown after a real hold, but not after an idle one", async () => {
+    const lock = createHeavyLock({ dir, owner: "reelwalk-local-worker", cooldownMs: 60_000, log: quiet });
+    await (await lock.acquire("render stale-job"))({ idle: true });
+    const started = Date.now();
+    const release = await lock.acquire("render job-6");
+    expect(Date.now() - started).toBeLessThan(1000);
+    await release();
+    const controller = new AbortController();
+    const next = lock.acquire("render job-7", controller.signal);
+    await sleep(100);
+    expect(await exists(dir)).toBe(false); // still cooling down
+    controller.abort(new Error("gave up"));
+    await expect(next).rejects.toThrow("gave up");
+  });
+
   it("rewrites owner.txt while held", async () => {
     const lock = createHeavyLock({ dir, owner: "reelwalk-local-worker", refreshMs: 30, cooldownMs: 0, log: quiet });
     const release = await lock.acquire("render job-5");

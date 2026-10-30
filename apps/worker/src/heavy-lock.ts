@@ -51,9 +51,16 @@ export type HeavyLockOptions = {
   probe?: ProcessProbe;
 };
 
+/**
+ * Gives the lock back. `idle`: the hold did no heavy work (the job turned out
+ * stale), so no cooldown follows; the cooldown is the other side's turn after
+ * real work.
+ */
+export type ReleaseHeavyLock = (options?: { idle?: boolean }) => Promise<void>;
+
 export type HeavyLock = {
   /** Waits for the lock (until `signal` aborts) and returns its release. */
-  acquire(label: string, signal?: AbortSignal): Promise<() => Promise<void>>;
+  acquire(label: string, signal?: AbortSignal): Promise<ReleaseHeavyLock>;
 };
 
 /** Parses the identity fields of an owner.txt line; null if any is missing. */
@@ -194,14 +201,14 @@ export function createHeavyLock(options: HeavyLockOptions): HeavyLock {
       refresh.unref?.();
 
       let released = false;
-      return async () => {
+      return async ({ idle = false } = {}) => {
         if (released) return;
         released = true;
         clearInterval(refresh);
         await refreshing;
         // Only our own lock is removed: if owner.txt names someone else, the directory is theirs.
         if (await ours(token)) await rm(dir, { recursive: true, force: true });
-        releasedAt = Date.now();
+        if (!idle) releasedAt = Date.now();
       };
     },
   };

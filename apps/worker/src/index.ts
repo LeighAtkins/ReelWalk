@@ -11,7 +11,7 @@ import {
 } from "@aws-sdk/client-sqs";
 import { handOffLocalRender, LOCAL_RENDER_JOBS_TOPIC, localRenderWorkspacesFromEnv, prisma, recordRenderArtifact, relayOutbox, RENDER_JOBS_TOPIC } from "@reelwalk/db";
 import { getConfig } from "./config";
-import { handleDeadLetter, handleDelivery, type ClaimedJob, type Delivery } from "./handler";
+import { handleDeadLetter, handleDelivery, settleRedundant, type ClaimedJob, type Delivery } from "./handler";
 import { renderJob, type RunStorage } from "./render";
 import { createJobStore } from "./store";
 import { processAiVideo } from "./ai-video";
@@ -230,13 +230,14 @@ const loops = [
     "render-queue",
     config.queueUrl,
     (delivery) => {
-      const handle = (received: Delivery) =>
+      const handle = (received: Delivery, onClaimed?: () => void) =>
         handleDelivery(
           {
             store,
             config,
             aiSteps,
             shutdown: shutdown.signal,
+            onClaimed,
             render: (job, onProgress, scope) => renderJob(job, s3, config.s3Bucket, onProgress, config.renderConcurrency, scope, runStorage(job)),
           },
           received,
@@ -248,6 +249,8 @@ const loops = [
         waitMs: config.heavyLockWaitSeconds * 1000,
         keepHiddenMs: config.heartbeatSeconds * 1000,
         visibilitySeconds: config.visibilitySeconds,
+        // A stale or duplicate message is settled with one read, without the lock or its cooldown.
+        settle: (received, message) => settleRedundant({ store, config }, received, message),
         handOff: (message) => handOffLocalRender(prisma, message, serializeRenderJobMessage),
         // A job of a workspace this PC may not write for (the list changed after it was queued) goes straight to the cloud.
         allowed: async (message) => {

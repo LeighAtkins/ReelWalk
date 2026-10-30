@@ -1,6 +1,6 @@
 import { isAiStepMessage, parseRenderJobMessage, type RenderJobMessage } from "@reelwalk/core";
 import type { Delivery, Outcome } from "./handler";
-import type { HeavyLock } from "./heavy-lock";
+import type { HeavyLock, ReleaseHeavyLock } from "./heavy-lock";
 
 /**
  * A local worker's delivery (ADR 0094): wait for the shared-PC heavy lock
@@ -13,6 +13,12 @@ import type { HeavyLock } from "./heavy-lock";
  * vouch for), the job is handed to the cloud queue: never claimed, so no
  * attempt is spent, and its cloud message starts a fresh receive count. A
  * shutdown while waiting hands the message back to the local queue.
+ *
+ * Before any of that, one read settles a message that is no longer worth
+ * claiming (stale, a duplicate, or another worker's), without the lock: a
+ * backlog of messages whose jobs already fell back to the cloud must not each
+ * take the lock and its cooldown. A hold whose handler claimed nothing (the job
+ * went stale while it waited) is released without a cooldown.
  */
 export type LocalDeliveryDeps = {
   lock: HeavyLock;
@@ -22,10 +28,15 @@ export type LocalDeliveryDeps = {
   visibilitySeconds: number;
   /** Moves the job to the cloud queue; false if it is no longer this queued local generation. */
   handOff: (message: RenderJobMessage) => Promise<boolean>;
+  /**
+   * One read of the job: settles (deletes or re-hides) a message that is no longer worth claiming and returns
+   * its outcome, or null to go on. The handler's claim still decides; this only saves the lock.
+   */
+  settle?: (delivery: Delivery, message: RenderJobMessage) => Promise<Outcome | null>;
   /** Whether this PC may render the job (its workspace is one the PC's IAM user may write for). */
   allowed?: (message: RenderJobMessage) => Promise<boolean>;
-  /** The normal handler: claims, renders, reports. */
-  handle: (delivery: Delivery) => Promise<Outcome>;
+  /** The normal handler: claims (calling `onClaimed`), renders, reports. */
+  handle: (delivery: Delivery, onClaimed: () => void) => Promise<Outcome>;
   shutdown?: AbortSignal;
   log?: (message: string, error?: unknown) => void;
 };
@@ -34,11 +45,14 @@ export async function handleLocalDelivery(deps: LocalDeliveryDeps, delivery: Del
   const log = deps.log ?? ((message, error) => (error ? console.error(message, error) : console.log(message)));
   let message: RenderJobMessage;
   try {
-    if (isAiStepMessage(delivery.body)) return deps.handle(delivery);
+    if (isAiStepMessage(delivery.body)) return deps.handle(delivery, () => undefined);
     message = parseRenderJobMessage(delivery.body);
   } catch {
-    return deps.handle(delivery); // unparseable: the handler leaves it for the dead-letter queue
+    return deps.handle(delivery, () => undefined); // unparseable: the handler leaves it for the dead-letter queue
   }
+
+  const settled = deps.settle ? await deps.settle(delivery, message) : null;
+  if (settled) return settled;
 
   if (deps.allowed && !(await deps.allowed(message))) {
     const moved = await deps.handOff(message);
@@ -51,7 +65,7 @@ export async function handleLocalDelivery(deps: LocalDeliveryDeps, delivery: Del
     delivery.extend(deps.visibilitySeconds).catch((error) => log(`[${message.jobId}] could not extend visibility`, error));
   }, deps.keepHiddenMs);
   const waited = AbortSignal.timeout(deps.waitMs);
-  let release: () => Promise<void>;
+  let release: ReleaseHeavyLock;
   try {
     release = await deps.lock.acquire(`render ${message.jobId}`, deps.shutdown ? AbortSignal.any([deps.shutdown, waited]) : waited);
   } catch (error) {
@@ -69,10 +83,11 @@ export async function handleLocalDelivery(deps: LocalDeliveryDeps, delivery: Del
   } finally {
     clearInterval(keepHidden);
   }
+  let claimed = false;
   try {
-    return await deps.handle(delivery);
+    return await deps.handle(delivery, () => { claimed = true; });
   } finally {
     // After the handler: its attempt scope has closed, so Chrome and ffmpeg are gone.
-    await release();
+    await release({ idle: !claimed });
   }
 }

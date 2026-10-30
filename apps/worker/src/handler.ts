@@ -111,6 +111,8 @@ export type HandlerDeps = {
   shutdown?: AbortSignal;
   now?: () => Date;
   log?: (message: string, error?: unknown) => void;
+  /** Called once the job is claimed: from here on this delivery is real work (a local worker's lock cooldown counts it, ADR 0094). */
+  onClaimed?: () => void;
   /** Durable AI steps share the render queue (ADR 0049); without these deps their messages are left for the DLQ. */
   aiSteps?: AiStepDeps;
 };
@@ -144,24 +146,12 @@ export async function handleDelivery(deps: HandlerDeps, delivery: Delivery): Pro
     return "poison";
   }
 
-  const staleAfterMs = config.staleSeconds * 1000;
-  const decision = decideDelivery({ job: await store.snapshot(message.jobId), message, now: now(), staleAfterMs });
-  if (decision === "discard") {
-    log(`[${message.jobId}] duplicate or stale message, deleting`);
-    await delivery.delete();
-    return "discarded";
-  }
-  if (decision === "defer") {
-    // A duplicate of a message another worker holds. Hide it for a full
-    // visibility period so it is not received (and its receive count spent)
-    // again before that worker's heartbeat could possibly have gone stale.
-    log(`[${message.jobId}] another worker is rendering, leaving the message`);
-    await delivery.extend(config.visibilitySeconds).catch((error) => log(`[${message.jobId}] could not extend visibility`, error));
-    return "deferred";
-  }
+  const settled = await settleRedundant(deps, delivery, message);
+  if (settled) return settled;
 
-  const job = await store.claim(message, new Date(now().getTime() - staleAfterMs));
+  const job = await store.claim(message, new Date(now().getTime() - config.staleSeconds * 1000));
   if (!job) return "deferred";
+  deps.onClaimed?.();
   log(`[${job.id}] claimed, attempt ${job.attempt} (delivery ${delivery.receiveCount}/${config.maxAttempts})`);
   const lease: Lease = { ...message, attempt: job.attempt };
 
@@ -252,6 +242,38 @@ export async function handleDelivery(deps: HandlerDeps, delivery: Delivery): Pro
     cancelDeadline();
     unlinkShutdown();
   }
+}
+
+/**
+ * The cheap first step of a delivery: one read of the job decides whether the
+ * message is still worth claiming. A duplicate or stale one is deleted, one
+ * another worker is rendering is hidden again, and either outcome is returned;
+ * null means claim it. A local worker runs this before it waits for the heavy
+ * lock (ADR 0094); the claim still decides, so a job that changes afterwards
+ * is never rendered.
+ */
+export async function settleRedundant(
+  deps: Pick<HandlerDeps, "store" | "now" | "log"> & { config: Pick<HandlerDeps["config"], "staleSeconds" | "visibilitySeconds"> },
+  delivery: Pick<Delivery, "extend" | "delete">,
+  message: RenderJobMessage,
+): Promise<Outcome | null> {
+  const now = deps.now ?? (() => new Date());
+  const log = deps.log ?? ((text, error) => (error ? console.error(text, error) : console.log(text)));
+  const decision = decideDelivery({ job: await deps.store.snapshot(message.jobId), message, now: now(), staleAfterMs: deps.config.staleSeconds * 1000 });
+  if (decision === "discard") {
+    log(`[${message.jobId}] duplicate or stale message, deleting`);
+    await delivery.delete();
+    return "discarded";
+  }
+  if (decision === "defer") {
+    // A duplicate of a message another worker holds. Hide it for a full
+    // visibility period so it is not received (and its receive count spent)
+    // again before that worker's heartbeat could possibly have gone stale.
+    log(`[${message.jobId}] another worker is rendering, leaving the message`);
+    await delivery.extend(deps.config.visibilitySeconds).catch((error) => log(`[${message.jobId}] could not extend visibility`, error));
+    return "deferred";
+  }
+  return null;
 }
 
 /**

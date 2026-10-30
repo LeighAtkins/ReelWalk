@@ -145,7 +145,15 @@ With `HEAVY_LOCK_DIR` set, it takes the shared lock before it claims each job (`
 - **holding it:** rewrites `owner.txt` every 4 min;
 - **releasing it:** after the handler returns, when the attempt's scope has closed and Chrome and ffmpeg have gone. It
   is removed only if `owner.txt` still carries our token;
-- **after release:** waits 60 s before taking it again.
+- **after release:** waits 60 s before taking it again, but only after a hold in which the handler claimed the job.
+  A hold that rendered nothing (the job went stale while the worker waited) is released without a cooldown.
+
+**A stale message never touches the lock.** Before waiting, one read of the job (`settleRedundant`, the handler's
+own `decideDelivery` rule) settles a message that is no longer the current QUEUED generation: it is deleted, or
+re-hidden if another worker is rendering. The handler's claim still decides, so a job that changes after the read is
+never rendered. Before this, on 2026-10-30, seven stale local messages (jobs that had already fallen back to Fargate
+and succeeded) each took the lock, found "duplicate or stale message", released and waited out the cooldown: one a
+minute, and a new export waited about 5 minutes behind them.
 
 **The wait is bounded.** The job stays QUEUED while the worker waits, with its message kept hidden. After
 `HEAVY_LOCK_WAIT_SECONDS` (480, under the 10-minute fallback), the worker hands the job to the cloud with

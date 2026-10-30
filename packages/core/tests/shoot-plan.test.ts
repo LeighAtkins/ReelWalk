@@ -12,8 +12,12 @@ const state = vi.hoisted(() => ({
   calls: [] as { schemaName: string; schema: unknown; input: string }[],
 }));
 
-vi.mock("@reelwalk/db", () => ({ prisma: { aiEdit: { create: async (args: unknown) => { state.records.push(args); return { id: "edit" }; } } } }));
-vi.mock("@/lib/ai-edit", () => ({ aiEditBlockedReason: async () => state.blocked }));
+vi.mock("@reelwalk/db", () => ({ prisma: { aiEdit: { update: async () => ({ id: "edit" }) } } }));
+// The request is reserved (one AiEdit row) before the model is asked; reserveAiEdit's own tests are against a database.
+vi.mock("@/lib/ai-edit", () => ({
+  aiEditBlockedReason: async () => state.blocked,
+  reserveAiEdit: async (_workspaceId: string, create: (tx: unknown) => Promise<unknown>) => ({ ok: true, value: await create({ aiEdit: { create: async (args: unknown) => { state.records.push(args); return { id: "edit" }; } } }) }),
+}));
 vi.mock("@/lib/openai", () => {
   class AiError extends Error {
     constructor(message: string, public readonly transient: boolean) { super(message); }
@@ -66,12 +70,13 @@ describe("planShoot", () => {
     expect(state.records).toHaveLength(1);
   });
 
-  it("a model that does not answer gives the standard list", async () => {
+  it("a model that does not answer gives the standard list, and the request it reserved still counts", async () => {
     state.answer = async () => { throw new AiError("down", false); };
     const list = await planShoot(user, request);
     expect(list.source).toBe("standard");
     expect(list.why).toMatch(/did not answer/);
-    expect(state.records).toHaveLength(0);
+    // Reserved before the model was asked (ADR 0095), like Ask and the director: a request made, whatever came of it.
+    expect(state.records).toHaveLength(1);
   });
 
   it("no request is made when the allowance is used up or the model is the stand-in", async () => {

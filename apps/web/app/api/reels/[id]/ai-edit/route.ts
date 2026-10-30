@@ -60,7 +60,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     return started.ok ? Response.json({ ok: true, jobId: started.jobId }) : Response.json({ ok: false, message: started.message }, { status: started.status });
   }
   // A whole-reel brief can take over a minute: run it in the background and let the browser check back.
-  const jobId = await startAiJob({ workspaceId: user.workspaceId, reelId: reel.id, kind: "ask", requestId }, () => runAiStep({ kind: "ask", user, reelId: reel.id, payload }));
+  const jobId = await startAiJob({ workspaceId: user.workspaceId, reelId: reel.id, kind: "ask", requestId }, () => runAiStep({ kind: "ask", user, reelId: reel.id, payload, identity: `job:ask-${requestId}` }));
   return Response.json({ ok: true, jobId });
 }
 

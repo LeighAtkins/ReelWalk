@@ -8,7 +8,7 @@ import { prisma } from "@reelwalk/db";
  * browser asks /api/ai-jobs/<id> every couple of seconds until it is done.
  * Those check-ins also keep the instance's CPU awake while it works.
  */
-export async function startAiJob(input: { workspaceId: string; reelId: string; kind: "ask" | "autopilot"; requestId?: string }, work: () => Promise<unknown>): Promise<string> {
+export async function startAiJob(input: { workspaceId: string; reelId: string; kind: "ask" | "autopilot" | "note"; requestId?: string }, work: () => Promise<unknown>): Promise<string> {
   // A retried start (same request id from the browser) resumes the job instead of running the work twice.
   const id = input.requestId ? `${input.kind}-${input.requestId}` : undefined;
   if (id) {
@@ -23,14 +23,24 @@ export async function startAiJob(input: { workspaceId: string; reelId: string; k
     if (raced) return raced.id;
     throw error;
   }
-  void (async () => {
+  runAiJobInBackground(job.id, work);
+  return job.id;
+}
+
+/**
+ * Runs `work` for an AiJob row that already exists (a note creates its row in
+ * the same transaction as its reservation, ADR 0095) and records the outcome.
+ * Answers at once; the returned promise is for tests.
+ */
+export function runAiJobInBackground(jobId: string, work: () => Promise<unknown>): Promise<void> {
+  const done = (async () => {
     try {
       const result = await work();
-      await prisma.aiJob.update({ where: { id: job.id }, data: { status: "DONE", result: JSON.parse(JSON.stringify(result)) } });
+      await prisma.aiJob.update({ where: { id: jobId }, data: { status: "DONE", result: JSON.parse(JSON.stringify(result)) } });
     } catch (error) {
-      console.error(`ai job ${job.id} failed`, error);
-      await prisma.aiJob.update({ where: { id: job.id }, data: { status: "FAILED", error: error instanceof Error ? error.message : String(error) } }).catch(() => undefined);
+      console.error(`ai job ${jobId} failed`, error);
+      await prisma.aiJob.update({ where: { id: jobId }, data: { status: "FAILED", error: error instanceof Error ? error.message : String(error) } }).catch(() => undefined);
     }
   })();
-  return job.id;
+  return done;
 }

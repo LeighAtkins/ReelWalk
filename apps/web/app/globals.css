@@ -4276,6 +4276,89 @@ input.inspect-scrub {
   border-left: 1px dashed var(--line-strong);
 }
 
+/* Notes on a version (ADR 0095): the thread on the export screen, newest version first. */
+.thread {
+  scroll-margin-top: 12px;
+}
+
+.note-box {
+  display: grid;
+  gap: 10px;
+}
+
+.thread-list {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+}
+
+.thread-version {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border-radius: var(--radius-m);
+  background: var(--panel);
+}
+
+.thread-version[data-current="true"] {
+  box-shadow: inset 3px 0 0 var(--paper);
+}
+
+.thread-orphan {
+  background: transparent;
+  border: 1px dashed var(--line-strong);
+}
+
+.thread-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.thread-note,
+.thread-working {
+  display: grid;
+  gap: 4px;
+}
+
+.thread-note blockquote,
+.thread-working blockquote {
+  margin: 0;
+  font-family: var(--display);
+  font-style: italic;
+  font-size: 16px;
+}
+
+.thread-note p,
+.thread-working p {
+  margin: 0;
+}
+
+.thread-working {
+  padding: 12px;
+  border-radius: var(--radius-m);
+  border: 1px solid var(--line-strong);
+}
+
+.thread-frame img {
+  width: 64px;
+  height: 114px;
+  border-radius: 6px;
+}
+
+.thread-checks summary {
+  cursor: pointer;
+  min-height: var(--tap);
+  display: flex;
+  align-items: center;
+}
+
+.thread-checks .verify-list {
+  margin-top: 6px;
+}
+
 /* Sound design in the Music sheet and the mix strip on the export page (ADR 0066). */
 .sound-control {
   display: grid;

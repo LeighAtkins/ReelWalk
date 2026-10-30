@@ -20,7 +20,7 @@ describe("trackFace", () => {
   it("follows a face patch that moves and keeps its box the same size", () => {
     const W = 180, H = 320, size = 60;
     const centres = Array.from({ length: 12 }, (_, i) => [70 + i * 2, 120 + i * 1.5] as const);
-    const frames = centres.map(([x, y]) => frame(W, H, x, y, size));
+    const frames = centres.map(([x, y]) => { const g=frame(W,H,x,y,size); return {...g,data:Uint8Array.from(g.data)}; });
     const seed = { x0: (70 - size / 2) / W, y0: (120 - size / 2) / H, x1: (70 + size / 2) / W, y1: (120 + size / 2) / H };
     const samples = trackFace(frames, frames.map((_, i) => i * 100), seed)!;
     expect(samples).not.toBeNull();

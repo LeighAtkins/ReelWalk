@@ -1,6 +1,7 @@
 import { clipMomentAtSource, framePlan, midFrameMs, type CameraClip, type Clip, type ClipMoment, type Timeline } from "@reelwalk/core";
 import { FILTER_CSS } from "@reelwalk/render/reel";
 import { drawClipFrame } from "./frame-draw";
+import { headLockFrameKey } from "./head-lock-cache";
 
 /**
  * Frames as the composition shows them (ADR 0047). Analysis (surface
@@ -107,7 +108,7 @@ export class FrameService {
   /** What a frame depends on: the clip instance, everything about how it is presented, the seek time, size and purpose. */
   private key(target: FrameClip, seekMs: number, width: number, height: number, purpose: FramePurpose): string {
     const c = target.clip;
-    return [c.id, target.media.src, c.sourceStartMs, c.sourceEndMs, c.speed, c.fit, c.zoom, c.motion, c.filter, JSON.stringify(c.headLock), target.durationInFrames ?? "", seekMs.toFixed(2), width, height, purpose].join("|");
+    return [c.id, target.media.src, c.sourceStartMs, c.sourceEndMs, c.speed, c.fit, c.zoom, c.motion, c.filter, headLockFrameKey(c.headLock), target.durationInFrames ?? "", seekMs.toFixed(2), width, height, purpose].join("|");
   }
 
   /**
@@ -192,12 +193,14 @@ export class FrameService {
 export const frameService = new FrameService();
 
 /** A canvas's pixels as luminance, for the analysis in @reelwalk/core's motion and surface modules. */
-export function luminance(canvas: HTMLCanvasElement): { data: Float32Array; width: number; height: number } {
+export function luminance(canvas: HTMLCanvasElement): { data: Float32Array; width: number; height: number };
+export function luminance(canvas: HTMLCanvasElement, compact: true): { data: Uint8Array; width: number; height: number };
+export function luminance(canvas: HTMLCanvasElement, compact: boolean = false): { data: Float32Array | Uint8Array; width: number; height: number } {
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
   if (!ctx) throw new Error("Frame analysis is unavailable in this browser.");
   const { width, height } = canvas;
   const { data } = ctx.getImageData(0, 0, width, height);
-  const gray = new Float32Array(width * height);
+  const gray = compact ? new Uint8Array(width * height) : new Float32Array(width * height);
   for (let i = 0; i < gray.length; i++) gray[i] = 0.299 * data[i * 4] + 0.587 * data[i * 4 + 1] + 0.114 * data[i * 4 + 2];
   return { data: gray, width, height };
 }

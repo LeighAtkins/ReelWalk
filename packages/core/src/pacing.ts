@@ -8,6 +8,7 @@
  * reel, and the plan is tested without a browser.
  */
 import { beatPeriodMs } from "./beats";
+import { normaliseHeadLockWindow } from "./head-lock";
 import type { MotionSample } from "./motion";
 import { setTypeMotionCue, typeMotionCues } from "./kinetic";
 import { isGeneratedAssetId } from "./presenter";
@@ -359,7 +360,7 @@ function withLength(clip: Clip, lengthMs: number, durations: Record<string, numb
   const length = Math.min(source, Math.max(1, Math.round(lengthMs * clip.speed)));
   const middle = (clip.sourceStartMs + clip.sourceEndMs) / 2;
   const start = Math.max(0, Math.min(source - length, Math.round(middle - length / 2)));
-  return { ...clip, sourceStartMs: start, sourceEndMs: start + length };
+  return normaliseHeadLockWindow({ ...clip, sourceStartMs: start, sourceEndMs: start + length });
 }
 
 /** A short, stable key of the clips' order and windows (FNV-1a), to tell whether the reel is still the cut pacing made. */
@@ -381,7 +382,7 @@ export function paceOrigin(timeline: Timeline): { clips: Clip[]; heroClipId: str
   if (!pace || pace.resultKey !== clipsKey(timeline.clips)) return { clips: timeline.clips, heroClipId: null };
   const byId = new Map(timeline.clips.map((clip) => [clip.id, clip]));
   if (pace.base.length !== timeline.clips.length || pace.base.some((entry) => !byId.has(entry.id))) return { clips: timeline.clips, heroClipId: null };
-  return { clips: pace.base.map((entry) => ({ ...byId.get(entry.id)!, sourceStartMs: entry.sourceStartMs, sourceEndMs: entry.sourceEndMs })), heroClipId: pace.heroClipId };
+  return { clips: pace.base.map((entry) => normaliseHeadLockWindow({ ...byId.get(entry.id)!, sourceStartMs: entry.sourceStartMs, sourceEndMs: entry.sourceEndMs })), heroClipId: pace.heroClipId };
 }
 
 /**

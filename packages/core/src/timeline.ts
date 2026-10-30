@@ -1,7 +1,7 @@
 import { walkInto } from "./walk";
 import { z } from "zod";
 import { cameraSchema } from "./camera";
-import { headLockSchema } from "./head-lock";
+import { headLockSchema, normaliseHeadLockWindow } from "./head-lock";
 import { rampSchema, rampUnwarp, rampWarp, sliceRamp } from "./ramp";
 import { motionCutSchema, withoutMotionCut } from "./motion-cut";
 import { planOverlaySchema, roomTitle, spotSchema, type PlanOverlay } from "./plan";
@@ -253,7 +253,8 @@ export const clipSchema = z
     /** The colour transform that moves this clip onto the reel's reference look (ADR 0070), applied under the `filter` preset. Absent: none. */
     colorMatch: colorMatchSchema.optional(),
   })
-  .refine((clip) => clip.sourceEndMs > clip.sourceStartMs, { message: "Clip must have a positive length" });
+  .refine((clip) => clip.sourceEndMs > clip.sourceStartMs, { message: "Clip must have a positive length" })
+  .transform(normaliseHeadLockWindow);
 
 export const textSchema = z
   .object({
@@ -745,7 +746,7 @@ export function framePlan(timeline: Timeline, fps: number = REEL_FORMAT.fps) {
 // ── Clip operations ─────────────────────────────────────────────
 
 function replaceClip(timeline: Timeline, id: string, update: (clip: Clip) => Clip): Timeline {
-  return { ...timeline, clips: timeline.clips.map((clip) => (clip.id === id ? update(clip) : clip)) };
+  return { ...timeline, clips: timeline.clips.map((clip) => (clip.id === id ? normaliseHeadLockWindow(update(clip)) : clip)) };
 }
 
 /** Keeps text overlays inside the reel after the reel got shorter. */
@@ -837,7 +838,7 @@ export function splitClip(timeline: Timeline, id: string, pieces: number, newId:
   for (let piece = 0; piece < count; piece++) {
     // Each window sits in the middle of its share of the source.
     const start = Math.max(0, Math.min(source - length, Math.round(share * piece + (share - length) / 2)));
-    shots.push({ ...clip, ...(clip.headLock && (start < clip.headLock.keys[0].ms - 50 || start + length > clip.headLock.keys.at(-1)!.ms + 80) ? { headLock: null } : {}), id: piece === 0 ? clip.id : newId(), sourceStartMs: start, sourceEndMs: start + length, transitionIn: piece === 0 ? clip.transitionIn : "cut" });
+    shots.push(normaliseHeadLockWindow({ ...clip, id: piece === 0 ? clip.id : newId(), sourceStartMs: start, sourceEndMs: start + length, transitionIn: piece === 0 ? clip.transitionIn : "cut" }));
   }
   const clips = [...timeline.clips];
   clips.splice(index, 1, ...shots);
@@ -865,7 +866,7 @@ export function trimClip(
       end = limit;
       start = Math.max(0, end - minSource);
     }
-    return { ...clip, sourceStartMs: start, sourceEndMs: end, ...(clip.headLock && (start < clip.headLock.keys[0].ms - 50 || end > clip.headLock.keys.at(-1)!.ms + 80) ? { headLock: null } : {}) };
+    return { ...clip, sourceStartMs: start, sourceEndMs: end };
   });
   return fitTexts(updated);
 }
@@ -873,7 +874,8 @@ export function trimClip(
 export type ClipSettings = Partial<Pick<Clip, "speed" | "volume" | "fit" | "filter" | "motion" | "transitionIn" | "pano" | "zoom" | "lensSoftness" | "whipDirection" | "ramp" | "camera" | "headLock">>;
 
 export function updateClip(timeline: Timeline, id: string, settings: ClipSettings): Timeline {
-  return fitTexts(replaceClip(timeline, id, (clip) => clipSchema.parse({ ...clip, ...settings })));
+  const cameraEdit = !("headLock" in settings) && ("camera" in settings || "motion" in settings);
+  return fitTexts(replaceClip(timeline, id, (clip) => clipSchema.parse({ ...clip, ...(cameraEdit && clip.headLock ? { headLock: null } : {}), ...settings })));
 }
 
 // ── Text and music ──────────────────────────────────────────────

@@ -15,7 +15,7 @@ import { snapCutsToBeats } from "./beats";
 import { resolveTextStyle, type BrandKit } from "./brand-kit";
 import { applyMove, type MoveId } from "./moves";
 import { cameraPreset, CAMERA_PRESETS, type Camera, type CameraPreset } from "./camera";
-import { headLockSchema, type HeadLock } from "./head-lock";
+import { headLockSchema, normaliseHeadLockWindow, requiredHeadLockZoom, type HeadLock } from "./head-lock";
 import { placeDropOnCut } from "./drop";
 import { suggestMatchCuts, type ClipMotion } from "./match-cut";
 import { paceTimeline, putOnTheBeat } from "./pacing";
@@ -272,6 +272,8 @@ export function applyCommand(timeline: Timeline, command: Command, context: Comm
   let next: Timeline;
   try {
     next = run(timeline, command, context);
+    const clips = next.clips.map(normaliseHeadLockWindow);
+    if (clips.some((clip, i) => clip !== next.clips[i])) next = { ...next, clips };
   } catch (error) {
     return { timeline, changes: [], rejected: error instanceof Error ? error.message : String(error) };
   }
@@ -391,6 +393,7 @@ function run(timeline: Timeline, command: Command, context: CommandContext): Tim
       const clip = timeline.clips.find(c => c.id === command.clipId)!;
       if (clip.kind !== "VIDEO") throw new Error("Head tracking needs a video clip.");
       const headLock = command.headLock === null ? null : headLockSchema.parse(command.headLock);
+      if (headLock && headLock.zoom < requiredHeadLockZoom(headLock)) throw new Error("The head track crop would leave unfilled borders. Track it again with enough crop (at most 3×).");
       if (headLock && (headLock.keys[0].ms > clip.sourceStartMs + 50 || headLock.keys.at(-1)!.ms < clip.sourceEndMs - 80)) throw new Error("The head track must cover this clip. Track it again after extending the trim.");
       return updateClip(timeline, command.clipId, { headLock, ...(headLock ? { fit: "cover", zoom: 1, motion: "none", camera: null } : {}) });
     }

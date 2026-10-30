@@ -55,6 +55,6 @@ function HeadPicker({ clip, asset, onClose, onChange }: { clip: Clip; asset: Lib
       catch (e) { if (!controller.signal.aborted) setError(e instanceof Error ? e.message : 'Tracking failed.'); }
       finally { if (!controller.signal.aborted) setBusy(false); }
     }}>{busy ? `Tracking ${Math.round(progress * 100)}%` : 'Track head'}</button>
-    <p className="muted small">Works best with a clear face and a source section under 12 seconds. No AI credits used.</p>
+    <p className="muted small">Use a clear face and a source section up to 6 seconds on phones, 12 seconds on desktop. No AI credits used.</p>
   </Sheet>;
 }

@@ -25,7 +25,10 @@ export function cameraMoveAt(motion: Clip["motion"], progress: number, elapsedSe
  * as before, with no vertical shift. Scale about the centre; x and y in
  * percent of the frame.
  */
-export type CameraClip = Pick<Clip, "motion" | "camera"> & Partial<Pick<Clip, "headLock" | "kind" | "sourceStartMs" | "sourceEndMs" | "speed" | "ramp" | "zoom">>;
+export type CameraClip = Pick<Clip, "motion" | "camera"> & Partial<Pick<Clip, "ramp" | "zoom">> & (
+  | { headLock?: null; kind?: Clip["kind"]; sourceStartMs?: number; sourceEndMs?: number; speed?: number }
+  | Pick<Clip, "headLock" | "kind" | "sourceStartMs" | "sourceEndMs" | "speed">
+);
 export function clipCameraAt(clip: CameraClip, progress: number, elapsedSeconds: number, opening = false): CameraMove {
   if (clip.headLock) return headLockAt(clip.headLock, clipSourceMsAt(clip as Clip, elapsedSeconds * 1000), clip.zoom || 1);
   if (clip.camera) return cameraKeysAt(clip.camera, opening && cameraStillAtStart(clip.camera) ? openingProgress(progress) : progress);

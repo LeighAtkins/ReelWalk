@@ -4,12 +4,12 @@
  * a presenter who rises before she falls, a facade that dissolves into an
  * interior, a take that flips from looking down to looking up.
  *
- * Frames are Float32Array luminance (0–255), row-major, `width × height`.
+ * Frames are byte or Float32 luminance (0–255), row-major, `width × height`.
  * The browser makes them (apps/web/components/editor/frame-analysis.ts); this
  * module only does arithmetic, so it is tested without a DOM.
  */
 
-export type Gray = { data: Float32Array; width: number; height: number };
+export type Gray = { data: Float32Array | Uint8Array; width: number; height: number };
 export type MotionSample = {
   /** Source time of the earlier frame, ms. */
   t: number;

@@ -5,12 +5,28 @@ const unit = z.number().min(0).max(1);
 export const headLockSchema = z.object({
   version: z.literal(1),
   target: z.object({ x: unit, y: unit }),
-  referenceHeight: z.number().positive().max(1),
+  referenceHeight: z.number().min(.02).max(1),
   zoom: z.number().min(1).max(3),
   /** Source milliseconds; x/y and height are fractions of the original cover-fit picture. */
-  keys: z.array(z.object({ ms: z.number().nonnegative(), x: unit, y: unit, height: z.number().positive().max(1) })).min(2).max(400),
+  keys: z.array(z.object({ ms: z.number().nonnegative(), x: unit, y: unit, height: z.number().min(.02).max(1) })).min(2).max(400),
 }).refine(h => h.keys.every((k, i) => !i || k.ms > h.keys[i - 1].ms), "Head samples must be in time order");
 export type HeadLock = z.infer<typeof headLockSchema>;
+
+/** Minimum constant crop that fills every edge, including height compensation.
+ * Between keys each bound is a ratio of linear functions: its maximum is at an endpoint. */
+export function requiredHeadLockZoom({ keys, target, referenceHeight }: Pick<HeadLock, "keys" | "target" | "referenceHeight">): number {
+  const edge = (needed: number, room: number) => room > 0 ? needed / room : needed === 0 ? 0 : Infinity;
+  return Math.max(1, ...keys.flatMap(k => {
+    const ratio = referenceHeight / k.height;
+    return [edge(target.x, ratio * k.x), edge(1 - target.x, ratio * (1 - k.x)), edge(target.y, ratio * k.y), edge(1 - target.y, ratio * (1 - k.y))];
+  }));
+}
+
+/** Shared by source-window edits; tolerance covers the sampling endpoints. */
+export function normaliseHeadLockWindow<T extends { sourceStartMs: number; sourceEndMs: number; headLock?: HeadLock | null }>(clip: T): T {
+  const h = clip.headLock;
+  return h && (clip.sourceStartMs < h.keys[0].ms - 50 || clip.sourceEndMs > h.keys.at(-1)!.ms + 80) ? { ...clip, headLock: null } : clip;
+}
 
 /** Refuse incomplete tracking rather than holding a lost face while the subject keeps moving. */
 export function makeHeadLock(samples: readonly FaceSample[], source: { width: number; height: number }, fromMs: number, toMs: number): HeadLock {
@@ -32,14 +48,12 @@ export function makeHeadLock(samples: readonly FaceSample[], source: { width: nu
     }
     return sum / weight;
   };
-  const keys = raw.map(k => ({ ms: k.ms, x: smooth(k.ms, "x", 22), y: smooth(k.ms, "y", 22), height: smooth(k.ms, "height", 70) }));
-  const target = { x: .5, y: Math.max(.25, Math.min(.45, keys.reduce((s, k) => s + k.y, 0) / keys.length)) };
-  const referenceHeight = keys.reduce((s, k) => s + k.height, 0) / keys.length;
+  const round = (n: number) => Number(n.toFixed(4));
+  const keys = raw.map(k => ({ ms: round(k.ms), x: round(smooth(k.ms, "x", 22)), y: round(smooth(k.ms, "y", 22)), height: round(smooth(k.ms, "height", 70)) }));
+  const target = { x: .5, y: round(Math.max(.25, Math.min(.45, keys.reduce((s, k) => s + k.y, 0) / keys.length))) };
+  const referenceHeight = round(keys.reduce((s, k) => s + k.height, 0) / keys.length);
   // One crop for the whole track, including scale compensation: no zoom pumping to hide edges.
-  const zoom = Math.max(1, ...keys.flatMap(k => {
-    const ratio = referenceHeight / k.height;
-    return [target.x / (ratio * k.x), (1 - target.x) / (ratio * (1 - k.x)), target.y / (ratio * k.y), (1 - target.y) / (ratio * (1 - k.y))];
-  })) * 1.015;
+  const zoom = Math.ceil(requiredHeadLockZoom({ keys, target, referenceHeight }) * 1.015 * 10000) / 10000;
   if (zoom > 3) throw new Error("This motion needs more than 3× crop. Choose a shorter section or film with more headroom.");
   return headLockSchema.parse({ version: 1, target, referenceHeight, zoom, keys });
 }

@@ -1,4 +1,4 @@
-import { clipMomentAtSource, framePlan, midFrameMs, type Clip, type ClipMoment, type Timeline } from "@reelwalk/core";
+import { clipMomentAtSource, framePlan, midFrameMs, type CameraClip, type Clip, type ClipMoment, type Timeline } from "@reelwalk/core";
 import { FILTER_CSS } from "@reelwalk/render/reel";
 import { drawClipFrame } from "./frame-draw";
 
@@ -26,7 +26,7 @@ type Drawable = HTMLVideoElement | HTMLImageElement;
 const sizeOf = (media: Drawable) => ("videoWidth" in media ? { width: media.videoWidth, height: media.videoHeight } : { width: media.naturalWidth, height: media.naturalHeight });
 
 /** Draws `media` at its current frame as the composition shows `clip` at `moment`, for viewing or for analysis. */
-export function drawPresented(ctx: CanvasRenderingContext2D, media: Drawable, clip: Pick<Clip, "fit" | "zoom" | "motion" | "camera" | "filter">, moment: ClipMoment, width: number, height: number, purpose: FramePurpose): void {
+export function drawPresented(ctx: CanvasRenderingContext2D, media: Drawable, clip: CameraClip & Pick<Clip, "fit" | "zoom" | "filter">, moment: ClipMoment, width: number, height: number, purpose: FramePurpose): void {
   drawClipFrame(ctx, media, sizeOf(media), clip, moment, width, height,
     purpose === "analysis" ? { kind: "analysis" } : { kind: "view", grade: FILTER_CSS[clip.filter] ?? "", canFilter: typeof ctx.filter === "string" });
 }
@@ -107,7 +107,7 @@ export class FrameService {
   /** What a frame depends on: the clip instance, everything about how it is presented, the seek time, size and purpose. */
   private key(target: FrameClip, seekMs: number, width: number, height: number, purpose: FramePurpose): string {
     const c = target.clip;
-    return [c.id, target.media.src, c.sourceStartMs, c.sourceEndMs, c.speed, c.fit, c.zoom, c.motion, c.filter, target.durationInFrames ?? "", seekMs.toFixed(2), width, height, purpose].join("|");
+    return [c.id, target.media.src, c.sourceStartMs, c.sourceEndMs, c.speed, c.fit, c.zoom, c.motion, c.filter, JSON.stringify(c.headLock), target.durationInFrames ?? "", seekMs.toFixed(2), width, height, purpose].join("|");
   }
 
   /**

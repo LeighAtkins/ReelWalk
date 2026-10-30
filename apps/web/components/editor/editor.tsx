@@ -2052,7 +2052,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
 
       {sheet === "caption" ? <CaptionSheet reelId={reel.id} caption={caption} askAvailable={askAvailable} onClose={closeSheet} onChange={setCaption} /> : null}
       {sheet === "zoom" && selectedClip ? (
-        <ZoomSheet clip={selectedClip} onChange={(zoom) => apply((current) => updateClip(current, selectedClip.id, { zoom }), `zoom-${selectedClip.id}`)} onClose={closeSheet} />
+        <ZoomSheet clip={selectedClip} asset={library[selectedClip.assetId]} onHeadLock={(headLock) => runCommand({ type: "setHeadLock", clipId: selectedClip.id, headLock: headLock ?? null })} onChange={(zoom) => apply((current) => updateClip(current, selectedClip.id, { zoom }), `zoom-${selectedClip.id}`)} onClose={closeSheet} />
       ) : null}
       {sheet === "hook" ? (
         <HookSheet

@@ -1,4 +1,4 @@
-import { clipPicture, pictureCanvasTransform, pictureRects, type Clip, type ClipMoment, type PixelSize } from "@reelwalk/core";
+import { clipPicture, pictureCanvasTransform, pictureRects, type CameraClip, type Clip, type ClipMoment, type PixelSize } from "@reelwalk/core";
 
 /**
  * Drawing a clip's frame as the composition places it (ADR 0047). Kept free
@@ -33,7 +33,7 @@ export type DrawPurpose =
  * ClipView shows `clip` at `moment`. Whips and fades are transitions and are
  * not drawn; nor is lens softness (a follow-up).
  */
-export function drawClipFrame(ctx: DrawContext, media: CanvasImageSource, source: PixelSize, clip: Pick<Clip, "fit" | "zoom" | "motion" | "camera">, moment: ClipMoment, width: number, height: number, purpose: DrawPurpose): void {
+export function drawClipFrame(ctx: DrawContext, media: CanvasImageSource, source: PixelSize, clip: CameraClip & Pick<Clip, "fit" | "zoom">, moment: ClipMoment, width: number, height: number, purpose: DrawPurpose): void {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.filter = "none";
   ctx.fillStyle = purpose.kind === "analysis" ? ANALYSIS_FILL : "#000";

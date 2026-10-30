@@ -1,6 +1,7 @@
 import { walkInto } from "./walk";
 import { z } from "zod";
 import { cameraSchema } from "./camera";
+import { headLockSchema } from "./head-lock";
 import { rampSchema, rampUnwarp, rampWarp, sliceRamp } from "./ramp";
 import { motionCutSchema, withoutMotionCut } from "./motion-cut";
 import { planOverlaySchema, roomTitle, spotSchema, type PlanOverlay } from "./plan";
@@ -245,6 +246,8 @@ export const clipSchema = z
     motionCut: motionCutSchema.optional(),
     /** An eased camera move (ADR 0067): keyframed scale and position. When set, `motion` is not read. Absent or null: `motion` as before. */
     camera: cameraSchema.nullable().optional(),
+    /** Head-locked camera tracking (ADR 0096), measured in source time. */
+    headLock: headLockSchema.nullable().optional(),
     /** Measured colour statistics of this clip's source (ADR 0070), kept so the look can be re-matched without reading pixels again. */
     colorStats: colorStatsSchema.optional(),
     /** The colour transform that moves this clip onto the reel's reference look (ADR 0070), applied under the `filter` preset. Absent: none. */
@@ -834,7 +837,7 @@ export function splitClip(timeline: Timeline, id: string, pieces: number, newId:
   for (let piece = 0; piece < count; piece++) {
     // Each window sits in the middle of its share of the source.
     const start = Math.max(0, Math.min(source - length, Math.round(share * piece + (share - length) / 2)));
-    shots.push({ ...clip, id: piece === 0 ? clip.id : newId(), sourceStartMs: start, sourceEndMs: start + length, transitionIn: piece === 0 ? clip.transitionIn : "cut" });
+    shots.push({ ...clip, ...(clip.headLock && (start < clip.headLock.keys[0].ms - 50 || start + length > clip.headLock.keys.at(-1)!.ms + 80) ? { headLock: null } : {}), id: piece === 0 ? clip.id : newId(), sourceStartMs: start, sourceEndMs: start + length, transitionIn: piece === 0 ? clip.transitionIn : "cut" });
   }
   const clips = [...timeline.clips];
   clips.splice(index, 1, ...shots);
@@ -862,12 +865,12 @@ export function trimClip(
       end = limit;
       start = Math.max(0, end - minSource);
     }
-    return { ...clip, sourceStartMs: start, sourceEndMs: end };
+    return { ...clip, sourceStartMs: start, sourceEndMs: end, ...(clip.headLock && (start < clip.headLock.keys[0].ms - 50 || end > clip.headLock.keys.at(-1)!.ms + 80) ? { headLock: null } : {}) };
   });
   return fitTexts(updated);
 }
 
-export type ClipSettings = Partial<Pick<Clip, "speed" | "volume" | "fit" | "filter" | "motion" | "transitionIn" | "pano" | "zoom" | "lensSoftness" | "whipDirection" | "ramp" | "camera">>;
+export type ClipSettings = Partial<Pick<Clip, "speed" | "volume" | "fit" | "filter" | "motion" | "transitionIn" | "pano" | "zoom" | "lensSoftness" | "whipDirection" | "ramp" | "camera" | "headLock">>;
 
 export function updateClip(timeline: Timeline, id: string, settings: ClipSettings): Timeline {
   return fitTexts(replaceClip(timeline, id, (clip) => clipSchema.parse({ ...clip, ...settings })));

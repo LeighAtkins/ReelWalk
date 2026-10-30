@@ -203,14 +203,14 @@ const ClipView: React.FC<{
     <AbsoluteFill style={{ opacity: shown, overflow: "hidden" }}>
       <ColorMatchFilter clip={clip} />
       <MotionCutBlur blur={blurIn ?? blurOut}>
-      {clip.fit === "contain" ? (
+      {!clip.headLock && clip.fit === "contain" ? (
         // Letterboxed: the same picture, blurred and enlarged, fills the 9:16 frame behind it.
         <AbsoluteFill style={{ filter: "blur(48px) brightness(0.7)", transform: "scale(1.25)" }}>
           {media("cover", { muted: true })}
         </AbsoluteFill>
       ) : null}
       <AbsoluteFill>
-        {media(clip.fit, { transform, muted: Boolean(clip.audio) })}
+        {media(clip.headLock ? "cover" : clip.fit, { transform, muted: Boolean(clip.audio) })}
       </AbsoluteFill>
       {clip.lensSoftness ? <AbsoluteFill style={{ pointerEvents: "none", backdropFilter: `blur(${clip.lensSoftness * 7}px)`,
         maskImage: "radial-gradient(ellipse 47% 40% at 50% 48%, transparent 52%, black 100%)",

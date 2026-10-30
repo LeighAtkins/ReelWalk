@@ -5,6 +5,8 @@ describe("presenter voice", () => {
   it("builds the voice Worker request for the configured voice", () => {
     expect(ttsRequest(presenterVoice("melotts:en"), "Worth dropping in.", "https://voice")).toEqual({ url: "https://voice", body: { text: "Worth dropping in.", voice: "melotts:en" } });
     expect(ttsRequest(presenterVoice("aura-1:luna"), "Hi", "https://voice")).toEqual({ url: "https://voice", body: { text: "Hi", voice: "aura-1:luna" } });
+    // Aura-2 English has the Australian presenter voice (theia); the voice Worker maps aura-2 to Workers AI's aura-2-en.
+    expect(ttsRequest(presenterVoice("aura-2:theia"), "Hi", "https://voice")).toEqual({ url: "https://voice", body: { text: "Hi", voice: "aura-2:theia" } });
     expect(presenterVoice(undefined as never)).toEqual({ model: "melotts", lang: "en" });
   });
 

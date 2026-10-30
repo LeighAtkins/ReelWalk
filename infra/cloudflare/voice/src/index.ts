@@ -4,13 +4,19 @@
  * gets MP3 back; the shared key is the only client. No API token is needed
  * for Workers AI this way, and the voice model is chosen here, once.
  *
- *   POST /  { "text": "Worth dropping in.", "voice": "melotts:en" | "aura-1:luna" }
+ *   POST /  { "text": "Worth dropping in.", "voice": "melotts:en" | "aura-1:luna" | "aura-2:theia" }
  *   → audio/mpeg
  */
 
 type Env = { AI: Ai; VOICE_KEY: string };
 
 const MELO_LANGS = new Set(["en", "es", "fr", "jp", "kr", "zh"]);
+/**
+ * Deepgram's models as Workers AI names them. Aura-2 is published per language ("aura-2-en", "aura-2-es"); a bare
+ * "aura-2" is not a model, and Workers AI answers it with "This account is not allowed to access @cf/deepgram/aura-2",
+ * so it means English. Aura-2 English has the Australian speakers (theia, hyperion); Aura-1 has none.
+ */
+const AURA_MODELS: Record<string, string> = { "aura-1": "aura-1", "aura-2": "aura-2-en", "aura-2-en": "aura-2-en", "aura-2-es": "aura-2-es" };
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -22,8 +28,8 @@ export default {
     if (text.length < 1 || text.length > 400) return new Response("text must be 1–400 characters.", { status: 400 });
     const [model = "melotts", option = ""] = (typeof body.voice === "string" ? body.voice : "melotts:en").split(":");
     try {
-      if (model === "aura-1" || model === "aura-2") {
-        const audio = await env.AI.run(`@cf/deepgram/${model}` as never, { text, speaker: option || "luna", encoding: "mp3" } as never) as ReadableStream | { audio?: string };
+      if (AURA_MODELS[model]) {
+        const audio = await env.AI.run(`@cf/deepgram/${AURA_MODELS[model]}` as never, { text, speaker: option || "luna", encoding: "mp3" } as never) as ReadableStream | { audio?: string };
         return audioResponse(audio);
       }
       const lang = option.toLowerCase() || "en";

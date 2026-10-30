@@ -66,6 +66,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     return started.ok ? Response.json({ ok: true, jobId: started.jobId }) : Response.json({ ok: false, message: started.message }, { status: started.status });
   }
   // Over a minute of work: run it in the background and let the browser check back (lib/ai-jobs.ts).
-  const jobId = await startAiJob({ workspaceId: user.workspaceId, reelId: reel.id, kind: "autopilot", requestId }, () => runAiStep({ kind: "autopilot", user, reelId: reel.id, payload }));
+  const jobId = await startAiJob({ workspaceId: user.workspaceId, reelId: reel.id, kind: "autopilot", requestId }, () => runAiStep({ kind: "autopilot", user, reelId: reel.id, payload, identity: `job:autopilot-${requestId}` }));
   return Response.json({ ok: true, jobId });
 }

@@ -4,7 +4,7 @@ import { emptyTimeline, clipSchema } from "../src/timeline";
 const mock = vi.hoisted(() => ({ provider: "anthropic", model: "claude-opus-5-5", answer: vi.fn(), create: vi.fn(), update: vi.fn(), count: vi.fn(), selected: vi.fn(), sources: vi.fn(), blocked: vi.fn() }));
 vi.mock("@reelwalk/db", () => ({ prisma: { aiEdit: { create: mock.create, update: mock.update }, mediaAsset: { count: mock.count, findMany: mock.selected }, aiGeneration: { findMany: mock.sources } } }));
 vi.mock("@/lib/openai", () => ({ aiModel: () => mock.model, aiProvider: () => mock.provider, structuredAnswer: mock.answer }));
-vi.mock("@/lib/ai-edit", () => ({ aiEditBlockedReason: mock.blocked, context: async () => ({ assets: { source: { id: "source", kind: "VIDEO", title: "Living room", durationMs: 8000, isPano: false, bpm: null, beatOffsetMs: null } }, songs: [], unused: [] }), newAssets: async () => [] }));
+vi.mock("@/lib/ai-edit", () => ({ aiEditBlockedReason: mock.blocked, context: async () => ({ assets: { source: { id: "source", kind: "VIDEO", title: "Living room", durationMs: 8000, isPano: false, bpm: null, beatOffsetMs: null } }, songs: [], unused: [] }), newAssets: async () => [], reserveAiEdit: async (_workspaceId: string, create: (tx: unknown, stamp: unknown) => Promise<unknown>) => ({ ok: true, value: await create({ aiEdit: { create: mock.create } }, { now: new Date() }) }) }));
 vi.mock("@/lib/workspace", () => ({ mediaScope: (workspaceId: string) => ({ workspaceId }) }));
 const directorModule = "@/lib/ai-director";
 const { directReel, directorInput } = await import(directorModule);

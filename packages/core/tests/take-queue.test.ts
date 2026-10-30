@@ -7,6 +7,14 @@ const row = (id: string, status: string, createdMinutesAgo: number, extra: Parti
   ({ id, status, createdAt: at(createdMinutesAgo), submitStartedAt: null, leaseUntil: null, ...extra });
 
 describe("the take queue (ADR 0069)", () => {
+  it("allows the owner-approved 20 submissions per hour while retaining the hourly fence", () => {
+    const sent = Array.from({ length: 20 }, (_, i) => row(`sent-${i}`, "SUCCEEDED", 30, { submitStartedAt: at(30) }));
+    const waiting = row("next", "QUEUED", 1);
+    expect(queueDecision([...sent.slice(0, 10), waiting], now).nextId).toBe("next");
+    expect(queueDecision([...sent.slice(0, 19), waiting], now).nextId).toBe("next");
+    expect(queueDecision([...sent, waiting], now)).toEqual({ nextId: null, blockedBy: "hour", slotAt: at(-30) });
+    expect(queueDecision([...sent, waiting], at(-31)).nextId).toBe("next");
+  });
   it("starts the oldest queued take first", () => {
     const rows = [row("b", "QUEUED", 2), row("a", "QUEUED", 5), row("c", "QUEUED", 1)];
     expect(queueDecision(rows, now)).toEqual({ nextId: "a", blockedBy: null, slotAt: null });

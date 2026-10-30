@@ -1,4 +1,4 @@
-import { clipCameraAt, locateFrame } from "./cinematic";
+import { clipCameraAt, locateFrame, type CameraClip } from "./cinematic";
 import { clipSourceFrame } from "./frames";
 import { applyHomography, homography, type Quad } from "./motion";
 import { clipDurationMs, clipOffsetMsAtSource, clipSourceMsAt, framePlan, REEL_FORMAT, type Clip, type Timeline } from "./timeline";
@@ -112,9 +112,9 @@ export function onScreenAt(timeline: Timeline, reelMs: number, fps: number = REE
 }
 
 /** Takes a clip, its source size in px and a moment; returns how its picture sits in the composition then. */
-export function clipPicture(clip: Pick<Clip, "fit" | "zoom" | "motion" | "camera">, source: PixelSize, moment: ClipMoment, frame: PixelSize = REEL_FORMAT): ClipPicture {
+export function clipPicture(clip: CameraClip & Pick<Clip, "fit" | "zoom">, source: PixelSize, moment: ClipMoment, frame: PixelSize = REEL_FORMAT): ClipPicture {
   const move = clipCameraAt(clip, moment.progress, moment.seconds, moment.opening);
-  return { sourceWidth: source.width, sourceHeight: source.height, fit: clip.fit, scale: (clip.zoom || 1) * move.scale, shiftX: move.x / 100, shiftY: move.y / 100, frame: { width: frame.width, height: frame.height } };
+  return { sourceWidth: source.width, sourceHeight: source.height, fit: clip.headLock ? "cover" : clip.fit, scale: (clip.headLock ? 1 : clip.zoom || 1) * move.scale, shiftX: move.x / 100, shiftY: move.y / 100, frame: { width: frame.width, height: frame.height } };
 }
 
 /** The picture's fit rectangles in composition px (before zoom and motion). */

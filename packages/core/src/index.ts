@@ -76,6 +76,7 @@ export * from "./surface-place";
 export * from "./wall-text";
 export * from "./keyword-lockup";
 export * from "./face-track";
+export * from "./head-lock";
 export * from "./surface-track";
 export * from "./view";
 export * from "./ducking";

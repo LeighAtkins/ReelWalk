@@ -81,6 +81,7 @@ import { planarShift } from "./title-metrics";
 import { crossingNow } from "./pass-crossing";
 import { asCallout, beatForMotion, motionMode, motionStartMs, withMotionMode, withMotionStartAt } from "./type-motion-draft";
 import { Sheet } from "../sheet";
+import { HeadLockControl } from "./head-lock-control";
 
 // ── Shell ───────────────────────────────────────────────────────
 
@@ -517,11 +518,12 @@ function LookMatch({ look, isReference, referenceIndex, measuring, onMatch, onSt
 const MOTION_LABELS: Record<Motion, string> = { none: "Still", "zoom-in": "Zoom in", "zoom-out": "Zoom out", pan: "Pan", "snap-in": "Snap in", "snap-out": "Snap out" };
 
 /** A closer crop of one shot, about its centre. */
-export function ZoomSheet({ clip, onChange, onClose }: { clip: Clip; onChange(zoom: number): void; onClose(): void }) {
+export function ZoomSheet({ clip, asset, onHeadLock, onChange, onClose }: { clip: Clip; asset?: LibraryAsset; onHeadLock(lock: Clip["headLock"]): void; onChange(zoom: number): void; onClose(): void }) {
   return (
-    <Sheet title="Zoom" onClose={onClose}>
+    <Sheet title="Zoom & tracking" onClose={onClose}>
+      <HeadLockControl clip={clip} asset={asset} onChange={onHeadLock} />
       <Range label="Closer" value={clip.zoom} min={1} max={ZOOM_MAX} step={0.05} display={clip.zoom === 1 ? "Whole picture" : `${Math.round(clip.zoom * 100)}%`} onChange={onChange} />
-      <p className="muted small">Crops into the middle of the shot. Any zoom or pan motion still plays on top of it.</p>
+      <p className="muted small">{clip.headLock ? "Crops closer around the locked head. Remove head tracking to use other camera moves." : "Crops into the middle of the shot. Any zoom or pan motion still plays on top of it."}</p>
       <button type="button" className="btn btn-quiet btn-block" disabled={clip.zoom === 1} onClick={() => onChange(1)}>
         Show the whole picture
       </button>

@@ -45,7 +45,7 @@ export type Level = Gray & { gx: Float32Array; gy: Float32Array };
 // ---------------------------------------------------------------- images
 
 /** Bilinear sample of a row-major plane, clamped at the borders. */
-function sampleAt(data: Float32Array, width: number, height: number, x: number, y: number): number {
+function sampleAt(data: Gray["data"], width: number, height: number, x: number, y: number): number {
   const cx = x < 0 ? 0 : x > width - 1 ? width - 1 : x;
   const cy = y < 0 ? 0 : y > height - 1 ? height - 1 : y;
   const x0 = Math.floor(cx), y0 = Math.floor(cy);

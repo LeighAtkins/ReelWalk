@@ -346,7 +346,7 @@ export function applyMove(timeline: Timeline, clipId: string, id: MoveId): Timel
   if (!move.real) throw new Error(`${move.label} is AI-only: ${move.aiOnly} Ask for it as an AI shot (move: "${move.id}") instead.`);
   const { real } = move;
   const clip = timeline.clips[index];
-  const patch: Parameters<typeof updateClip>[2] = {};
+  const patch: Parameters<typeof updateClip>[2] = { ...(clip.headLock ? { headLock: null } : {}) };
   const camera = moveCamera(real);
   if (moveBlockedAt(id, index)) throw new Error(`${move.label} lands on the cut into a shot, and the first shot has no cut before it.`);
   if (camera !== undefined) patch.camera = camera;

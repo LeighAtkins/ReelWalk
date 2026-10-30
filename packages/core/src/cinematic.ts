@@ -1,6 +1,7 @@
 import { locate, clipDurationMs, clipSourceMsAt, type Clip, type TextOverlay, type Timeline, framePlan, REEL_FORMAT } from "./timeline";
 import { applyHomography, homography, type Quad } from "./motion";
 import { cameraKeysAt, cameraStillAtStart, openingProgress, type CameraMove } from "./camera";
+import { headLockAt } from "./head-lock";
 import { FONT_METRICS } from "./font-metrics";
 
 export function cameraMoveAt(motion: Clip["motion"], progress: number, elapsedSeconds: number) {
@@ -24,7 +25,12 @@ export function cameraMoveAt(motion: Clip["motion"], progress: number, elapsedSe
  * as before, with no vertical shift. Scale about the centre; x and y in
  * percent of the frame.
  */
-export function clipCameraAt(clip: Pick<Clip, "motion" | "camera">, progress: number, elapsedSeconds: number, opening = false): CameraMove {
+export type CameraClip = Pick<Clip, "motion" | "camera"> & Partial<Pick<Clip, "ramp" | "zoom">> & (
+  | { headLock?: null; kind?: Clip["kind"]; sourceStartMs?: number; sourceEndMs?: number; speed?: number }
+  | Pick<Clip, "headLock" | "kind" | "sourceStartMs" | "sourceEndMs" | "speed">
+);
+export function clipCameraAt(clip: CameraClip, progress: number, elapsedSeconds: number, opening = false): CameraMove {
+  if (clip.headLock) return headLockAt(clip.headLock, clipSourceMsAt(clip as Clip, elapsedSeconds * 1000), clip.zoom || 1);
   if (clip.camera) return cameraKeysAt(clip.camera, opening && cameraStillAtStart(clip.camera) ? openingProgress(progress) : progress);
   const move = cameraMoveAt(clip.motion, progress, elapsedSeconds);
   return { scale: move.scale, x: move.x, y: 0 };

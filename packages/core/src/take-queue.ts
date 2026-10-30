@@ -7,7 +7,8 @@
  * before Veo never counts, and the hour counts only Veo submissions (rows
  * with `submitStartedAt`). Pure: the database layer and the API both read it.
  */
-export const AI_HOURLY_SUBMISSIONS = 10;
+/** Owner-approved increase, 2026-10-30: keep funded test batches moving without removing the cap. */
+export const AI_HOURLY_SUBMISSIONS = 20;
 /** Takes a workspace may have waiting or generating at once; the credits are reserved the whole time. */
 export const AI_QUEUE_LIMIT = 12;
 const HOUR_MS = 3_600_000;

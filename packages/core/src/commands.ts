@@ -15,6 +15,7 @@ import { snapCutsToBeats } from "./beats";
 import { resolveTextStyle, type BrandKit } from "./brand-kit";
 import { applyMove, type MoveId } from "./moves";
 import { cameraPreset, CAMERA_PRESETS, type Camera, type CameraPreset } from "./camera";
+import { headLockSchema, normaliseHeadLockWindow, requiredHeadLockZoom, type HeadLock } from "./head-lock";
 import { placeDropOnCut } from "./drop";
 import { suggestMatchCuts, type ClipMotion } from "./match-cut";
 import { paceTimeline, putOnTheBeat } from "./pacing";
@@ -117,6 +118,7 @@ export type Command =
   | { type: "setRamp"; clipId: string; ramp: Ramp | RampPreset | null }
   /** A clip's eased camera move (ADR 0067): a preset's name, keys, or null to go back to its `motion`. */
   | { type: "setCamera"; clipId: string; camera: Camera | CameraPreset | null }
+  | { type: "setHeadLock"; clipId: string; headLock: HeadLock | null }
   /**
    * A named camera move from the moves table (ADR 0076) written onto a clip: its eased camera, speed ramp and the zoom or
    * streak blur on the cut in or out. One undo step. An AI-only move (a dolly zoom, an orbit) is refused with the reason;
@@ -229,7 +231,7 @@ export type BatchableCommand = Exclude<Command, { type: "applyProposal" } | { ty
 const COMMAND_TYPE_REGISTRY: Record<Command["type"], true> = {
   trimClip: true, moveClip: true, splitClip: true, deleteClip: true, duplicateClip: true, setSpeed: true, setMusic: true, snapToBeat: true, pace: true, setOnBeat: true,
   retime: true, retimeToLength: true, insertPresenterTakes: true, cutaways: true, applyFinish: true, hook: true, applyProposal: true,
-  setRamp: true, setCamera: true, applyMove: true, matchCuts: true, setTransition: true, setMotionCut: true, dayAt: true, updateText: true, placeOnSurface: true, syncTextToSpeech: true, applyTextStyle: true, composeKeywordLockup: true, updateClip: true, matchLook: true, addText: true,
+  setRamp: true, setCamera: true, setHeadLock: true, applyMove: true, matchCuts: true, setTransition: true, setMotionCut: true, dayAt: true, updateText: true, placeOnSurface: true, syncTextToSpeech: true, applyTextStyle: true, composeKeywordLockup: true, updateClip: true, matchLook: true, addText: true,
   autoSfx: true, setSfx: true, dropOnCut: true, setEndCard: true, batch: true,
 };
 /** The type of every command, in registry order. */
@@ -270,6 +272,8 @@ export function applyCommand(timeline: Timeline, command: Command, context: Comm
   let next: Timeline;
   try {
     next = run(timeline, command, context);
+    const clips = next.clips.map(normaliseHeadLockWindow);
+    if (clips.some((clip, i) => clip !== next.clips[i])) next = { ...next, clips };
   } catch (error) {
     return { timeline, changes: [], rejected: error instanceof Error ? error.message : String(error) };
   }
@@ -383,6 +387,15 @@ function run(timeline: Timeline, command: Command, context: CommandContext): Tim
       const ramp = typeof command.ramp === "string" ? (RAMP_PRESETS.includes(command.ramp) ? rampPreset(command.ramp) : null) : command.ramp;
       if (typeof command.ramp === "string" && !ramp) throw new Error(`There is no ramp called ${command.ramp}.`);
       return updateClip(timeline, command.clipId, { ramp });
+    }
+    case "setHeadLock": {
+      requireClip(timeline, command.clipId);
+      const clip = timeline.clips.find(c => c.id === command.clipId)!;
+      if (clip.kind !== "VIDEO") throw new Error("Head tracking needs a video clip.");
+      const headLock = command.headLock === null ? null : headLockSchema.parse(command.headLock);
+      if (headLock && headLock.zoom < requiredHeadLockZoom(headLock)) throw new Error("The head track crop would leave unfilled borders. Track it again with enough crop (at most 3×).");
+      if (headLock && (headLock.keys[0].ms > clip.sourceStartMs + 50 || headLock.keys.at(-1)!.ms < clip.sourceEndMs - 80)) throw new Error("The head track must cover this clip. Track it again after extending the trim.");
+      return updateClip(timeline, command.clipId, { headLock, ...(headLock ? { fit: "cover", zoom: 1, motion: "none", camera: null } : {}) });
     }
     case "setCamera": {
       requireClip(timeline, command.clipId);

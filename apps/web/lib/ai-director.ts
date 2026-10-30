@@ -56,8 +56,8 @@ export async function directReel(user: { id: string; workspaceId: string }, reel
   if (input.runId && !await prisma.aiEdit.findFirst({ where: { id: input.runId, reelId: reel.id, workspaceId: user.workspaceId, plan: { path: ["kind"], equals: "director" } }, select: { id: true } })) throw new Error("That run is not available. Start a new one.");
   const aiSources = await prisma.aiGeneration.findMany({ where: { workspaceId: user.workspaceId, status: "SUCCEEDED", assetId: { in: ids } }, select: { assetId: true } });
   // Taken from the month's allowance atomically, with every other AI request (reserveAiEdit, ADR 0095).
-  const reserved = await reserveAiEdit(user.workspaceId, (tx) => tx.aiEdit.create({ data: {
-    workspaceId: user.workspaceId, userId: user.id, reelId: reel.id, request: input.request,
+  const reserved = await reserveAiEdit(user.workspaceId, (tx, stamp) => tx.aiEdit.create({ data: {
+    workspaceId: user.workspaceId, userId: user.id, reelId: reel.id, request: input.request, createdAt: stamp.now,
     note: "Opus director review in progress", model: "pending", plan: { kind: "director-pending", requestId: input.requestId }, applied: [], skipped: [],
   }, select: { id: true } }));
   if (!reserved.ok) throw new Error("blocked" in reserved ? reserved.blocked.message : "Try again.");

@@ -95,31 +95,49 @@ export async function aiEditBlockedReason(workspaceId: string): Promise<{ messag
 
 type Tx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
 
+/** What a reservation's `create` is given: the moment it is made (to stamp the row with) and its key, if any. */
+export type ReservationStamp = { now: Date; key?: string };
+
 /**
  * Takes one of the month's AI requests, atomically (ADR 0095). Every consumer
  * (Ask, the director, Plan my shoot, notes) creates its AiEdit row here, before
  * any model call: under a transaction-scoped advisory lock per workspace
  * (safe on the transaction pooler) the month is counted and the row created in
  * one transaction, so parallel requests of any kind can never pass the
- * allowance. `before` runs first under the same lock (a note's retry and
- * one-per-reel checks) and may answer instead, without spending anything.
+ * allowance.
+ *
+ * - One timestamp, the database's (`now()` of this transaction), decides the
+ *   month counted and stamps the row (`create` must use `stamp.now` for its
+ *   `createdAt`), so a request made across midnight UTC counts in the month it
+ *   is stamped in. `at` replaces it (tests).
+ * - `key` is the request's own identity (a durable step and its generation, a
+ *   job): a request that already reserved under it gets its row back
+ *   (`reused`) and is not charged again, so a replayed step is charged once.
+ *   `create` must store the key in the row's plan as `reservation`.
+ * - `before` runs under the same lock (a note's retry and one-per-reel checks)
+ *   and may answer instead, without spending anything.
  */
-export async function reserveAiEdit<T, E = never>(
+export async function reserveAiEdit<T extends { id: string }, E = never>(
   workspaceId: string,
-  create: (tx: Tx) => Promise<T>,
-  options: { before?: (tx: Tx) => Promise<E | null>; now?: Date } = {},
-): Promise<{ ok: true; value: T } | { ok: false; early: E } | { ok: false; blocked: { message: string; upgrade: boolean } }> {
+  create: (tx: Tx, stamp: ReservationStamp) => Promise<T>,
+  options: { before?: (tx: Tx) => Promise<E | null>; key?: string; at?: Date } = {},
+): Promise<{ ok: true; value: T | { id: string }; reused: boolean; at: Date } | { ok: false; early: E } | { ok: false; blocked: { message: string; upgrade: boolean } }> {
   const allowance = await aiEditAllowance(workspaceId);
   return prisma.$transaction(
     async (tx) => {
       await tx.$queryRaw`SELECT 1 AS locked FROM (SELECT pg_advisory_xact_lock(hashtextextended(${`ai-allowance:${workspaceId}`}, 0))) AS lock`;
+      const now = options.at ?? (await tx.$queryRaw<{ now: Date }[]>`SELECT now() AS now`)[0].now;
+      if (options.key) {
+        const row = await tx.aiEdit.findFirst({ where: { workspaceId, plan: { path: ["reservation"], equals: options.key } }, select: { id: true } });
+        if (row) return { ok: true as const, value: row, reused: true, at: now };
+      }
       const early = options.before ? await options.before(tx) : null;
       if (early !== null) return { ok: false as const, early };
       if (!allowance.unlimited) {
-        const used = await tx.aiEdit.count({ where: { workspaceId, createdAt: { gte: monthStart(options.now ?? new Date()) } } });
+        const used = await tx.aiEdit.count({ where: { workspaceId, createdAt: { gte: monthStart(now) } } });
         if (used >= allowance.allowed) return { ok: false as const, blocked: allowanceSpent(allowance) };
       }
-      return { ok: true as const, value: await create(tx) };
+      return { ok: true as const, value: await create(tx, { now, key: options.key }), reused: false, at: now };
     },
     { timeout: 15_000 },
   );
@@ -194,6 +212,8 @@ export async function askForChange(input: {
   answers?: AskAnswer[];
   /** Longest request accepted: 600 characters typed by a person, more when the app writes it ("Make it for me"). */
   maxLength?: number;
+  /** The request's own identity (a durable step and generation, a job): a replay of it is charged once (reserveAiEdit). */
+  reservationKey?: string;
 }): Promise<AskResult> {
   const request = input.request.trim();
   const maxLength = input.maxLength ?? 600;
@@ -202,8 +222,12 @@ export async function askForChange(input: {
   const unavailable = await aiAvailabilityReason(input.user.workspaceId);
   if (unavailable) return { ok: false, message: unavailable.message, upgrade: unavailable.upgrade };
   // The request is taken from the month's allowance before anything is asked of a model (reserveAiEdit).
-  const reserved = await reserveAiEdit(input.user.workspaceId, (tx) =>
-    tx.aiEdit.create({ data: { workspaceId: input.user.workspaceId, userId: input.user.id, reelId: input.reel.id, request, note: "Working on it", plan: { kind: "ask-pending" }, applied: [], skipped: [], model: "pending" }, select: { id: true } }),
+  // A replayed durable step (ADR 0049) brings the same key and is charged once.
+  const reserved = await reserveAiEdit(
+    input.user.workspaceId,
+    (tx, stamp) =>
+      tx.aiEdit.create({ data: { workspaceId: input.user.workspaceId, userId: input.user.id, reelId: input.reel.id, request, note: "Working on it", plan: { kind: "ask-pending", ...(stamp.key ? { reservation: stamp.key } : {}) }, applied: [], skipped: [], model: "pending", createdAt: stamp.now }, select: { id: true } }),
+    { key: input.reservationKey },
   );
   if (!reserved.ok) return "blocked" in reserved ? { ok: false, message: reserved.blocked.message, upgrade: reserved.blocked.upgrade } : { ok: false, message: "Try again." };
   const recordId = reserved.value.id;
@@ -280,7 +304,8 @@ export async function askForChange(input: {
     data: {
       request: answers.length ? `${request}${asked}` : request,
       note: plan.note,
-      plan,
+      // The reservation key stays with the row, so a replay after it finished is still not charged again.
+      plan: input.reservationKey ? { ...plan, reservation: input.reservationKey } : plan,
       applied: result.applied,
       skipped: result.skipped,
       model,

@@ -31,8 +31,8 @@ export async function planShoot(user: { id: string; workspaceId: string }, reque
   const blocked = await aiEditBlockedReason(user.workspaceId);
   if (blocked) return standard(`${blocked.message} Here is the standard list.`);
   // The request is taken from the month's allowance before the model is asked (reserveAiEdit, ADR 0095).
-  const reserved = await reserveAiEdit(user.workspaceId, (tx) =>
-    tx.aiEdit.create({ data: { workspaceId: user.workspaceId, userId: user.id, request: `Plan my shoot: ${describeShootRequest(request)}`.slice(0, 2000), note: "Working on it", plan: { kind: "shoot-pending" }, applied: [], skipped: [], model: "pending" }, select: { id: true } }),
+  const reserved = await reserveAiEdit(user.workspaceId, (tx, stamp) =>
+    tx.aiEdit.create({ data: { workspaceId: user.workspaceId, userId: user.id, request: `Plan my shoot: ${describeShootRequest(request)}`.slice(0, 2000), note: "Working on it", plan: { kind: "shoot-pending" }, applied: [], skipped: [], model: "pending", createdAt: stamp.now }, select: { id: true } }),
   );
   if (!reserved.ok) return standard(`${"blocked" in reserved ? reserved.blocked.message : "Try again."} Here is the standard list.`);
 

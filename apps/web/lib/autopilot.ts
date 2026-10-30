@@ -37,6 +37,8 @@ export async function makeItForMe(input: {
   timeline: Timeline;
   styleId: string;
   info: ListingInfo;
+  /** The request's own identity, passed to Ask so a replayed step is charged once (ADR 0095). */
+  reservationKey?: string;
 }): Promise<AutopilotResult> {
   if (input.timeline.clips.length === 0) return { ok: false, message: "Pick some photos or videos first." };
   const style = autopilotStyle(input.styleId);
@@ -49,7 +51,7 @@ export async function makeItForMe(input: {
   const local = { assets, songs, info: input.info, style, newId: () => crypto.randomUUID() };
 
   if (isAiAvailable()) {
-    const asked = await askForChange({ user: input.user, reel: input.reel, timeline: input.timeline, request: autopilotRequest(style.id, input.info), maxLength: 2000 });
+    const asked = await askForChange({ user: input.user, reel: input.reel, timeline: input.timeline, request: autopilotRequest(style.id, input.info), maxLength: 2000, reservationKey: input.reservationKey });
     if (asked.ok && asked.applied.length > 0 && usableCut(asked.timeline)) {
       const finished = finishAutopilot(asked.timeline, { ...local, instagramPick: asked.instagramPick });
       const { added, instagramPick } = finished;

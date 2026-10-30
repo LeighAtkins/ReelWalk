@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { keepSavedTextFields, parseTimeline, referencedAssetIds, timelineSchema, type Timeline } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
-import { currentSaveFence, type Tx } from "./save-fence";
+import { FenceRefused, currentSaveFence, type Tx } from "./save-fence";
 import { mediaScope } from "./workspace";
 
 const saveSchema = z.object({
@@ -55,14 +55,26 @@ export async function saveReelFor(user: { workspaceId: string }, input: unknown,
   // A note's save (ADR 0095): the note says, in the write's own transaction, whether it may land, and records it with it.
   const fence = currentSaveFence();
   if (!fence) return write(prisma);
-  return prisma.$transaction(
-    async (tx) => {
-      const refused = await fence.check(tx);
-      if (refused) return { ok: false, reason: "fenced", message: refused } satisfies SaveResult;
-      const saved = await write(tx);
-      if (saved.ok) await fence.committed(tx, saved.revision);
-      return saved;
-    },
-    { timeout: 10_000 },
-  );
+  try {
+    return await prisma.$transaction(
+      async (tx) => {
+        const stopped = await fence.lock(tx);
+        if (stopped) return { ok: false, reason: "fenced", message: stopped } satisfies SaveResult;
+        // The reel's row next (the note, then the reel: one order everywhere), so the write below waits for nobody.
+        await tx.$queryRaw`SELECT 1 AS locked FROM "Reel" WHERE id = ${id} AND "workspaceId" = ${user.workspaceId} FOR UPDATE`;
+        const late = await fence.inTime(tx);
+        if (late) return { ok: false, reason: "fenced", message: late } satisfies SaveResult;
+        const saved = await write(tx);
+        if (!saved.ok) return saved;
+        const after = await fence.inTime(tx);
+        if (after) throw new FenceRefused(after);
+        await fence.committed(tx, saved.revision);
+        return saved;
+      },
+      { timeout: 10_000 },
+    );
+  } catch (error) {
+    if (error instanceof FenceRefused) return { ok: false, reason: "fenced", message: error.message };
+    throw error;
+  }
 }

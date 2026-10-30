@@ -97,15 +97,23 @@ type Db = Pick<typeof prisma, "$executeRaw">;
 function expireOverdue(db: Db, workspaceId: string, reelId: string) {
   return db.$executeRaw`UPDATE "AiEdit" SET plan = jsonb_set(plan, '{status}', '"expired"')
     WHERE "workspaceId" = ${workspaceId} AND "reelId" = ${reelId} AND plan->>'kind' = 'note' AND plan->>'status' = 'working'
-      AND now() >= COALESCE((plan->>'expiresAt')::timestamptz, "createdAt" + interval '11 minutes')`;
+      AND clock_timestamp() >= COALESCE((plan->>'expiresAt')::timestamptz, "createdAt" + interval '11 minutes')`;
 }
 
-/** Locks a note's row and answers whether it is still working and inside `field` (database time; at the instant itself it is closed). */
-async function lockOpen(tx: Tx, noteId: string, field: "saveBy" | "expiresAt"): Promise<"open" | "stopped" | "late"> {
-  const rows = await tx.$queryRaw<{ status: string | null; open: boolean }[]>`SELECT plan->>'status' AS status, now() < (plan->>${field})::timestamptz AS open FROM "AiEdit" WHERE id = ${noteId} FOR UPDATE`;
-  const row = rows[0];
-  if (!row || row.status !== "working") return "stopped";
-  return row.open ? "open" : "late";
+/** Locks a note's row (always the first lock a note's write takes) and answers whether it is still working. */
+async function lockWorking(tx: Tx, noteId: string): Promise<boolean> {
+  const [row] = await tx.$queryRaw<{ status: string | null }[]>`SELECT plan->>'status' AS status FROM "AiEdit" WHERE id = ${noteId} FOR UPDATE`;
+  return row?.status === "working";
+}
+
+/**
+ * Whether the note is still inside `field`, by clock_timestamp(): the time now,
+ * not the transaction's start, which can be long before a lock wait ends. At
+ * the instant itself it is closed.
+ */
+async function inside(tx: Tx, noteId: string, field: "saveBy" | "expiresAt"): Promise<boolean> {
+  const [row] = await tx.$queryRaw<{ open: boolean }[]>`SELECT clock_timestamp() < (plan->>${field})::timestamptz AS open FROM "AiEdit" WHERE id = ${noteId}`;
+  return row?.open === true;
 }
 
 /** Merges facts into a note's plan atomically, whatever its status. */
@@ -234,14 +242,14 @@ export async function startNote(input: { user: ActingUser; reelId: string; note:
   // Read under the reservation's lock (in `before`) and used to create the note.
   const found: { reel?: { title: string; revision: number } } = {};
 
-  const reserved = await reserveAiEdit<{ noteId: string; plan: NotePlan }, Early>(
+  const reserved = await reserveAiEdit<{ id: string; plan: NotePlan }, Early>(
     workspaceId,
-    async (tx) => {
+    async (tx, stamp) => {
       const draft = {
         kind: "note", requestId, status: "working", fromExportId: latest?.id ?? null, toExportId: null,
         revisionBefore: found.reel!.revision, revisionAfter: null, calls: [], costUsd: 0,
       };
-      const row = await tx.aiEdit.create({ data: { workspaceId, userId: user.id, reelId, request: note, note: "Working on it", model: "pending", plan: draft, applied: [], skipped: [] }, select: { id: true } });
+      const row = await tx.aiEdit.create({ data: { workspaceId, userId: user.id, reelId, request: note, note: "Working on it", model: "pending", plan: draft, applied: [], skipped: [], createdAt: stamp.now }, select: { id: true } });
       // The note's times, from the database's clock: the same clock every write and expiry is checked against.
       const [times] = await tx.$queryRaw<{ plan: NotePlan }[]>`UPDATE "AiEdit" SET plan = plan || jsonb_build_object(
           'deadlineAt', to_char((now() + ${deadlineMs}::int * interval '1 millisecond') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
@@ -249,7 +257,7 @@ export async function startNote(input: { user: ActingUser; reelId: string; note:
           'expiresAt', to_char((now() + ${deadlineMs + graceMs}::int * interval '1 millisecond') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'))
         WHERE id = ${row.id} RETURNING plan`;
       await tx.aiJob.create({ data: { id: jobId, workspaceId, reelId, kind: "note" } });
-      return { noteId: row.id, plan: times.plan };
+      return { id: row.id, plan: times.plan };
     },
     {
       before: async (tx) => {
@@ -274,7 +282,7 @@ export async function startNote(input: { user: ActingUser; reelId: string; note:
     return { ok: false, status: 409, message: "A note on this reel is still being worked on. Wait for its version." };
   }
 
-  const { noteId, plan } = reserved.value;
+  const { id: noteId, plan } = reserved.value as { id: string; plan: NotePlan };
   const [versions, history] = await Promise.all([reelVersions(workspaceId, reelId, { last: 20 }), reelNotes(workspaceId, reelId, { limit: HISTORY + 1 })]);
   const brief = noteBrief({
     title: found.reel!.title,
@@ -295,22 +303,17 @@ const emptyOutcome = (revision: number): NoteOutcome => ({ reply: "", changed: f
 export function noteFences(noteId: string) {
   let pending: string[] = [];
   const save: SaveFence = {
-    async check(tx) {
-      const state = await lockOpen(tx, noteId, "saveBy");
-      if (state === "stopped") return "This note was stopped; nothing more can be saved. Answer the owner now.";
-      if (state === "late") return "The note is out of time; nothing more can be saved. Answer the owner now.";
-      return null;
-    },
+    lock: async (tx) => ((await lockWorking(tx, noteId)) ? null : "This note was stopped; nothing more can be saved. Answer the owner now."),
+    inTime: async (tx) => ((await inside(tx, noteId, "saveBy")) ? null : "The note is out of time; nothing more can be saved. Answer the owner now."),
     async committed(tx, revision) {
       await tx.$executeRaw`UPDATE "AiEdit" SET plan = plan || jsonb_build_object('revisionAfter', ${revision}::int), applied = applied || ${JSON.stringify(pending)}::jsonb WHERE id = ${noteId}`;
       pending = [];
     },
   };
+  const stopped = "The note had been stopped, so the change was not exported; it is in the editor.";
   const exporting: ExportFence = {
-    async check(tx) {
-      const state = await lockOpen(tx, noteId, "expiresAt");
-      return state === "open" ? null : "The note had been stopped, so the change was not exported; it is in the editor.";
-    },
+    lock: async (tx) => ((await lockWorking(tx, noteId)) ? null : stopped),
+    inTime: async (tx) => ((await inside(tx, noteId, "expiresAt")) ? null : stopped),
     async committed(tx, jobId) {
       await recordFacts(tx, noteId, { toExportId: jobId });
     },

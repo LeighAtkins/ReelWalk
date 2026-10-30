@@ -42,6 +42,18 @@ works or its version renders, so the phone can sleep.
    It counts the month and creates the row together, so requests of any kind racing for the last slot can never pass the
    allowance. Ask and Plan my shoot used to write their row after the model answered.
 
+   **What the reservation stands on:**
+   - **One database timestamp.** The transaction's `now()` both picks the month that is counted and stamps the row's
+     `createdAt`. A request made across midnight UTC is counted in the month it is stamped in.
+   - **A key, where the request has one.** A durable step is keyed `step:<id>:g<generation>` (ADR 0049), and an
+     in-process job by its id. A replay of the same step, say after the worker died before submitting, finds the row it
+     reserved and reuses it. It is never charged twice, and never refused for want of a second slot. A new generation
+     is a new request.
+   - **Charged even when the model fails.** Ask (and "Make it for me", which calls it) and Plan my shoot now charge
+     their request even when the model fails or gives a bad answer. They charge once per request, never twice on
+     retries. The director and notes already worked this way: "requests made this calendar month, whatever came of
+     them".
+
    A note's reservation also runs its own checks under the same lock, *before* the allowance is counted:
    - a retry of the same request id gets the same note, refused for another reel or other words, so the last allowed
      note can be retried;
@@ -73,10 +85,15 @@ works or its version renders, so the phone can sleep.
      - `expiresAt`, a minute later: no export after it, and from then it can be expired.
 
      Saves are fenced inside the save itself. The agent's saves run inside a save fence (`lib/save-fence.ts`). In the
-     save's own transaction, `saveReelFor` locks the note's row (`FOR UPDATE`) and checks two things: the note is still
-     `working`, and `now() < saveBy`, which is closed at the instant itself. Only then does it write the reel and record
-     the new revision and the saved command lines on the note. A slow tool, rate limit or validation cannot slip a save
-     past the time, or past an expiry.
+     save's own transaction, `saveReelFor` takes its locks in one fixed order, the note's row and then the reel's:
+     1. Lock the note (`FOR UPDATE`) and check it is still `working`.
+     2. Lock the reel's row.
+     3. With every lock held, check `clock_timestamp() < saveBy`. That is the time now, not the transaction's start,
+        which can be long before a lock wait ends. It is closed at the instant itself.
+     4. Write the reel, then check the clock again, and roll back if the time is up.
+     5. Record the new revision and the saved command lines on the note.
+
+     A slow tool, rate limit, validation step or lock wait cannot slip a save past the time, or past an expiry.
    - **At most 12 tool calls.** After the twelfth, the next turn is sent with `tool_choice: none`, so the agent must
      answer.
    - **Arguments are checked** against the tool's zod shape before it runs.
@@ -84,10 +101,17 @@ works or its version renders, so the phone can sleep.
    - Leaving the export out of the loop keeps a note's cost and time bounded: the agent never polls a render.
    - The export is of exactly the revision the note saved (`queueReelExport(…, { revision })`). If the owner saved in
      between, nothing is exported and the note says why, rather than shipping the owner's edit as the note's version.
-   - The export is fenced the same way. `commitReelExport` creates the job and its outbox message in one transaction. In
-     that transaction it locks the note, checks that it is still working and that `now() < expiresAt`, re-checks the
-     reel's revision, and records the job's id on the note. A note that expired, or whose time ran out, creates no job.
-     A note that holds the row while exporting is waited for by expiry, never overtaken.
+   - The export is fenced the same way, in the same lock order. `commitReelExport` creates the job and its outbox
+     message in one transaction, which:
+     1. locks the note and checks it is still working;
+     2. locks the reel's row (`FOR UPDATE`, held until the job is written) and validates the revision there, so an
+        owner's save waits for the export instead of slipping in between;
+     3. checks `clock_timestamp() < expiresAt` before creating the job, and again after it (rolling back if late);
+     4. records the job's id on the note.
+
+     A note that expired, or whose time ran out, creates no job. Expiry is decided by `clock_timestamp()` too, and waits
+     for a note whose row is held, never overtaking it. Every write takes the note's lock before the reel's, and expiry
+     takes only the note's, so the locks cannot form a cycle.
    - The created job's id is the one recorded, not "the newest job". That render becomes v(n+1).
 5. **Record.** The note is stored as an `AiEdit` row:
    - `request` is the note and `note` is the answer;

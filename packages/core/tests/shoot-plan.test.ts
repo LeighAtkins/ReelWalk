@@ -16,7 +16,7 @@ vi.mock("@reelwalk/db", () => ({ prisma: { aiEdit: { update: async () => ({ id: 
 // The request is reserved (one AiEdit row) before the model is asked; reserveAiEdit's own tests are against a database.
 vi.mock("@/lib/ai-edit", () => ({
   aiEditBlockedReason: async () => state.blocked,
-  reserveAiEdit: async (_workspaceId: string, create: (tx: unknown) => Promise<unknown>) => ({ ok: true, value: await create({ aiEdit: { create: async (args: unknown) => { state.records.push(args); return { id: "edit" }; } } }) }),
+  reserveAiEdit: async (_workspaceId: string, create: (tx: unknown, stamp: unknown) => Promise<unknown>) => ({ ok: true, value: await create({ aiEdit: { create: async (args: unknown) => { state.records.push(args); return { id: "edit" }; } } }, { now: new Date() }) }),
 }));
 vi.mock("@/lib/openai", () => {
   class AiError extends Error {

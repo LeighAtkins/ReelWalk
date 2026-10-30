@@ -47,11 +47,18 @@ export function directorFailureMessage(error: unknown): string {
  * the edit plan, the Opus review) first passes `gate.beforeRequest` and
  * reports `gate.answered` when a response arrives (lib/provider-gate.ts).
  */
-export async function runAiStep(input: { kind: AiStepKind; user: StepUser; reelId: string; payload: unknown }, gate?: ProviderGate): Promise<unknown> {
+export async function runAiStep(input: StepInput, gate?: ProviderGate): Promise<unknown> {
   return gate ? withProviderGate(gate, () => runStep(input)) : runStep(input);
 }
 
-async function runStep(input: { kind: AiStepKind; user: StepUser; reelId: string; payload: unknown }): Promise<unknown> {
+/**
+ * `identity` is the request's own, stable across replays: the durable step and
+ * its generation in the worker, the job in the in-process path. A request that
+ * spends the month's allowance reserves under it, so a replay is charged once.
+ */
+type StepInput = { kind: AiStepKind; user: StepUser; reelId: string; payload: unknown; identity?: string };
+
+async function runStep(input: StepInput): Promise<unknown> {
   if (input.kind === "music-analysis") throw new Error("A track is analysed by the worker, not here.");
   if (input.kind === "block-solve" || input.kind === "block-reveal") throw new Error("Walk the block runs in the worker, not here.");
   const reel = await prisma.reel.findFirst({ where: { id: input.reelId, workspaceId: input.user.workspaceId }, select: { id: true, title: true } });
@@ -59,13 +66,13 @@ async function runStep(input: { kind: AiStepKind; user: StepUser; reelId: string
   if (input.kind === "ask") {
     const payload = askPayload.parse(input.payload);
     const timeline = parseTimeline(payload.timeline);
-    const result = await askForChange({ user: input.user, reel, timeline, request: payload.request, answers: payload.answers });
+    const result = await askForChange({ user: input.user, reel, timeline, request: payload.request, answers: payload.answers, reservationKey: input.identity });
     return result.ok ? { ...result, baselineGeneration: timelineGeneration(timeline), assets: await newAssets(input.user.workspaceId, timeline, result.timeline) } : result;
   }
   if (input.kind === "autopilot") {
     const payload = autopilotPayload.parse(input.payload);
     const timeline = parseTimeline(payload.timeline);
-    const result = await makeItForMe({ user: input.user, reel, timeline, styleId: payload.styleId, info: payload.info as ListingInfo });
+    const result = await makeItForMe({ user: input.user, reel, timeline, styleId: payload.styleId, info: payload.info as ListingInfo, reservationKey: input.identity });
     return result.ok ? { ...result, baselineGeneration: timelineGeneration(timeline), assets: await newAssets(input.user.workspaceId, timeline, result.timeline) } : result;
   }
   const payload = directorInput.parse(input.payload);

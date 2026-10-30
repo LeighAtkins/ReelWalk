@@ -15,7 +15,8 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { addClips, emptyTimeline, monthStart, parseTimeline } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
 import { aiEditAllowance, askForChange, reserveAiEdit } from "./ai-edit";
-import { commitReelExport } from "./export-reel";
+import { runAiStep } from "./ai-steps";
+import { commitReelExport, type ExportFence } from "./export-reel";
 import { NoteRunError, type NoteOutcome } from "./reel-notes";
 import { noteFences, reelNotes, restoreVersion, startNote, type NoteRunDeps, type NoteTiming } from "./reel-thread";
 import { withSaveFence } from "./save-fence";
@@ -262,7 +263,8 @@ describe.skipIf(!enabled)("notes on a version against a real database", () => {
       const fence = noteFences((started as any).noteId);
       await sleep(1100); // past the deadline, before expiresAt (1600 ms)
       const exporting = prisma.$transaction(async (tx) => {
-        expect(await fence.exporting.check(tx)).toBeNull(); // locks the note
+        expect(await fence.exporting.lock(tx)).toBeNull(); // locks the note
+        expect(await fence.exporting.inTime(tx)).toBeNull();
         await sleep(1300); // still writing the job when expiresAt passes (and when the read below happens)
         await fence.exporting.committed(tx, "job-held");
       });
@@ -308,6 +310,111 @@ describe.skipIf(!enabled)("notes on a version against a real database", () => {
       }
       const line = lines.map((text) => { try { return JSON.parse(text); } catch { return null; } }).find((entry) => entry?.event === "reel-note");
       expect(line).toMatchObject({ costUsd: 0.0202, inputTokens: 5000, failure: expect.stringContaining("recording the note failed") });
+    });
+  });
+
+  describe("lock waits and the clock (round 3)", () => {
+    /** Holds the reel's row lock, as another writer would, for `ms`. */
+    const holdReel = (reelId: string, ms: number) =>
+      prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT 1 AS locked FROM "Reel" WHERE id = ${reelId} FOR UPDATE`;
+        await sleep(ms);
+      }, { timeout: 10_000 });
+
+    it("a save that starts before saveBy but waits on the reel's lock until after it is refused, by the clock at the write", async () => {
+      const user = await studio();
+      const reelId = await newReel(user);
+      const gate = gated();
+      // saveBy at 1000 ms, expiry at 2000 ms.
+      const started = await note(user, reelId, deps({ run: gate.run, timing: { deadlineMs: 1500, saveGuardMs: 500, graceMs: 500 } }));
+      const fence = noteFences((started as any).noteId);
+      const holding = holdReel(reelId, 1300); // another writer holds the reel from ~0 to ~1300 ms
+      await sleep(300);
+      const saved = await agentSave(user, reelId, fence); // starts at ~300 ms (inside saveBy), waits until ~1300 ms
+      await holding;
+      expect(saved).toMatchObject({ ok: false, reason: "fenced", message: expect.stringContaining("out of time") });
+      expect((await prisma.reel.findUniqueOrThrow({ where: { id: reelId } })).revision).toBe(0);
+      expect((await notesOf(reelId))[0].applied).toEqual([]);
+      gate.release();
+      await (started as any).settled;
+    });
+
+    it("an export that starts before expiresAt but waits on the reel's lock until after it creates no job", async () => {
+      const user = await studio();
+      const reelId = await newReel(user);
+      const gate = gated();
+      // expiresAt at 1000 ms.
+      const started = await note(user, reelId, deps({ run: gate.run, timing: { deadlineMs: 600, saveGuardMs: 200, graceMs: 400 } }));
+      const fence = noteFences((started as any).noteId);
+      const holding = holdReel(reelId, 1300);
+      await sleep(300);
+      const exported = await realExport(user, reelId, { revision: 0, fence: fence.exporting });
+      await holding;
+      expect(exported).toMatchObject({ ok: false, fenced: true });
+      expect(await prisma.renderJob.count({ where: { reelId } })).toBe(0);
+      expect((await notesOf(reelId))[0].plan as any).toMatchObject({ toExportId: null });
+      gate.release();
+      await (started as any).settled;
+    });
+
+    it("an owner's save cannot land between the export's revision check and its job: it waits for the export", async () => {
+      const user = await studio();
+      const reelId = await newReel(user);
+      let ownerDone = false;
+      let owner: Promise<unknown> | null = null;
+      const fence: ExportFence = {
+        lock: async () => null,
+        // Called after the reel's revision was checked, right before the job: the owner saves now.
+        inTime: async () => {
+          if (!owner) {
+            owner = prisma.reel.updateMany({ where: { id: reelId }, data: { revision: { increment: 1 } } }).then(() => void (ownerDone = true));
+            await sleep(500);
+          }
+          return null;
+        },
+        committed: async () => undefined,
+      };
+      const exported = await realExport(user, reelId, { revision: 0, fence });
+      const doneDuringExport = ownerDone;
+      await owner;
+      expect(exported.ok).toBe(true);
+      expect(doneDuringExport).toBe(false); // held off by the export's lock on the reel
+      expect((await prisma.reel.findUniqueOrThrow({ where: { id: reelId } })).revision).toBe(1); // and landed after it
+    });
+
+    it("a replayed durable step reserves once: the replay reuses its request instead of taking (or being refused) another", async () => {
+      const user = await studio();
+      const allowed = await leave(user, 1);
+      const reelId = await newReel(user);
+      const step = { kind: "ask" as const, user: { id: user.id, workspaceId: user.workspaceId }, reelId, payload: { request: "make it warmer", timeline: emptyTimeline(), answers: [] }, identity: "step:s1:g1" };
+      const first = (await runAiStep(step)) as { ok: boolean };
+      const replay = (await runAiStep(step)) as { ok: boolean }; // the worker died before submitting; ADR 0049 requeued it
+      expect(first.ok).toBe(true);
+      expect(replay.ok).toBe(true);
+      expect(await usedThisMonth(user)).toBe(allowed);
+      expect(await prisma.aiEdit.count({ where: { workspaceId: user.workspaceId, plan: { path: ["reservation"], equals: "step:s1:g1" } } })).toBe(1);
+      // A different request (or a new generation of the step) is a new request, and the month is spent.
+      expect(((await runAiStep({ ...step, identity: "step:s1:g2" })) as { ok: boolean; message?: string })).toMatchObject({ ok: false, message: expect.stringContaining("free requests") });
+    });
+
+    it("counts a request in the month its own timestamp is in: one database timestamp decides both", async () => {
+      const user = await studio();
+      const { allowed } = await aiEditAllowance(user.workspaceId);
+      const lastOfOctober = new Date("2026-10-31T23:59:59.999Z");
+      await prisma.aiEdit.createMany({ data: Array.from({ length: allowed }, () => ({ workspaceId: user.workspaceId, request: "october", note: "", plan: {}, applied: [], skipped: [], model: "x", createdAt: new Date("2026-10-15T00:00:00Z") })) });
+      const create = (tx: any, stamp: { now: Date }) => tx.aiEdit.create({ data: { workspaceId: user.workspaceId, request: "x", note: "", plan: {}, applied: [], skipped: [], model: "x", createdAt: stamp.now }, select: { id: true } });
+      // A millisecond before midnight UTC: October is full.
+      expect(await reserveAiEdit(user.workspaceId, create, { at: lastOfOctober })).toMatchObject({ ok: false, blocked: expect.anything() });
+      // At midnight: November, and the row is stamped November, the month it was counted in.
+      const november = await reserveAiEdit(user.workspaceId, create, { at: new Date("2026-11-01T00:00:00.000Z") });
+      expect(november.ok).toBe(true);
+      const row = await prisma.aiEdit.findUniqueOrThrow({ where: { id: (november as any).value.id } });
+      expect(row.createdAt.toISOString()).toBe("2026-11-01T00:00:00.000Z");
+      // Without an override, the row's stamp is the reservation's own database timestamp.
+      const fresh = await studio();
+      const now = await reserveAiEdit(fresh.workspaceId, (tx, stamp) => tx.aiEdit.create({ data: { workspaceId: fresh.workspaceId, request: "x", note: "", plan: {}, applied: [], skipped: [], model: "x", createdAt: stamp.now }, select: { id: true } }));
+      expect(now.ok).toBe(true);
+      expect((await prisma.aiEdit.findUniqueOrThrow({ where: { id: (now as any).value.id } })).createdAt.getTime()).toBe((now as any).at.getTime());
     });
   });
 

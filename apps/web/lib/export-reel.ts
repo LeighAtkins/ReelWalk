@@ -12,10 +12,12 @@ export type ExportResult = { ok: false; issues: Issue[]; message?: string; /** A
 
 /**
  * A condition on an export, checked and recorded inside the transaction that
- * creates the job and its queue message (a note's export, ADR 0095): `check`
- * may refuse (nothing is created), `committed` records the job with it.
+ * creates the job and its queue message (a note's export, ADR 0095), in the
+ * same shape and lock order as a save's fence (lib/save-fence.ts): `lock`
+ * (the note), then the reel's row, then `inTime` right before creating the
+ * job and again after (rolling it back), then `committed` records the job.
  */
-export type ExportFence = { check(tx: Tx): Promise<string | null>; committed(tx: Tx, jobId: string): Promise<void> };
+export type ExportFence = { lock(tx: Tx): Promise<string | null>; inTime(tx: Tx): Promise<string | null>; committed(tx: Tx, jobId: string): Promise<void> };
 
 type ExportOptions = { revision?: number; fence?: ExportFence };
 
@@ -27,22 +29,31 @@ class ExportRefused extends Error {
 
 /**
  * The job row, its outbox message, and the caller's fence, in one
- * transaction. With `revision`, the reel must still be at it when the job is
- * written. Answers the job's id.
+ * transaction. The reel's row is locked (after the fence's note) and held
+ * until the job is written, so with `revision` the reel is still at it when
+ * the job is created: an owner's save waits for this export rather than
+ * slipping in between. Answers the job's id.
  */
 export async function commitReelExport(input: { user: { id: string; workspaceId: string }; reelId: string; payload: unknown; caption: string } & ExportOptions): Promise<{ ok: true; jobId: string } | ExportResult> {
   try {
     const jobId = await prisma.$transaction(
       async (tx) => {
-        const refused = input.fence ? await input.fence.check(tx) : null;
-        if (refused) throw new ExportRefused(refused, { ok: false, issues: [], fenced: true, message: refused });
-        if (input.revision !== undefined && (await tx.reel.count({ where: { id: input.reelId, workspaceId: input.user.workspaceId, revision: input.revision } })) === 0) {
+        const fenced = (message: string) => new ExportRefused(message, { ok: false, issues: [], fenced: true, message });
+        const stopped = input.fence ? await input.fence.lock(tx) : null;
+        if (stopped) throw fenced(stopped);
+        const [reel] = await tx.$queryRaw<{ revision: number }[]>`SELECT revision FROM "Reel" WHERE id = ${input.reelId} AND "workspaceId" = ${input.user.workspaceId} FOR UPDATE`;
+        if (!reel) throw new ExportRefused("missing", { ok: false, issues: [], message: "This reel was deleted." });
+        if (input.revision !== undefined && reel.revision !== input.revision) {
           throw new ExportRefused("conflict", { ok: false, issues: [], conflict: true, message: "The reel was changed after that edit, so it was not exported." });
         }
+        const late = input.fence ? await input.fence.inTime(tx) : null;
+        if (late) throw fenced(late);
         const job = await tx.renderJob.create({
           data: { workspaceId: input.user.workspaceId, createdById: input.user.id, reelId: input.reelId, kind: "REEL", payload: input.payload as never, caption: input.caption },
         });
         await queueRenderJob(tx, job);
+        const after = input.fence ? await input.fence.inTime(tx) : null;
+        if (after) throw fenced(after);
         await input.fence?.committed(tx, job.id);
         return job.id;
       },

@@ -8,12 +8,16 @@ locals {
   ecr_worker = aws_ecr_repository.app["worker"].repository_url
 
   app_env = {
-    AWS_REGION                   = var.aws_region
-    S3_REGION                    = var.aws_region
-    S3_BUCKET                    = aws_s3_bucket.media.bucket
-    S3_FORCE_PATH_STYLE          = "false"
-    SQS_QUEUE_URL                = aws_sqs_queue.render_jobs.url
-    SQS_DLQ_URL                  = aws_sqs_queue.render_jobs_dlq.url
+    AWS_REGION          = var.aws_region
+    S3_REGION           = var.aws_region
+    S3_BUCKET           = aws_s3_bucket.media.bucket
+    S3_FORCE_PATH_STYLE = "false"
+    SQS_QUEUE_URL       = aws_sqs_queue.render_jobs.url
+    SQS_DLQ_URL         = aws_sqs_queue.render_jobs_dlq.url
+    # Our own renders' queue (ADR 0094): the web app routes to it, workers relay its outbox messages to it.
+    LOCAL_RENDER_QUEUE_URL = aws_sqs_queue.render_jobs_local.url
+    # Whose renders go to it; the PC worker also refuses (hands to the cloud) any other workspace's job.
+    LOCAL_RENDER_WORKSPACES      = join(",", var.local_render_workspace_ids)
     CLOUDFRONT_BASE_URL          = "https://${aws_cloudfront_distribution.media.domain_name}"
     APP_URL                      = "https://${var.app_domain}"
     RENDER_MAX_ATTEMPTS          = "3"
@@ -46,6 +50,8 @@ locals {
     GOOGLE_WORKLOAD_IDENTITY_AUDIENCE = var.google_workload_identity_audience
     GOOGLE_SERVICE_ACCOUNT_EMAIL      = var.google_service_account_email
     VERTEX_CLAUDE_REGION              = var.vertex_claude_region
+    # When a local render falls back to Fargate (ADR 0094).
+    LOCAL_RENDER_FALLBACK_SECONDS = tostring(var.local_render_fallback_seconds)
   }
 
   # Parameter Store holds the credentials; both runtimes read them at start.
@@ -80,6 +86,19 @@ resource "aws_ssm_parameter" "app" {
 
 resource "aws_ecs_cluster" "renders" {
   name = "${var.project_name}-renders"
+}
+
+# Render workers launch on Fargate Spot, with on-demand Fargate when Spot has
+# no capacity (ADR 0094; the web app picks per launch). A reclaimed Spot task
+# gets SIGTERM two minutes ahead and hands its job back to the queue.
+resource "aws_ecs_cluster_capacity_providers" "renders" {
+  cluster_name       = aws_ecs_cluster.renders.name
+  capacity_providers = ["FARGATE", "FARGATE_SPOT"]
+
+  default_capacity_provider_strategy {
+    capacity_provider = "FARGATE"
+    weight            = 1
+  }
 }
 
 resource "aws_cloudwatch_log_group" "worker" {
@@ -169,12 +188,18 @@ resource "aws_ecs_task_definition" "worker" {
       name      = "worker"
       image     = "${local.ecr_worker}:${var.image_tag}"
       essential = true
+      # Fargate Spot warns two minutes before a reclaim (SIGTERM), and 120 s is ECS's longest stop timeout:
+      # a render gets 90 s of it to finish before it is stopped and handed back (ADR 0094).
+      stopTimeout = 120
       environment = [
         for k, v in merge(local.app_env, {
-          RENDER_CONCURRENCY                = tostring(var.worker_render_concurrency)
-          WORKER_IDLE_EXIT_SECONDS          = "240"
+          RENDER_CONCURRENCY            = tostring(var.worker_render_concurrency)
+          RENDER_SHUTDOWN_DRAIN_SECONDS = "90"
+          RENDER_STOP_TIMEOUT_SECONDS   = "120"
+          # A warm task picks up the next export at once; past 90 s idle it is cheaper to cold-start one (ADR 0094).
+          WORKER_IDLE_EXIT_SECONDS = "90"
           # Walk the block's solve (ADR 0093): OpenCV threads, one per vCPU of the task (it also reads the cgroup quota).
-          BLOCK_SOLVE_THREADS = tostring(max(1, floor(tonumber(var.worker_cpu) / 1024)))
+          BLOCK_SOLVE_THREADS               = tostring(max(1, floor(tonumber(var.worker_cpu) / 1024)))
           GOOGLE_WORKLOAD_IDENTITY_AUDIENCE = var.google_workload_identity_audience
           GOOGLE_SERVICE_ACCOUNT_EMAIL      = var.google_service_account_email
           # Up to max_workers of these share the database pooler with the web app.
@@ -305,6 +330,7 @@ resource "aws_apprunner_service" "web" {
           ECS_SUBNETS                = join(",", module.vpc.public_subnets)
           ECS_SECURITY_GROUPS        = aws_security_group.worker.id
           ECS_MAX_WORKERS            = tostring(var.max_workers)
+          ECS_SPOT                   = tostring(var.worker_spot)
           RENDER_JOBS_PER_WORKER     = tostring(var.worker_render_concurrency)
           # web_max_instances x 5, plus the workers' pools, stays well under the
           # transaction pooler's client limit.

@@ -1,6 +1,25 @@
 export type WorkerConfig = {
+  /**
+   * "cloud": the normal worker. "local" (ADR 0094): a worker on the owner's PC
+   * that only renders what arrives on its queue (the local render queue): no
+   * AI video polling, no AI step reaper, and it relays only local messages.
+   */
+  mode: "cloud" | "local";
   sqsEndpointUrl?: string;
+  /** The queue this worker consumes (in local mode, the local render queue). */
   queueUrl: string;
+  /** A cloud worker's outbox relay sends local render messages here (ADR 0094); unset sends them to queueUrl. */
+  localQueueUrl?: string;
+  /**
+   * A machine-wide lock directory taken around each render (mkdir + owner.txt,
+   * never stolen), so a local worker shares the PC with other heavy jobs.
+   */
+  heavyLockDir?: string;
+  heavyLockOwner: string;
+  /** How long a local worker waits for the heavy lock before handing the unclaimed job to the cloud. */
+  heavyLockWaitSeconds: number;
+  /** Shutdown hand-backs a job's generation gets without spending an attempt (Spot reclaims, a stopped PC). */
+  maxInterruptions: number;
   deadLetterQueueUrl?: string;
   awsRegion: string;
   s3EndpointUrl?: string;
@@ -61,8 +80,15 @@ const SHUTDOWN_REPORT_SECONDS = 5;
 
 export function getConfig(env = process.env): WorkerConfig {
   const config: WorkerConfig = {
+    mode: env.WORKER_MODE === "local" ? "local" : "cloud",
     sqsEndpointUrl: valueOrUndefined(env, "SQS_ENDPOINT_URL"),
     queueUrl: env.SQS_QUEUE_URL ?? "http://localhost:9324/000000000000/render-jobs",
+    localQueueUrl: valueOrUndefined(env, "LOCAL_RENDER_QUEUE_URL"),
+    heavyLockDir: valueOrUndefined(env, "HEAVY_LOCK_DIR"),
+    heavyLockOwner: env.HEAVY_LOCK_OWNER || "reelwalk-local-worker",
+    // Under the web app's 10-minute fallback, so the worker hands off first and says why.
+    heavyLockWaitSeconds: numberFrom(env, "HEAVY_LOCK_WAIT_SECONDS", 480),
+    maxInterruptions: numberFrom(env, "RENDER_MAX_INTERRUPTIONS", 3),
     deadLetterQueueUrl: valueOrUndefined(env, "SQS_DLQ_URL"),
     awsRegion: env.AWS_REGION ?? env.S3_REGION ?? "us-east-1",
     s3EndpointUrl: valueOrUndefined(env, "S3_ENDPOINT_URL"),

@@ -80,6 +80,27 @@ variable "worker_render_concurrency" {
   default = 1
 }
 
+# Fargate Spot for render workers (ADR 0094), with on-demand Fargate for what Spot cannot place.
+variable "worker_spot" {
+  type    = bool
+  default = true
+}
+
+# Workspaces whose renders go to the local queue and a worker on the owner's
+# PC instead of Fargate (ADR 0094). Ours: the @reelwalking studio and Last Mile
+# (leigh.atkins1@gmail.com's two). The same list scopes what the PC may write
+# (local_worker_iam.tf), so a new studio of ours is added here.
+variable "local_render_workspace_ids" {
+  type    = list(string)
+  default = ["cmuy51nnw000h01adf9ks11xo", "cmvny3ai60000bkuumm4q6nha"]
+}
+
+# How long a local render may wait unclaimed (the PC is off) before it moves to Fargate.
+variable "local_render_fallback_seconds" {
+  type    = number
+  default = 600
+}
+
 # Render workers running at once. Each takes worker_cpu (2 vCPU); the
 # account's Fargate quota is 12 vCPU, so 6 is the ceiling until it is raised.
 variable "max_workers" {

@@ -24,7 +24,7 @@ import { toLibraryAsset, toLibraryAssets, type LibraryAsset } from "@/lib/librar
 import { saveReelFor, type SaveResult } from "@/lib/save-reel";
 import { retryBlockedReason, storageBlockedReason } from "@/lib/quotas";
 import { ensureWorkerRunning } from "@/lib/render-capacity";
-import { flushOutbox, queueRenderJob } from "@/lib/render-jobs";
+import { flushOutbox, queueRenderJob, renderRouteFor } from "@/lib/render-jobs";
 import { abortMultipartUpload, completeMultipartUpload, headObject, presignUpload, startMultipartUpload, UPLOAD_PART_BYTES } from "@/lib/storage";
 import { getCurrentUser, mediaScope } from "@/lib/workspace";
 import { appUrl } from "@/lib/app-url";
@@ -172,10 +172,14 @@ export async function retryRenderJob(formData: FormData): Promise<void> {
 
   // FAILED -> QUEUED as a single conditional write: two taps (or two tabs)
   // can only ever produce one new generation and one new message.
+  // A retry is a new generation, routed afresh (ADR 0094).
+  const route = renderRouteFor(user.workspaceId);
   const job = await prisma.$transaction(async (tx) => {
     const retried = await tx.renderJob.updateManyAndReturn({
       where: { id: jobId, workspaceId: user.workspaceId, status: "FAILED" },
       data: {
+        route,
+        interruptions: 0,
         status: "QUEUED",
         generation: { increment: 1 },
         attempt: 0,
@@ -186,12 +190,12 @@ export async function retryRenderJob(formData: FormData): Promise<void> {
         finishedAt: null,
       },
     });
-    if (retried[0]) await queueRenderJob(tx, retried[0]);
-    return retried[0];
+    if (!retried[0]) return null;
+    return { reelId: retried[0].reelId, route: await queueRenderJob(tx, retried[0]) };
   });
   if (job) {
     await flushOutbox();
-    await ensureWorkerRunning();
+    await ensureWorkerRunning(job.route);
   }
 
   if (job?.reelId) revalidatePath(`/reels/${job.reelId}/export`);
@@ -349,14 +353,15 @@ export async function confirmUpload(input: z.input<typeof confirmSchema>): Promi
   // editor switches to it on the next load. The job goes through the same
   // queue and outbox as an export.
   if (asset.kind === "VIDEO" && !asset.previewKey) {
+    const route = renderRouteFor(user.workspaceId);
     await prisma.$transaction(async (tx) => {
       const job = await tx.renderJob.create({
-        data: { workspaceId: user.workspaceId, createdById: user.id, mediaAssetId: asset.id, kind: "PREVIEW", caption: data.fileName },
+        data: { route, workspaceId: user.workspaceId, createdById: user.id, mediaAssetId: asset.id, kind: "PREVIEW", caption: data.fileName },
       });
       await queueRenderJob(tx, job);
     });
     await flushOutbox();
-    await ensureWorkerRunning();
+    await ensureWorkerRunning(route);
   }
   return { ok: true, asset: await toLibraryAsset(asset) };
 }

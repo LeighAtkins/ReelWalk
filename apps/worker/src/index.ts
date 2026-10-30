@@ -9,16 +9,18 @@ import {
   SQSClient,
   type Message,
 } from "@aws-sdk/client-sqs";
-import { prisma, relayOutbox, RENDER_JOBS_TOPIC } from "@reelwalk/db";
+import { handOffLocalRender, LOCAL_RENDER_JOBS_TOPIC, localRenderWorkspacesFromEnv, prisma, recordRenderArtifact, relayOutbox, RENDER_JOBS_TOPIC } from "@reelwalk/db";
 import { getConfig } from "./config";
-import { handleDeadLetter, handleDelivery, type Delivery } from "./handler";
-import { renderJob } from "./render";
+import { handleDeadLetter, handleDelivery, type ClaimedJob, type Delivery } from "./handler";
+import { renderJob, type RunStorage } from "./render";
 import { createJobStore } from "./store";
 import { processAiVideo } from "./ai-video";
 import { processPresenterKit } from "./presenter-kits";
-import { AI_STEP_QUEUE_RETENTION_MS, AI_STEP_REAP_AFTER_MS } from "@reelwalk/core";
+import { AI_STEP_QUEUE_RETENTION_MS, AI_STEP_REAP_AFTER_MS, localKeyFor, serializeRenderJobMessage } from "@reelwalk/core";
 import { createAiStepStore, type AiStepDeps } from "./ai-jobs";
 import { aiStepExecutor } from "./ai-executor";
+import { checkHeavyLockDir, createHeavyLock } from "./heavy-lock";
+import { handleLocalDelivery } from "./local-delivery";
 
 const config = getConfig();
 
@@ -40,6 +42,24 @@ const s3 = new S3Client({
 });
 
 const store = createJobStore(prisma);
+// The workspaces a PC worker renders for: the ones its IAM user may write for (ADR 0094). Anything else is handed to the cloud.
+const localWorkspaces = localRenderWorkspacesFromEnv();
+if (config.mode === "local" && localWorkspaces.size === 0) console.warn("local mode without LOCAL_RENDER_WORKSPACES: every job will be handed to the cloud");
+
+/** Where a run writes, and the record of what it wrote (ADR 0094): a PC worker writes only under its workspace's prefix. */
+function runStorage(job: ClaimedJob): RunStorage {
+  if (!job.workspaceId) throw new Error(`render job ${job.id} has no workspace`);
+  const workspaceId = job.workspaceId;
+  return {
+    keyFor: (key) => (config.mode === "local" ? localKeyFor(workspaceId, key) : key),
+    record: (key, kind) => recordRenderArtifact(prisma, { key, kind, workspaceId, jobId: job.id }),
+  };
+}
+// A local worker (ADR 0094) shares the PC: each render waits for the machine-wide heavy lock.
+const heavyLock = config.heavyLockDir
+  ? createHeavyLock({ dir: config.heavyLockDir, owner: config.heavyLockOwner, cooldownMs: Number(process.env.HEAVY_LOCK_COOLDOWN_SECONDS ?? 60) * 1000 })
+  : undefined;
+if (config.heavyLockDir) await checkHeavyLockDir(config.heavyLockDir);
 // Durable AI steps (ADR 0049) arrive on the render queue and use the same lease settings.
 const aiSteps: AiStepDeps = { store: createAiStepStore(prisma), executor: aiStepExecutor, config: { ...config, aiStepTimeoutSeconds: Number(process.env.AI_STEP_TIMEOUT_SECONDS ?? 600) } };
 
@@ -134,24 +154,32 @@ async function reapAiSteps() {
   }
 }
 
+// Which outbox topics this worker relays, and where to. A local worker (ADR 0094) consumes the local
+// queue as its queueUrl and relays only local messages; a cloud worker relays both.
+const relays: { topic: string; queueUrl: string }[] = config.mode === "local"
+  ? [{ topic: LOCAL_RENDER_JOBS_TOPIC, queueUrl: config.queueUrl }]
+  : [{ topic: RENDER_JOBS_TOPIC, queueUrl: config.queueUrl }, { topic: LOCAL_RENDER_JOBS_TOPIC, queueUrl: config.localQueueUrl ?? config.queueUrl }];
+
 async function outboxLoop() {
-  console.log(`outbox: relaying to ${config.queueUrl}`);
+  for (const relay of relays) console.log(`outbox: relaying ${relay.topic} to ${relay.queueUrl}`);
   while (!stopping) {
-    try {
-      const { sent, failed } = await relayOutbox(prisma, {
-        topic: RENDER_JOBS_TOPIC,
-        send: async (body) => {
-          await sqs.send(new SendMessageCommand({ QueueUrl: config.queueUrl, MessageBody: body }), {
-            abortSignal: AbortSignal.timeout(10_000),
-          });
-        },
-      });
-      if (sent > 0 || failed > 0) console.log(`outbox: sent ${sent}, failed ${failed}`);
-    } catch (error) {
-      if (stopping) break;
-      console.error("outbox: relay error", error);
+    for (const relay of relays) {
+      try {
+        const { sent, failed } = await relayOutbox(prisma, {
+          topic: relay.topic,
+          send: async (body) => {
+            await sqs.send(new SendMessageCommand({ QueueUrl: relay.queueUrl, MessageBody: body }), {
+              abortSignal: AbortSignal.timeout(10_000),
+            });
+          },
+        });
+        if (sent > 0 || failed > 0) console.log(`outbox: ${relay.topic} sent ${sent}, failed ${failed}`);
+      } catch (error) {
+        if (stopping) break;
+        console.error("outbox: relay error", error);
+      }
     }
-    await reapAiSteps();
+    if (config.mode === "cloud") await reapAiSteps();
     await sleep(config.outboxPollSeconds * 1000, undefined, { signal: shutdown.signal }).catch(() => {});
   }
   console.log("outbox: stopped");
@@ -195,22 +223,41 @@ async function aiVideoLoop() {
 }
 
 const loops = [
-  aiVideoLoop(),
+  // AI video needs Google credentials only the cloud worker has; a local worker renders only (ADR 0094).
+  ...(config.mode === "cloud" ? [aiVideoLoop()] : []),
   outboxLoop(),
   pollLoop(
     "render-queue",
     config.queueUrl,
-    (delivery) =>
-      handleDelivery(
-        {
-          store,
-          config,
-          aiSteps,
-          shutdown: shutdown.signal,
-          render: (job, onProgress, scope) => renderJob(job, s3, config.s3Bucket, onProgress, config.renderConcurrency, scope),
+    (delivery) => {
+      const handle = (received: Delivery) =>
+        handleDelivery(
+          {
+            store,
+            config,
+            aiSteps,
+            shutdown: shutdown.signal,
+            render: (job, onProgress, scope) => renderJob(job, s3, config.s3Bucket, onProgress, config.renderConcurrency, scope, runStorage(job)),
+          },
+          received,
+        );
+      // A local worker waits for the shared-PC lock before claiming, and hands the job to the cloud if the wait is too long (ADR 0094).
+      if (!heavyLock) return handle(delivery);
+      return handleLocalDelivery({
+        lock: heavyLock,
+        waitMs: config.heavyLockWaitSeconds * 1000,
+        keepHiddenMs: config.heartbeatSeconds * 1000,
+        visibilitySeconds: config.visibilitySeconds,
+        handOff: (message) => handOffLocalRender(prisma, message, serializeRenderJobMessage),
+        // A job of a workspace this PC may not write for (the list changed after it was queued) goes straight to the cloud.
+        allowed: async (message) => {
+          const job = await prisma.renderJob.findUnique({ where: { id: message.jobId }, select: { workspaceId: true } });
+          return !job || localWorkspaces.has(job.workspaceId);
         },
-        delivery,
-      ),
+        handle,
+        shutdown: shutdown.signal,
+      }, delivery);
+    },
     // Only the render loop decides the task is idle; the outbox loop never has work of its own.
     true,
   ),

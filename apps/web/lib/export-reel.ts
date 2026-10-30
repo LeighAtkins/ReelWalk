@@ -4,9 +4,10 @@ import { recordFunnelEvent } from "@/lib/funnel";
 import { workspacePlan } from "@/lib/plans";
 import { exportBlockedReason } from "@/lib/quotas";
 import { ensureWorkerRunning } from "@/lib/render-capacity";
-import { flushOutbox, queueRenderJob } from "@/lib/render-jobs";
+import { flushOutbox, queueRenderJob, renderRouteFor } from "@/lib/render-jobs";
 import { mediaScope } from "@/lib/media-scope";
 import type { Tx } from "@/lib/save-fence";
+import type { RenderRoute } from "@reelwalk/db";
 
 export type ExportResult = { ok: false; issues: Issue[]; message?: string; /** A bigger plan would lift the limit that stopped it. */ upgrade?: boolean; /** The reel is no longer at the revision asked for. */ conflict?: boolean; /** The caller's fence refused it (a stopped note). */ fenced?: boolean };
 
@@ -34,7 +35,7 @@ class ExportRefused extends Error {
  * the job is created: an owner's save waits for this export rather than
  * slipping in between. Answers the job's id.
  */
-export async function commitReelExport(input: { user: { id: string; workspaceId: string }; reelId: string; payload: unknown; caption: string } & ExportOptions): Promise<{ ok: true; jobId: string } | ExportResult> {
+export async function commitReelExport(input: { user: { id: string; workspaceId: string }; reelId: string; payload: unknown; caption: string; route?: RenderRoute } & ExportOptions): Promise<{ ok: true; jobId: string } | ExportResult> {
   try {
     const jobId = await prisma.$transaction(
       async (tx) => {
@@ -49,7 +50,7 @@ export async function commitReelExport(input: { user: { id: string; workspaceId:
         const late = input.fence ? await input.fence.inTime(tx) : null;
         if (late) throw fenced(late);
         const job = await tx.renderJob.create({
-          data: { workspaceId: input.user.workspaceId, createdById: input.user.id, reelId: input.reelId, kind: "REEL", payload: input.payload as never, caption: input.caption },
+          data: { route: input.route ?? renderRouteFor(input.user.workspaceId), workspaceId: input.user.workspaceId, createdById: input.user.id, reelId: input.reelId, kind: "REEL", payload: input.payload as never, caption: input.caption },
         });
         await queueRenderJob(tx, job);
         const after = input.fence ? await input.fence.inTime(tx) : null;
@@ -100,12 +101,14 @@ export async function queueReelExport(user: { id: string; workspaceId: string },
     return { ok: false, issues: [], message: error instanceof Error ? error.message : "Could not export." };
   }
 
-  const committed = await commitReelExport({ user, reelId: reel.id, payload, caption: reel.title, ...options });
+  // Routed outside the transaction (ADR 0094): our own workspaces render on the PC.
+  const route = renderRouteFor(user.workspaceId);
+  const committed = await commitReelExport({ user, reelId: reel.id, payload, caption: reel.title, route, ...options });
   if (!committed.ok) return committed;
   const { jobId } = committed;
   // Once per studio, the key makes later exports a no-op (ADR 0080).
   await recordFunnelEvent({ name: "first_export", userId: user.id, workspaceId: user.workspaceId, key: `first_export:${user.workspaceId}`, data: { plan: plan.id } });
   await flushOutbox();
-  await ensureWorkerRunning();
+  await ensureWorkerRunning(route);
   return { ok: true, jobId };
 }

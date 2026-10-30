@@ -18,8 +18,31 @@ export function thumbKeyFor(objectKey: string): string {
  * black canvas before the frame is decoded; the worker's never is. A key of
  * its own, so no cache keeps serving the black one.
  */
-export function frameThumbKeyFor(objectKey: string): string {
-  return thumbKeyFor(objectKey).replace(/\.jpg$/, "-frame.jpg");
+export function frameThumbKeyFor(objectKey: string, run?: RenderRun): string {
+  return thumbKeyFor(objectKey).replace(/\.jpg$/, `-frame${runSuffix(run)}.jpg`);
+}
+
+/**
+ * Where the render worker on the owner's PC writes (ADR 0094): everything it
+ * uploads goes under its workspace's own prefix, the only place its IAM user
+ * may write, so it can never overwrite a customer's object. Readers follow the
+ * keys stored on the rows, so they need no change.
+ */
+export function localKeyFor(workspaceId: string, key: string): string {
+  return `local/${workspaceId}/${key}`;
+}
+
+/** One run of a render job: its generation and the attempt the claim wrote. */
+export type RenderRun = { jobId: string; generation: number; attempt: number };
+
+/**
+ * Names what one run uploads before it knows it may publish (ADR 0094). A run
+ * that lost its job (moved to another worker) must never overwrite what the
+ * job's current run wrote, so each run writes keys of its own, and only the
+ * run that wins the lease-checked success points the asset at them.
+ */
+function runSuffix(run?: RenderRun): string {
+  return run ? `-${run.jobId}-g${run.generation}a${run.attempt}` : "";
 }
 
 /**
@@ -43,8 +66,8 @@ export function inputFilenameFor(objectKey: string): string {
 }
 
 /** The editor's preview rendition of an uploaded video. */
-export function previewKeyFor(ownerId: string, assetId: string): string {
-  return `previews/${ownerId}/${assetId}.mp4`;
+export function previewKeyFor(ownerId: string, assetId: string, run?: RenderRun): string {
+  return `previews/${ownerId}/${assetId}${runSuffix(run)}.mp4`;
 }
 
 /**

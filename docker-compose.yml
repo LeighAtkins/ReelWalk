@@ -15,6 +15,12 @@ x-app-env: &app-env
   SQS_ENDPOINT_URL: http://elasticmq:9324
   SQS_QUEUE_URL: http://elasticmq:9324/000000000000/render-jobs
   SQS_DLQ_URL: http://elasticmq:9324/000000000000/render-jobs-dlq
+  # The local render queue (ADR 0094). The web app routes the workspaces in
+  # LOCAL_RENDER_WORKSPACES to it (none by default; the worker-local service
+  # renders only those, as production's PC worker does), and
+  # the worker-local service (profile local-render) consumes it.
+  LOCAL_RENDER_QUEUE_URL: http://elasticmq:9324/000000000000/render-jobs-local
+  LOCAL_RENDER_WORKSPACES: ${LOCAL_RENDER_WORKSPACES:-}
   # Lets the login page offer the seeded demo studio. Leave unset on a public deployment.
   DEMO_PASSWORD: ${DEMO_PASSWORD:-reelwalk-demo}
   # Public address of the web app, for share links, OAuth callbacks and
@@ -176,6 +182,31 @@ services:
       elasticmq:
         condition: service_started
 
+  # The PC's own render worker (ADR 0094): only the local render queue, each
+  # render inside the shared-PC heavy lock. Production's is infra/local-worker.
+  #   docker compose --profile local-render up -d worker-local
+  worker-local:
+    image: reelwalk-worker
+    profiles: ["local-render"]
+    environment:
+      <<: *app-env
+      WORKER_MODE: local
+      SQS_QUEUE_URL: http://elasticmq:9324/000000000000/render-jobs-local
+      SQS_DLQ_URL: http://elasticmq:9324/000000000000/render-jobs-local-dlq
+      RENDER_RETRY_BACKOFF_SECONDS: ${RENDER_RETRY_BACKOFF_SECONDS:-5}
+      HEAVY_LOCK_DIR: /heavy/.heavy.lock
+      HEAVY_LOCK_COOLDOWN_SECONDS: ${HEAVY_LOCK_COOLDOWN_SECONDS:-60}
+    volumes:
+      - type: bind
+        source: ${HEAVY_LOCK_PARENT:-C:/dev/lm}
+        target: /heavy
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      elasticmq:
+        condition: service_started
+
   web:
     build:
       context: .
@@ -183,6 +214,7 @@ services:
     image: reelwalk-web
     environment:
       <<: *app-env
+      LOCAL_RENDER_FALLBACK_SECONDS: ${LOCAL_RENDER_FALLBACK_SECONDS:-600}
       CLOUDFRONT_BASE_URL: ""
       # No EMAIL_FROM here, so mail is logged, and kept for /api/dev/mailbox
       # (the end-to-end tests read password reset links from it).
@@ -256,6 +288,14 @@ configs:
           }
         }
         render-jobs-dlq { }
+        render-jobs-local {
+          defaultVisibilityTimeout = 120 seconds
+          deadLettersQueue {
+            name = "render-jobs-local-dlq"
+            maxReceiveCount = 3
+          }
+        }
+        render-jobs-local-dlq { }
       }
 
 volumes:

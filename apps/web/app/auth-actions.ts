@@ -3,7 +3,7 @@
 import { randomBytes } from "node:crypto";
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import { DEFAULT_USER_EMAIL, hashPassword, prisma, verifyPassword } from "@reelwalk/db";
+import { DEFAULT_USER_EMAIL, hashPassword, prisma, renderArtifactKeys, verifyPassword } from "@reelwalk/db";
 import { checksKeyFor, exportAudioKeyFor, frameThumbKeyFor, renderSourceKeyFor, thumbKeyFor } from "@reelwalk/core";
 import { pickAttribution, withAttribution } from "@/lib/attribution";
 import { createSession, destroySession } from "@/lib/auth";
@@ -183,13 +183,16 @@ export async function deleteAccount(formData: FormData): Promise<void> {
     if (otherUsers === 0 && otherSeats === 0) goingWith.push(seat.workspaceId);
   }
   // Collect the files first: the rows that name them go with the workspace.
-  const [media, outputs] = await Promise.all([
+  const [media, outputs, runFiles] = await Promise.all([
     prisma.mediaAsset.findMany({ where: { workspaceId: { in: goingWith }, shared: false }, select: { id: true, objectKey: true, thumbKey: true, previewKey: true } }),
     prisma.renderOutput.findMany({ where: { job: { workspaceId: { in: goingWith } } }, select: { objectKey: true } }),
+    // Every file a render run made (ADR 0094), including runs that lost their job and PC-made render sources.
+    renderArtifactKeys(prisma, goingWith),
   ]);
   const keys = [
     ...media.flatMap((asset) => [asset.objectKey, asset.thumbKey, asset.previewKey, renderSourceKeyFor(asset.id), thumbKeyFor(asset.objectKey), frameThumbKeyFor(asset.objectKey)]),
     ...outputs.flatMap((output) => [output.objectKey, checksKeyFor(output.objectKey), exportAudioKeyFor(output.objectKey)]),
+    ...runFiles,
   ].filter((key): key is string => Boolean(key));
   // Everything else (sessions, reels, media rows, render jobs and outputs, connected accounts, seats) cascades from
   // the workspace or the user; the user row goes last, whether or not their home workspace went with them.

@@ -23,7 +23,7 @@ function recordingStore(events: string[]) {
       const attempt = ++state.attempt;
       return { id: message.jobId, generation: message.generation, attempt, kind: "REEL", caption: null, payload: null, inputKey: null, brand: null };
     },
-    heartbeat: async () => {},
+    heartbeat: async () => true,
     succeed: async (lease) => {
       events.push("succeed");
       if (!mine(lease)) return false;
@@ -36,6 +36,8 @@ function recordingStore(events: string[]) {
       state.error = error;
       state.job.status = "QUEUED";
     },
+    // A shutdown's requeue; recorded as one so the ordering checks below cover both.
+    interrupt: async (lease, error) => store.requeue(lease, error),
     fail: async (lease, error) => {
       events.push("fail");
       if (!mine(lease)) return;

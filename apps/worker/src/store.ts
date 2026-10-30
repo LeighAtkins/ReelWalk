@@ -49,18 +49,22 @@ export function createJobStore(prisma: PrismaClient): JobStore {
         inputKey: job.mediaAsset?.objectKey ?? null,
         brand: job.template?.brand ?? null,
         mediaAssetId: job.mediaAsset?.id ?? null,
-        previewKey: job.mediaAsset ? previewKeyFor(job.mediaAsset.workspaceId, job.mediaAsset.id) : null,
+        // This run's own key: a run that loses the job never overwrites the current run's file (ADR 0094).
+        previewKey: job.mediaAsset ? previewKeyFor(job.mediaAsset.workspaceId, job.mediaAsset.id, { jobId: job.id, generation: job.generation, attempt: job.attempt }) : null,
+        interruptions: job.interruptions,
+        workspaceId: job.workspaceId,
       } satisfies ClaimedJob;
     },
 
     async heartbeat(lease, progress) {
-      await prisma.renderJob.updateMany({
+      const { count } = await prisma.renderJob.updateMany({
         where: running(lease),
         data: { heartbeatAt: new Date(), ...(progress === undefined ? {} : { progress }) },
       });
+      return count > 0;
     },
 
-    async succeed(lease, output: RenderResult) {
+    async succeed(lease, { asset, ...output }: RenderResult) {
       // The status flip is the guard: only the run that still holds the job may publish, and the output
       // row (one per job, however many times it was rendered) is written in the same transaction, so a
       // stale worker's file never replaces the one the job's current run made.
@@ -71,12 +75,23 @@ export function createJobStore(prisma: PrismaClient): JobStore {
         });
         if (done.count === 0) return false;
         await tx.renderOutput.upsert({ where: { jobId: lease.jobId }, update: output, create: { jobId: lease.jobId, ...output } });
+        // A preview's rendition, frame thumbnail and transcript are the asset's only once the run has won.
+        if (asset) {
+          await tx.mediaAsset.update({
+            where: { id: asset.id },
+            data: { previewKey: asset.previewKey, ...(asset.thumbKey ? { thumbKey: asset.thumbKey } : {}), ...(asset.transcript ? { transcript: asset.transcript as never } : {}) },
+          });
+        }
         return true;
       });
     },
 
     async requeue(lease, error) {
       await prisma.renderJob.updateMany({ where: running(lease), data: { status: "QUEUED", error, heartbeatAt: null } });
+    },
+
+    async interrupt(lease, error) {
+      await prisma.renderJob.updateMany({ where: running(lease), data: { status: "QUEUED", error, heartbeatAt: null, interruptions: { increment: 1 } } });
     },
 
     async failAbandoned(message, error) {

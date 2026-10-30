@@ -12,6 +12,8 @@ import { handleAiStepDeadLetter, handleAiStepDelivery, type AiStepDeps } from ".
 
 export type ClaimedJob = {
   id: string;
+  /** The job's workspace: a PC worker writes under it (ADR 0094). */
+  workspaceId?: string;
   generation: number;
   /** The attempt this claim wrote (a per-job counter the claim increments), part of the lease and of the output's key. */
   attempt: number;
@@ -20,12 +22,21 @@ export type ClaimedJob = {
   payload: unknown;
   inputKey: string | null;
   brand: string | null;
-  /** For PREVIEW jobs: the upload being transcoded and where its rendition goes. */
+  /** For PREVIEW jobs: the upload being transcoded and where its rendition goes (a key of this run's own). */
   mediaAssetId?: string | null;
   previewKey?: string | null;
+  /** Shutdown hand-backs of this generation so far (ADR 0094); past the budget a shutdown spends an attempt. */
+  interruptions?: number;
 };
 
-export type RenderResult = { objectKey: string; contentType: string; sizeBytes: number };
+/**
+ * What a preview run made for its asset. Published by `succeed`, in the same
+ * transaction as the job's success, so a run that lost its job never points
+ * the asset at its files (ADR 0094).
+ */
+export type AssetUpdate = { id: string; previewKey: string; thumbKey?: string | null; transcript?: unknown };
+
+export type RenderResult = { objectKey: string; contentType: string; sizeBytes: number; asset?: AssetUpdate };
 
 /**
  * This run's hold on a job: the message's job and generation plus the attempt
@@ -46,10 +57,13 @@ export interface JobStore {
    * Returns null if another worker got there first.
    */
   claim(message: RenderJobMessage, staleBefore: Date): Promise<ClaimedJob | null>;
-  heartbeat(lease: Lease, progress?: number): Promise<void>;
-  /** Publishes the output and marks the job done; false when the lease was lost, in which case nothing was written. */
+  /** Keeps the job this run's; false when the lease is gone (the job was moved or taken over). */
+  heartbeat(lease: Lease, progress?: number): Promise<boolean>;
+  /** Publishes the output (and a preview's asset update) and marks the job done; false when the lease was lost, in which case nothing was written. */
   succeed(lease: Lease, output: RenderResult): Promise<boolean>;
   requeue(lease: Lease, error: string): Promise<void>;
+  /** Requeues after a shutdown and counts the interruption. */
+  interrupt(lease: Lease, error: string): Promise<void>;
   fail(lease: Lease, error: string): Promise<void>;
   /** Marks a job FAILED without holding a lease: the dead-letter path, for a job whose every worker died before writing an error. */
   failAbandoned(message: RenderJobMessage, error: string): Promise<void>;
@@ -87,6 +101,11 @@ export type HandlerDeps = {
     abortGraceSeconds?: number;
     /** After SIGTERM, how long a running render may keep going before it is stopped (0: stop at once). */
     shutdownDrainSeconds?: number;
+    /**
+     * Shutdown hand-backs a generation gets without spending an attempt (ADR 0094). Past it a shutdown
+     * counts as a failed attempt, so a job interrupted again and again (Spot) ends instead of looping.
+     */
+    maxInterruptions?: number;
   };
   /** Aborted when the worker is stopping (SIGTERM): the attempt is stopped and the job handed back. */
   shutdown?: AbortSignal;
@@ -96,7 +115,10 @@ export type HandlerDeps = {
   aiSteps?: AiStepDeps;
 };
 
-export type Outcome = "succeeded" | "retrying" | "interrupted" | "failed" | "discarded" | "deferred" | "poison";
+export type Outcome = "succeeded" | "retrying" | "interrupted" | "failed" | "discarded" | "deferred" | "poison" | "handed-off";
+
+/** The attempt stopped because a heartbeat found the job no longer this run's (moved to the cloud, or taken over). */
+const LEASE_LOST = "The job was moved to another worker";
 
 function errorMessage(error: unknown): string {
   return (error instanceof Error ? error.message : String(error)).slice(0, 2000);
@@ -146,9 +168,13 @@ export async function handleDelivery(deps: HandlerDeps, delivery: Delivery): Pro
   // While rendering, keep the message hidden and the row fresh so that no
   // other worker picks the job up. If this process dies, both lapse.
   let progress = 0;
+  // Created before the heartbeat, which stops the attempt as soon as it finds the lease gone.
+  const scope = createAttemptScope({ graceMs: (config.abortGraceSeconds ?? DEFAULT_GRACE_MS / 1000) * 1000, log });
   const heartbeat = setInterval(() => {
     delivery.extend(config.visibilitySeconds).catch((error) => log(`[${job.id}] could not extend visibility`, error));
-    store.heartbeat(lease, progress).catch((error) => log(`[${job.id}] could not write heartbeat`, error));
+    store.heartbeat(lease, progress).then((held) => {
+      if (!held && !scope.signal.aborted) scope.abort(new AttemptStopped(LEASE_LOST, "cancelled"));
+    }, (error) => log(`[${job.id}] could not write heartbeat`, error));
   }, config.heartbeatSeconds * 1000);
 
   // The heartbeat keeps the job this worker's for as long as the process lives, so a render that never
@@ -156,7 +182,6 @@ export async function handleDelivery(deps: HandlerDeps, delivery: Delivery): Pro
   // deadline and a worker shutdown abort the attempt's scope (ADR 0050); runAttempt settles only after
   // what the render held (Chrome, ffmpeg, temp dirs) is released, so nothing below reports the attempt,
   // or hands the job to another worker, while the old render still runs.
-  const scope = createAttemptScope({ graceMs: (config.abortGraceSeconds ?? DEFAULT_GRACE_MS / 1000) * 1000, log });
   const timeoutMs = (config.jobTimeoutSeconds ?? 45 * 60) * 1000;
   const cancelDeadline = abortAfter(scope, timeoutMs, () => new AttemptStopped(`Render attempt exceeded ${timeoutMs < 60_000 ? `${timeoutMs / 1000} seconds` : `${Math.round(timeoutMs / 60_000)} minutes`}`, "deadline"));
   const unlinkShutdown = linkAbort(deps.shutdown, scope, () => new AttemptStopped("The worker stopped during the render", "shutdown"), (config.shutdownDrainSeconds ?? 0) * 1000);
@@ -177,11 +202,23 @@ export async function handleDelivery(deps: HandlerDeps, delivery: Delivery): Pro
     log(`[${job.id}] succeeded`);
     return "succeeded";
   } catch (error) {
-    if (error instanceof AttemptStopped && error.why === "shutdown") {
+    if (error instanceof AttemptStopped && error.message === LEASE_LOST) {
+      // The job's current run is someone else's (the fallback moved it to the cloud, or another worker took
+      // it over): nothing of this run was published, and this message is stale.
+      log(`[${job.id}] attempt ${job.attempt} stopped: the job was moved to another worker`);
+      await delivery.delete().catch((deleteError) => log(`[${job.id}] could not delete the stale message`, deleteError));
+      return "discarded";
+    }
+    const interruptions = job.interruptions ?? 0;
+    const interruptible = interruptions < (config.maxInterruptions ?? Infinity);
+    if (error instanceof AttemptStopped && error.why === "shutdown" && !interruptible) {
+      log(`[${job.id}] interrupted ${interruptions + 1} times; counting this one as a failed attempt`);
+    }
+    if (error instanceof AttemptStopped && error.why === "shutdown" && interruptible) {
       // Not the job's fault: hand it straight back for another worker, without a backoff and without
       // spending one of its deliveries (a fresh message), so rolling deploys cannot dead-letter it.
       log(`[${job.id}] attempt ${job.attempt} interrupted by shutdown, handing it back`);
-      await store.requeue(lease, errorMessage(error));
+      await store.interrupt(lease, errorMessage(error));
       if (!delivery.handBack) {
         await delivery.extend(0);
         return "interrupted";

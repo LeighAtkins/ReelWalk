@@ -10,8 +10,8 @@ const sqs = new SQSClient({
   credentials: endpoint ? { accessKeyId: "local", secretAccessKey: "local" } : undefined,
 });
 
-/** Sends one outbox message body to the render queue. */
-export async function sendRenderJobMessage(body: string): Promise<void> {
+/** Sends one outbox message body to a queue, by default the (cloud) render queue. */
+export async function sendRenderJobMessage(body: string, url = queueUrl): Promise<void> {
   // Bounded, because the outbox relay holds a row lock while this runs.
-  await sqs.send(new SendMessageCommand({ QueueUrl: queueUrl, MessageBody: body }), { abortSignal: AbortSignal.timeout(10_000) });
+  await sqs.send(new SendMessageCommand({ QueueUrl: url, MessageBody: body }), { abortSignal: AbortSignal.timeout(10_000) });
 }

@@ -70,6 +70,7 @@ model Workspace {
   // "on" or "off" (ADR 0079). Off refuses every AI generation path server-side: no AI video, no model calls, no credits spent.
   aiGeneration String @default("on")
   funnelEvents FunnelEvent[]
+  renderArtifacts RenderArtifact[]
 
   // Set by the Stripe webhook from the subscription (plans in @reelwalk/core).
   plan                 Plan      @default(FREE)
@@ -897,6 +898,12 @@ model RenderJob {
   attempt      Int             @default(0)
   // Bumped on every manual retry; messages from older generations are ignored.
   generation   Int             @default(1)
+  // Which queue the current generation was sent to (ADR 0094): "local" (the owner's PC) or "cloud".
+  // The fallback moves a stalled local job by flipping this with the generation, never by who owns the workspace now.
+  route        String          @default("cloud")
+  // Shutdown hand-backs (a Spot reclaim, a stopped PC worker) of this generation, which spend no attempt:
+  // past a budget the next launch is on-demand, and past another the interruption counts as a failure.
+  interruptions Int            @default(0)
   caption      String?
   // Timeline project JSON for EDITOR jobs.
   payload      Json?
@@ -913,6 +920,25 @@ model RenderJob {
   @@index([propertyId, createdAt])
   @@index([reelId, createdAt])
   @@index([sourceJobId])
+  // The fallback's sweep: local jobs still QUEUED or RUNNING.
+  @@index([route, status])
+}
+
+// An object a render run uploaded before it knew whether it would win the job (ADR 0094): a preview, a
+// frame thumbnail, an export, or a re-encoded source cached by a PC worker. Written before the upload, so a
+// run that loses or dies still leaves a record. "run" objects nothing references after a grace period are
+// deleted by the web app's sweep; "cache" objects (render sources) stay until their workspace is deleted.
+model RenderArtifact {
+  id          String    @id @default(cuid())
+  key         String    @unique
+  kind        String    @default("run")
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  jobId       String
+  createdAt   DateTime  @default(now())
+
+  @@index([kind, createdAt])
+  @@index([workspaceId])
 }
 
 // Transactional outbox: a queue message that still has to be sent. The row is

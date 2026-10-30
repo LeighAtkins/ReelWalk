@@ -1,0 +1,51 @@
+# The render worker on the owner's PC (ADR 0094): production's worker image,
+# against production's database, bucket and the local render queue. Start it
+# with `bash infra/local-worker/start.sh`, which fills in everything below; see
+# README.md. No secret is in this file or in the container's environment: the
+# AWS key and the database URL are files mounted read-only from
+# ~/.reelwalk (outside every checkout), so `docker inspect` does not show them.
+name: reelwalk-local-worker
+
+services:
+  worker-local:
+    image: ${REELWALK_WORKER_IMAGE:?run start.sh}
+    # The database URL is read from its file at start, then the worker runs as in the image.
+    command: ["sh", "-c", "DATABASE_URL=\"$$(cat /run/secrets/reelwalk/database-url)\" exec node_modules/.bin/tsx src/index.ts"]
+    # Production's own worker settings (bucket, CloudFront, render limits),
+    # copied from the live task definition by start.sh; the lines below win.
+    env_file: .env.task
+    environment:
+      WORKER_MODE: local
+      SQS_ENDPOINT_URL: ""
+      SQS_QUEUE_URL: ${LOCAL_RENDER_QUEUE_URL:?run start.sh}
+      SQS_DLQ_URL: ${LOCAL_RENDER_DLQ_URL:?run start.sh}
+      # The reelwalk-local-worker IAM user (local queue and render outputs only), from its credentials file.
+      AWS_SHARED_CREDENTIALS_FILE: /run/secrets/reelwalk/aws-credentials
+      AWS_PROFILE: default
+      DATABASE_POOL_MAX: "3"
+      # Always on: it costs nothing while idle.
+      WORKER_IDLE_EXIT_SECONDS: "0"
+      # Browser tabs per render; the PC has more cores than a 2-vCPU task.
+      RENDER_CONCURRENCY: ${RENDER_CONCURRENCY:-4}
+      # docker stop gives 35 s (stop_grace_period), not ECS's 120: stop the render at once and hand it back.
+      RENDER_SHUTDOWN_DRAIN_SECONDS: "0"
+      RENDER_STOP_TIMEOUT_SECONDS: "30"
+      # Each render takes the shared-PC heavy lock (C:\dev\lm\.heavy.lock), waiting at most
+      # HEAVY_LOCK_WAIT_SECONDS before handing the job to Fargate.
+      HEAVY_LOCK_DIR: /heavy/.heavy.lock
+      HEAVY_LOCK_OWNER: reelwalk-local-worker
+      HEAVY_LOCK_COOLDOWN_SECONDS: ${HEAVY_LOCK_COOLDOWN_SECONDS:-60}
+      HEAVY_LOCK_WAIT_SECONDS: ${HEAVY_LOCK_WAIT_SECONDS:-480}
+    volumes:
+      - type: bind
+        source: ${HEAVY_LOCK_PARENT:-C:/dev/lm}
+        target: /heavy
+      - type: bind
+        source: ${REELWALK_SECRETS_DIR:?run start.sh}
+        target: /run/secrets/reelwalk
+        read_only: true
+    # docker stop sends SIGTERM: the render in progress is handed back to the
+    # queue within RENDER_STOP_TIMEOUT_SECONDS, then the fallback or the next
+    # start picks it up.
+    stop_grace_period: 35s
+    restart: unless-stopped

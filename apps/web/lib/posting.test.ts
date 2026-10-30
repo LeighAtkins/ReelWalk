@@ -4,7 +4,7 @@ import { emptyTimeline, instagramChoiceForSound, parseInstagramAudioChoice, reco
 // The row builders are pure; the module's other exports reach the database, the queue and the publisher.
 vi.mock("@reelwalk/db", () => ({ prisma: {} }));
 vi.mock("@/lib/render-capacity", () => ({ ensureWorkerRunning: async () => undefined }));
-vi.mock("@/lib/render-jobs", () => ({ flushOutbox: async () => undefined, queueRenderJob: async () => undefined }));
+vi.mock("@/lib/render-jobs", () => ({ flushOutbox: async () => undefined, queueRenderJob: async () => "cloud", renderRouteFor: () => "cloud" }));
 vi.mock("@/lib/scheduled-posts", () => ({ publishDueScheduledPosts: async () => undefined }));
 
 import { reelPostData, type PostableJob } from "./posting";

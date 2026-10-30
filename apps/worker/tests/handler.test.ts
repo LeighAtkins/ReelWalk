@@ -7,7 +7,7 @@ const output = { objectKey: "renders/job-1.mp4", contentType: "video/mp4", sizeB
 
 /** In-memory JobStore holding a single job, mirroring the conditional writes of the Prisma one. */
 function fakeStore(initial: JobSnapshot | null) {
-  const state = { job: initial ? { ...initial } : null, error: null as string | null, outputs: 0, attempt: 0, published: null as string | null };
+  const state = { job: initial ? { ...initial } : null, error: null as string | null, outputs: 0, attempt: 0, published: null as string | null, interruptions: 0, asset: null as unknown };
   // The Prisma store's predicate: same generation, and the attempt this run's claim wrote.
   const mine = (lease: Lease) => state.job !== null && state.job.generation === lease.generation && state.attempt === lease.attempt;
   const store: JobStore = {
@@ -20,20 +20,28 @@ function fakeStore(initial: JobSnapshot | null) {
       job.status = "RUNNING";
       job.heartbeatAt = new Date();
       const attempt = ++state.attempt;
-      return { id: message.jobId, generation: message.generation, attempt, kind: "TEMPLATE", caption: null, payload: null, inputKey: "uploads/p/a.jpg", brand: null };
+      return { id: message.jobId, generation: message.generation, attempt, kind: "TEMPLATE", caption: null, payload: null, inputKey: "uploads/p/a.jpg", brand: null, interruptions: state.interruptions };
     },
-    heartbeat: async () => {},
+    heartbeat: async (lease) => mine(lease) && state.job!.status === "RUNNING",
     succeed: async (lease, result) => {
       if (!mine(lease) || state.job!.status !== "RUNNING") return false;
       state.job!.status = "SUCCEEDED";
       state.outputs = 1;
       state.published = result.objectKey;
+      state.asset = result.asset ?? null;
       return true;
     },
     requeue: async (lease, error) => {
       if (mine(lease) && state.job!.status === "RUNNING") {
         state.job!.status = "QUEUED";
         state.error = error;
+      }
+    },
+    interrupt: async (lease, error) => {
+      if (mine(lease) && state.job!.status === "RUNNING") {
+        state.job!.status = "QUEUED";
+        state.error = error;
+        state.interruptions += 1;
       }
     },
     fail: async (lease, error) => {
@@ -233,5 +241,67 @@ describe("handleDeadLetter", () => {
     expect(await handleDeadLetter({ store, config, log: () => {} }, delivery)).toBe("ignored");
     expect(state.job?.status).toBe("QUEUED");
     expect(delivery.delete).toHaveBeenCalledOnce();
+  });
+});
+
+describe("local rendering's fences (ADR 0094)", () => {
+  it("stops the render and publishes nothing as soon as a heartbeat finds the job moved to another worker", async () => {
+    vi.useFakeTimers();
+    try {
+      const { store, state } = fakeStore(queued);
+      const hang: HandlerDeps["render"] = (_job, _progress, scope) => new Promise((_, reject) => scope.signal.addEventListener("abort", () => reject(scope.signal.reason)));
+      const message = fakeDelivery(1);
+      const outcome = handleDelivery({ store, render: hang, config: { ...config, jobTimeoutSeconds: 3600, abortGraceSeconds: 0.1 }, log: () => {} }, message);
+      await vi.advanceTimersByTimeAsync(1);
+      // The fallback moved the job to the cloud queue under a new generation (a PC that slept and woke up).
+      state.job!.generation = 2;
+      state.job!.status = "QUEUED";
+      await vi.advanceTimersByTimeAsync(config.heartbeatSeconds * 1000 + 500);
+      expect(await outcome).toBe("discarded");
+      expect(state.published).toBeNull();
+      expect(state.job).toMatchObject({ status: "QUEUED", generation: 2 });
+      expect(message.delete).toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("publishes a preview's asset update only through the lease-checked success", async () => {
+    const { store, state } = fakeStore(queued);
+    const asset = { id: "asset-1", previewKey: "previews/w/asset-1-job-1-g1a1.mp4", thumbKey: null, transcript: null };
+    expect(await handleDelivery(deps(store, async () => ({ ...output, asset })), fakeDelivery(1))).toBe("succeeded");
+    expect(state.asset).toEqual(asset);
+
+    const lost = fakeStore(queued);
+    const render: HandlerDeps["render"] = async () => {
+      lost.state.job!.generation = 2; // moved while it rendered
+      return { ...output, asset };
+    };
+    expect(await handleDelivery(deps(lost.store, render), fakeDelivery(1))).toBe("discarded");
+    expect(lost.state.asset).toBeNull();
+  });
+
+  it("counts shutdown hand-backs, and past the budget counts a shutdown as a failed attempt", async () => {
+    const { store, state } = fakeStore(queued);
+    const hang: HandlerDeps["render"] = (_job, _progress, scope) => new Promise((_, reject) => scope.signal.addEventListener("abort", () => reject(scope.signal.reason)));
+    const run = async () => {
+      const shutdown = new AbortController();
+      const message = { ...fakeDelivery(1), handBack: vi.fn(async () => {}) };
+      const outcome = handleDelivery({ store, render: hang, shutdown: shutdown.signal, config: { ...config, maxInterruptions: 2, abortGraceSeconds: 0.05 }, log: () => {} }, message);
+      await vi.waitFor(() => expect(state.job!.status).toBe("RUNNING"));
+      shutdown.abort();
+      return { outcome: await outcome, message };
+    };
+    for (const expected of [1, 2]) {
+      const { outcome, message } = await run();
+      expect(outcome).toBe("interrupted");
+      expect(message.handBack).toHaveBeenCalled();
+      expect(state.interruptions).toBe(expected);
+    }
+    // A third reclaim: no more free hand-backs, so the job heads for FAILED / the DLQ like any failing attempt.
+    const { outcome, message } = await run();
+    expect(outcome).toBe("retrying");
+    expect(message.handBack).not.toHaveBeenCalled();
+    expect(state.interruptions).toBe(2);
   });
 });

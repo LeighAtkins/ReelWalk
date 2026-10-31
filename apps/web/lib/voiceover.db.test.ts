@@ -12,6 +12,8 @@ import { prisma } from "@reelwalk/db";
 
 vi.mock("./render-capacity", () => ({ ensureWorkerRunning: async () => undefined }));
 vi.mock("./render-jobs", () => ({ flushOutbox: async () => undefined }));
+// Loading a reel signs its media's URLs; no storage (or AWS credentials) is needed for that here.
+vi.mock("./storage", () => ({ mediaUrl: async () => "" }));
 
 import { addVoiceover, voiceoverRequestId } from "./voiceover";
 import { startWorkerStepRun } from "./workflows";

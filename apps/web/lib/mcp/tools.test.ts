@@ -117,7 +117,7 @@ describe("the tool list", () => {
 
   it("marks reads read-only and exactly the tools that change data as writes", () => {
     const writes = TOOLS.filter((spec) => !spec.readOnly).map((spec) => spec.name).sort();
-    expect(writes).toEqual(["add_media", "apply_commands", "create_reel", "export_reel", "generate_ai_shot"]);
+    expect(writes).toEqual(["add_media", "add_voiceover", "apply_commands", "create_reel", "export_reel", "generate_ai_shot"]);
   });
 });
 

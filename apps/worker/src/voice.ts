@@ -39,16 +39,23 @@ export async function ttsAudio(response: { headers: { get(name: string): string 
   return Buffer.from(audio, "base64");
 }
 
-export async function synthesiseLine(line: string): Promise<Buffer> {
-  const request = ttsRequest(presenterVoice(), line, process.env.VOICE_TTS_URL!);
+/**
+ * The voice service answered, with an error: a definite outcome. Any other failure of `synthesiseLine` (a timeout,
+ * a dropped connection) leaves it unknown whether the line was made, and callers treat that conservatively.
+ */
+export class VoiceServiceAnswered extends Error {}
+
+/** A line in `voice` (a voiceover's chosen voice, ADR 0099), or the configured presenter voice. */
+export async function synthesiseLine(line: string, voice: PresenterVoice = presenterVoice(), signal?: AbortSignal): Promise<Buffer> {
+  const request = ttsRequest(voice, line, process.env.VOICE_TTS_URL!);
   const response = await fetch(request.url, {
     method: "POST", headers: { "x-voice-key": process.env.VOICE_TTS_KEY!, "Content-Type": "application/json" },
-    body: JSON.stringify(request.body), signal: AbortSignal.timeout(60_000),
+    body: JSON.stringify(request.body), signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(60_000)]) : AbortSignal.timeout(60_000),
   });
   // Never persist provider bodies: they may echo request data.
-  if (!response.ok) throw new Error(`The voice service returned HTTP ${response.status}.`);
+  if (!response.ok) throw new VoiceServiceAnswered(`The voice service returned HTTP ${response.status}.`);
   const audio = await ttsAudio(response);
-  if (audio.length < 100) throw new Error("The voice service returned no audio.");
+  if (audio.length < 100) throw new VoiceServiceAnswered("The voice service returned no audio.");
   return audio;
 }
 

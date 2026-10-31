@@ -6,7 +6,8 @@ import type { ExportFence, ExportResult } from "./export-reel";
 import type { ActingUser } from "./mcp/acting-user";
 import { allow } from "./mcp/http";
 import { aiProvider, claudeToolTurn, isAiConfigured, isFakeAi } from "./openai";
-import { NoteRunError, fakeNoteTurn, noteBrief, noteToolSpecs, reelVersions, runNote, type NoteCall, type NoteDeps, type NoteOutcome } from "./reel-notes";
+import { TOOLS } from "./mcp/tools";
+import { NoteRunError, fakeCreateTurn, fakeNoteTurn, noteBrief, noteToolSpecs, reelVersions, runNote, splitCaption, type NoteCall, type NoteDeps, type NoteMode, type NoteOutcome } from "./reel-notes";
 import { ensureChecks, exportTimeline, type ChecksResult } from "./render-verify";
 import { readTimeline } from "./reels";
 import { withSaveFence, type SaveFence, type Tx } from "./save-fence";
@@ -34,6 +35,8 @@ export type NoteStatus = "working" | "exported" | "saved" | "no-change" | "faile
 
 export type NotePlan = {
   kind: "note";
+  /** "create" (ADR 0098): the note is the owner's idea and the run makes the reel's first version. */
+  mode?: NoteMode;
   requestId: string;
   status: NoteStatus;
   /** No model turn after this (ISO, database time). */
@@ -205,6 +208,8 @@ export type StartNote =
 export type NoteRunDeps = {
   run: typeof runNote;
   tools: NoteDeps;
+  /** What a create run uses instead of `tools` (ADR 0098); `tools` when absent. */
+  createTools?: NoteDeps;
   queueExport: (user: { id: string; workspaceId: string }, reelId: string, options: { revision: number; fence: ExportFence }) => Promise<{ ok: true; jobId: string } | ExportResult>;
   timing: NoteTiming;
 };
@@ -212,6 +217,7 @@ export type NoteRunDeps = {
 const defaultDeps = (): NoteRunDeps => ({
   run: runNote,
   tools: { turn: isFakeAi() ? fakeNoteTurn : claudeToolTurn, gate: allow, tools: noteToolSpecs() },
+  createTools: { turn: isFakeAi() ? fakeCreateTurn : claudeToolTurn, gate: allow, tools: noteToolSpecs(TOOLS, "create") },
   queueExport: async (user, reelId, options) => (await import("./export-reel")).queueReelExport(user, reelId, options),
   timing: NOTE_TIMING,
 });
@@ -227,11 +233,16 @@ type Early = { kind: "existing"; noteId: string } | { kind: "conflict" } | { kin
  * overdue notes are expired and a live one refuses. Then the note and its job
  * are created together, with its times from the database's clock.
  */
-export async function startNote(input: { user: ActingUser; reelId: string; note: string; origin: string; requestId: string }, deps: NoteRunDeps = defaultDeps()): Promise<StartNote> {
+export async function startNote(
+  input: { user: ActingUser; reelId: string; note: string; origin: string; requestId: string; /** A create run (ADR 0098): `note` is the idea and `brief` is what the agent is told. */ create?: { brief: string } },
+  deps: NoteRunDeps = defaultDeps(),
+): Promise<StartNote> {
   const { user, reelId, requestId } = input;
   const workspaceId = user.workspaceId;
   const note = input.note.trim();
-  if (note.length < 3 || note.length > 600) return { ok: false, status: 400, message: "Write the note in a few words (up to 600 characters)." };
+  const mode: NoteMode = input.create ? "create" : "note";
+  const longest = mode === "create" ? 1000 : 600;
+  if (note.length < 3 || note.length > longest) return { ok: false, status: 400, message: `Write the note in a few words (up to ${longest} characters).` };
   if (!notesAvailable()) return { ok: false, status: 503, message: "Notes need Claude, which is not set up on this deployment." };
   // Whether AI is on at all; the allowance is the reservation's to decide, after a retry is recognised.
   const unavailable = await aiAvailabilityReason(workspaceId);
@@ -246,7 +257,7 @@ export async function startNote(input: { user: ActingUser; reelId: string; note:
     workspaceId,
     async (tx, stamp) => {
       const draft = {
-        kind: "note", requestId, status: "working", fromExportId: latest?.id ?? null, toExportId: null,
+        kind: "note", ...(mode === "create" ? { mode } : {}), requestId, status: "working", fromExportId: latest?.id ?? null, toExportId: null,
         revisionBefore: found.reel!.revision, revisionAfter: null, calls: [], costUsd: 0,
       };
       const row = await tx.aiEdit.create({ data: { workspaceId, userId: user.id, reelId, request: note, note: "Working on it", model: "pending", plan: draft, applied: [], skipped: [], createdAt: stamp.now }, select: { id: true } });
@@ -284,7 +295,7 @@ export async function startNote(input: { user: ActingUser; reelId: string; note:
 
   const { id: noteId, plan } = reserved.value as { id: string; plan: NotePlan };
   const [versions, history] = await Promise.all([reelVersions(workspaceId, reelId, { last: 20 }), reelNotes(workspaceId, reelId, { limit: HISTORY + 1 })]);
-  const brief = noteBrief({
+  const brief = input.create ? input.create.brief : noteBrief({
     title: found.reel!.title,
     reelId,
     revision: plan.revisionBefore,
@@ -293,7 +304,8 @@ export async function startNote(input: { user: ActingUser; reelId: string; note:
     note,
   });
   const exportIds = versions.filter((version) => version.status === "SUCCEEDED").map((version) => version.id);
-  const settled = runAiJobInBackground(jobId, () => executeNote({ user, reelId, note, origin: input.origin, brief, exportIds, noteId, plan }, deps));
+  const runDeps = mode === "create" ? { ...deps, tools: deps.createTools ?? deps.tools } : deps;
+  const settled = runAiJobInBackground(jobId, () => executeNote({ user, reelId, note, origin: input.origin, brief, exportIds, noteId, plan, mode }, runDeps));
   return { ok: true, noteId, jobId, settled };
 }
 
@@ -322,7 +334,7 @@ export function noteFences(noteId: string) {
 }
 
 /** One note's run, after its reservation: the agent, then the export of exactly the revision it saved, then the record. */
-async function executeNote(input: { user: ActingUser; reelId: string; note: string; origin: string; brief: string; exportIds: string[]; noteId: string; plan: NotePlan }, deps: NoteRunDeps) {
+async function executeNote(input: { user: ActingUser; reelId: string; note: string; origin: string; brief: string; exportIds: string[]; noteId: string; plan: NotePlan; mode: NoteMode }, deps: NoteRunDeps) {
   const { user, reelId, noteId, plan } = input;
   const fences = noteFences(noteId);
   let outcome: NoteOutcome = emptyOutcome(plan.revisionBefore);
@@ -334,13 +346,20 @@ async function executeNote(input: { user: ActingUser; reelId: string; note: stri
     try {
       outcome = await withSaveFence(fences.save, () =>
         deps.run(
-          { user, reelId, note: input.note, origin: input.origin, brief: input.brief, exportIds: input.exportIds, revision: plan.revisionBefore, deadline: Date.parse(plan.deadlineAt), onApplying: fences.applying },
+          { user, reelId, note: input.note, origin: input.origin, brief: input.brief, exportIds: input.exportIds, revision: plan.revisionBefore, mode: input.mode, deadline: Date.parse(plan.deadlineAt), onApplying: fences.applying },
           deps.tools,
         ),
       );
     } catch (error) {
       if (error instanceof NoteRunError) outcome = error.partial;
       failure = error instanceof Error ? error.message : String(error);
+    }
+
+    // A create run ends with the Instagram caption (ADR 0098): it goes on the reel, unless the owner has written one meanwhile.
+    if (input.mode === "create") {
+      const split = splitCaption(outcome.reply);
+      outcome = { ...outcome, reply: split.reply };
+      if (split.caption) await prisma.reel.updateMany({ where: { id: reelId, workspaceId: user.workspaceId, caption: "" }, data: { caption: split.caption } }).catch(() => undefined);
     }
 
     let exportLine = "";

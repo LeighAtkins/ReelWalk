@@ -5,6 +5,7 @@ import { CHAINED_REFERENCE_MESSAGE, PRESENTER_FRAMINGS, defaultFraming, isGenera
 import { aiDirectionSchema, directionPrompt, hasDirection } from "./direction";
 import { MOVE_IDS, moveById, type MoveId } from "./moves";
 import { AI_DRAFT_NO_END_FRAME } from "./ai";
+import { isVoiceId } from "./voiceover";
 
 /**
  * The listing shots a gimbal operator makes on every job (ADR 0040), as Veo
@@ -105,6 +106,11 @@ export const aiShotSchema = z.object({
   /** A spoken line and how it is voiced (ADR 0038): lipsync = fixed voice over the silent take; veo = Veo's own audio. */
   line: z.string().trim().min(3).max(200).optional(),
   voice: z.enum(["lipsync", "veo"]).optional(),
+  /**
+   * Who speaks a lip-synced line (ADR 0100): one of the offered voices (VOICES). Absent means the deployment's presenter
+   * voice (PRESENTER_VOICE), as before. Veo's own audio has no choice of speaker, so it is for lipsync only.
+   */
+  voiceId: z.string().trim().min(1).max(40).optional(),
   /** How she plays it (ADR 0069): tone, energy, eye line, blocking, a reference performance. */
   direction: aiDirectionSchema.optional(),
   // Snapshots prevent inserting against a boundary the user has since changed.
@@ -118,6 +124,8 @@ export const aiShotSchema = z.object({
   if (shot.tier === "draft" && shot.last) ctx.addIssue({ code: "custom", message: AI_DRAFT_NO_END_FRAME });
   if (shot.finalOf && shot.tier === "draft") ctx.addIssue({ code: "custom", message: "A final made from a draft is not itself a draft." });
   if (shot.voice && !shot.line) ctx.addIssue({ code: "custom", message: "A voiced shot needs a line to say." });
+  if (shot.voiceId !== undefined && !isVoiceId(shot.voiceId)) ctx.addIssue({ code: "custom", message: VOICE_NOT_OFFERED });
+  if (shot.voiceId !== undefined && shot.voice !== "lipsync") ctx.addIssue({ code: "custom", message: "A chosen voice speaks a lip-synced line; Veo's own audio has no choice of voice." });
   if (shot.compose?.first && !shot.first) ctx.addIssue({ code: "custom", message: "A composed starting frame needs a starting frame." });
   if (shot.compose?.last && !shot.last) ctx.addIssue({ code: "custom", message: "A composed ending frame needs an ending frame." });
   if (aiConnectsClips(shot.mode) && Boolean(shot.anchor) !== Boolean(shot.next)) {
@@ -135,6 +143,18 @@ export const aiShotSchema = z.object({
   // The composed framing is settled here, where the voice is known: a spoken line is composed close unless asked otherwise (ADR 0069).
 }).transform(shot => shot.compose ? { ...shot, compose: { ...shot.compose, framing: composeFraming(shot) } } : shot);
 export type AiShot = z.infer<typeof aiShotSchema>;
+
+export const VOICE_NOT_OFFERED = "That voice is not one of the voices offered.";
+
+/**
+ * What a take says and who says it (ADR 0100): the parts of a shot that decide its audio. A request id already used for
+ * a take answers with that take, so a request asking for different audio under the same id must be refused rather than
+ * handed the other voice's take.
+ */
+export function aiShotVoiceKey(shot: unknown): string {
+  const s = (shot && typeof shot === "object" ? shot : {}) as { line?: unknown; voice?: unknown; voiceId?: unknown };
+  return JSON.stringify([s.voice ?? null, s.voice ? (s.line ?? null) : null, s.voiceId ?? null]);
+}
 
 /**
  * A shot the server already accepted, read back from its generation row. Rows from before ADR 0056 may name a

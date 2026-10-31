@@ -199,6 +199,37 @@ describe.skipIf(!enabled)("notes on a version against a real database", () => {
     });
   });
 
+  describe("a create run (ADR 0098)", () => {
+    it("runs with its own tools and brief, puts its caption on the reel, shows the owner the reply without it, and exports", async () => {
+      const user = await studio();
+      const reelId = await newReel(user);
+      const seen: any[] = [];
+      const createTools = { marker: "create" } as any;
+      const runFn = (async (input: any, tools: any) => {
+        seen.push({ input, tools });
+        return outcome({ changed: true, revisionAfter: input.revision, reply: "Six stock shots of the beach, cut fast.\nCaption: Morning at the beach. #beach #home" });
+      }) as NoteRunDeps["run"];
+      const started = await startNote({ user, reelId, note: "Five reasons to live by the beach", origin: "http://test", requestId: randomUUID(), create: { brief: "the create brief" } }, deps({ run: runFn, queueExport: realExport, createTools }));
+      await (started as any).settled;
+      expect(seen[0].input).toMatchObject({ mode: "create", brief: "the create brief", note: "Five reasons to live by the beach" });
+      expect(seen[0].tools).toBe(createTools);
+      const [row] = await notesOf(reelId);
+      expect(row.plan as any).toMatchObject({ kind: "note", mode: "create", status: "exported" });
+      expect(row.request).toBe("Five reasons to live by the beach");
+      expect(row.note).toBe("Six stock shots of the beach, cut fast.");
+      expect((await prisma.reel.findUniqueOrThrow({ where: { id: reelId } })).caption).toBe("Morning at the beach. #beach #home");
+    });
+
+    it("never overwrites a caption the owner already wrote", async () => {
+      const user = await studio();
+      const reelId = await newReel(user);
+      await prisma.reel.update({ where: { id: reelId }, data: { caption: "Mine" } });
+      const runFn = (async (input: any) => outcome({ changed: true, revisionAfter: input.revision, reply: "Done.\nCaption: Theirs" })) as NoteRunDeps["run"];
+      await ((await startNote({ user, reelId, note: "A day at our cafe, cosy and warm", origin: "http://test", requestId: randomUUID(), create: { brief: "b" } }, deps({ run: runFn, queueExport: realExport }))) as any).settled;
+      expect((await prisma.reel.findUniqueOrThrow({ where: { id: reelId } })).caption).toBe("Mine");
+    });
+  });
+
   describe("the fences: checked at the write, recorded with it, ordered with expiry", () => {
     it("a save records its revision and lines in its own transaction, so a run that dies after it still shows it", async () => {
       const user = await studio();

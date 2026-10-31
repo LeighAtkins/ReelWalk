@@ -80,6 +80,7 @@ export * from "./head-lock";
 export * from "./surface-track";
 export * from "./view";
 export * from "./ducking";
+export * from "./voiceover";
 export * from "./director-loop";
 export * from "./hooks";
 export * from "./hook";

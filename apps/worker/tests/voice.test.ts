@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { lipsyncRequest, lipsyncStatus, presenterVoice, ttsAudio, ttsRequest, voicedPrompt } from "../src/voice";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { lipsyncRequest, lipsyncStatus, presenterVoice, synthesiseLine, ttsAudio, ttsRequest, voicedPrompt } from "../src/voice";
 
 describe("presenter voice", () => {
   it("builds the voice Worker request for the configured voice", () => {
@@ -26,5 +26,27 @@ describe("presenter voice", () => {
   it("writes the line into the Veo prompt for each voice mode", () => {
     expect(voicedPrompt("She lands.", "Who needs a front door?", "veo")).toContain('says aloud');
     expect(voicedPrompt("She lands.", "Who needs a front door?", "lipsync")).toContain("mouth moving naturally");
+  });
+});
+
+// ADR 0100: what actually goes to the voice Worker for a take's chosen voice, with the key handled as before.
+describe("synthesiseLine", () => {
+  afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
+  it("sends the chosen voice to the voice Worker, and the configured presenter voice when none is chosen", async () => {
+    vi.stubEnv("VOICE_TTS_URL", "https://voice.example/speak"); vi.stubEnv("VOICE_TTS_KEY", "test-key"); vi.stubEnv("PRESENTER_VOICE", "melotts:en");
+    const sent: { url: string; key: string | null; body: unknown }[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init: RequestInit) => {
+      sent.push({ url, key: new Headers(init.headers).get("x-voice-key"), body: JSON.parse(String(init.body)) });
+      return new Response(new Uint8Array(200), { headers: { "content-type": "audio/mpeg" } });
+    }));
+    await synthesiseLine("Nice room, right?", presenterVoice("aura-2:theia"));
+    await synthesiseLine("Nice room, right?", presenterVoice("aura-2:hyperion"));
+    await synthesiseLine("Nice room, right?");
+    expect(sent.map((request) => request.body)).toEqual([
+      { text: "Nice room, right?", voice: "aura-2:theia" },
+      { text: "Nice room, right?", voice: "aura-2:hyperion" },
+      { text: "Nice room, right?", voice: "melotts:en" },
+    ]);
+    expect(sent.every((request) => request.url === "https://voice.example/speak" && request.key === "test-key")).toBe(true);
   });
 });

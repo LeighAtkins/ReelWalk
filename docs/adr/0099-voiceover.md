@@ -1,0 +1,132 @@
+# 0099 — Voiceover and a voice picker
+
+Date: 2026-10-31
+
+## Context
+
+ADR 0098's Create page makes reels from an idea, but they are silent apart from music. The owner wants a voiceover in a
+chosen voice, with captions on the spoken words, both on Create and when changing a reel.
+
+What existed:
+- A voice Worker (infra/cloudflare/voice) speaks a line with Workers AI. It is used only for lip-synced presenter takes
+  (ADR 0038), in one voice per deployment (`PRESENTER_VOICE`).
+- `Presenter.voice` is stored but nothing reads it.
+- The worker transcribes speech with word timings (Whisper, ADR 0035). The web container has no speech model.
+- Music dips under speech (`speechWindows`), but only under clips' own speech.
+- The timeline had no voiceover.
+
+## Decision
+
+**A voiceover on the timeline.**
+- `timeline.voiceover = { assetId, atMs, volume, script, voice }`, optional and absent on every saved reel.
+- Its asset is a referenced asset, so exports, ownership checks and render plans carry it with its transcript.
+- The renderer plays it once from `atMs`.
+- `speechWindows` adds its words, so the music and the sounds dip under it. The audio trace and retention checks see it
+  as speech too.
+
+**Voices.**
+- `VOICES` is ten Deepgram Aura-2 voices on Workers AI (`@cf/deepgram/aura-2-en`), Australian first: Theia (default)
+  and Hyperion. Then American and British voices, each with a one-line description from Deepgram's voice list.
+- A voiceover names its voice. A voice not on the list is refused.
+
+**The "voiceover" worker step.** A worker-only durable step (`startWorkerStepRun`, as Walk the block, ADR 0093):
+1. Look for the line's saved audio at `workspaces/<ws>/voiceover/<id>.mp3`. The id is the SHA-256 of the model, the
+   voice and the script, and the audio must match the checksum it was saved with. When it is there, reuse it and send
+   nothing.
+2. Otherwise speak the script (at most 400 characters, the voice Worker's limit) in the chosen voice. The request goes
+   through the provider gate: the step is recorded as submitted before it is sent, and the worker never re-runs a
+   submitted step on its own.
+   - An error answer from the voice service is a definite outcome (FAILED).
+   - No answer at all (a timeout, a dropped connection) leaves it unknown whether the line was made and paid for, so
+     the step is UNRESOLVED and never sent again automatically. Rewording the script asks for a new line.
+3. Save the audio the moment it arrives, with its SHA-256, before anything that can fail after it. The save is tried
+   three times.
+4. Transcribe it with word timings.
+5. Keep it as an AUDIO asset (credit "AI voice …"), upserted by object key.
+
+So a failure after the audio arrived (transcription, probing, the asset row) is FAILED, and asking again for the same
+line reuses the saved audio without paying again. The same holds for the same line on another reel in the workspace.
+
+The request id is fixed per reel, script and voice, so asking again for the same line reuses the step.
+
+**`setVoiceover` command.**
+- Sets the voiceover and replaces its captions: texts with ids `vo-*`. These are short phrases from its words, each word
+  coming into focus as it is said (ADR 0092), white unboxed serif at y 0.62.
+- `captions: false` leaves the captions off. `voiceover: null` removes the voiceover and its captions.
+- It counts as a change, so it is saved even without captions.
+
+**`add_voiceover` connector tool.** Starts the step and waits for it (up to 4 minutes, for a worker's cold start), then
+saves `setVoiceover` as one revision.
+- When the voiceover would outrun the reel, a `retimeToLength` goes in the same batch first.
+- Shots stretch to 5 s at most. Whatever is still short is answered as `shortByMs`, so the agent can add footage or
+  shorten the script.
+- Create runs and notes may both use it. A note can now say "add a voiceover saying …" or "use a male voice"; "remove
+  the voiceover" is `setVoiceover{voiceover:null}`.
+
+**Create.** The page has a voice picker ("No voiceover", or one of the voices; Theia by default). It is shown only
+where `VOICE_ENABLED` is true. The brief tells the run to write a two-to-four sentence script and add it after the cut,
+keeping titles few because the captions carry the words.
+
+**A fix to ADR 0098's create runs.** `add_media` onto the reel saves a revision, but the run only recorded
+`apply_commands` saves. A run whose last save was an `add_media` would have exported a stale revision and been refused
+as a conflict. Saves by `add_media` and `add_voiceover` are now recorded like `apply_commands` saves: revision, lines,
+and the note's record.
+
+**A fix to the voice Worker.** It called `@cf/deepgram/aura-2`. The Workers AI model is `@cf/deepgram/aura-2-en`;
+`aura-1` is unchanged.
+
+## Consequences
+
+- **Deploying.** Production already has `VOICE_ENABLED`, `VOICE_TTS_URL` and `VOICE_TTS_KEY` set, so no Terraform
+  change is needed. The order matters, because the picker appears as soon as the app is deployed:
+  1. Deploy the voice Worker first (`npx wrangler@4.151.1 deploy` in infra/cloudflare/voice). Until then every Aura-2
+     voice fails with the deployed worker's `@cf/deepgram/aura-2` (403). Its `VOICE_KEY` secret is already set and a
+     deploy does not change it.
+  2. Run `smoke.sh` against its workers.dev URL with the production `VOICE_KEY`; it should answer 16 of 16 ok.
+  3. Then deploy the web app and the worker image as usual (`ALLOW_WORKER_ENV_CHANGE=1` for ADR 0097's worker sizes).
+- **Cost:** Workers AI text to speech per line (cents), plus a worker run to transcribe it. No AI video credits are
+  spent, and the month's AI request allowance is not touched: the create run or note that calls the tool is already
+  counted.
+- **Captions show the script, timed by the transcript.** Whisper mishears a generated voice now and then. In the preview
+  test below, Hyperion's "a north-facing garden" was heard as "and all-facing garden" or "an off-facing garden", "Open
+  home" as "Oakenholm", and "ten" as "10".
+  - `scriptTimedWords` aligns the script's words to the heard words in order (edit distance over normalised words).
+  - A misheard word takes the time of what was heard in its place; a dropped word is spaced between its neighbours.
+  - The captions read exactly as written. The music's dips still use the heard words' times.
+- **Library listings.** A voiceover's asset is an AUDIO asset in the library, so it can also be chosen as music.
+  Filtering it out of the music picker is left for later.
+- **No editor control yet.** A voiceover is added from Create or by a note on the export screen; the editor plays it but
+  has no sheet for it.
+
+## Verified
+
+- Core (`tests/voiceover.test.ts`): the schema round trip, the referenced asset, words in reel time, music dipping under
+  them, and the captions (focus, per-word timings, y ≤ 0.72). Also: replace, captions off, take off, refused when
+  invalid, saved as a change.
+- Render: the smoke reel rendered with a voiceover (a 3 s tone from 2 s). Measured mean volume: −91 dB before and
+  after, −24.5 dB inside.
+- Worker (`tests/voiceover.test.ts`): spoken in the chosen voice, stored under the step and kept as an AUDIO asset by
+  object key; kept without captions when nothing is recognised; refusals for a voice not offered, a long script and a
+  server without the voice service.
+- Web:
+  - `lib/voiceover.test.ts`: waiting on the step, one revision with captions, lengthening and `shortByMs`, failures and
+    refusals.
+  - `lib/create-reels.test.ts`: the voice in the brief only where the server can speak; saves by `add_media` and
+    `add_voiceover` moving the exported revision.
+  - `lib/voiceover.db.test.ts` (real Postgres): the step queued through the outbox, the saved reel, and the same line
+    reusing the step.
+- In a browser against the dev server: the picker, defaulting to Theia, with the ten voices.
+- **Against Cloudflare, nothing deployed (2026-10-31):**
+  - **Model catalogue** (Workers AI models search for this account): `@cf/deepgram/aura-1`, `aura-2-en`, `aura-2-es`;
+    there is no `aura-2`.
+  - **The old ID fails.** Running `@cf/deepgram/aura-2` answers HTTP 403, AiError 5018 ("not allowed to access"), which
+    is what the deployed worker (deployed 2026-10-19) calls for any `aura-2:` voice.
+  - **Every offered speaker is valid.** `aura-2-en`'s input schema lists 40 speakers, and all ten in `VOICES` are among
+    them.
+  - **The fixed worker passes its smoke test in `wrangler dev --remote`** (Wrangler 4.151.1, a throwaway `VOICE_KEY`):
+    `infra/cloudflare/voice/smoke.sh` got MP3 back for the ten voices, `aura-1:luna` and `melotts:en` (3.0–4.5 s
+    each), and the expected 401 and 400 refusals (wrong key, empty text, more than 400 characters, an unknown MeloTTS
+    language).
+  - **End to end through the worker's own code.** `synthesiseLine` used the preview, then `transcribeVideo` (Whisper
+    small.en, downloaded for the test) ran on the MP3, then `voiceoverCaptions`. Theia and Hyperion were heard with 15
+    timed words each, and the captions read exactly as the script.

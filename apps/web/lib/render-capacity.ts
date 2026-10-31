@@ -19,7 +19,7 @@ const subnets = (process.env.ECS_SUBNETS ?? "").split(",").filter(Boolean);
 const securityGroups = (process.env.ECS_SECURITY_GROUPS ?? "").split(",").filter(Boolean);
 const maxWorkers = Number(process.env.ECS_MAX_WORKERS ?? 1);
 const queueUrl = process.env.SQS_QUEUE_URL;
-// Renders one worker runs at a time (the worker's RENDER_CONCURRENCY).
+// Renders one worker runs at a time: one (it receives one message at a time). Not RENDER_CONCURRENCY, which is tabs within a render.
 const jobsPerWorker = Math.max(1, Number(process.env.RENDER_JOBS_PER_WORKER ?? 1));
 // Fargate Spot first (ADR 0094); ECS_SPOT=false launches on-demand Fargate only.
 const useSpot = (process.env.ECS_SPOT ?? "true").toLowerCase() !== "false";

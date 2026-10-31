@@ -2,7 +2,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { bundle } from "@remotion/bundler";
-import { makeCancelSignal, renderMedia, renderStill, selectComposition, type CancelSignal, type OpenGlRenderer as GlRenderer } from "@remotion/renderer";
+import { makeCancelSignal, openBrowser, renderMedia, renderStill, selectComposition, type CancelSignal, type OpenGlRenderer as GlRenderer } from "@remotion/renderer";
 import { clipDurationMs, clipStartsMs, isInstagramMusic, REEL_FORMAT, type Timeline } from "@reelwalk/core";
 import { mkdtemp, rm } from "node:fs/promises";
 import { REEL_COMPOSITION_ID, type ReelAsset } from "./reel/types";
@@ -10,15 +10,33 @@ import { renderConcurrency } from "./concurrency";
 
 let bundled: Promise<string> | null = null;
 
+/** Preflight stills drawn at once when the caller does not say (capped at the cores). */
+const PREFLIGHT_CONCURRENCY = 3;
+
 /**
  * Chrome's GL backend for the render (`REELWALK_RENDER_GL`, a Remotion `gl` value such as "swangle"), unset by default so
  * nothing changes. A zoom blur (ADR 0074) is displacement-map filters, which software GL runs several times slower than
  * the Gaussian of the other transitions; on the machine measured, "swangle" took its export from 1.84× to 1.24× the
- * plain-cut one. Unverified on the Linux worker, which is why it is a switch and not the default.
+ * plain-cut one. On Linux it is the other way round for a reel without one: the smoke reel took 121 s with "swangle"
+ * against 60 s with the default (4 cores, 3 tabs, 2026-10-31), so it stays a switch and not the default.
  */
 function chromiumOptions(): { gl: GlRenderer } | undefined {
   const gl = process.env.REELWALK_RENDER_GL?.trim();
   return gl ? { gl: gl as GlRenderer } : undefined;
+}
+
+/**
+ * One browser for a run of stills. Without one, every `selectComposition` and `renderStill` launches and closes its own
+ * Chrome and loads the bundle, fonts and matte models again: about as long as drawing the frame. Each still still gets a
+ * fresh page, so one still's state cannot leak into the next.
+ */
+async function withBrowser<T>(use: (browser: Awaited<ReturnType<typeof openBrowser>>) => Promise<T>): Promise<T> {
+  const browser = await openBrowser("chrome", { chromiumOptions: chromiumOptions() ?? {} });
+  try {
+    return await use(browser);
+  } finally {
+    await browser.close({ silent: true }).catch(() => undefined);
+  }
 }
 
 /**
@@ -136,48 +154,67 @@ export class PreflightError extends Error {
 }
 
 /**
- * Before a full render, draw the first and last frame of every shot as stills
- * (ADR 0042). A frame that errors or hangs fails here in seconds, naming the
- * shot, instead of minutes into the render. Returns the still paths when
- * `keepIn` is given (the smoke test lays them out); otherwise they are removed.
+ * Before a full render, draw the first, middle and last frame of every shot as stills (ADR 0042). A frame that errors or
+ * hangs fails here in seconds, naming the shot, instead of minutes into the render. Up to `concurrency` stills draw at
+ * once in one shared browser (capped at the cores, as the render is): each still is mostly waiting on a video seek and the
+ * matte, so a 4-vCPU worker draws three in about the time of one. When several fail, the earliest checkpoint is the one
+ * reported, as it was when they drew one at a time. Returns the still paths when `keepIn` is given (the smoke test lays
+ * them out); otherwise they are removed.
  */
 export async function preflightReel(
-  input: { timeline: Timeline; assets: Record<string, ReelAsset>; keepIn?: string; timeoutMs?: number; width?: number; signal?: AbortSignal },
+  input: { timeline: Timeline; assets: Record<string, ReelAsset>; keepIn?: string; timeoutMs?: number; width?: number; signal?: AbortSignal; concurrency?: number },
   onProgress?: (done: number, total: number) => void,
 ): Promise<{ frame: number; shot: number; edge: CheckpointEdge; path: string }[]> {
   const serveUrl = await getServeUrl();
   input.signal?.throwIfAborted();
   const timeline = isInstagramMusic(input.timeline.music) ? { ...input.timeline, music: null } : input.timeline;
   const inputProps = { timeline, assets: input.assets, watermark: false };
-  const composition = await selectComposition({ serveUrl, id: REEL_COMPOSITION_ID, inputProps });
-  const points = reelCheckpoints(timeline, composition.fps).filter((p) => p.frame < composition.durationInFrames);
   const dir = input.keepIn ?? (await mkdtemp(path.join(os.tmpdir(), "reelwalk-preflight-")));
-  const made: { frame: number; shot: number; edge: CheckpointEdge; path: string }[] = [];
   try {
-    for (const [index, point] of points.entries()) {
-      const output = path.join(dir, `shot-${String(point.shot).padStart(2, "0")}-${point.edge}.jpg`);
-      input.signal?.throwIfAborted();
-      const cancel = remotionCancel(input.signal);
-      try {
-        await renderStill({
-          chromiumOptions: chromiumOptions(),
-          composition, serveUrl, inputProps, output, frame: point.frame, imageFormat: "jpeg", jpegQuality: 80,
-          scale: (input.width ?? 540) / 1080,
-          timeoutInMilliseconds: input.timeoutMs ?? 30_000,
-          offthreadVideoCacheSizeInBytes: 256 * 1024 * 1024,
-          cancelSignal: cancel.cancelSignal,
-        });
-      } catch (error) {
-        // A cancelled preflight is not a broken shot: report the cancellation as it is.
-        if (input.signal?.aborted) throw input.signal.reason;
-        throw new PreflightError(point.shot, point.edge, point.frame, error);
-      } finally {
-        cancel.done();
+    return await withBrowser(async (puppeteerInstance) => {
+      const composition = await selectComposition({ serveUrl, id: REEL_COMPOSITION_ID, inputProps, puppeteerInstance });
+      const points = reelCheckpoints(timeline, composition.fps).filter((p) => p.frame < composition.durationInFrames);
+      const made: ({ frame: number; shot: number; edge: CheckpointEdge; path: string } | undefined)[] = new Array(points.length);
+      const failures: { index: number; error: unknown }[] = [];
+      let next = 0;
+      let done = 0;
+      const lane = async () => {
+        while (next < points.length && failures.length === 0) {
+          const index = next++;
+          const point = points[index];
+          const output = path.join(dir, `shot-${String(point.shot).padStart(2, "0")}-${point.edge}.jpg`);
+          input.signal?.throwIfAborted();
+          const cancel = remotionCancel(input.signal);
+          try {
+            await renderStill({
+              chromiumOptions: chromiumOptions(),
+              composition, serveUrl, inputProps, output, frame: point.frame, imageFormat: "jpeg", jpegQuality: 80, puppeteerInstance,
+              scale: (input.width ?? 540) / 1080,
+              timeoutInMilliseconds: input.timeoutMs ?? 30_000,
+              offthreadVideoCacheSizeInBytes: 256 * 1024 * 1024,
+              cancelSignal: cancel.cancelSignal,
+            });
+          } catch (error) {
+            // A cancelled preflight is not a broken shot: report the cancellation as it is.
+            if (input.signal?.aborted) throw input.signal.reason;
+            failures.push({ index, error });
+            return;
+          } finally {
+            cancel.done();
+          }
+          made[index] = { ...point, path: output };
+          onProgress?.(++done, points.length);
+        }
+      };
+      const lanes = Math.min(points.length, renderConcurrency(input.concurrency ?? PREFLIGHT_CONCURRENCY, os.availableParallelism()));
+      await Promise.all(Array.from({ length: lanes }, lane));
+      if (failures.length) {
+        const first = failures.reduce((a, b) => (b.index < a.index ? b : a));
+        const point = points[first.index];
+        throw new PreflightError(point.shot, point.edge, point.frame, first.error);
       }
-      made.push({ ...point, path: output });
-      onProgress?.(index + 1, points.length);
-    }
-    return made;
+      return made.filter((m) => m !== undefined);
+    });
   } finally {
     if (!input.keepIn) await rm(dir, { recursive: true, force: true });
   }
@@ -193,18 +230,20 @@ export async function renderReelStills(input: { timeline: Timeline; assets: Reco
   const serveUrl = await getServeUrl();
   const timeline = isInstagramMusic(input.timeline.music) ? { ...input.timeline, music: null } : input.timeline;
   const inputProps = { timeline, assets: input.assets, watermark: input.watermark ?? false };
-  const composition = await selectComposition({ serveUrl, id: REEL_COMPOSITION_ID, inputProps });
-  const out = new Map<number, string>();
-  for (const frame of [...new Set(input.frames)].filter((f) => f >= 0 && f < composition.durationInFrames)) {
-    const output = path.join(input.dir, `frame-${frame}.png`);
-    await renderStill({
-      chromiumOptions: chromiumOptions(),
-      composition, serveUrl, inputProps, output, frame, imageFormat: "png",
-      scale: (input.width ?? 540) / 1080,
-      timeoutInMilliseconds: input.timeoutMs ?? 30_000,
-      offthreadVideoCacheSizeInBytes: 256 * 1024 * 1024,
-    });
-    out.set(frame, output);
-  }
-  return out;
+  return withBrowser(async (puppeteerInstance) => {
+    const composition = await selectComposition({ serveUrl, id: REEL_COMPOSITION_ID, inputProps, puppeteerInstance });
+    const out = new Map<number, string>();
+    for (const frame of [...new Set(input.frames)].filter((f) => f >= 0 && f < composition.durationInFrames)) {
+      const output = path.join(input.dir, `frame-${frame}.png`);
+      await renderStill({
+        chromiumOptions: chromiumOptions(),
+        composition, serveUrl, inputProps, output, frame, imageFormat: "png", puppeteerInstance,
+        scale: (input.width ?? 540) / 1080,
+        timeoutInMilliseconds: input.timeoutMs ?? 30_000,
+        offthreadVideoCacheSizeInBytes: 256 * 1024 * 1024,
+      });
+      out.set(frame, output);
+    }
+    return out;
+  });
 }

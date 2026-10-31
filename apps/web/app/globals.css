@@ -4797,3 +4797,90 @@ input.inspect-scrub {
   color: var(--muted);
   font-size: 0.85rem;
 }
+
+/* Create (ADR 0098): the idea form and the options it makes. */
+.create-form {
+  display: grid;
+  gap: 12px;
+}
+
+.create-examples {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.create-upload {
+  position: relative;
+  overflow: hidden;
+}
+
+.create-upload input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.create-uploads {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--muted);
+}
+
+.create-settings {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 12px;
+}
+
+.create-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--tap);
+}
+
+.create-options {
+  display: grid;
+  gap: 12px;
+  margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
+}
+
+.create-option {
+  display: grid;
+  gap: 10px;
+}
+
+.create-option-head {
+  display: grid;
+  grid-template-columns: 90px 1fr;
+  gap: 12px;
+  align-items: start;
+}
+
+.create-option-title {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.create-poster {
+  width: 90px;
+  height: 160px;
+  border-radius: var(--radius-s);
+  object-fit: cover;
+  background: var(--panel);
+}
+
+.create-poster-empty {
+  display: block;
+}
+
+.create-option-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}

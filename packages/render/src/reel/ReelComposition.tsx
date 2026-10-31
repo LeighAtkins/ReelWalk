@@ -19,7 +19,7 @@ import {
 // OffthreadVideo here, and it falls back to it for files it cannot decode.
 import { Video as RenderVideo } from "@remotion/media";
 import { TransitionSeries } from "@remotion/transitions";
-import { behindInPlane, BRAND_FONTS, cutBlurAt, calloutGeometry, calloutSvg, cameraAt, captionWordAt, colorMatchFilterId, colorMatrixValues, countUpText, duckGain, evaluateTitle, flareCss, focusReveal, framePlan, mediaWindow, glintLetter, glintSvg, INSTAGRAM, isInstagramMusic, kineticProgress, matrix3d, particleField, particleSvg, personLayerOpacity, REEL_FORMAT, sceneLayers, SFX_DUCK, SFX_SOUNDS, sfxAssetKey, sfxEndMs, sfxGainAt, shineAt, shineBandCss, shineSpec, slideFromBehind, speechWindows, TITLE_LEADING, timelineDurationMs, titleArrival, walkInto, wrapTitleLines, wordReveal, type Clip, type Logo, type ParticleField, type PersonPass, type Plan, type SfxClip, type ShineFlare, type ShineGlint, type TextOverlay, type Timeline } from "@reelwalk/core";
+import { behindInPlane, BRAND_FONTS, cutBlurAt, calloutGeometry, calloutSvg, cameraAt, captionWordAt, colorMatchFilterId, colorMatrixValues, countUpText, duckGain, evaluateTitle, flareCss, focusReveal, framePlan, mediaWindow, glintLetter, glintSvg, INSTAGRAM, isInstagramMusic, kineticProgress, matrix3d, particleField, particleSvg, personLayerOpacity, REEL_FORMAT, sceneLayers, SFX_DUCK, SFX_SOUNDS, sfxAssetKey, sfxEndMs, sfxGainAt, shineAt, shineBandCss, shineSpec, slideFromBehind, speechWindows, TITLE_LEADING, timelineDurationMs, titleArrival, walkInto, wrapTitleLines, wordReveal, type Clip, type Logo, type ParticleField, type PersonPass, type Plan, type SfxClip, type ShineFlare, type ShineGlint, type TextOverlay, type Timeline, type Voiceover } from "@reelwalk/core";
 import { layoutMeasure } from "./measure";
 import { textExit, titleFont } from "./title-motion";
 import { revealStyle } from "./toolbox/title-reveal";
@@ -726,6 +726,21 @@ const SfxTrack: React.FC<{ timeline: Timeline; assets: Record<string, ReelAsset>
   );
 };
 
+/**
+ * The spoken voiceover (ADR 0099): one generated line from `atMs`, played once at its volume. The music and the
+ * sounds dip under its words through `speechWindows`, which reads its transcript.
+ */
+const VoiceoverTrack: React.FC<{ voiceover: Voiceover; asset: ReelAsset }> = ({ voiceover, asset }) => {
+  const { fps } = useVideoConfig();
+  const from = Math.round((voiceover.atMs * fps) / 1000);
+  const durationInFrames = asset.durationMs ? Math.max(1, Math.round((asset.durationMs * fps) / 1000)) : undefined;
+  return (
+    <Sequence from={from} durationInFrames={durationInFrames} name="voiceover">
+      <Audio src={resolveSrc(asset.src)} volume={voiceover.volume} />
+    </Sequence>
+  );
+};
+
 const NO_CUT: CutPlan = { kind: "none" };
 
 /**
@@ -834,6 +849,7 @@ export const ReelComposition: React.FC<ReelProps> = ({ timeline, assets, waterma
       {watermark ? <Watermark /> : null}
       {musicAsset ? <MusicTrack timeline={timeline} asset={musicAsset} assets={assets} /> : null}
       {timeline.sfx?.length ? <SfxTrack timeline={timeline} assets={assets} speech={sfxSpeech} /> : null}
+      {timeline.voiceover && assets[timeline.voiceover.assetId] ? <VoiceoverTrack voiceover={timeline.voiceover} asset={assets[timeline.voiceover.assetId]} /> : null}
     </AbsoluteFill>
   );
 };

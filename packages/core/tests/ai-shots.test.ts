@@ -1,10 +1,42 @@
 import { describe, expect, it } from "vitest";
-import { aiBoundary, aiClipCostCents, aiClipCredits, aiDefaultClipSeconds, aiShotFromClips, aiShotSchema, aiShotPrompt, aiShotStyle, clipDurationMs, clipSchema, emptyTimeline, insertAiShot, parseTimeline, type AiShotMode } from "../src";
+import { aiBoundary, aiClipCostCents, aiClipCredits, aiDefaultClipSeconds, aiShotFromClips, aiShotSchema, aiShotPrompt, aiShotStyle, aiShotVoiceKey, parseStoredAiShot, clipDurationMs, clipSchema, emptyTimeline, insertAiShot, parseTimeline, type AiShotMode } from "../src";
 
 const a = clipSchema.parse({ id: "a", assetId: "real-a", kind: "VIDEO", sourceStartMs: 1000, sourceEndMs: 7000, speed: 2 });
 const b = clipSchema.parse({ id: "b", assetId: "real-b", kind: "VIDEO", sourceStartMs: 2300, sourceEndMs: 5300, transitionIn: "whip" });
 const ai = clipSchema.parse({ id: "insert-one", assetId: "generated", kind: "VIDEO", sourceStartMs: 0, sourceEndMs: 8000 });
 const original = { ...emptyTimeline(), clips: [a, b] };
+
+describe("a lip-synced take's chosen voice (ADR 0100)", () => {
+  const spoken = { mode: "custom", line: "Nice room, right? Now look left.", voice: "lipsync" } as const;
+  it("accepts two different offered voices and keeps each one", () => {
+    expect(aiShotSchema.parse({ ...spoken, voiceId: "aura-2:theia" }).voiceId).toBe("aura-2:theia");
+    expect(aiShotSchema.parse({ ...spoken, voiceId: "aura-2:hyperion" }).voiceId).toBe("aura-2:hyperion");
+  });
+  it("refuses a voice not offered, and a chosen voice on Veo's own audio", () => {
+    expect(aiShotSchema.safeParse({ ...spoken, voiceId: "aura-2:nobody" }).error?.issues[0]?.message).toBe("That voice is not one of the voices offered.");
+    expect(aiShotSchema.safeParse({ ...spoken, voiceId: "melotts:en" }).success).toBe(false);
+    expect(aiShotSchema.safeParse({ ...spoken, voice: "veo", voiceId: "aura-2:theia" }).success).toBe(false);
+    expect(aiShotSchema.safeParse({ mode: "custom", voiceId: "aura-2:theia" }).success).toBe(false);
+  });
+  it("leaves the voice unset when none is chosen, and reads back older takes unchanged", () => {
+    expect(aiShotSchema.parse(spoken).voiceId).toBeUndefined();
+    const legacy = parseStoredAiShot({ ...spoken, tier: "final", finalOf: "draft-1" });
+    expect(legacy.success && legacy.data.voiceId).toBeUndefined();
+  });
+  it("keeps the voice on a draft and on the final made from it", () => {
+    const draft = aiShotSchema.parse({ ...spoken, voiceId: "aura-2:theia", tier: "draft", seed: 5 });
+    const final = parseStoredAiShot({ ...draft, tier: "final", finalOf: "draft-1" });
+    expect(final.success && final.data.voiceId).toBe("aura-2:theia");
+  });
+  it("tells takes apart by what is said and who says it", () => {
+    const key = aiShotVoiceKey({ ...spoken, voiceId: "aura-2:theia" });
+    expect(aiShotVoiceKey({ ...spoken, voiceId: "aura-2:theia", seed: 9, tier: "draft" })).toBe(key);
+    expect(aiShotVoiceKey({ ...spoken, voiceId: "aura-2:hyperion" })).not.toBe(key);
+    expect(aiShotVoiceKey(spoken)).not.toBe(key);
+    expect(aiShotVoiceKey({ ...spoken, line: "Tell me." , voiceId: "aura-2:theia" })).not.toBe(key);
+    expect(aiShotVoiceKey(null)).toBe(aiShotVoiceKey({ mode: "custom" }));
+  });
+});
 
 describe("footage anchored AI edits", () => {
   it("prices and validates a spoken line", () => {

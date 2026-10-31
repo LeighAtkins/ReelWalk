@@ -3,7 +3,7 @@ import { applyCommand, COMMAND_TYPES, type CommandContext } from "../src/command
 import { duckGain, speechWindows } from "../src/ducking";
 import { parseTimeline, referencedAssetIds, type Timeline, type Voiceover } from "../src/timeline";
 import type { Transcript } from "../src/transcript";
-import { DEFAULT_VOICE, VOICES, isVoiceId, voiceoverCaptions, voiceoverWords } from "../src/voiceover";
+import { DEFAULT_VOICE, VOICES, isVoiceId, scriptTimedWords, voiceoverCaptions, voiceoverWords } from "../src/voiceover";
 
 // A spoken voiceover over the footage (ADR 0099).
 
@@ -114,5 +114,45 @@ describe("setVoiceover", () => {
     expect(voiceoverCaptions(late, spoken).length).toBeGreaterThan(0);
     const { timeline } = applyCommand(reel(), { type: "setVoiceover", voiceover: late, transcript: spoken }, ctx);
     for (const caption of timeline.texts) expect(caption.endMs).toBeLessThanOrEqual(12_000);
+  });
+});
+
+describe("captions show the script, timed by what was heard", () => {
+  // What Whisper heard from the Hyperion voice for this script, 2026-10-31 (the voice Worker preview, ADR 0099).
+  const script = "Three bedrooms, a north-facing garden, and room to grow. Open home Saturday at ten.";
+  const heard: Transcript = {
+    text: "Three bedrooms and all-facing garden and room to grow. Open Home Saturday at 10.",
+    words: [
+      { w: "Three", s: 370, e: 730 }, { w: "bedrooms", s: 730, e: 1350 }, { w: "and", s: 1450, e: 1590 }, { w: "all-facing", s: 1600, e: 2200 },
+      { w: "garden", s: 2210, e: 2770 }, { w: "and", s: 2860, e: 3000 }, { w: "room", s: 3010, e: 3300 }, { w: "to", s: 3310, e: 3420 },
+      { w: "grow.", s: 3430, e: 3830 }, { w: "Open", s: 4210, e: 4500 }, { w: "Home", s: 4510, e: 4800 }, { w: "Saturday", s: 4810, e: 5300 },
+      { w: "at", s: 5310, e: 5400 }, { w: "10.", s: 5410, e: 5770 },
+    ],
+  };
+
+  it("keeps every script word, in order, with times that never run backwards", () => {
+    const words = scriptTimedWords(script, heard)!;
+    expect(words.map((word) => word.w).join(" ")).toBe(script);
+    for (let index = 1; index < words.length; index++) expect(words[index].s).toBeGreaterThanOrEqual(words[index - 1].s);
+    // Matched words keep their heard times; a misheard one takes the time of what was heard in its place.
+    expect(words[0]).toEqual({ w: "Three", s: 370, e: 730 });
+    expect(words.find((word) => word.w === "ten.")).toEqual({ w: "ten.", s: 5410, e: 5770 });
+    expect(words.find((word) => word.w === "garden,")).toEqual({ w: "garden,", s: 2210, e: 2770 });
+  });
+
+  it("captions the script's words, not the mishearing", () => {
+    const captions = voiceoverCaptions({ assetId: "vo1", atMs: 0, volume: 1, script, voice: "aura-2:hyperion" }, heard);
+    const text = captions.map((caption) => caption.text).join(" ");
+    expect(text).toBe(script);
+    expect(text).not.toContain("all-facing");
+    expect(captions[0].startMs).toBe(370);
+  });
+
+  it("spaces words the recogniser dropped between their neighbours", () => {
+    const dropped: Transcript = { text: "Three garden", words: [{ w: "Three", s: 0, e: 300 }, { w: "garden", s: 900, e: 1200 }] };
+    expect(scriptTimedWords("Three lovely green garden", dropped)).toEqual([
+      { w: "Three", s: 0, e: 300 }, { w: "lovely", s: 300, e: 600 }, { w: "green", s: 600, e: 900 }, { w: "garden", s: 900, e: 1200 },
+    ]);
+    expect(scriptTimedWords("Hi", null)).toBeNull();
   });
 });

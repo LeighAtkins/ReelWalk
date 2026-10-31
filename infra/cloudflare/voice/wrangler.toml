@@ -1,4 +1,8 @@
-# The presenter voice (ADR 0038). Deploy: npx wrangler deploy (from this directory).
+# The presenter voice (ADR 0038) and the voiceover voices (ADR 0099).
+# Try it before deploying (Workers AI runs for real, nothing is deployed):
+#   echo "VOICE_KEY=<a throwaway test key>" > .dev.vars && npx wrangler@4.151.1 dev --remote
+#   VOICE_KEY=<that key> ./smoke.sh http://localhost:8787
+# Deploy: npx wrangler@4.151.1 deploy (from this directory), then ./smoke.sh against the workers.dev URL.
 # Secret: npx wrangler secret put VOICE_KEY — the same value goes in terraform.tfvars as voice_tts_key.
 name = "reelwalk-voice"
 main = "src/index.ts"

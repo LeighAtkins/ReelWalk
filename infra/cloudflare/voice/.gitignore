@@ -1,0 +1,3 @@
+# Local test secrets and Wrangler state never go in Git.
+.dev.vars
+.wrangler/

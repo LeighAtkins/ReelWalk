@@ -66,15 +66,21 @@ and the note's record.
 ## Consequences
 
 - **To turn it on:**
-  1. Redeploy the voice Worker (`wrangler deploy` in infra/cloudflare/voice) for the model fix.
+  1. Redeploy the voice Worker (`npx wrangler@4.151.1 deploy` in infra/cloudflare/voice) for the model fix, then run
+     `smoke.sh` against its workers.dev URL with the production `VOICE_KEY`. Its `VOICE_KEY` secret is already set and is
+     not changed by a deploy.
   2. Set `voice_enabled = true` in Terraform and apply. The worker and the web app both read `VOICE_ENABLED`; the
      worker also needs `VOICE_TTS_URL` and `VOICE_TTS_KEY`, which are already wired.
   3. Deploy with `ALLOW_WORKER_ENV_CHANGE=1` if the worker's environment changes.
 - **Cost:** Workers AI text to speech per line (cents), plus a worker run to transcribe it. No AI video credits are
   spent, and the month's AI request allowance is not touched: the create run or note that calls the tool is already
   counted.
-- **Captions follow the transcript, not the script.** A word Whisper mishears is captioned as heard. The script is kept
-  on the timeline for a later check.
+- **Captions show the script, timed by the transcript.** Whisper mishears a generated voice now and then. In the preview
+  test below, Hyperion's "a north-facing garden" was heard as "and all-facing garden" or "an off-facing garden", "Open
+  home" as "Oakenholm", and "ten" as "10".
+  - `scriptTimedWords` aligns the script's words to the heard words in order (edit distance over normalised words).
+  - A misheard word takes the time of what was heard in its place; a dropped word is spaced between its neighbours.
+  - The captions read exactly as written. The music's dips still use the heard words' times.
 - **Library listings.** A voiceover's asset is an AUDIO asset in the library, so it can also be chosen as music.
   Filtering it out of the music picker is left for later.
 - **No editor control yet.** A voiceover is added from Create or by a note on the export screen; the editor plays it but
@@ -98,6 +104,17 @@ and the note's record.
   - `lib/voiceover.db.test.ts` (real Postgres): the step queued through the outbox, the saved reel, and the same line
     reusing the step.
 - In a browser against the dev server: the picker, defaulting to Theia, with the ten voices.
-- Not run here:
-  - The real voice Worker (no Cloudflare access from this environment).
-  - Whisper on a spoken MP3 (the model is baked only into the worker image).
+- **Against Cloudflare, nothing deployed (2026-10-31):**
+  - **Model catalogue** (Workers AI models search for this account): `@cf/deepgram/aura-1`, `aura-2-en`, `aura-2-es`;
+    there is no `aura-2`.
+  - **The old ID fails.** Running `@cf/deepgram/aura-2` answers HTTP 403, AiError 5018 ("not allowed to access"), which
+    is what the deployed worker (deployed 2026-10-19) calls for any `aura-2:` voice.
+  - **Every offered speaker is valid.** `aura-2-en`'s input schema lists 40 speakers, and all ten in `VOICES` are among
+    them.
+  - **The fixed worker passes its smoke test in `wrangler dev --remote`** (Wrangler 4.151.1, a throwaway `VOICE_KEY`):
+    `infra/cloudflare/voice/smoke.sh` got MP3 back for the ten voices, `aura-1:luna` and `melotts:en` (3.0–4.5 s
+    each), and the expected 401 and 400 refusals (wrong key, empty text, more than 400 characters, an unknown MeloTTS
+    language).
+  - **End to end through the worker's own code.** `synthesiseLine` used the preview, then `transcribeVideo` (Whisper
+    small.en, downloaded for the test) ran on the MP3, then `voiceoverCaptions`. Theia and Hyperion were heard with 15
+    timed words each, and the captions read exactly as the script.

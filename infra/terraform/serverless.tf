@@ -52,7 +52,13 @@ locals {
     VERTEX_CLAUDE_REGION              = var.vertex_claude_region
     # When a local render falls back to Fargate (ADR 0094).
     LOCAL_RENDER_FALLBACK_SECONDS = tostring(var.local_render_fallback_seconds)
+    # Lip-synced takes (ADR 0038/0060): the sync.so key lives only on the worker, so the web is told it is there.
+    LIPSYNC_ENABLED = tostring(local.lipsync_enabled)
   }
+
+  # On exactly when the worker can lip-sync (apps/worker/src/voice.ts lipsyncConfigured): voice on, its URL and key,
+  # and the sync.so key. Only whether the keys are empty is revealed, never their values.
+  lipsync_enabled = var.voice_enabled && var.voice_tts_url != "" && nonsensitive(var.voice_tts_key != "" && var.sync_api_key != "")
 
   # Parameter Store holds the credentials; both runtimes read them at start.
   app_secrets = merge({

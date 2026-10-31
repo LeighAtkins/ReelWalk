@@ -51,3 +51,15 @@ fictional presenter sounds the same. The voiceover (ADR 0099) already lets a ree
   - the request body sent to the voice Worker names the chosen voice, with the key in its header as before.
 - Database (`tests/ai-credits.test.ts`, real Postgres): a retry with the same request id returns the same take. The same
   id with another voice, no voice or another line is refused, and nothing more is made.
+
+## Follow-up: the web's lip-sync switch (2026-10-31)
+
+Production's web app had no `LIPSYNC_ENABLED`, so `aiLipsyncConfigured()` was false. Terraform never set it: ADR 0060
+expected it to be set by hand, alongside the key. It is now part of `web_env`, derived from the inputs the worker's
+`lipsyncConfigured()` needs:
+- `voice_enabled`;
+- a non-empty `voice_tts_url`;
+- non-empty `voice_tts_key` and `sync_api_key`.
+
+`nonsensitive()` reveals only whether the keys are empty, never their values. Checked with Terraform 1.10.5: `fmt`,
+`validate`, and a plan of the expression for each input left empty (true only when all are set).

@@ -3,8 +3,14 @@ import { z } from "zod";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import {
   addClips,
+  AI_DRAFT_CREDITS,
   aiClipCostCents,
   aiClipCredits,
+  aiDraftCostCents,
+  aiFinalCredits,
+  aiShotSchema,
+  parseStoredAiShot,
+  type AiShot,
   COMMAND_TYPES,
   DEFAULT_VOICE,
   VOICES,
@@ -712,11 +718,28 @@ const getExport: ToolSpec = {
 
 // ── AI shots (the person's credits, the editor's gates) ──────────
 
+/** What a shot asks for, priced as the editor prices it (ADR 0076, 0038): a draft, a voiced take, or a final from a draft. */
+type AiShotPrice = { durationSeconds: 4 | 8; credits: number; costCents: number; voiced: boolean };
+async function aiShotQuote(workspaceId: string, input: { durationSeconds: 4 | 8; shot?: AiShot; quality?: "draft" | "final"; finalOf?: string }): Promise<AiShotPrice | { error: string }> {
+  if (input.finalOf) {
+    const draft = await prisma.aiGeneration.findFirst({ where: { id: input.finalOf, workspaceId, status: "SUCCEEDED" }, select: { credits: true, durationSeconds: true, shot: true } });
+    const stored = draft ? parseStoredAiShot(draft.shot) : null;
+    if (!draft || !stored?.success || stored.data.tier !== "draft") return { error: "finalOf must name a finished draft (quality \"draft\") from this account." };
+    const seconds = draft.durationSeconds as 4 | 8;
+    const voiced = Boolean(stored.data.voice && stored.data.line);
+    return { durationSeconds: seconds, credits: aiFinalCredits(seconds, voiced, draft.credits), costCents: aiClipCostCents(seconds, voiced), voiced };
+  }
+  if (input.quality === "draft") return { durationSeconds: input.durationSeconds, credits: AI_DRAFT_CREDITS, costCents: aiDraftCostCents(input.durationSeconds), voiced: false };
+  const voiced = Boolean(input.shot?.voice && input.shot.line);
+  return { durationSeconds: input.durationSeconds, credits: aiClipCredits(input.durationSeconds, voiced), costCents: aiClipCostCents(input.durationSeconds, voiced), voiced };
+}
+
 const generateAiShot: ToolSpec = {
   name: "generate_ai_shot",
   title: "Generate an AI video shot",
   description:
-    "Start an AI video shot (4 or 8 s) from a prompt, optionally continuing from a library photo (`referenceAssetId`, JPEG/PNG). It costs the person's AI credits (4 s = 1 credit, 8 s = 2) under the same limits as the editor. The first call only returns the quote and their balance and spends nothing; call again with `confirmCredits` equal to the quote to start it, and only after the person agreed to spend that. Poll get_ai_shot; when SUCCEEDED the clip is a library asset you can place with add_media (mode library).",
+    "Start an AI video shot (4 or 8 s) from a prompt, optionally continuing from a library photo (`referenceAssetId`, JPEG/PNG). It costs the person's AI credits (4 s = 1 credit, 8 s = 2, a spoken line 1 more; a draft is 1) under the same limits as the editor. The first call only returns the quote and their balance and spends nothing; call again with `confirmCredits` equal to the quote to start it, and only after the person agreed to spend that. Poll get_ai_shot; when SUCCEEDED the clip is a library asset you can place with add_media (mode library).\n\n" +
+    "Directed shots, the same fields as the editor's (POST /api/ai/generations): `shot` sets the mode, the starting and ending frames ({assetId, atMs}), the presenter composed into them (`compose`: `presenterId` or a `presenter` frame, with `allowGeneratedReference` for a generated one, `framing`, and what the composed `first`/`last` frame shows), a spoken `line` with `voice` (\"veo\" for Veo's own audio, \"lipsync\" with an optional `voiceId`), a camera `move`, and `direction`. `quality: \"draft\"` is the cheap silent 720p preview (no ending frame); `finalOf` makes a finished draft final with the same prompt, frames, seed and voice, its credit used toward the price (send any prompt; the draft's is used).",
   scopes: ["ai:generate"],
   readOnly: false,
   write: true,
@@ -725,24 +748,39 @@ const generateAiShot: ToolSpec = {
     prompt: z.string().trim().min(10).max(2000).describe("What the camera sees and does. Describe real places and light; no text or logos in the picture."),
     referenceAssetId: z.string().min(1).max(64).optional(),
     durationSeconds: z.union([z.literal(4), z.literal(8)]).default(4),
+    shot: z.record(z.string(), z.unknown()).optional().describe("A directed shot, as the editor sends it (see the description); checked against the editor's own rules."),
+    quality: z.enum(["draft", "final"]).optional().describe("\"draft\": the cheap silent preview. Absent or \"final\": the full take."),
+    finalOf: z.string().min(1).max(64).optional().describe("A finished draft's aiShotId, to make it final."),
     confirmCredits: z.number().int().min(0).optional().describe("Must equal the quoted credits to spend them."),
     requestId: z.string().uuid().optional().describe("Reuse the requestId from an earlier answer to retry without paying twice."),
   },
   async run(ctx, args) {
-    const { prompt, referenceAssetId, durationSeconds, confirmCredits, requestId } = args as { prompt: string; referenceAssetId?: string; durationSeconds: 4 | 8; confirmCredits?: number; requestId?: string };
+    const { prompt, referenceAssetId, durationSeconds, confirmCredits, requestId, quality, finalOf } = args as { prompt: string; referenceAssetId?: string; durationSeconds: 4 | 8; confirmCredits?: number; requestId?: string; quality?: "draft" | "final"; finalOf?: string };
     const { aiVideoConfigured, createAiGeneration, getAiBalance } = await import("../ai-video");
     if (!aiVideoConfigured()) return failure("AI video is not available on this server yet.");
     if (await aiIsOff(ctx.user.workspaceId)) return failure(AI_OFF_MESSAGE, { code: AI_OFF_CODE });
-    const credits = aiClipCredits(durationSeconds);
+    let shot: AiShot | undefined;
+    if (args.shot !== undefined && !finalOf) {
+      const parsed = aiShotSchema.safeParse(quality === "draft" ? { ...(args.shot as object), tier: "draft" } : args.shot);
+      if (!parsed.success) return failure(parsed.error.issues[0]?.message ?? "That shot is not valid.", { issues: parsed.error.issues.slice(0, 5).map((issue) => ({ path: issue.path.join("."), message: issue.message })) });
+      shot = parsed.data;
+    }
+    const priced = await aiShotQuote(ctx.user.workspaceId, { durationSeconds, shot, quality, finalOf });
+    if ("error" in priced) return failure(priced.error);
+    const { credits } = priced;
     const balance = await getAiBalance(ctx.user.workspaceId);
-    const quote = { credits, costCents: aiClipCostCents(durationSeconds), remainingCredits: balance.remaining };
+    const quote = { credits, costCents: priced.costCents, remainingCredits: balance.remaining, durationSeconds: priced.durationSeconds, voiced: priced.voiced, ...(finalOf ? { finalOf } : quality === "draft" ? { tier: "draft" } : {}) };
     const id = requestId ?? randomUUID();
-    if (confirmCredits === undefined) return ok({ started: false, quote, requestId: id, next: `Nothing was spent. To start it, call again with confirmCredits: ${credits} and requestId: "${id}".` });
-    if (confirmCredits !== credits) return failure(`The quote for ${durationSeconds} s is ${credits} credit(s); confirmCredits must equal it.`, { quote });
+    if (confirmCredits === undefined) return ok({ started: false, quote, requestId: id, next: `Nothing was spent. To start it, call again with the same arguments, confirmCredits: ${credits} and requestId: "${id}".` });
+    if (confirmCredits !== credits) return failure(`The quote for this ${priced.durationSeconds} s shot is ${credits} credit(s); confirmCredits must equal it.`, { quote });
     if (balance.remaining < credits) return failure(`Not enough AI credits: this needs ${credits} and the account has ${balance.remaining}. Credits are bought in the app.`, { quote });
     try {
       const { ensureWorkerRunning } = await import("../render-capacity");
-      const job = await createAiGeneration(ctx.user, { requestId: id, prompt, referenceAssetId, durationSeconds });
+      // The editor's own path: its checks on frames, presenter, voice, tier and finals, the reservation and the queue.
+      const job = await createAiGeneration(ctx.user, {
+        requestId: id, prompt, referenceAssetId, durationSeconds,
+        ...(shot ? { shot } : {}), ...(quality ? { quality } : {}), ...(finalOf ? { finalOf } : {}),
+      });
       await ensureWorkerRunning();
       return ok({ started: true, aiShotId: job.id, requestId: id, quote, next: "Poll get_ai_shot until SUCCEEDED." });
     } catch (error) {

@@ -20,7 +20,7 @@ export const aiStepExecutor: AiStepExecutor = {
         : step.kind === "block-reveal"
           ? runInStepScope(gate.signal, (scope) => runBlockRevealStep(step, scope))
           : step.kind === "voiceover"
-            ? runInStepScope(gate.signal, (scope) => runVoiceoverStep(step, scope))
+            ? runInStepScope(gate.signal, (scope) => runVoiceoverStep(step, scope, gate))
             : runAiStep({ kind: step.kind, user: step.user, reelId: step.reelId, payload: step.payload, identity: `step:${step.id}:g${step.generation}` }, gate),
   describeError: (step, error) =>
     step.kind === "director-review" ? directorFailureMessage(error) : (error instanceof Error ? error.message : String(error)).slice(0, 300),

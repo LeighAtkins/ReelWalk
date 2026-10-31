@@ -67,7 +67,10 @@ export async function addVoiceover(
     await deps.sleep(2000);
     state = await deps.step(started.jobId);
   }
-  if (!state || state.status === "FAILED" || state.status === "UNRESOLVED") return { ok: false, status: 502, message: `The voiceover could not be made: ${state?.error ?? "the step is missing"}.` };
+  // No answer came back for the paid request: it may have been made. It is never sent again on its own (ADR 0099).
+  if (state?.status === "UNRESOLVED") return { ok: false, status: 502, message: "No answer came back from the voice service, so this line may or may not have been made. It is not sent again automatically, so it is never paid for twice; reword the script to ask for a new line." };
+  // A failure after the audio arrived keeps the audio: asking again for the same line reuses it without paying again.
+  if (!state || state.status === "FAILED") return { ok: false, status: 502, message: `The voiceover could not be made: ${state?.error ?? "the step is missing"}. Asking again for the same line reuses any audio already made.` };
   if (state.status !== "SUCCEEDED") return { ok: false, status: 504, message: "The voiceover is still being made. Ask again in a minute; the same line picks up where it is." };
 
   const result = state.result as { assetId?: unknown; durationMs?: unknown; transcript?: unknown } | null;

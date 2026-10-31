@@ -81,6 +81,8 @@ describe("addVoiceover", () => {
   it("answers with the reason when the step fails or is still running, and saves nothing", async () => {
     expect(await addVoiceover(user, { reelId: "r1", script: "Hello there." }, deps([{ status: "FAILED", error: "The voice service returned HTTP 502." }]))).toMatchObject({ ok: false, status: 502, message: expect.stringContaining("HTTP 502") });
     expect(await addVoiceover(user, { reelId: "r1", script: "Hello there.", waitMs: 0 }, deps([{ status: "RUNNING" }]))).toMatchObject({ ok: false, status: 504 });
+    // No answer for the paid request: said plainly, with the way to a new line, and nothing saved.
+    expect(await addVoiceover(user, { reelId: "r1", script: "Hello there." }, deps([{ status: "UNRESOLVED", error: "unresolved" }]))).toMatchObject({ ok: false, status: 502, message: expect.stringContaining("never paid for twice") });
     expect(reels.saved).toEqual([]);
   });
 

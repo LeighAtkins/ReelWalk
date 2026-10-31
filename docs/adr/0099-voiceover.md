@@ -30,10 +30,22 @@ What existed:
 - A voiceover names its voice. A voice not on the list is refused.
 
 **The "voiceover" worker step.** A worker-only durable step (`startWorkerStepRun`, as Walk the block, ADR 0093):
-1. Speak the script (at most 400 characters, the voice Worker's limit) in the chosen voice.
-2. Transcribe it with word timings.
-3. Store the MP3 at `workspaces/<ws>/voiceover/<stepId>.mp3`.
-4. Keep it as an AUDIO asset (credit "AI voice …"), upserted by object key so a retried attempt writes the same row.
+1. Look for the line's saved audio at `workspaces/<ws>/voiceover/<id>.mp3`. The id is the SHA-256 of the model, the
+   voice and the script, and the audio must match the checksum it was saved with. When it is there, reuse it and send
+   nothing.
+2. Otherwise speak the script (at most 400 characters, the voice Worker's limit) in the chosen voice. The request goes
+   through the provider gate: the step is recorded as submitted before it is sent, and the worker never re-runs a
+   submitted step on its own.
+   - An error answer from the voice service is a definite outcome (FAILED).
+   - No answer at all (a timeout, a dropped connection) leaves it unknown whether the line was made and paid for, so
+     the step is UNRESOLVED and never sent again automatically. Rewording the script asks for a new line.
+3. Save the audio the moment it arrives, with its SHA-256, before anything that can fail after it. The save is tried
+   three times.
+4. Transcribe it with word timings.
+5. Keep it as an AUDIO asset (credit "AI voice …"), upserted by object key.
+
+So a failure after the audio arrived (transcription, probing, the asset row) is FAILED, and asking again for the same
+line reuses the saved audio without paying again. The same holds for the same line on another reel in the workspace.
 
 The request id is fixed per reel, script and voice, so asking again for the same line reuses the step.
 

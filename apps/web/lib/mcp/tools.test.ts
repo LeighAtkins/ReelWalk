@@ -491,8 +491,47 @@ describe("generate_ai_shot", () => {
     expect(data).toMatchObject({ started: true, aiShotId: "ai1", quote: { credits: 2 } });
   });
 
+  // Directed shots (the editor's fields): a composed presenter, a draft, a voiced take and a final from a draft.
+  const directed = {
+    mode: "custom", first: { assetId: "hall-still", atMs: 0 },
+    compose: { presenter: { assetId: "ai-identity", atMs: 1200 }, allowGeneratedReference: true, framing: "close", first: "She stands in front of the doorway, waist-up, facing the camera." },
+    line: "Nice room, right? Now look left.", voice: "veo",
+  };
+  it("quotes and starts a directed draft at one credit, silent, with the editor's own shot fields", async () => {
+    const quoted = await run("generate_ai_shot", { ...args, shot: directed, quality: "draft" });
+    expect(quoted.data).toMatchObject({ started: false, quote: { credits: 1, voiced: false, tier: "draft" } });
+    m.ai.createAiGeneration.mockResolvedValue({ id: "draft1" });
+    await run("generate_ai_shot", { ...args, shot: directed, quality: "draft", confirmCredits: 1, requestId: "6f1d8a4e-3b1c-4b43-9a53-0d7b6b2c1e12" });
+    const [, request] = m.ai.createAiGeneration.mock.calls[0]!;
+    expect(request).toMatchObject({ quality: "draft", durationSeconds: 4, shot: { mode: "custom", tier: "draft", line: directed.line, voice: "veo", compose: { framing: "close", allowGeneratedReference: true, presenter: { assetId: "ai-identity", atMs: 1200 } } } });
+  });
+  it("prices a voiced full take with its spoken line", async () => {
+    expect((await run("generate_ai_shot", { ...args, shot: directed })).data.quote).toMatchObject({ credits: 2, voiced: true });
+    expect((await run("generate_ai_shot", { ...args, shot: directed, durationSeconds: 8 })).data.quote).toMatchObject({ credits: 3 });
+  });
+  it("makes a finished draft final for the rest of the price, from the draft's own row", async () => {
+    m.prisma.aiGeneration.findFirst.mockResolvedValue({ credits: 1, durationSeconds: 4, shot: { ...directed, tier: "draft", seed: 7 } });
+    const quoted = await run("generate_ai_shot", { ...args, finalOf: "draft1" });
+    expect(quoted.data.quote).toMatchObject({ credits: 1, voiced: true, durationSeconds: 4, finalOf: "draft1" });
+    expect(m.prisma.aiGeneration.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "draft1", workspaceId: "ws1", status: "SUCCEEDED" } }));
+    m.ai.createAiGeneration.mockResolvedValue({ id: "final1" });
+    await run("generate_ai_shot", { ...args, finalOf: "draft1", confirmCredits: 1, requestId: "6f1d8a4e-3b1c-4b43-9a53-0d7b6b2c1e13" });
+    expect(m.ai.createAiGeneration.mock.calls[0]![1]).toMatchObject({ finalOf: "draft1", requestId: "6f1d8a4e-3b1c-4b43-9a53-0d7b6b2c1e13" });
+    expect(m.ai.createAiGeneration.mock.calls[0]![1]).not.toHaveProperty("shot");
+  });
+  it("refuses a shot the editor would refuse, and a final of something that is not a finished draft, spending nothing", async () => {
+    const bad = await run("generate_ai_shot", { ...args, shot: { ...directed, voiceId: "aura-2:theia" }, confirmCredits: 2 });
+    expect(bad.result.isError).toBe(true);
+    expect(bad.data.message).toMatch(/lip-synced line/);
+    m.prisma.aiGeneration.findFirst.mockResolvedValue({ credits: 2, durationSeconds: 4, shot: { mode: "custom" } });
+    expect((await run("generate_ai_shot", { ...args, finalOf: "full1", confirmCredits: 1 })).data.message).toMatch(/finished draft/);
+    m.prisma.aiGeneration.findFirst.mockResolvedValue(null);
+    expect((await run("generate_ai_shot", { ...args, finalOf: "missing", confirmCredits: 1 })).data.message).toMatch(/finished draft/);
+    expect(m.ai.createAiGeneration).not.toHaveBeenCalled();
+  });
+
   it("refuses a confirmation that does not match, too few credits, and an unconfigured server", async () => {
-    expect((await run("generate_ai_shot", { ...args, durationSeconds: 8, confirmCredits: 1 })).data.message).toMatch(/quote for 8 s is 2/);
+    expect((await run("generate_ai_shot", { ...args, durationSeconds: 8, confirmCredits: 1 })).data.message).toMatch(/quote for this 8 s shot is 2/);
     m.ai.getAiBalance.mockResolvedValue({ remaining: 0 });
     expect((await run("generate_ai_shot", { ...args, confirmCredits: 1 })).data.message).toMatch(/Not enough AI credits/);
     m.ai.aiVideoConfigured.mockReturnValue(false);

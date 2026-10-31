@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { acceptFor, DEFAULT_VOICE, VOICES } from "@reelwalk/core";
 import { uploadFile } from "./editor/upload";
@@ -96,6 +96,9 @@ export function CreateStudio({ available, voices }: { available: boolean; voices
   // A spoken voiceover (ADR 0099), on by default where the server can speak.
   const [voice, setVoice] = useState<string>(voices ? DEFAULT_VOICE : "");
   const [busy, setBusy] = useState(false);
+  // One id per request (ADR 0098): Try again with the same words and settings sends the same id, so a lost answer
+  // gets the same reels back instead of new ones; any change to the request makes a new id.
+  const request = useRef<{ key: string; id: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [options, setOptions] = useState<Option[]>([]);
@@ -117,11 +120,14 @@ export function CreateStudio({ available, voices }: { available: boolean; voices
     setBusy(true);
     setError(null);
     setNotice(null);
+    const payload = { idea, mediaIds: uploads.flatMap((upload) => (upload.assetId ? [upload.assetId] : [])), options: count, captions, voice: voice || null };
+    const key = JSON.stringify(payload);
+    if (request.current?.key !== key) request.current = { key, id: crypto.randomUUID() };
     try {
       const response = await fetch("/api/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ idea, mediaIds: uploads.flatMap((upload) => (upload.assetId ? [upload.assetId] : [])), options: count, captions, voice: voice || null }),
+        body: JSON.stringify({ requestId: request.current.id, ...payload }),
       });
       const answer = (await response.json().catch(() => null)) as { ok?: boolean; message?: string; options?: Option[]; skipped?: number } | null;
       if (!answer?.ok || !answer.options) {
@@ -149,7 +155,7 @@ export function CreateStudio({ available, voices }: { available: boolean; voices
             <OptionCard key={option.reelId} option={option} />
           ))}
         </ul>
-        <button type="button" className="btn btn-quiet" onClick={() => { setOptions([]); setIdea(""); setUploads([]); }} data-testid="create-again">
+        <button type="button" className="btn btn-quiet" onClick={() => { setOptions([]); setIdea(""); setUploads([]); request.current = null; }} data-testid="create-again">
           Make something else
         </button>
       </section>

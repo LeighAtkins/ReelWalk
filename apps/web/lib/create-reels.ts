@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { addClips, emptyTimeline, isVoiceId, parseTimeline, voiceName, type Timeline, type VoiceId } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
 import { aiAvailabilityReason } from "./ai-edit";
@@ -56,11 +56,54 @@ export function titleFor(idea: string, angle: CreateAngle): string {
 export type CreatedOption = { reelId: string; title: string; angle: string; noteId: string };
 
 export type StartCreate =
-  | { ok: true; options: CreatedOption[]; /** Options that could not start (the month's AI requests ran out part-way). */ skipped: number; message?: string }
-  | { ok: false; status: number; message: string; upgrade?: boolean };
+  | { ok: true; requestId: string; options: CreatedOption[]; /** Options that could not start (the month's AI requests ran out part-way). */ skipped: number; message?: string }
+  | { ok: false; status: number; message: string; upgrade?: boolean; reason?: "request_mismatch" };
 
-export async function startCreate(input: { user: ActingUser; idea: string; mediaIds: string[]; options: number; captions: boolean; origin: string; voice?: string | null }): Promise<StartCreate> {
+const REQUEST_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const digest = (...parts: string[]) => createHash("sha256").update(parts.join("\n")).digest("hex");
+const isUniqueViolation = (error: unknown) => (error as { code?: string } | null)?.code === "P2002";
+
+/**
+ * The ids of one option of one request, derived, never drawn (ADR 0098): the same request id gives the same reel and
+ * the same note request id, so a retried POST (the answer was lost, Try again, two tabs) finds what the first one made
+ * instead of making new reels and spending the month's allowance again.
+ */
+export function createOptionIds(workspaceId: string, requestId: string, index: number): { reelId: string; noteRequestId: string } {
+  const h = digest("create-option", workspaceId, requestId.toLowerCase(), String(index));
+  return { reelId: `cr${h.slice(0, 23)}`, noteRequestId: `${h.slice(24, 32)}-${h.slice(32, 36)}-4${h.slice(37, 40)}-a${h.slice(41, 44)}-${h.slice(44, 56)}` };
+}
+
+/** What a request asked for, as the record compares it: the same id with a different payload is refused. */
+export function createRequestHash(payload: { idea: string; mediaIds: string[]; options: number; captions: boolean; voice: string | null }): string {
+  return digest(JSON.stringify([payload.idea, payload.mediaIds, payload.options, payload.captions, payload.voice]));
+}
+
+/**
+ * The request's durable record (a WorkflowRun of kind "create", unique per workspace and request id, with the
+ * payload's hash). The first POST makes it; a retry with the same payload resumes under it; the same id with another
+ * payload is refused. Concurrent first POSTs race on the unique key, and the loser reads the winner's row.
+ */
+async function claimCreateRun(user: ActingUser, requestId: string, requestHash: string): Promise<{ ok: true; runId: string } | { ok: false }> {
+  const key = { workspaceId_kind_requestId: { workspaceId: user.workspaceId, kind: "create", requestId } };
+  const existing = await prisma.workflowRun.findUnique({ where: key, select: { id: true, requestHash: true } });
+  const row = existing ?? await prisma.workflowRun
+    .create({ data: { workspaceId: user.workspaceId, userId: user.id, kind: "create", requestId, requestHash, status: "RUNNING" }, select: { id: true, requestHash: true } })
+    .catch(async (error: unknown) => {
+      if (!isUniqueViolation(error)) throw error;
+      return prisma.workflowRun.findUniqueOrThrow({ where: key, select: { id: true, requestHash: true } });
+    });
+  return row.requestHash === requestHash ? { ok: true, runId: row.id } : { ok: false };
+}
+
+export type CreateDeps = { startNote: typeof startNote };
+
+export async function startCreate(
+  input: { user: ActingUser; requestId: string; idea: string; mediaIds: string[]; options: number; captions: boolean; origin: string; voice?: string | null },
+  deps: CreateDeps = { startNote },
+): Promise<StartCreate> {
   const { user } = input;
+  if (!REQUEST_ID.test(input.requestId)) return { ok: false, status: 400, message: "This request has no id. Reload the page and try again." };
+  const requestId = input.requestId.toLowerCase();
   const idea = input.idea.trim();
   if (idea.length < 10 || idea.length > IDEA_MAX) return { ok: false, status: 400, message: `Describe the video in a sentence or two (10 to ${IDEA_MAX} characters).` };
   if (!notesAvailable()) return { ok: false, status: 503, message: "Create needs Claude, which is not set up on this deployment." };
@@ -81,24 +124,38 @@ export async function startCreate(input: { user: ActingUser; idea: string; media
     base = addClips(base, placeable.map((asset) => clipForAsset(asset!)));
   }
 
+  const run = await claimCreateRun(user, requestId, createRequestHash({ idea, mediaIds, options: count, captions: input.captions, voice: input.voice ?? null }));
+  if (!run.ok) return { ok: false, status: 409, message: "That request id was already used for a different request. Start again.", reason: "request_mismatch" };
+
   const options: CreatedOption[] = [];
   let refusal: { status: number; message: string; upgrade?: boolean } | null = null;
-  for (const angle of CREATE_ANGLES.slice(0, count)) {
+  for (const [index, angle] of CREATE_ANGLES.slice(0, count).entries()) {
     const title = titleFor(idea, angle);
+    const ids = createOptionIds(user.workspaceId, requestId, index);
     // Each option has its own clip ids, so its edits never collide with another option's.
     const timeline: Timeline = { ...base, clips: base.clips.map((clip) => ({ ...clip, id: randomUUID() })) };
-    const reel = await prisma.reel.create({ data: { workspaceId: user.workspaceId, title, timeline: parseTimeline(timeline) }, select: { id: true, revision: true } });
+    // A retry finds the reel the first attempt made (the same derived id) and keeps it as it is.
+    const reel = await prisma.reel
+      .create({ data: { id: ids.reelId, workspaceId: user.workspaceId, title, timeline: parseTimeline(timeline) }, select: { id: true, revision: true } })
+      .catch(async (error: unknown) => {
+        if (!isUniqueViolation(error)) throw error;
+        const found = await prisma.reel.findFirst({ where: { id: ids.reelId, workspaceId: user.workspaceId }, select: { id: true, revision: true } });
+        if (!found) throw error;
+        return found;
+      });
     const brief = createBrief({ idea, angle, captions: input.captions, reelId: reel.id, title, revision: reel.revision, uploads: base.clips.length, voice });
-    const started = await startNote({ user, reelId: reel.id, note: idea, origin: input.origin, requestId: randomUUID(), create: { brief } });
+    // The note's request id is derived too: startNote answers a repeat with the note it already made, without reserving again.
+    const started = await deps.startNote({ user, reelId: reel.id, note: idea, origin: input.origin, requestId: ids.noteRequestId, create: { brief } });
     if (!started.ok) {
-      // An option that cannot run is not left behind as an empty reel.
-      await prisma.reel.deleteMany({ where: { id: reel.id, workspaceId: user.workspaceId } });
+      // An option that cannot run is not left behind as an empty reel; one that a concurrent retry got a note onto is kept.
+      await prisma.reel.deleteMany({ where: { id: reel.id, workspaceId: user.workspaceId, aiEdits: { none: {} } } });
       refusal = { status: started.status, message: started.message, upgrade: started.upgrade };
       break;
     }
     options.push({ reelId: reel.id, title, angle: angle.label, noteId: started.noteId });
   }
-  if (options.length === 0) return { ok: false, ...(refusal ?? { status: 500, message: "Nothing could be started." }) };
   const skipped = count - options.length;
-  return { ok: true, options, skipped, ...(skipped && refusal ? { message: refusal.message } : {}) };
+  await prisma.workflowRun.updateMany({ where: { id: run.runId }, data: skipped ? { error: (refusal?.message ?? "Not every option started.").slice(0, 300) } : { status: "SUCCEEDED", error: null, finishedAt: new Date() } });
+  if (options.length === 0) return { ok: false, ...(refusal ?? { status: 500, message: "Nothing could be started." }) };
+  return { ok: true, requestId, options, skipped, ...(skipped && refusal ? { message: refusal.message } : {}) };
 }

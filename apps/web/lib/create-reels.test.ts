@@ -3,7 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const db = vi.hoisted(() => ({
   mediaAsset: { findMany: vi.fn() },
-  reel: { create: vi.fn(), deleteMany: vi.fn() },
+  reel: { create: vi.fn(), deleteMany: vi.fn(), findFirst: vi.fn() },
+  workflowRun: { findUnique: vi.fn(), create: vi.fn(), findUniqueOrThrow: vi.fn(), updateMany: vi.fn() },
 }));
 const thread = vi.hoisted(() => ({ notesAvailable: vi.fn(() => true), startNote: vi.fn() }));
 
@@ -14,12 +15,13 @@ vi.mock("./library", () => ({ toLibraryAssets: async (rows: unknown[]) => rows }
 vi.mock("./reel-thread", () => thread);
 
 import { TOOLS } from "./mcp/tools";
-import { CREATE_ANGLES, createBrief, startCreate, titleFor } from "./create-reels";
+import { CREATE_ANGLES, createBrief, createOptionIds, startCreate, titleFor } from "./create-reels";
 import { CREATE_MAX_CALLS, CREATE_TOOLS, checkCall, describeToolSave, noteToolSpecs, runNote, savedRevision, splitCaption } from "./reel-notes";
 import type { ToolResult, ToolSpec } from "./mcp/tools";
 import type { ToolTurn } from "./openai";
 
 const user = { id: "u1", workspaceId: "w1" } as any;
+const RID = "6f1c2a4e-8b3d-4c5e-9f70-1a2b3c4d5e6f";
 const photo = { id: "m1", kind: "IMAGE", durationMs: null, isPano: false, spot: null, room: null, fileName: "front.jpg" };
 const video = { id: "m2", kind: "VIDEO", durationMs: 4000, isPano: false, spot: null, room: null, fileName: "walk.mp4" };
 
@@ -121,11 +123,13 @@ describe("startCreate", () => {
     let n = 0;
     db.reel.create.mockImplementation(async ({ data }: any) => ({ id: `r${++n}`, revision: 0, data }));
     db.mediaAsset.findMany.mockResolvedValue([photo, video]);
+    db.workflowRun.findUnique.mockResolvedValue(null);
+    db.workflowRun.create.mockImplementation(async ({ data }: any) => ({ id: "run1", requestHash: data.requestHash }));
     thread.startNote.mockImplementation(async (input: any) => ({ ok: true, noteId: `n-${input.reelId}`, jobId: "j", settled: Promise.resolve() }));
   });
 
   it("makes one reel per angle with the uploads on each, under fresh clip ids, and starts a create run on each", async () => {
-    const started = await startCreate({ user, idea: "Just listed: a cottage with a garden", mediaIds: ["m1", "m2"], options: 3, captions: true, origin: "https://x" });
+    const started = await startCreate({ user, requestId: RID, idea: "Just listed: a cottage with a garden", mediaIds: ["m1", "m2"], options: 3, captions: true, origin: "https://x" });
     expect(started).toMatchObject({ ok: true, skipped: 0 });
     if (!started.ok) return;
     expect(started.options.map((option) => option.angle)).toEqual(CREATE_ANGLES.map((angle) => angle.label));
@@ -133,17 +137,20 @@ describe("startCreate", () => {
     for (const timeline of timelines) expect(timeline.clips.map((clip: any) => clip.assetId)).toEqual(["m1", "m2"]);
     const ids = timelines.flatMap((timeline: any) => timeline.clips.map((clip: any) => clip.id));
     expect(new Set(ids).size).toBe(ids.length);
-    for (const [input] of thread.startNote.mock.calls as any[]) {
+    for (const [index, [input]] of (thread.startNote.mock.calls as any[]).entries()) {
       expect(input.note).toBe("Just listed: a cottage with a garden");
       expect(input.create.brief).toContain("already on the reel");
+      // Ids derived from the request, so a retry finds them again.
+      expect(input.requestId).toBe(createOptionIds("w1", RID, index).noteRequestId);
+      expect(db.reel.create.mock.calls[index][0].data.id).toBe(createOptionIds("w1", RID, index).reelId);
     }
   });
 
   it("refuses media that is not in the workspace, or music", async () => {
     db.mediaAsset.findMany.mockResolvedValue([photo]);
-    expect(await startCreate({ user, idea: "Just listed: a cottage with a garden", mediaIds: ["m1", "m9"], options: 1, captions: true, origin: "https://x" })).toMatchObject({ ok: false, status: 400 });
+    expect(await startCreate({ user, requestId: RID, idea: "Just listed: a cottage with a garden", mediaIds: ["m1", "m9"], options: 1, captions: true, origin: "https://x" })).toMatchObject({ ok: false, status: 400 });
     db.mediaAsset.findMany.mockResolvedValue([{ ...photo, kind: "AUDIO" }]);
-    expect(await startCreate({ user, idea: "Just listed: a cottage with a garden", mediaIds: ["m1"], options: 1, captions: true, origin: "https://x" })).toMatchObject({ ok: false, status: 400 });
+    expect(await startCreate({ user, requestId: RID, idea: "Just listed: a cottage with a garden", mediaIds: ["m1"], options: 1, captions: true, origin: "https://x" })).toMatchObject({ ok: false, status: 400 });
     expect(db.reel.create).not.toHaveBeenCalled();
   });
 
@@ -151,25 +158,31 @@ describe("startCreate", () => {
     thread.startNote
       .mockImplementationOnce(async (input: any) => ({ ok: true, noteId: `n-${input.reelId}`, jobId: "j", settled: Promise.resolve() }))
       .mockImplementationOnce(async () => ({ ok: false, status: 403, message: "This month's AI requests are used." }));
-    const started = await startCreate({ user, idea: "Five reasons to live by the beach", mediaIds: [], options: 3, captions: true, origin: "https://x" });
+    const started = await startCreate({ user, requestId: RID, idea: "Five reasons to live by the beach", mediaIds: [], options: 3, captions: true, origin: "https://x" });
     expect(started).toMatchObject({ ok: true, skipped: 2, message: "This month's AI requests are used." });
-    expect(db.reel.deleteMany).toHaveBeenCalledWith({ where: { id: "r2", workspaceId: "w1" } });
+    // Only a reel no note was ever started on is removed.
+    expect(db.reel.deleteMany).toHaveBeenCalledWith({ where: { id: "r2", workspaceId: "w1", aiEdits: { none: {} } } });
   });
 
   it("asks for the voice only where the server can speak, and refuses a voice not offered", async () => {
     vi.stubEnv("VOICE_ENABLED", "true");
-    await startCreate({ user, idea: "Five reasons to live by the beach", mediaIds: [], options: 1, captions: true, origin: "https://x", voice: "aura-2:hyperion" });
+    await startCreate({ user, requestId: RID, idea: "Five reasons to live by the beach", mediaIds: [], options: 1, captions: true, origin: "https://x", voice: "aura-2:hyperion" });
     expect((thread.startNote.mock.calls[0][0] as any).create.brief).toContain("aura-2:hyperion");
     vi.stubEnv("VOICE_ENABLED", "false");
-    await startCreate({ user, idea: "Five reasons to live by the beach", mediaIds: [], options: 1, captions: true, origin: "https://x", voice: "aura-2:hyperion" });
+    await startCreate({ user, requestId: RID, idea: "Five reasons to live by the beach", mediaIds: [], options: 1, captions: true, origin: "https://x", voice: "aura-2:hyperion" });
     expect((thread.startNote.mock.calls[1][0] as any).create.brief).toContain("Voiceover: none.");
-    expect(await startCreate({ user, idea: "Five reasons to live by the beach", mediaIds: [], options: 1, captions: true, origin: "https://x", voice: "aura-2:nobody" })).toMatchObject({ ok: false, status: 400 });
+    expect(await startCreate({ user, requestId: RID, idea: "Five reasons to live by the beach", mediaIds: [], options: 1, captions: true, origin: "https://x", voice: "aura-2:nobody" })).toMatchObject({ ok: false, status: 400 });
     vi.unstubAllEnvs();
   });
 
+  it("refuses a request without a request id", async () => {
+    expect(await startCreate({ user, requestId: "", idea: "Five reasons to live by the beach", mediaIds: [], options: 1, captions: true, origin: "https://x" })).toMatchObject({ ok: false, status: 400 });
+    expect(db.reel.create).not.toHaveBeenCalled();
+  });
+
   it("refuses an idea too short to work from, and when Claude is not set up", async () => {
-    expect(await startCreate({ user, idea: "house", mediaIds: [], options: 1, captions: true, origin: "https://x" })).toMatchObject({ ok: false, status: 400 });
+    expect(await startCreate({ user, requestId: RID, idea: "house", mediaIds: [], options: 1, captions: true, origin: "https://x" })).toMatchObject({ ok: false, status: 400 });
     thread.notesAvailable.mockReturnValue(false);
-    expect(await startCreate({ user, idea: "Five reasons to live by the beach", mediaIds: [], options: 1, captions: true, origin: "https://x" })).toMatchObject({ ok: false, status: 503 });
+    expect(await startCreate({ user, requestId: RID, idea: "Five reasons to live by the beach", mediaIds: [], options: 1, captions: true, origin: "https://x" })).toMatchObject({ ok: false, status: 503 });
   });
 });

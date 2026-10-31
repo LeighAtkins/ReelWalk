@@ -37,7 +37,18 @@ A Create page at `/create` (the "Describe a video" tile on the home screen):
 - **The run's last line is `Caption: …`.** The caption goes on the reel unless the owner has already written one. The
   owner sees the reply without that line.
 - **Starting is atomic per option.** An option that cannot start (the allowance runs out part-way) deletes its empty
-  reel; the page says how many were skipped.
+  reel, unless a note was started on it; the page says how many were skipped.
+- **One request, one set of options, however often it is sent.** The page sends a `requestId` (a UUID). It keeps
+  the same id when Try again sends the same words and settings, and makes a new one when anything changes.
+  - **The record.** The server keeps a `WorkflowRun` of kind `create`, unique per workspace and request id, holding the
+    hash of the payload: the idea, the media, the options, captions and voice. No migration is needed.
+  - **Derived ids.** Each option's reel id and its note's request id are derived from the workspace, the request id
+    and the option's index, never drawn at random. `startNote` already answers a repeated note request id with the
+    note it made, without reserving the month's allowance again.
+  - **Retries.** A retry after a lost answer, or two tabs sending at once, gets the same reels and notes and spends
+    nothing more. A request stopped part-way resumes: the started options are kept and the rest start. That covers
+    the allowance running out and a crash between making an option's reel and starting its note.
+  - **Mismatch.** The same id with a different payload is refused (409, `request_mismatch`), and nothing is made.
 - **The page follows each option** through `GET /api/reels/<id>/notes` until v1 is rendered, then shows its poster
   and "Watch, change and post".
 
@@ -69,6 +80,16 @@ These were chosen with the owner and come next, in this order:
   uploads it answers that it made nothing.
 
 ## Verified
+
+- Request ids (`lib/create-reels.db.test.ts`, real Postgres, the real allowance and note reservation):
+  - a lost answer and a retry;
+  - two concurrent sends;
+  - an allowance stop, then a resume;
+  - a crash between reel and note;
+  - a different payload under the same id;
+  - the same id in two workspaces.
+- With fresh random ids per send (the earlier code) four of these fail.
+
 
 - Unit tests (`lib/create-reels.test.ts`):
   - what a create run can reach, and that note mode is unchanged;

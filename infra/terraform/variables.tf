@@ -62,22 +62,29 @@ variable "web_memory" {
   default = "2048"
 }
 
-# A Fargate render task; billed only while a render runs.
+# A Fargate render task; billed only while a render runs, so a bigger task that
+# finishes sooner costs about the same per render. Measured 2026-10-31 on the
+# smoke reel: 2 cores and 1 tab (the old size) 101 s; 4 cores and 3 tabs 61 s,
+# with 4 tabs no faster (63 s). That is about 10-20% more per render on Spot for
+# a render 1.65x as fast.
 variable "worker_cpu" {
   type    = string
-  default = "2048"
+  default = "4096"
 }
 
 variable "worker_memory" {
-  # 4 GB was killed (OOM) rendering a reel of four phone clips. Fargate bills
-  # only while a task runs, so the bigger box costs cents per render.
+  # 4 GB was killed (OOM) rendering a reel of four phone clips with one tab; three
+  # tabs peaked at 3.9 GB on the smoke reel's small media, so phone footage gets
+  # room. Memory is the cheap part of a Fargate task.
   type    = string
-  default = "8192"
+  default = "16384"
 }
 
+# Browser tabs inside one render (the worker's RENDER_CONCURRENCY), capped at the
+# task's cores. A worker still takes one render at a time.
 variable "worker_render_concurrency" {
   type    = number
-  default = 1
+  default = 3
 }
 
 # Fargate Spot for render workers (ADR 0094), with on-demand Fargate for what Spot cannot place.
@@ -101,11 +108,11 @@ variable "local_render_fallback_seconds" {
   default = 600
 }
 
-# Render workers running at once. Each takes worker_cpu (2 vCPU); the
-# account's Fargate quota is 12 vCPU, so 6 is the ceiling until it is raised.
+# Render workers running at once. Each takes worker_cpu (4 vCPU); the
+# account's Fargate quota is 12 vCPU, so 3 is the ceiling until it is raised.
 variable "max_workers" {
   type    = number
-  default = 6
+  default = 3
 }
 
 # App Runner instances for the web app: one is always up; more are added as

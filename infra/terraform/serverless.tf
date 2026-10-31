@@ -331,7 +331,10 @@ resource "aws_apprunner_service" "web" {
           ECS_SECURITY_GROUPS        = aws_security_group.worker.id
           ECS_MAX_WORKERS            = tostring(var.max_workers)
           ECS_SPOT                   = tostring(var.worker_spot)
-          RENDER_JOBS_PER_WORKER     = tostring(var.worker_render_concurrency)
+          # A worker takes one render at a time (apps/worker/src/index.ts). This is not
+          # worker_render_concurrency, which is browser tabs inside that one render: reading
+          # it here would make the web app start a third as many workers as it should.
+          RENDER_JOBS_PER_WORKER = "1"
           # web_max_instances x 5, plus the workers' pools, stays well under the
           # transaction pooler's client limit.
           DATABASE_POOL_MAX = "5"

@@ -6,7 +6,7 @@ import { startCreate } from "@/lib/create-reels";
 export const dynamic = "force-dynamic";
 
 /**
- * Create (ADR 0098). POST `{ idea, mediaIds?, options?, captions? }` makes one
+ * Create (ADR 0098). POST `{ idea, mediaIds?, options?, captions?, voice? }` makes one
  * reel per option and starts each one's create run in the background, then
  * answers at once with the reels; the Create page follows each reel's thread
  * (GET /api/reels/<id>/notes) until its first version is ready.
@@ -17,7 +17,7 @@ export async function POST(request: Request) {
   const user = await getSessionUser();
   if (!user) return Response.json({ ok: false, message: "You were signed out. Sign in again." }, { status: 401 });
   { const off = await aiOffResponse(user.workspaceId); if (off) return off; }
-  const body = (await request.json().catch(() => null)) as { idea?: unknown; mediaIds?: unknown; options?: unknown; captions?: unknown } | null;
+  const body = (await request.json().catch(() => null)) as { idea?: unknown; mediaIds?: unknown; options?: unknown; captions?: unknown; voice?: unknown } | null;
   if (typeof body?.idea !== "string") return Response.json({ ok: false, message: "Describe the video first." }, { status: 400 });
   const mediaIds = Array.isArray(body.mediaIds) ? body.mediaIds.filter((id): id is string => typeof id === "string" && id.length > 0 && id.length <= 64) : [];
   const started = await startCreate({
@@ -26,6 +26,7 @@ export async function POST(request: Request) {
     mediaIds,
     options: typeof body.options === "number" ? body.options : 3,
     captions: body.captions !== false,
+    voice: typeof body.voice === "string" && body.voice ? body.voice : null,
     origin: await appUrl(),
   });
   if (!started.ok) return Response.json({ ok: false, message: started.message, upgrade: started.upgrade ?? false }, { status: started.status });

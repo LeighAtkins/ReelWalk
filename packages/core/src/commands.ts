@@ -36,7 +36,8 @@ import { attachedAnchors, retimeTexts } from "./text-timing";
 import { placementProblem, surfacePatch, type SurfacePick, type TitleOnSurface } from "./surface-place";
 import { speechSync } from "./wall-text";
 import { composeKeywordLockups, type LockupOptions } from "./keyword-lockup";
-import type { TranscriptWord } from "./transcript";
+import type { Transcript, TranscriptWord } from "./transcript";
+import { withVoiceover } from "./voiceover";
 import {
   clipDurationMs,
   duplicateClip,
@@ -54,6 +55,7 @@ import {
   RETIRED_TRANSITIONS,
   TRANSITIONS,
   endCardSchema,
+  voiceoverSchema,
   type EndCard,
   type ClipSettings,
   type HookPattern,
@@ -61,6 +63,7 @@ import {
   type SfxClip,
   type TextOverlay,
   type Timeline,
+  type Voiceover,
 } from "./timeline";
 
 
@@ -215,6 +218,12 @@ export type Command =
    * drawn over the last `durationMs` of the reel, so nothing is retimed.
    */
   | { type: "setEndCard"; endCard: EndCard | null }
+  /**
+   * The spoken voiceover (ADR 0099), or null to take it off with its captions. `transcript` is the voiceover's word
+   * timings (the connector's add_voiceover passes them); with `captions` (default true) its phrases replace the `vo-`
+   * captions, each word coming into focus as it is said. Music and sounds dip under its words at render time.
+   */
+  | { type: "setVoiceover"; voiceover: Voiceover | null; captions?: boolean; transcript?: Transcript | null }
   /** Several commands as one step and one undo ("Fix all", ADR 0062): all of them land, or none. */
   | { type: "batch"; commands: BatchableCommand[] };
 
@@ -232,7 +241,7 @@ const COMMAND_TYPE_REGISTRY: Record<Command["type"], true> = {
   trimClip: true, moveClip: true, splitClip: true, deleteClip: true, duplicateClip: true, setSpeed: true, setMusic: true, snapToBeat: true, pace: true, setOnBeat: true,
   retime: true, retimeToLength: true, insertPresenterTakes: true, cutaways: true, applyFinish: true, hook: true, applyProposal: true,
   setRamp: true, setCamera: true, setHeadLock: true, applyMove: true, matchCuts: true, setTransition: true, setMotionCut: true, dayAt: true, updateText: true, placeOnSurface: true, syncTextToSpeech: true, applyTextStyle: true, composeKeywordLockup: true, updateClip: true, matchLook: true, addText: true,
-  autoSfx: true, setSfx: true, dropOnCut: true, setEndCard: true, batch: true,
+  autoSfx: true, setSfx: true, dropOnCut: true, setEndCard: true, setVoiceover: true, batch: true,
 };
 /** The type of every command, in registry order. */
 export const COMMAND_TYPES = Object.keys(COMMAND_TYPE_REGISTRY) as Command["type"][];
@@ -460,6 +469,12 @@ function run(timeline: Timeline, command: Command, context: CommandContext): Tim
       if (!parsed.success) throw new Error(`That end card is not valid: ${parsed.error.issues.map((issue) => issue.message).join("; ")}.`);
       return { ...timeline, endCard: parsed.data };
     }
+    case "setVoiceover": {
+      if (command.voiceover === null) return withVoiceover(timeline, null, null, false);
+      const parsed = voiceoverSchema.safeParse(command.voiceover);
+      if (!parsed.success) throw new Error(`That voiceover is not valid: ${parsed.error.issues.map((issue) => issue.message).join("; ")}.`);
+      return withVoiceover(timeline, parsed.data, command.transcript ?? null, command.captions !== false);
+    }
     case "updateText":
       if (!timeline.texts.some((text) => text.id === command.textId)) throw new Error(`There is no text called ${command.textId} in the reel.`);
       return updateText(timeline, command.textId, command.patch);
@@ -607,7 +622,7 @@ export function diffTimelines(before: Timeline, after: Timeline): Change[] {
     if (!a || !b || !same(a, b)) changes.push({ kind: "text", id });
   }
   if (!same(before.music, after.music)) changes.push({ kind: "music" });
-  for (const key of ["plan", "details", "logo", "cover", "hook", "opening", "look", "sfx", "endCard"] as const) {
+  for (const key of ["plan", "details", "logo", "cover", "hook", "opening", "look", "sfx", "endCard", "voiceover"] as const) {
     if (!same(before[key], after[key])) changes.push({ kind: "other", key });
   }
   return changes;

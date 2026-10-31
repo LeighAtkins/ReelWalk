@@ -612,6 +612,20 @@ export const sfxClipSchema = z.object({
 });
 export type SfxClip = z.infer<typeof sfxClipSchema>;
 
+/**
+ * A spoken voiceover (ADR 0099): one generated line in a chosen voice, an AUDIO
+ * asset whose transcript times the captions and the music's dips. `atMs` is
+ * where it starts in the reel; `script` and `voice` are what it was made from.
+ */
+export const voiceoverSchema = z.object({
+  assetId: z.string().min(1),
+  atMs: ms.default(0),
+  volume: unit.default(1),
+  script: z.string().min(1).max(400),
+  voice: z.string().min(1).max(60),
+});
+export type Voiceover = z.infer<typeof voiceoverSchema>;
+
 /** Most text overlays a reel may carry. */
 export const MAX_TEXTS = 50;
 
@@ -638,6 +652,8 @@ export const timelineSchema = z.object({
   look: lookSchema.optional(),
   /** Sound design (ADR 0066): whooshes, a riser, ambience, on top of the clips' sound and the music. Absent on every saved reel: silent. */
   sfx: z.array(sfxClipSchema).max(MAX_SFX).optional(),
+  /** A spoken voiceover over the footage (ADR 0099). Absent on every saved reel: none. */
+  voiceover: voiceoverSchema.optional(),
 });
 
 export type Clip = z.infer<typeof clipSchema>;
@@ -1082,6 +1098,7 @@ export function referencedAssetIds(timeline: Timeline): string[] {
   const ids = new Set(timeline.clips.map((clip) => clip.assetId));
   if (timeline.music) ids.add(timeline.music.assetId);
   if (timeline.logo) ids.add(timeline.logo.assetId);
+  if (timeline.voiceover) ids.add(timeline.voiceover.assetId);
   // A keyword's picture fill (ADR 0089) is loaded, checked and exported like any other picture.
   for (const text of timeline.texts) if (text.fill?.kind === "image") ids.add(text.fill.assetId);
   return [...ids];

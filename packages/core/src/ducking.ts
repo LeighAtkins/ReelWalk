@@ -1,5 +1,6 @@
 import { clipStartsMs, type Timeline } from "./timeline";
 import { hasSpeech, sourceToReelMs, transcriptWindow, type Transcript } from "./transcript";
+import { voiceoverWords } from "./voiceover";
 
 /**
  * Music under speech. The villa reel's score had its dips baked in by hand,
@@ -37,6 +38,10 @@ export function speechWindows(
       if (endMs > startMs) spans.push({ startMs, endMs });
     }
   });
+  // A voiceover (ADR 0099) is speech too: the music and the sounds dip under its words.
+  if (timeline.voiceover && timeline.voiceover.volume > 0) {
+    for (const word of voiceoverWords(timeline.voiceover, transcripts[timeline.voiceover.assetId])) if (word.e > word.s) spans.push({ startMs: word.s, endMs: word.e });
+  }
   spans.sort((a, b) => a.startMs - b.startMs);
   const merged: SpeechWindow[] = [];
   for (const span of spans) {

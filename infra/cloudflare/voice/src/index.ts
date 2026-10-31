@@ -23,7 +23,9 @@ export default {
     const [model = "melotts", option = ""] = (typeof body.voice === "string" ? body.voice : "melotts:en").split(":");
     try {
       if (model === "aura-1" || model === "aura-2") {
-        const audio = await env.AI.run(`@cf/deepgram/${model}` as never, { text, speaker: option || "luna", encoding: "mp3" } as never) as ReadableStream | { audio?: string };
+        // Workers AI names the Aura-2 English model aura-2-en; aura-1 is plain.
+        const id = model === "aura-2" ? "@cf/deepgram/aura-2-en" : "@cf/deepgram/aura-1";
+        const audio = await env.AI.run(id as never, { text, speaker: option || "luna", encoding: "mp3" } as never) as ReadableStream | { audio?: string };
         return audioResponse(audio);
       }
       const lang = option.toLowerCase() || "en";

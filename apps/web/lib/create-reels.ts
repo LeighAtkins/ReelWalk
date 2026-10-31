@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { addClips, emptyTimeline, parseTimeline, type Timeline } from "@reelwalk/core";
+import { addClips, emptyTimeline, isVoiceId, parseTimeline, voiceName, type Timeline, type VoiceId } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
 import { aiAvailabilityReason } from "./ai-edit";
 import { toLibraryAssets } from "./library";
@@ -7,6 +7,7 @@ import { clipForAsset } from "./mcp/clips";
 import type { ActingUser } from "./mcp/acting-user";
 import { mediaScope } from "./media-scope";
 import { notesAvailable, startNote } from "./reel-thread";
+import { voiceoverAvailable } from "./voiceover";
 
 /**
  * Create (ADR 0098): one idea in, up to three short reels out. Each option is
@@ -30,7 +31,7 @@ export const IDEA_MAX = 1000;
 export const MEDIA_MAX = 20;
 
 /** What the agent is told for one option: the idea in quotes (as a note is), the angle, the words-on-screen choice and what is on the reel. */
-export function createBrief(input: { idea: string; angle: CreateAngle; captions: boolean; reelId: string; title: string; revision: number; uploads: number }): string {
+export function createBrief(input: { idea: string; angle: CreateAngle; captions: boolean; reelId: string; title: string; revision: number; uploads: number; voice?: VoiceId | null }): string {
   return [
     `Reel "${input.title}" (id ${input.reelId}), revision ${input.revision}. It is one of several options made from the same idea; this one's angle is "${input.angle.label}".`,
     input.uploads
@@ -38,6 +39,9 @@ export function createBrief(input: { idea: string; angle: CreateAngle; captions:
       : "The owner gave no footage: find it (stock or the starter library).",
     `Angle: ${input.angle.brief}`,
     input.captions ? "Captions: on (a hook title plus short text beats that carry the message)." : "Captions: off (the hook title only).",
+    input.voice
+      ? `Voiceover: yes, in ${voiceName(input.voice)} (voice ${input.voice}): write the script and add it with add_voiceover${input.captions ? "" : " with captions false"}.`
+      : "Voiceover: none.",
     `The owner's idea:\n"""\n${input.idea}\n"""`,
   ].join("\n\n");
 }
@@ -55,7 +59,7 @@ export type StartCreate =
   | { ok: true; options: CreatedOption[]; /** Options that could not start (the month's AI requests ran out part-way). */ skipped: number; message?: string }
   | { ok: false; status: number; message: string; upgrade?: boolean };
 
-export async function startCreate(input: { user: ActingUser; idea: string; mediaIds: string[]; options: number; captions: boolean; origin: string }): Promise<StartCreate> {
+export async function startCreate(input: { user: ActingUser; idea: string; mediaIds: string[]; options: number; captions: boolean; origin: string; voice?: string | null }): Promise<StartCreate> {
   const { user } = input;
   const idea = input.idea.trim();
   if (idea.length < 10 || idea.length > IDEA_MAX) return { ok: false, status: 400, message: `Describe the video in a sentence or two (10 to ${IDEA_MAX} characters).` };
@@ -63,6 +67,9 @@ export async function startCreate(input: { user: ActingUser; idea: string; media
   const unavailable = await aiAvailabilityReason(user.workspaceId);
   if (unavailable) return { ok: false, status: 403, message: unavailable.message, upgrade: unavailable.upgrade };
   const count = Math.max(1, Math.min(CREATE_ANGLES.length, Math.round(input.options) || 1));
+  if (input.voice && !isVoiceId(input.voice)) return { ok: false, status: 400, message: "That voice is not one of the voices offered." };
+  // A voice is asked for only where the server can speak; elsewhere the options are made without one.
+  const voice: VoiceId | null = input.voice && isVoiceId(input.voice) && voiceoverAvailable() ? input.voice : null;
   const mediaIds = [...new Set(input.mediaIds)].slice(0, MEDIA_MAX);
 
   let base: Timeline = emptyTimeline();
@@ -81,7 +88,7 @@ export async function startCreate(input: { user: ActingUser; idea: string; media
     // Each option has its own clip ids, so its edits never collide with another option's.
     const timeline: Timeline = { ...base, clips: base.clips.map((clip) => ({ ...clip, id: randomUUID() })) };
     const reel = await prisma.reel.create({ data: { workspaceId: user.workspaceId, title, timeline: parseTimeline(timeline) }, select: { id: true, revision: true } });
-    const brief = createBrief({ idea, angle, captions: input.captions, reelId: reel.id, title, revision: reel.revision, uploads: base.clips.length });
+    const brief = createBrief({ idea, angle, captions: input.captions, reelId: reel.id, title, revision: reel.revision, uploads: base.clips.length, voice });
     const started = await startNote({ user, reelId: reel.id, note: idea, origin: input.origin, requestId: randomUUID(), create: { brief } });
     if (!started.ok) {
       // An option that cannot run is not left behind as an empty reel.

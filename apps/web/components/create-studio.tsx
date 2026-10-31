@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { acceptFor } from "@reelwalk/core";
+import { acceptFor, DEFAULT_VOICE, VOICES } from "@reelwalk/core";
 import { uploadFile } from "./editor/upload";
 import { SparkIcon } from "./icons";
 
@@ -88,11 +88,13 @@ function OptionCard({ option }: { option: Option }) {
  * Each option opens on the export screen, where it is posted or scheduled and
  * where a note changes it.
  */
-export function CreateStudio({ available }: { available: boolean }) {
+export function CreateStudio({ available, voices }: { available: boolean; voices: boolean }) {
   const [idea, setIdea] = useState("");
   const [uploads, setUploads] = useState<Upload[]>([]);
   const [count, setCount] = useState(3);
   const [captions, setCaptions] = useState(true);
+  // A spoken voiceover (ADR 0099), on by default where the server can speak.
+  const [voice, setVoice] = useState<string>(voices ? DEFAULT_VOICE : "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -119,7 +121,7 @@ export function CreateStudio({ available }: { available: boolean }) {
       const response = await fetch("/api/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ idea, mediaIds: uploads.flatMap((upload) => (upload.assetId ? [upload.assetId] : [])), options: count, captions }),
+        body: JSON.stringify({ idea, mediaIds: uploads.flatMap((upload) => (upload.assetId ? [upload.assetId] : [])), options: count, captions, voice: voice || null }),
       });
       const answer = (await response.json().catch(() => null)) as { ok?: boolean; message?: string; options?: Option[]; skipped?: number } | null;
       if (!answer?.ok || !answer.options) {
@@ -213,6 +215,19 @@ export function CreateStudio({ available }: { available: boolean }) {
             <option value={3}>3 videos, three angles</option>
           </select>
         </label>
+        {voices ? (
+          <label className="field">
+            Voiceover
+            <select className="text-input" value={voice} onChange={(event) => setVoice(event.target.value)} disabled={busy} data-testid="create-voice">
+              <option value="">No voiceover</option>
+              {VOICES.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.name}: {option.description}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
         <label className="create-check">
           <input type="checkbox" checked={captions} onChange={(event) => setCaptions(event.target.checked)} disabled={busy} data-testid="create-captions" />
           Captions on screen

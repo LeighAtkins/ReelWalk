@@ -39,8 +39,9 @@ export async function ttsAudio(response: { headers: { get(name: string): string 
   return Buffer.from(audio, "base64");
 }
 
-export async function synthesiseLine(line: string): Promise<Buffer> {
-  const request = ttsRequest(presenterVoice(), line, process.env.VOICE_TTS_URL!);
+/** A line in `voice` (a voiceover's chosen voice, ADR 0099), or the configured presenter voice. */
+export async function synthesiseLine(line: string, voice: PresenterVoice = presenterVoice()): Promise<Buffer> {
+  const request = ttsRequest(voice, line, process.env.VOICE_TTS_URL!);
   const response = await fetch(request.url, {
     method: "POST", headers: { "x-voice-key": process.env.VOICE_TTS_KEY!, "Content-Type": "application/json" },
     body: JSON.stringify(request.body), signal: AbortSignal.timeout(60_000),

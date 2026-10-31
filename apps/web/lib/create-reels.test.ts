@@ -15,7 +15,9 @@ vi.mock("./reel-thread", () => thread);
 
 import { TOOLS } from "./mcp/tools";
 import { CREATE_ANGLES, createBrief, startCreate, titleFor } from "./create-reels";
-import { CREATE_MAX_CALLS, CREATE_TOOLS, checkCall, noteToolSpecs, splitCaption } from "./reel-notes";
+import { CREATE_MAX_CALLS, CREATE_TOOLS, checkCall, describeToolSave, noteToolSpecs, runNote, savedRevision, splitCaption } from "./reel-notes";
+import type { ToolResult, ToolSpec } from "./mcp/tools";
+import type { ToolTurn } from "./openai";
 
 const user = { id: "u1", workspaceId: "w1" } as any;
 const photo = { id: "m1", kind: "IMAGE", durationMs: null, isPano: false, spot: null, room: null, fileName: "front.jpg" };
@@ -46,6 +48,43 @@ describe("what a create run can reach", () => {
   });
 });
 
+describe("saves made by add_media and add_voiceover", () => {
+  it("read the revision each saved, and describe themselves for the record", () => {
+    expect(savedRevision("add_media", { addedToReel: { revision: 7 } })).toBe(7);
+    expect(savedRevision("add_media", { addedToReel: null })).toBeNull();
+    expect(savedRevision("add_voiceover", { revision: 9 })).toBe(9);
+    expect(describeToolSave("add_media", { mode: "stock", stockIds: [1, 2] })).toBe("add_media stock 2 item(s)");
+    expect(describeToolSave("add_voiceover", { voice: "aura-2:theia", script: "Hi there." })).toBe('add_voiceover aura-2:theia "Hi there."');
+  });
+
+  it("move the version a create run exports to the last revision saved, whichever tool saved it", async () => {
+    const okText = (data: Record<string, unknown>): ToolResult => ({ content: [{ type: "text", text: JSON.stringify({ ok: true, ...data }) }] });
+    const tools = noteToolSpecs(TOOLS, "create").map((spec): ToolSpec => ({
+      ...spec,
+      limits: undefined,
+      async run(_ctx, args) {
+        if (spec.name === "add_media") return okText({ assets: [], addedToReel: { reelId: args.reelId, revision: 4, clipIds: ["c1"] } });
+        if (spec.name === "add_voiceover") return okText({ revision: 5 });
+        return okText({ revision: 3 });
+      },
+    }));
+    const plan: ToolTurn[] = [
+      { content: [{ type: "tool_use", id: "t1", name: "add_media", input: { mode: "stock", stockIds: [1] } }], stopReason: "tool_use", usage: { inputTokens: 0, cachedTokens: 0, outputTokens: 0, cacheWriteTokens: 0 }, model: "m" },
+      { content: [{ type: "tool_use", id: "t2", name: "add_voiceover", input: { script: "Hi there.", voice: "aura-2:theia" } }], stopReason: "tool_use", usage: { inputTokens: 0, cachedTokens: 0, outputTokens: 0, cacheWriteTokens: 0 }, model: "m" },
+      { content: [{ type: "text", text: "Done.\nCaption: Hi" }], stopReason: "end_turn", usage: { inputTokens: 0, cachedTokens: 0, outputTokens: 0, cacheWriteTokens: 0 }, model: "m" },
+    ];
+    let n = 0;
+    const applying: string[][] = [];
+    const outcome = await runNote(
+      { user, reelId: "r1", note: "idea", origin: "https://x", brief: "b", exportIds: [], revision: 3, mode: "create", onApplying: (lines) => applying.push(lines) },
+      { turn: async () => plan[n++], gate: async () => true, tools },
+    );
+    expect(outcome).toMatchObject({ changed: true, revisionBefore: 3, revisionAfter: 5 });
+    expect(outcome.applied).toEqual(["add_media stock 1 item(s)", 'add_voiceover aura-2:theia "Hi there."']);
+    expect(applying).toEqual([["add_media stock 1 item(s)"], ['add_voiceover aura-2:theia "Hi there."']]);
+  });
+});
+
 describe("the caption a create run ends with", () => {
   it("is split from the reply", () => {
     expect(splitCaption("Five shots of the garden, cut to the beat.\nCaption: Sunday in the garden. #home #garden")).toEqual({ reply: "Five shots of the garden, cut to the beat.", caption: "Sunday in the garden. #home #garden" });
@@ -64,6 +103,10 @@ describe("the brief and title of an option", () => {
     expect(brief).toContain("Mini story");
     expect(brief).toContain("gave no footage");
     expect(brief).toContain("Captions: off");
+    expect(brief).toContain("Voiceover: none.");
+    const voiced = createBrief({ idea: "Just listed in Fitzroy", angle: CREATE_ANGLES[0], captions: true, reelId: "r1", title: "t", revision: 0, uploads: 0, voice: "aura-2:theia" });
+    expect(voiced).toContain("Voiceover: yes, in Theia (voice aura-2:theia)");
+    expect(voiced).toContain("add_voiceover");
   });
 
   it("titles from the idea's first words", () => {
@@ -111,6 +154,17 @@ describe("startCreate", () => {
     const started = await startCreate({ user, idea: "Five reasons to live by the beach", mediaIds: [], options: 3, captions: true, origin: "https://x" });
     expect(started).toMatchObject({ ok: true, skipped: 2, message: "This month's AI requests are used." });
     expect(db.reel.deleteMany).toHaveBeenCalledWith({ where: { id: "r2", workspaceId: "w1" } });
+  });
+
+  it("asks for the voice only where the server can speak, and refuses a voice not offered", async () => {
+    vi.stubEnv("VOICE_ENABLED", "true");
+    await startCreate({ user, idea: "Five reasons to live by the beach", mediaIds: [], options: 1, captions: true, origin: "https://x", voice: "aura-2:hyperion" });
+    expect((thread.startNote.mock.calls[0][0] as any).create.brief).toContain("aura-2:hyperion");
+    vi.stubEnv("VOICE_ENABLED", "false");
+    await startCreate({ user, idea: "Five reasons to live by the beach", mediaIds: [], options: 1, captions: true, origin: "https://x", voice: "aura-2:hyperion" });
+    expect((thread.startNote.mock.calls[1][0] as any).create.brief).toContain("Voiceover: none.");
+    expect(await startCreate({ user, idea: "Five reasons to live by the beach", mediaIds: [], options: 1, captions: true, origin: "https://x", voice: "aura-2:nobody" })).toMatchObject({ ok: false, status: 400 });
+    vi.unstubAllEnvs();
   });
 
   it("refuses an idea too short to work from, and when Claude is not set up", async () => {

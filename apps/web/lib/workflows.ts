@@ -306,7 +306,7 @@ export async function startMusicAnalysisRun(user: { id: string; workspaceId: str
  * is fixed per clip, so without this a full disk, a lost worker or a Stop would lock the clip out for good.
  * Returns the step id the browser polls at /api/ai-jobs/:id.
  */
-export async function startWorkerStepRun(input: { user: { id: string; workspaceId: string }; kind: "block-solve" | "block-reveal"; requestId: string; payload: Prisma.InputJsonValue }): Promise<StartResult> {
+export async function startWorkerStepRun(input: { user: { id: string; workspaceId: string }; kind: "block-solve" | "block-reveal" | "voiceover"; requestId: string; payload: Prisma.InputJsonValue }): Promise<StartResult> {
   const { user, kind, requestId, payload } = input;
   const hash = requestHash(payload);
   const find = () => prisma.workflowRun.findUnique({

@@ -6,6 +6,11 @@ import {
   aiClipCostCents,
   aiClipCredits,
   COMMAND_TYPES,
+  DEFAULT_VOICE,
+  VOICES,
+  VOICEOVER_MAX_CHARS,
+  voiceName,
+  type VoiceId,
   describeLockups,
   canExport,
   describeBrandKit,
@@ -174,6 +179,7 @@ function summarise(timeline: Timeline, library: Record<string, { fileName: strin
     texts: timeline.texts.map((text) => ({ id: text.id, text: text.text, startMs: text.startMs, endMs: text.endMs, x: text.x, y: text.y, style: text.style, size: text.size, font: text.font ?? null, brandStyle: text.brand?.style ?? null })),
     music: timeline.music ? { assetId: timeline.music.assetId, fileName: library[timeline.music.assetId]?.fileName ?? null, volume: timeline.music.volume, bpm: timeline.music.bpm ?? null, onBeat: timeline.music.onBeat ?? false } : null,
     sfxCount: timeline.sfx?.length ?? 0,
+    voiceover: timeline.voiceover ? { script: timeline.voiceover.script, voice: timeline.voiceover.voice, atMs: timeline.voiceover.atMs } : null,
     hook: timeline.hook ? timeline.hook.kind : null,
     opening: timeline.opening ?? null,
   };
@@ -465,6 +471,7 @@ const COMMAND_SHEET = [
   "addText{text:{id,text,startMs,endMs?,x,y,style,size,font,shadow,color}}",
   "updateText{textId,patch} (patch.animation auto|fadeQuick|maskUp|trackIn|blurIn, auto on style elegant tracks in, style location is a location lower third, patch.kinetic {preset:\"focus\"} brings each word into focus out of a blur (ADR 0092) and syncTextToSpeech then lands each on its spoken word, patch.font tight is Inter Tight, the heavy tight grotesk, and patch.blend invert works with both)",
   "setEndCard{endCard:{text,durationMs 1000-5000,reveal:cut|leak}|null}",
+  "setVoiceover{voiceover:null} (takes the spoken voiceover and its vo- captions off, the add_voiceover tool adds one)",
   "applyTextStyle{textId,style:<kit style name>|null}",
   "syncTextToSpeech{textId,clipId?,holdMs?} (the title appears with the first word it repeats from the clip's speech, each word as it is said, and fades after the last, and a title with kinetic focus keeps it)",
   "composeKeywordLockup{clipIds?,keywords?:[word],keywordsOnly?,capHeight? 0.05-0.14,fill?:{kind:gradient,colors:[#hex x2-4],angle?}|{kind:image,assetId},cta?:{keyword,caption?},interlock? (default true),follow? (default true),brandStyle?,remove?} (talking-head type from the clips' speech, ADR 0089: per phrase one huge white serif keyword behind the presenter's head, the other words a one-word-at-a-time caption under her chin, each on its spoken onset, while a phrase of 4 words or fewer instead tucks its other words into the keyword as small italic companions (interlock), every lockup following her head through the phrase (follow), and a dryRun answers `lockups` with the picks, places and layout)",
@@ -522,6 +529,36 @@ const applyCommands: ToolSpec = {
       ...(accepted.some((item) => (item as Command).type === "composeKeywordLockup") ? { lockups: describeLockups(timeline) } : {}),
       ...(returnTimeline ? { timeline } : {}),
     });
+  },
+};
+
+// ── Voiceover (ADR 0099) ─────────────────────────────────────────
+
+const addVoiceoverTool: ToolSpec = {
+  name: "add_voiceover",
+  title: "Add a spoken voiceover",
+  description:
+    `Speak a short script over the reel in one of the offered voices, with captions on its words (each word coming into focus as it is said) and the music dipping under it. Voices: ${VOICES.map((voice) => `${voice.id} (${voice.description})`).join("; ")}. ` +
+    `The script is 2 to 4 short sentences, under ${VOICEOVER_MAX_CHARS} characters, plain spoken English with no hashtags or emoji; it should carry the message and never invent facts. The reel is lengthened when the voiceover would run past its end. ` +
+    "It takes up to a few minutes (the worker speaks and transcribes it) and saves one new revision; read the reel again afterwards. Adding another replaces the voiceover and its captions; apply_commands setVoiceover{voiceover:null} takes it off. With a voiceover, keep other titles few: its captions carry the words.",
+  scopes: ["reels:write"],
+  readOnly: false,
+  write: true,
+  limits: (userId) => [{ key: `mcp:voice:${userId}`, max: 20, windowMs: HOUR }],
+  input: {
+    reelId: z.string().min(1),
+    script: z.string().trim().min(2).max(VOICEOVER_MAX_CHARS).describe("What is said."),
+    voice: z.enum(VOICES.map((voice) => voice.id) as [VoiceId, ...VoiceId[]]).default(DEFAULT_VOICE),
+    captions: z.boolean().default(true).describe("Captions on the spoken words."),
+    atMs: z.number().int().min(0).max(60_000).default(0).describe("Where in the reel it starts."),
+  },
+  async run(ctx, args) {
+    const { reelId, script, voice, captions, atMs } = args as { reelId: string; script: string; voice: VoiceId; captions: boolean; atMs: number };
+    const { addVoiceover } = await import("../voiceover");
+    const added = await addVoiceover(ctx.user, { reelId, script, voice, captions, atMs });
+    if (!added.ok) return failure(added.message, { status: added.status });
+    const short = added.shortByMs > 0 ? ` The reel still ends ${(added.shortByMs / 1000).toFixed(1)} s before the voiceover does: add footage (or shorten the script and add it again).` : "";
+    return ok({ ...added, voice: voiceName(voice), next: `Read the reel again (get_reel) before further changes.${short}` });
   },
 };
 
@@ -729,7 +766,7 @@ const getAiShot: ToolSpec = {
   },
 };
 
-export const TOOLS: ToolSpec[] = [listWorkspacesTool, listReels, getReel, getBrandKit, listMedia, searchStock, createReel, addMedia, applyCommands, getFrames, getChecks, getAudioTrace, exportReel, getExport, generateAiShot, getAiShot];
+export const TOOLS: ToolSpec[] = [listWorkspacesTool, listReels, getReel, getBrandKit, listMedia, searchStock, createReel, addMedia, applyCommands, addVoiceoverTool, getFrames, getChecks, getAudioTrace, exportReel, getExport, generateAiShot, getAiShot];
 
 // ── Running one ──────────────────────────────────────────────────
 

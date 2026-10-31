@@ -65,13 +65,13 @@ and the note's record.
 
 ## Consequences
 
-- **To turn it on:**
-  1. Redeploy the voice Worker (`npx wrangler@4.151.1 deploy` in infra/cloudflare/voice) for the model fix, then run
-     `smoke.sh` against its workers.dev URL with the production `VOICE_KEY`. Its `VOICE_KEY` secret is already set and is
-     not changed by a deploy.
-  2. Set `voice_enabled = true` in Terraform and apply. The worker and the web app both read `VOICE_ENABLED`; the
-     worker also needs `VOICE_TTS_URL` and `VOICE_TTS_KEY`, which are already wired.
-  3. Deploy with `ALLOW_WORKER_ENV_CHANGE=1` if the worker's environment changes.
+- **Deploying.** Production already has `VOICE_ENABLED`, `VOICE_TTS_URL` and `VOICE_TTS_KEY` set, so no Terraform
+  change is needed. The order matters, because the picker appears as soon as the app is deployed:
+  1. Deploy the voice Worker first (`npx wrangler@4.151.1 deploy` in infra/cloudflare/voice). Until then every Aura-2
+     voice fails with the deployed worker's `@cf/deepgram/aura-2` (403). Its `VOICE_KEY` secret is already set and a
+     deploy does not change it.
+  2. Run `smoke.sh` against its workers.dev URL with the production `VOICE_KEY`; it should answer 16 of 16 ok.
+  3. Then deploy the web app and the worker image as usual (`ALLOW_WORKER_ENV_CHANGE=1` for ADR 0097's worker sizes).
 - **Cost:** Workers AI text to speech per line (cents), plus a worker run to transcribe it. No AI video credits are
   spent, and the month's AI request allowance is not touched: the create run or note that calls the tool is already
   counted.

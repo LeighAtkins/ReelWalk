@@ -131,6 +131,12 @@ export function NewReelPicker({ librarySize = 0, tours = [] }: { librarySize?: n
       </label>
 
       <div className="start-more">
+        {/* Create (ADR 0098): an idea in words, footage optional, short options out. */}
+        <Link href="/create" className="start-tile" prefetch={false} data-testid="create-from-idea">
+          <SparkIcon size={20} />
+          <span className="start-tile-title">Describe a video</span>
+          <span className="start-tile-sub">Type an idea, get options</span>
+        </Link>
         {/* Shoot assist (ADR 0063): an optional shot list before anything is filmed. */}
         <Link href="/new/shoot" className="start-tile" prefetch={false} data-testid="plan-shoot">
           <CheckIcon size={20} />

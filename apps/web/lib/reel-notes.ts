@@ -25,10 +25,22 @@ import { addUsage, aiProvider, claudeToolTurn, usageCostUsd, type AiUsage, type 
 export const NOTE_TOOLS = ["get_reel", "get_brand_kit", "list_media", "get_audio_trace", "get_frames", "get_checks", "apply_commands"] as const;
 export const NOTE_SCOPES: Scope[] = ["reels:read", "reels:write"];
 export const NOTE_MAX_CALLS = 12;
-/** Turns allowed: every call could come alone, plus the answer and one nudge. */
-const MAX_TURNS = NOTE_MAX_CALLS + 2;
 
-const reelBound = new Set(["get_reel", "get_audio_trace", "apply_commands"]);
+/**
+ * Create (ADR 0098): the same agent, run on a new reel whose first "note" is
+ * the owner's idea. It may also find footage: search stock and import it, or
+ * place library media (the owner's uploads, the starter library). It still
+ * cannot make AI video, export or post, and add_media is bound to this reel
+ * and to its stock and library modes.
+ */
+export const CREATE_TOOLS = ["get_reel", "get_brand_kit", "list_media", "search_stock", "add_media", "apply_commands"] as const;
+export const CREATE_MAX_CALLS = 24;
+
+export type NoteMode = "note" | "create";
+const toolsFor = (mode: NoteMode): readonly string[] => (mode === "create" ? CREATE_TOOLS : NOTE_TOOLS);
+const maxCallsFor = (mode: NoteMode) => (mode === "create" ? CREATE_MAX_CALLS : NOTE_MAX_CALLS);
+
+const reelBound = new Set(["get_reel", "get_audio_trace", "apply_commands", "add_media"]);
 const exportBound = new Set(["get_frames", "get_checks"]);
 
 export const NOTE_INSTRUCTIONS = [
@@ -41,6 +53,25 @@ export const NOTE_INSTRUCTIONS = [
   "Finish with one or two plain sentences to the owner, no markdown: what you changed, with times in seconds, or why you changed nothing.",
   STYLE_HINTS,
 ].join("\n\n");
+
+export const CREATE_INSTRUCTIONS = [
+  "You are the editor inside ReelWalk. The owner typed an idea for a short vertical Instagram reel and you make its first version on the reel you are given, using only the tools you have. Short and punchy: 10 to 25 seconds, 5 to 10 shots, something moving or changing inside the first second.",
+  "Footage first. Read the reel with get_reel: media the owner uploaded for this idea is already on it, so build around that and keep it. When it has none, or too little for the idea, find more: search_stock with specific, visual queries (portrait clips; people and burnt-in text are left out unless you ask), then import the clips you will use with add_media mode stock (they land on the end of this reel); or list_media with includeStarter true and place library media with add_media mode library. Prefer clips from one stock group so they cut together. Import only what you will use.",
+  "Then cut it with apply_commands: drop or trim what does not serve the idea, order the shots so the strongest is first, pace it, and set music from the library (list_media kind AUDIO, includeStarter true) with setMusic. Run each batch with dryRun true first, then apply exactly the same commands with dryRun false and the revision you read; a 409 means the reel changed, so read it again.",
+  "Words on screen follow the brief: with captions on, a hook title on screen from frame 0 and three to six short text beats across the reel that carry the message (the brief's offer, place or call to action), each under seven words; with captions off, only the hook title. Never invent facts the idea does not give (prices, addresses, numbers).",
+  "You cannot make AI video, record a voice, export, post or schedule: the app exports the version after you finish, and the owner posts it. If the idea needs footage nothing here can supply, make the best honest version from what there is and say what would make it better.",
+  `You have at most ${CREATE_MAX_CALLS} tool calls.`,
+  "Finish with one or two plain sentences to the owner, no markdown: what the reel shows and how it is cut. Then a last line that starts with \"Caption:\" and holds the Instagram caption: under 300 characters, plain words, three to five relevant hashtags at the end.",
+  STYLE_HINTS,
+].join("\n\n");
+
+/** The caption line a create run ends with, split from the reply the owner reads. */
+export function splitCaption(reply: string): { reply: string; caption: string | null } {
+  const match = /^[ \t]*Caption:[ \t]*/im.exec(reply);
+  if (!match) return { reply: reply.trim(), caption: null };
+  const caption = reply.slice(match.index + match[0].length).trim().slice(0, 2200);
+  return { reply: reply.slice(0, match.index).trim(), caption: caption || null };
+}
 
 export type NoteCall = { tool: string; ok: boolean; dryRun?: boolean; refused?: string };
 
@@ -64,9 +95,9 @@ export type NoteDeps = {
   tools: ToolSpec[];
 };
 
-/** The connector tools a note may use, in a fixed order (it is part of the cached prefix). */
-export function noteToolSpecs(all: ToolSpec[] = TOOLS): ToolSpec[] {
-  const specs = NOTE_TOOLS.map((name) => all.find((spec) => spec.name === name)).filter((spec): spec is ToolSpec => Boolean(spec));
+/** The connector tools a note (or a create run) may use, in a fixed order (it is part of the cached prefix). */
+export function noteToolSpecs(all: ToolSpec[] = TOOLS, mode: NoteMode = "note"): ToolSpec[] {
+  const specs = toolsFor(mode).map((name) => all.find((spec) => spec.name === name)).filter((spec): spec is ToolSpec => Boolean(spec));
   // Belt and braces: nothing that spends credits or exports, whatever the list says.
   return specs.filter((spec) => !spec.scopes.some((scope) => scope === "ai:generate" || scope === "exports"));
 }
@@ -87,7 +118,7 @@ export function toToolResultContent(result: ToolResult): ToolTurnBlock[] {
   });
 }
 
-type CallState = { reelId: string; exportIds: Set<string>; dryRuns: Set<string>; calls: number };
+type CallState = { reelId: string; exportIds: Set<string>; dryRuns: Set<string>; calls: number; mode?: NoteMode };
 
 /** A dry run approves exactly this command list at exactly this revision; any other revision needs a new dry run. */
 export const approvalKey = (revision: unknown, commands: unknown) => `${String(revision)}|${JSON.stringify(commands ?? null)}`;
@@ -97,9 +128,13 @@ export const approvalKey = (revision: unknown, commands: unknown) => `${String(r
  * reason when it may not. Pure apart from the state it is given.
  */
 export function checkCall(state: CallState, name: string, raw: Record<string, unknown>): { ok: true; args: Record<string, unknown> } | { ok: false; reason: string } {
-  if (!(NOTE_TOOLS as readonly string[]).includes(name)) return { ok: false, reason: `${name} is not available to notes. Use only: ${NOTE_TOOLS.join(", ")}.` };
-  if (state.calls >= NOTE_MAX_CALLS) return { ok: false, reason: `All ${NOTE_MAX_CALLS} tool calls are used. Answer the owner now.` };
+  const mode = state.mode ?? "note";
+  const allowed = toolsFor(mode);
+  const max = maxCallsFor(mode);
+  if (!allowed.includes(name)) return { ok: false, reason: `${name} is not available here. Use only: ${allowed.join(", ")}.` };
+  if (state.calls >= max) return { ok: false, reason: `All ${max} tool calls are used. Answer the owner now.` };
   const args = { ...raw };
+  if (name === "add_media" && args.mode !== "stock" && args.mode !== "library") return { ok: false, reason: "add_media takes mode stock or library here." };
   if (reelBound.has(name)) {
     if (args.reelId !== undefined && args.reelId !== state.reelId) return { ok: false, reason: `Notes work on reel ${state.reelId} only.` };
     args.reelId = state.reelId;
@@ -169,12 +204,17 @@ export class NoteRunError extends Error {
  * failure part-way (the provider, a tool, the deadline) throws NoteRunError
  * with what was already saved and spent.
  */
-export async function runNote(input: { user: ActingUser; reelId: string; note: string; origin: string; brief: string; exportIds: string[]; revision: number } & NoteGuards, deps: NoteDeps = { turn: claudeToolTurn, gate: allow, tools: noteToolSpecs() }): Promise<NoteOutcome> {
+export async function runNote(input: { user: ActingUser; reelId: string; note: string; origin: string; brief: string; exportIds: string[]; revision: number; mode?: NoteMode } & NoteGuards, deps: NoteDeps = { turn: claudeToolTurn, gate: allow, tools: noteToolSpecs() }): Promise<NoteOutcome> {
   return runAsUser(input.user, async () => {
+    const mode = input.mode ?? "note";
+    const maxCalls = maxCallsFor(mode);
+    // Turns allowed: every call could come alone, plus the answer and one nudge.
+    const maxTurns = maxCalls + 2;
+    const system = mode === "create" ? CREATE_INSTRUCTIONS : NOTE_INSTRUCTIONS;
     const ctx = { user: input.user, scopes: NOTE_SCOPES, origin: input.origin };
     const specs = new Map(deps.tools.map((spec) => [spec.name, spec]));
     const tools = deps.tools.map(toClaudeTool);
-    const state: CallState = { reelId: input.reelId, exportIds: new Set(input.exportIds), dryRuns: new Set(), calls: 0 };
+    const state: CallState = { reelId: input.reelId, exportIds: new Set(input.exportIds), dryRuns: new Set(), calls: 0, mode };
     const messages: ToolTurnMessage[] = [{ role: "user", content: [{ type: "text", text: input.brief }] }];
     const calls: NoteCall[] = [];
     const applied: string[] = [];
@@ -198,11 +238,11 @@ export async function runNote(input: { user: ActingUser; reelId: string; note: s
     };
 
     try {
-      for (let turnNo = 0; turnNo < MAX_TURNS; turnNo++) {
+      for (let turnNo = 0; turnNo < maxTurns; turnNo++) {
         const left = input.deadline === undefined ? 180_000 : input.deadline - Date.now();
         if (left <= 0) throw new Error("The note ran out of time.");
-        const out = state.calls >= NOTE_MAX_CALLS;
-        const answer = await deps.turn({ workspaceId: input.user.workspaceId, system: NOTE_INSTRUCTIONS, tools, messages, toolChoice: out ? "none" : "auto", signal: AbortSignal.timeout(Math.min(180_000, left)) });
+        const out = state.calls >= maxCalls;
+        const answer = await deps.turn({ workspaceId: input.user.workspaceId, system, tools, messages, toolChoice: out ? "none" : "auto", signal: AbortSignal.timeout(Math.min(180_000, left)) });
         usage = addUsage(usage, answer.usage);
         model = answer.model;
         // The answer goes back exactly as it came, thinking blocks included.
@@ -246,7 +286,7 @@ export async function runNote(input: { user: ActingUser; reelId: string; note: s
           }
           results.push({ type: "tool_result", tool_use_id: use.id, content: toToolResultContent(result), ...(result.isError ? { is_error: true } : {}) });
         }
-        if (state.calls >= NOTE_MAX_CALLS) results.push({ type: "text", text: `That was the last of your ${NOTE_MAX_CALLS} tool calls. Answer the owner now.` });
+        if (state.calls >= maxCalls) results.push({ type: "text", text: `That was the last of your ${maxCalls} tool calls. Answer the owner now.` });
         messages.push({ role: "user", content: results });
       }
     } catch (error) {
@@ -312,5 +352,29 @@ export async function fakeNoteTurn(options: ToolTurnOptions): Promise<ToolTurn> 
   const previous = options.messages[options.messages.length - 2]?.content.find((block) => block.type === "tool_use") as { input?: Record<string, unknown> } | undefined;
   if (turns === 2 && json?.ok && previous?.input?.dryRun) return use("apply_commands", { ...previous.input, dryRun: false });
   if (json?.ok) return say(`Done: ${((json.changes as string[] | undefined) ?? []).join(" ") || "the change is in"}.`);
+  return say(`That did not work: ${String(json?.message ?? "unknown")}`);
+}
+
+/**
+ * The stand-in for a create run (DEV_FAKE_AI): it reads the reel, puts the
+ * idea's first words on as the hook title (dry run, then the same batch), and
+ * answers with a caption line. It finds no footage of its own.
+ */
+export async function fakeCreateTurn(options: ToolTurnOptions): Promise<ToolTurn> {
+  const usage = { inputTokens: 0, cachedTokens: 0, outputTokens: 0, cacheWriteTokens: 0 };
+  const turns = options.messages.filter((message) => message.role === "assistant").length;
+  const idea = /"""\n([\s\S]*?)\n"""/.exec(String(options.messages[0]?.content[0]?.text ?? ""))?.[1] ?? "";
+  const use = (name: string, input: Record<string, unknown>): ToolTurn => ({ content: [{ type: "tool_use", id: `fake-${turns}`, name, input }], stopReason: "tool_use", usage, model: "fake" });
+  const say = (text: string): ToolTurn => ({ content: [{ type: "text", text }], stopReason: "end_turn", usage, model: "fake" });
+  if (turns === 0) return use("get_reel", {});
+  const json = lastToolJson(options.messages);
+  if (turns === 1) {
+    if (!((json?.clips as unknown[] | undefined) ?? []).length) return say(`There is no footage on this reel yet, so I made nothing.\nCaption: ${idea.slice(0, 120)}`);
+    const hook = idea.split(/\s+/).filter(Boolean).slice(0, 5).join(" ") || "New reel";
+    return use("apply_commands", { commands: [{ type: "addText", text: { id: "create-hook", text: hook, startMs: 0, x: 0.5, y: 0.3, style: "elegant", size: 1 } }], dryRun: true, revision: json?.revision });
+  }
+  const previous = options.messages[options.messages.length - 2]?.content.find((block) => block.type === "tool_use") as { input?: Record<string, unknown> } | undefined;
+  if (turns === 2 && json?.ok && previous?.input?.dryRun) return use("apply_commands", { ...previous.input, dryRun: false });
+  if (json?.ok) return say(`Your footage with the idea as the opening title.\nCaption: ${idea.slice(0, 120)} #realestate #newlisting #hometour`);
   return say(`That did not work: ${String(json?.message ?? "unknown")}`);
 }

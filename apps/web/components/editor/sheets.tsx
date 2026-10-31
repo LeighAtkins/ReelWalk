@@ -1474,7 +1474,7 @@ export function MusicSheet({
               />
               {fromInstagram ? (
                 <p className="muted small" data-testid="music-start-locked">
-                  Instagram plays this sound from its start.
+                  Instagram auto-posting starts this sound at 0:00 and cannot skip an intro. To choose a later start, finish the post in Instagram, or choose your own music below.
                 </p>
               ) : current?.durationMs ? (
                 <Range

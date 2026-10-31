@@ -23,8 +23,8 @@ type Search = { step: "loading" } | { step: "ready"; tracks: InstagramAudioTrack
 
 /**
  * Picks a sound from Instagram's own licensed library (ADR 0018) for a post.
- * Instagram mixes it in when it publishes, so the reel with the sound cannot
- * be previewed here; the sound alone can.
+ * Instagram mixes it in when it publishes. The result can be auditioned
+ * locally by the shared export/scheduled preview transport.
  *
  * `value` is the chosen sound or null; the button shows it, and a cross
  * clears it. Used by the export screen (Post now and Schedule share one) and
@@ -116,7 +116,7 @@ function SoundSheet({ value, onClose, onPick }: { value: InstagramAudioChoice | 
         type={type}
         selectedId={selected?.audioId ?? null}
         onSelect={(track) => setSelected({ audioId: track.id, title: track.title, artist: track.artist })}
-        hint="Instagram adds the sound when it publishes; tap play to hear the sound on its own."
+        hint="Listen before choosing: creator sounds can contain speech, even when the title names a song. Automatic posts start at 0:00."
       />
 
       <label className="check" htmlFor={keepId}>
@@ -170,6 +170,8 @@ export function InstagramSoundBrowser({
   const setQuery = onQuery ?? setOwnQuery;
   const [search, setSearch] = useState<Search>({ step: "loading" });
   const [playing, setPlaying] = useState<string | null>(null);
+  const [preview, setPreview] = useState<InstagramAudioTrack | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
   const audio = useRef<HTMLAudioElement>(null);
   const request = useRef(0);
   const tab = SOUND_TABS.find((entry) => entry.type === type)!;
@@ -198,6 +200,8 @@ export function InstagramSoundBrowser({
   function togglePreview(track: InstagramAudioTrack) {
     const element = audio.current;
     if (!element || !track.previewUrl) return;
+    setPreviewError(null);
+    setPreview(track);
     if (playing === track.id) {
       element.pause();
       setPlaying(null);
@@ -207,7 +211,7 @@ export function InstagramSoundBrowser({
     element.src = track.previewUrl;
     element.play().then(
       () => setPlaying(track.id),
-      () => setPlaying(null),
+      () => { setPlaying(null); setPreviewError("Could not play this preview. Try again or choose another sound."); },
     );
   }
 
@@ -230,7 +234,9 @@ export function InstagramSoundBrowser({
         {query.trim() ? "Results from Instagram's library." : type === "music" ? "Trending in Instagram's music for business accounts." : "Trending creator sounds."} {hint}
       </p>
 
-      <audio ref={audio} preload="none" onEnded={() => setPlaying(null)} onPause={() => setPlaying(null)} hidden />
+      {preview ? <p className="small">Listen to ?{preview.title}?. Scrub to inspect the full preview; automatic posts still start at 0:00.</p> : null}
+      <audio ref={audio} preload="none" controls={preview !== null} onPlay={() => setPlaying(preview?.id ?? null)} onEnded={() => setPlaying(null)} onPause={() => setPlaying(null)} onError={() => { setPlaying(null); setPreviewError("This sound preview is unavailable. Choose another sound before posting."); }} hidden={!preview} style={{ width: "100%" }} data-testid="sound-audition-player" />
+      {previewError ? <p className="error small" role="alert">{previewError}</p> : null}
 
       <div aria-live="polite" aria-busy={search.step === "loading"} data-testid="sound-results" data-state={search.step}>
         {search.step === "loading" ? (

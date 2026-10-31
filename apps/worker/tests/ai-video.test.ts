@@ -10,7 +10,7 @@ vi.mock("@reelwalk/db", () => ({ claimAiGeneration: claim, failAiGeneration: fai
 vi.mock("../src/ai-thumbnail", () => ({ aiThumbnail: thumbnail }));
 vi.mock("../src/ai-frames", async (importOriginal) => ({ ...(await importOriginal<typeof import("../src/ai-frames")>()), aiFrames: frames }));
 vi.mock("../src/vertex-images", () => ({ VertexImages: class { compose = compose; checkIdentity = identity; } }));
-vi.mock("../src/voice", () => ({ lipsyncConfigured: () => true, voicedPrompt: (p: string, l: string) => `${p} [${l}]`, synthesiseLine: tts, startLipsync: startSync, pollLipsync: pollSync, fetchVideo: fetchTake }));
+vi.mock("../src/voice", async (importOriginal) => ({ presenterVoice: (await importOriginal<typeof import("../src/voice")>()).presenterVoice, lipsyncConfigured: () => true, voicedPrompt: (p: string, l: string) => `${p} [${l}]`, synthesiseLine: tts, startLipsync: startSync, pollLipsync: pollSync, fetchVideo: fetchTake }));
 vi.mock("../src/transcribe", () => ({ transcriptionAvailable: () => false, transcribeVideo: async () => null }));
 vi.mock("@aws-sdk/s3-request-presigner", () => ({ getSignedUrl: async (_s3: unknown, command: { input: { Key: string } }) => `https://signed/${command.input.Key}` }));
 vi.mock("../src/vertex-video", async (importOriginal) => {
@@ -319,6 +319,40 @@ describe("AI shot worker", () => {
     expect(startSync).toHaveBeenCalledWith("https://signed/workspaces/studio/ai/one-silent.mp4", "https://signed/workspaces/studio/ai/one-line.mp3", "reelwalk-one");
     expect(db.aiGeneration.updateMany).toHaveBeenLastCalledWith(expect.objectContaining({ data: expect.objectContaining({ operationName: "lipsync:sync-1" }) }));
     expect(tx.mediaAsset.upsert).not.toHaveBeenCalled();
+  });
+  // ADR 0100: the take's chosen voice speaks its line; without one, the deployment's presenter voice does, as before.
+  it("speaks a lip-synced line in the take's chosen voice, and in the presenter voice when none is chosen", async () => {
+    vi.stubEnv("PRESENTER_VOICE", "melotts:en");
+    try {
+      const said: unknown[] = [];
+      for (const voiceId of ["aura-2:theia", "aura-2:hyperion", undefined]) {
+        vi.clearAllMocks(); tts.mockResolvedValue(Buffer.from("mp3")); startSync.mockResolvedValue("sync-1");
+        claim.mockResolvedValue({ ...spoken, status: "RUNNING", shot: { ...spoken.shot, ...(voiceId ? { voiceId } : {}) } });
+        await processAiVideo(s3, "media");
+        expect(tts).toHaveBeenCalledTimes(1);
+        expect(tts.mock.calls[0]![0]).toBe("Who needs a front door?");
+        said.push(tts.mock.calls[0]![1]);
+      }
+      expect(said).toEqual([{ model: "aura-2", speaker: "theia" }, { model: "aura-2", speaker: "hyperion" }, { model: "melotts", lang: "en" }]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+  it("carries a draft's chosen voice to its final, and never makes the voice in the draft", async () => {
+    const draftShot = { ...spoken.shot, voiceId: "aura-2:hyperion", tier: "draft", seed: 3 };
+    claim.mockResolvedValue({ ...spoken, status: "RUNNING", shot: draftShot }); poll.mockResolvedValue({ video: Buffer.alloc(2000) });
+    await processAiVideo(s3, "media");
+    expect(tts).not.toHaveBeenCalled();
+    vi.clearAllMocks(); tts.mockResolvedValue(Buffer.from("mp3")); startSync.mockResolvedValue("sync-1"); poll.mockResolvedValue({ video: Buffer.alloc(2000) });
+    claim.mockResolvedValue({ ...spoken, status: "RUNNING", shot: { ...draftShot, tier: "final", finalOf: "draft-one" } });
+    await processAiVideo(s3, "media");
+    expect(tts).toHaveBeenCalledWith("Who needs a front door?", { model: "aura-2", speaker: "hyperion" });
+  });
+  it("refunds before submitting a take whose voice is not offered, never making it silent", async () => {
+    claim.mockResolvedValue({ ...spoken, status: "SUBMITTING", shot: { ...spoken.shot, voiceId: "aura-2:withdrawn" } });
+    await processAiVideo(s3, "media");
+    expect(submit).not.toHaveBeenCalled();
+    expect(fail).toHaveBeenCalledWith(db, "one", expect.stringContaining("voice"), true, { onlyIf: { leaseToken: "mine", submitStartedAt: null } });
   });
   it("stores the lip-synced take when sync.so finishes, and asks Veo for audio in veo mode", async () => {
     claim.mockResolvedValue({ ...spoken, status: "RUNNING", operationName: "lipsync:sync-1" });

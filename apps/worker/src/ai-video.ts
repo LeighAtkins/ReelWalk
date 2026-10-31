@@ -8,10 +8,10 @@ import { VertexError, VertexVideo, definitelyRejected } from "./vertex-video";
 import { aiThumbnail } from "./ai-thumbnail";
 import { aiFrames, decodeFrame, keyframes, type DecodedFrame } from "./ai-frames";
 import { VertexImages, type InlineImage } from "./vertex-images";
-import { fetchVideo, lipsyncConfigured, pollLipsync, startLipsync, synthesiseLine, voicedPrompt } from "./voice";
+import { fetchVideo, lipsyncConfigured, pollLipsync, presenterVoice, startLipsync, synthesiseLine, voicedPrompt } from "./voice";
 import { transcribeVideo, transcriptionAvailable } from "./transcribe";
 import { faceTrackOfTake } from "./take-face";
-import { clipSchema, escalateFraming, insertAiShot, lineTrim, parseStoredAiShot, speakingFraming, timelineSchema, type AiShot, type PresenterFraming } from "@reelwalk/core";
+import { clipSchema, escalateFraming, insertAiShot, isVoiceId, lineTrim, parseStoredAiShot, speakingFraming, timelineSchema, type AiShot, type PresenterFraming } from "@reelwalk/core";
 import { identityDecision, identityRejectionMessage, minFacePx, speakingEnd, type IdentityVerdict, type LocateAttempt } from "./identity";
 
 let provider: VertexVideo | undefined;
@@ -20,11 +20,16 @@ const inline = (frame?: DecodedFrame): InlineImage | undefined => frame && { byt
 type Job = NonNullable<Awaited<ReturnType<typeof claimAiGeneration>>>;
 const LIPSYNC = "lipsync:";
 
-/** The spoken line and voice mode of a take, when it has one (ADR 0038). */
-function voiceOf(shot: AiShot | undefined): { line: string; mode: "lipsync" | "veo" } | null {
+type TakeVoice = { line: string; mode: "lipsync" | "veo"; voiceId?: string };
+
+/** The spoken line, voice mode and chosen voice of a take, when it has one (ADR 0038, ADR 0100). */
+function voiceOf(shot: AiShot | undefined): TakeVoice | null {
   // A draft (ADR 0076) is a silent preview: the voice is made, and paid for, with the final.
-  return shot?.line && shot.voice && shot.tier !== "draft" ? { line: shot.line, mode: shot.voice } : null;
+  return shot?.line && shot.voice && shot.tier !== "draft" ? { line: shot.line, mode: shot.voice, ...(shot.voiceId ? { voiceId: shot.voiceId } : {}) } : null;
 }
+
+/** A stored shot that asked for speech but no longer reads back (a voice since withdrawn): never submit it silent. */
+const askedForSpeech = (stored: unknown) => Boolean(stored && typeof stored === "object" && (stored as { voice?: unknown }).voice);
 
 /** A submission's claim; renewed while its stills are prepared (ADR 0056). */
 export const AI_SUBMIT_LEASE_MS = 300_000;
@@ -93,6 +98,14 @@ export async function processAiVideo(s3: S3Client, bucket: string): Promise<bool
         const bytes = await result.Body.transformToByteArray();
         image = { bytesBase64Encoded: Buffer.from(bytes).toString("base64"), mimeType: job.referenceType! };
       }
+      if (!shot.success && askedForSpeech(job.shot)) {
+        await refund(job, "This shot's voice could not be read, so it was not made. Your credit was returned.");
+        return true;
+      }
+      if (voice?.mode === "lipsync" && voice.voiceId && !isVoiceId(voice.voiceId)) {
+        await refund(job, "That voice is not one of the voices offered. Your credit was returned.");
+        return true;
+      }
       if (voice?.mode === "lipsync" && !lipsyncConfigured()) {
         await refund(job, "Voiced shots are not available yet. Your credit was returned.");
         return true;
@@ -147,7 +160,7 @@ export async function processAiVideo(s3: S3Client, bucket: string): Promise<bool
       if (result.error) {
         await failAiGeneration(prisma, job.id, result.error);
       } else if (result.video) {
-        if (voice?.mode === "lipsync") await startVoice(s3, bucket, job, result.video, voice.line);
+        if (voice?.mode === "lipsync") await startVoice(s3, bucket, job, result.video, voice);
         else await finish(s3, bucket, job, result.video, shot.success ? shot.data : undefined, voice);
       } else {
         if (Date.now() - job.createdAt.getTime() > 60 * 60_000) {
@@ -350,10 +363,14 @@ async function recropScene(s3: S3Client, bucket: string, frame: DecodedFrame, fr
   }
 }
 
-/** Speak the line in the fixed voice, hand the silent take and the audio to sync.so, and poll it like Veo. */
-async function startVoice(s3: S3Client, bucket: string, job: Job, silent: Buffer, line: string) {
+/**
+ * Speak the line in the take's chosen voice (ADR 0100), or the deployment's presenter voice when it names none, hand the
+ * silent take and the audio to sync.so, and poll it like Veo. The audio and the sync.so job are keyed by this take, and a
+ * take has one voice, so nothing made for another voice can be reused here.
+ */
+async function startVoice(s3: S3Client, bucket: string, job: Job, silent: Buffer, voice: TakeVoice) {
   const prefix = `workspaces/${job.workspaceId}/ai/${job.id}`;
-  const audio = await synthesiseLine(line);
+  const audio = await synthesiseLine(voice.line, voice.voiceId ? presenterVoice(voice.voiceId) : presenterVoice());
   await s3.send(new PutObjectCommand({ Bucket: bucket, Key: `${prefix}-silent.mp4`, Body: silent, ContentType: "video/mp4" }));
   await s3.send(new PutObjectCommand({ Bucket: bucket, Key: `${prefix}-line.mp3`, Body: audio, ContentType: "audio/mpeg" }));
   const [videoUrl, audioUrl] = await Promise.all([

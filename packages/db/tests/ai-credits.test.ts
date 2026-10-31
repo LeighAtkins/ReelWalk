@@ -131,6 +131,18 @@ describe.skipIf(!process.env.DATABASE_URL)("AI credits (Postgres)", () => {
     await failAiGeneration(prisma, long.id, "failed");
     expect(await aiCreditSummary(prisma, input.workspaceId)).toMatchObject({ trial: 1, topUp: 10 });
   });
+  it("never answers a reused request id with a take in another voice or saying another line (ADR 0100)", async () => {
+    const input = { ...await studio(), requestId: randomUUID(), voiced: true, costCents: 60,
+      shot: { mode: "custom", line: "Nice room, right?", voice: "lipsync", voiceId: "aura-2:theia" } };
+    const first = await reserveAiGeneration(prisma, input); charged += 60;
+    // The same request again (a retry): the same take, nothing more taken.
+    expect((await reserveAiGeneration(prisma, input)).id).toBe(first.id);
+    await expect(reserveAiGeneration(prisma, { ...input, shot: { ...input.shot, voiceId: "aura-2:hyperion" } })).rejects.toThrow("different line or voice");
+    await expect(reserveAiGeneration(prisma, { ...input, shot: { ...input.shot, voiceId: undefined } })).rejects.toThrow("different line or voice");
+    await expect(reserveAiGeneration(prisma, { ...input, shot: { ...input.shot, line: "Now look left." } })).rejects.toThrow("different line or voice");
+    expect(await prisma.aiGeneration.count({ where: { workspaceId: input.workspaceId } })).toBe(1);
+  });
+
   describe("draft tier (ADR 0076)", () => {
     const shot = (extra: object = {}) => ({ mode: "custom", move: "orbit", seed: 7, ...extra });
 

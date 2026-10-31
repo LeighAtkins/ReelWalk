@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { AI_DRAFT_CREDITS, AI_PLAN_CREDITS, AI_QUEUE_LIMIT, AI_TRIAL_CREDITS, IN_FLIGHT_STATUSES, aiClipCredits, aiCreditWindow, aiFinalCredits, queueDecision, type AiClipSeconds } from "@reelwalk/core";
+import { AI_DRAFT_CREDITS, AI_PLAN_CREDITS, AI_QUEUE_LIMIT, AI_TRIAL_CREDITS, IN_FLIGHT_STATUSES, aiClipCredits, aiCreditWindow, aiShotVoiceKey, aiFinalCredits, queueDecision, type AiClipSeconds } from "@reelwalk/core";
 import type { Prisma, PrismaClient } from "./generated/prisma/client";
 
 type Tx = Prisma.TransactionClient;
@@ -71,7 +71,11 @@ export async function reserveAiGeneration(db: PrismaClient, input: {
     const existing = await tx.aiGeneration.findUnique({
       where: { workspaceId_requestId: { workspaceId: input.workspaceId, requestId: input.requestId } },
     });
-    if (existing) return existing;
+    if (existing) {
+      // The same request id answers with its take, but never with a take in another voice or saying another line (ADR 0100).
+      if (aiShotVoiceKey(existing.shot) !== aiShotVoiceKey(input.shot)) throw new AiCreditError("This request was already used for a take with a different line or voice. Start a new request for this one.");
+      return existing;
+    }
     // A take queue, not a cap (ADR 0069): takes wait their turn; only the queue's length is bounded, since every
     // queued take holds its credits. The hour's limit on Veo submissions is kept by the worker when it starts a take.
     const inFlight = await tx.aiGeneration.count({ where: { workspaceId: input.workspaceId, status: { in: [...IN_FLIGHT_STATUSES] } } });

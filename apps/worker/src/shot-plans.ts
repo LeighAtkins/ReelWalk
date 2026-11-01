@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   acceptPassed, checkTake, nextPlanStep, planStateSchema, planTimeline, readMotion, pickMatchingFrame, shotCredits, shotPlanSchema,
-  takeFrames, takePrompt, withTakeStarted, type Gray, type PlanShot, type PlanState, type PlanStep, type ShotPlan, type TakeMeasure,
+  takeFrames, takePrompt, withTakeStarted, type Continuity, type Gray, type PlanShot, type PlanState, type PlanStep, type ShotPlan, type TakeMeasure,
 } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
 
@@ -28,6 +28,8 @@ export type PlanDeps = {
   /** Grey frames of a take (72×128, 30 a second) and of a still, 0..255 as the motion code reads them. */
   takeFrames(assetId: string): Promise<{ t: number; gray: Gray }[]>;
   stillFrame(frame: FrameRef): Promise<Gray>;
+  /** Whether the place stays one place through a take (the continuity judge); null when it could not be asked. */
+  judgeTake(assetId: string): Promise<Continuity | null>;
   requestId(planId: string, shotId: string, takeIndex: number): string;
   log?(line: string): void;
 };
@@ -107,7 +109,8 @@ export async function runPlanStep(row: Row, plan: ShotPlan, state: PlanState, st
       const take = s.takes.find((t) => t.aiShotId === step.aiShotId)!;
       const { first, last } = takeFrames(plan, state, shot.id, takeAsset);
       const frames = await deps.takeFrames(take.assetId!);
-      const measured = measureTake(frames, first ? await deps.stillFrame(first) : null, last ? await deps.stillFrame(last) : null);
+      const continuity = await deps.judgeTake(take.assetId!).catch(() => null);
+      const measured = { ...measureTake(frames, first ? await deps.stillFrame(first) : null, last ? await deps.stillFrame(last) : null), continuity };
       const verdict = checkTake(shot, measured);
       deps.log?.(`shot-plan ${row.id}: check ${shot.id} ${take.aiShotId}: ${verdict.pass ? "passed" : verdict.problems.join(" ")} (end ${measured.endChange?.toFixed(3) ?? "-"}, ${measured.motion?.kind ?? "?"})`);
       const takes = s.takes.map((t) => t.aiShotId === take.aiShotId ? { ...t, status: verdict.pass ? "passed" as const : "failed" as const, verdict } : t);

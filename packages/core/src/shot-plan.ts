@@ -199,8 +199,30 @@ export const planBlocked = (issues: readonly PlanIssue[]) => issues.some((i) => 
 // ── Takes ───────────────────────────────────────────────────────
 
 /** What was measured on a finished take (worker): its camera motion across the middle, and how close its ends are to the planned stills. */
+/**
+ * A vision model's read of whether the place stays the same place: across a take's frames, or between a shot's start and
+ * end stills. The motion and landing checks cannot see a wall that dissolves into shelves halfway through a take while
+ * both ends still match (the first demo's kitchen, ADR 0104), so this is asked in words.
+ */
+export const continuitySchema = z.object({ consistent: z.boolean(), problems: z.array(z.string().max(300)).max(6) });
+export type Continuity = z.infer<typeof continuitySchema>;
+
+export const CONTINUITY_TAKE_PROMPT = [
+  "These images are frames from ONE continuous camera move through a real property, in time order. A real camera only changes what is in view; the place itself never changes.",
+  "Look for anything that changes what it is between frames, beyond what the camera's own movement reveals or hides: a wall becoming shelves or cabinets, a window or doorway appearing, vanishing or moving, furniture or fittings appearing, vanishing or turning into something else, a room's layout, materials or colours changing, a person's face or clothes changing.",
+  "consistent: true only when nothing changes like that. problems: each change in a few plain words, saying where in the frame and between which frames (for example \"the white wall behind the island turns into open shelves with pottery between frames 2 and 3\"). Answer with JSON only.",
+].join(" ");
+
+export const CONTINUITY_KEYFRAMES_PROMPT = [
+  "The first image is where a camera move starts and the second is where it ends, in the same real property. The camera will move from one to the other without a cut.",
+  "Check that the second image shows the same place: everything the first image shows that would still be in view, including what is visible through doorways, arches and windows, must look the same in the second (the same walls, windows, cabinets, shelves, furniture, materials, colours and light). New things may appear only where the first image could not see.",
+  "consistent: true only when the two can be one continuous place. problems: each contradiction in a few plain words (for example \"through the arch the kitchen has a white wall with a range hood; in the end frame that wall has open shelves\"). Answer with JSON only.",
+].join(" ");
+
 export type TakeMeasure = {
   motion: MotionRead | null;
+  /** Whether the place stays the same place through the take; null when it could not be judged. */
+  continuity?: Continuity | null;
   /** Normalised difference after alignment, 0 = the same picture (motion.ts pickMatchingFrame). Null when there was no planned still. */
   startChange: number | null;
   endChange: number | null;
@@ -219,6 +241,9 @@ export function checkTake(shot: PlanShot, measured: TakeMeasure): TakeVerdict {
   const problems: string[] = [], notes: string[] = [];
   if (measured.startChange !== null && measured.startChange > OPENING_CHANGE) problems.push("It does not open on the planned start frame.");
   if (measured.endChange !== null && shot.end.source !== "free" && measured.endChange > LANDING_CHANGE) problems.push("It does not land on the planned end frame.");
+  if (measured.continuity && !measured.continuity.consistent) {
+    problems.push(`The place changes during the take: ${(measured.continuity.problems.length ? measured.continuity.problems : ["something in the room turns into something else"]).join("; ")}.`);
+  } else if (measured.continuity === null) notes.push("Whether the room stays the same could not be judged; look at it.");
   const read = measured.motion;
   const want = expectedRead(shot.motion);
   if (!read || read.confidence < 0.3) notes.push("The camera move could not be read reliably; look at it.");
@@ -252,6 +277,7 @@ export function retryNote(shot: PlanShot, verdict: TakeVerdict): string {
     lines.push(`The camera must ${shot.motion.replace("-", " ")}: ${shot.action}`);
   }
   if (verdict.problems.some((p) => p.includes("end frame"))) lines.push("Finish exactly on the supplied last frame: same position, same framing, same light.");
+  if (verdict.problems.some((p) => p.includes("place changes"))) lines.push("Nothing in the property changes during the move: every wall, window, opening, cabinet and piece of furniture stays exactly as the start frame shows it; only the camera moves.");
   return lines.join(" ");
 }
 
@@ -439,7 +465,7 @@ export function keyframePrompt(plan: ShotPlan, shot: PlanShot, end: "start" | "e
     `Camera: ${shot.pov}, in the ${shot.place}.`,
     plan.look,
     shot.presenter && plan.outfit ? `The presenter wears ${plan.outfit}.` : "",
-    end === "end" ? `This is where the camera arrives after it ${shot.action.replace(/\.$/, "")}.` : "",
+    end === "end" ? `This is where the camera arrives after it ${shot.action.replace(/\.$/, "")}. It is the same place as the start frame: everything the start frame shows that is still in view, including what is seen through doorways, arches and windows, looks exactly the same here (the same walls, windows, cabinets, shelves, furniture, materials and light).` : "",
     "No text, logos or watermarks.",
   ].filter(Boolean).join(" ").slice(0, 1500);
 }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   acceptPassed, acceptTake, checkTake, classify, nextPlanStep, planBlocked, planClips, planIssues, requestRedo, retryNote, shotPlanSchema,
-  takeFrames, takePrompt, planTimeline, withTakeStarted, type PlanShot, type PlanState, type ShotPlan,
+  takeFrames, takePrompt, planTimeline, withTakeStarted, keyframePrompt, CONTINUITY_TAKE_PROMPT, CONTINUITY_KEYFRAMES_PROMPT, type PlanShot, type PlanState, type ShotPlan,
 } from "../src";
 
 const frame = (description: string, extra: Record<string, unknown> = {}) => ({ description, ...extra });
@@ -94,6 +94,18 @@ describe("checkTake", () => {
     const still = { ...hall, motion: "still" as const };
     expect(checkTake(still, { motion: read({ tx: 0.3 }), startChange: null, endChange: null }).pass).toBe(false);
     expect(checkTake(hall, { motion: read({ zoom: 0.01 }), startChange: null, endChange: null }).problems[0]).toContain("hardly moves");
+  });
+  it("fails a take whose place changes even when both ends match, and corrects the retake for it", () => {
+    const verdict = checkTake(hall, { motion: read({ zoom: 0.2 }), startChange: 0.01, endChange: 0.02, continuity: { consistent: false, problems: ["the white wall behind the island turns into open shelves"] } });
+    expect(verdict.problems).toEqual(["The place changes during the take: the white wall behind the island turns into open shelves."]);
+    expect(retryNote(hall, verdict)).toContain("only the camera moves");
+  });
+  it("asks the end keyframe to be the same place as the start, through its openings too", () => {
+    const plan = withStills(villa());
+    expect(keyframePrompt(plan, plan.shots[1], "end")).toContain("including what is seen through doorways, arches and windows");
+    expect(keyframePrompt(plan, plan.shots[1], "start")).not.toContain("same place as the start frame");
+    expect(CONTINUITY_TAKE_PROMPT).toContain("a wall becoming shelves");
+    expect(CONTINUITY_KEYFRAMES_PROMPT).toContain("through doorways, arches and windows");
   });
   it("only notes a move it cannot read", () => {
     expect(checkTake(hall, { motion: null, startChange: null, endChange: null })).toMatchObject({ pass: true, notes: [expect.stringContaining("could not be read")] });

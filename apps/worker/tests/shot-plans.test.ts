@@ -33,6 +33,7 @@ function fakes(over: Partial<PlanDeps> = {}): PlanDeps {
     takeStatus: vi.fn(async () => ({ status: "waiting" as const })),
     takeFrames: vi.fn(async () => take((i) => picture(-i * 0.4))),
     stillFrame: vi.fn(async (f) => (f.assetId === "kf-b" ? picture(-59 * 0.4) : picture())),
+    judgeTake: vi.fn(async () => ({ consistent: true, problems: [] })),
     requestId: (p, s, n) => `${p}-${s}-${n}`,
     ...over,
   };
@@ -71,6 +72,18 @@ describe("runPlanStep", () => {
     const wrong = await runPlanStep(row, plan, made, { kind: "check", shotId: "hall", aiShotId: "gen1" }, fakes({ takeFrames: vi.fn(async () => take((i) => picture(i * 0.4))) }), new Map());
     expect(wrong.state.shots.hall.takes[0].status).toBe("failed");
     expect(wrong.state.shots.hall.takes[0].verdict!.problems.join(" ")).toContain("wrong way");
+  });
+  it("fails a take whose room changes mid-move even though both ends match: the first demo's kitchen", async () => {
+    const made: PlanState = { ...empty, shots: { hall: { takes: [{ aiShotId: "gen1", assetId: "ai-gen1", status: "checking", credits: 2 }], attemptsFrom: 0 } } };
+    const morph = fakes({ judgeTake: vi.fn(async () => ({ consistent: false, problems: ["the white wall behind the island turns into open shelves between frames 3 and 4"] })) });
+    const out = await runPlanStep(row, plan, made, { kind: "check", shotId: "hall", aiShotId: "gen1" }, morph, new Map([["ai-gen1", 2000]]));
+    expect(out.state.shots.hall.takes[0].status).toBe("failed");
+    expect(out.state.shots.hall.takes[0].verdict!.problems).toEqual(["The place changes during the take: the white wall behind the island turns into open shelves between frames 3 and 4."]);
+  });
+  it("notes a take the judge could not see, without failing it", async () => {
+    const made: PlanState = { ...empty, shots: { hall: { takes: [{ aiShotId: "gen1", assetId: "ai-gen1", status: "checking", credits: 2 }], attemptsFrom: 0 } } };
+    const out = await runPlanStep(row, plan, made, { kind: "check", shotId: "hall", aiShotId: "gen1" }, fakes({ judgeTake: vi.fn(async () => { throw new Error("quota"); }) }), new Map([["ai-gen1", 2000]]));
+    expect(out.state.shots.hall.takes[0]).toMatchObject({ status: "passed", verdict: { notes: [expect.stringContaining("could not be judged")] } });
   });
   it("continues the next shot from the accepted take's last frame", async () => {
     const deps = fakes();

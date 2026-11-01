@@ -27,6 +27,11 @@ export const AI_IDENTITY_MODEL = process.env.AI_IDENTITY_MODEL || "gemini-2.5-fl
 
 export type InlineImage = { bytesBase64Encoded: string; mimeType: string };
 
+const CONTINUITY_RESPONSE_SCHEMA = {
+  type: "OBJECT", required: ["consistent", "problems"],
+  properties: { consistent: { type: "BOOLEAN" }, problems: { type: "ARRAY", items: { type: "STRING" } } },
+} as const;
+
 export type ComposeOptions = {
   /** The kit's face crop is the third image (ADR 0056). */
   face?: boolean;
@@ -156,6 +161,20 @@ export class VertexImages {
     if (!image) throw new Error("Google did not return a keyframe.");
     const jpeg = await portraitJpeg(Buffer.from(image.bytesBase64Encoded, "base64"));
     return { bytesBase64Encoded: jpeg.toString("base64"), mimeType: "image/jpeg" };
+  }
+
+  /**
+   * The continuity judge (ADR 0104): given frames of one take in time order, or a shot's start and end stills, does the
+   * place stay one place? The prompt says which; the answer is { consistent, problems }.
+   */
+  async judgeContinuity(prompt: string, images: InlineImage[], model = AI_IDENTITY_MODEL): Promise<{ consistent: boolean; problems: string[] }> {
+    const parts = [{ text: prompt }, ...images.flatMap((image, i) => [{ text: `Frame ${i + 1}:` }, inlinePart(image)])];
+    const result = await this.generate(model, parts, { responseMimeType: "application/json", responseSchema: CONTINUITY_RESPONSE_SCHEMA, temperature: 0 });
+    const json = jsonFromResponse(result) as { consistent?: unknown; problems?: unknown };
+    return {
+      consistent: json.consistent === true,
+      problems: Array.isArray(json.problems) ? json.problems.filter((p): p is string => typeof p === "string").map((p) => p.slice(0, 300)).slice(0, 6) : [],
+    };
   }
 
   /**

@@ -84,3 +84,7 @@ alone does not prove that it will draw the board. Verify the actual worker image
 2. Showing every column at once (a zoomed-out view of the whole grid). The reference never does, and on a phone
    sixteen panels at once would be too small to read.
 3. A board-aware retention check (titles too small inside panels, a column too short to read its four keywords).
+
+## Readability after owner review
+
+The white and yellow titles blended into the warm room footage. Boards can now set `textShade` (0?0.9, default 0 for existing boards): a dark gradient behind the words fades out before the presenter. It follows the title side and enters with the panel, preserving the seamless first frame. The Board sheet exposes its strength. Narrated demos should time each column to its spoken explanation and leave the settled words visible; keep the narration on the underlying editable clips rather than baking it into the board.

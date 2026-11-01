@@ -190,6 +190,9 @@ export const BoardView: React.FC<{ board: Board; assets: Record<string, ReelAsse
                   ) : null}
                   <div style={{ position: "absolute", left: rect.left, top: rect.top, width: rect.width, height: rect.height, borderRadius: entering ? radius * f.entry : radius, overflow: "hidden", opacity, backgroundColor: "#1d1b19", boxShadow: `0 ${8 * scale}px ${22 * scale}px rgba(0,0,0,${(0.2 * (entering ? f.entry : 1)).toFixed(3)})` }}>
                     {asset ? <PanelMedia panel={panel} asset={asset} fromFrame={mediaFrom} durationInFrames={Math.max(1, boardFrames - mediaFrom)} entryProgress={entering ? f.entry : 1} /> : null}
+                    {panel.title && board.textShade > 0 ? (
+                      <AbsoluteFill style={{ opacity: entering ? f.entry : 1, background: `linear-gradient(to ${panel.title.side === "left" ? "right" : "left"}, rgba(10,14,19,${board.textShade}) 0%, rgba(10,14,19,${board.textShade}) 38%, rgba(10,14,19,0) 72%)` }} />
+                    ) : null}
                     {/* The shrinking first panel carries no words until it has landed: they belong to the panel, not the full frame. */}
                     {entering ? null : <PanelTitle board={board} panel={panel} rect={rects[row]} titleMs={reelMs - keywordAt} lifeMs={columnEnd - keywordAt + board.slideMs} />}
                   </div>

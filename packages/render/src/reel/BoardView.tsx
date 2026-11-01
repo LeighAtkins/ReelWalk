@@ -69,7 +69,7 @@ const PanelMedia: React.FC<{ panel: BoardPanel; asset: ReelAsset; fromFrame: num
         <Freeze frame={(held ?? 0) + fromFrame} active={held !== null}>
           <Sequence from={fromFrame} durationInFrames={durationInFrames} layout="none" name={`panel ${panel.id}`}>
             {layers.map((layer, i) => isRendering
-              ? <RenderVideo key={i} {...timing} objectFit={layer.objectFit} style={{ ...layer, objectFit: undefined }} />
+              ? <RenderVideo key={i} {...timing} objectFit={i === 0 ? "cover" : "contain"} style={{ ...layer, objectFit: undefined }} />
               : <Html5Video key={i} {...timing} style={layer} />)}
           </Sequence>
         </Freeze>,

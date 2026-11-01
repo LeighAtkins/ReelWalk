@@ -7,6 +7,7 @@ import {
   aiClipCostCents,
   aiClipCredits,
   aiDraftCostCents,
+  aiOmniCostCents,
   aiFinalCredits,
   aiShotSchema,
   parseStoredAiShot,
@@ -730,9 +731,11 @@ async function aiShotQuote(workspaceId: string, input: { durationSeconds: 4 | 8;
     const voiced = Boolean(stored.data.voice && stored.data.line);
     return { durationSeconds: seconds, credits: aiFinalCredits(seconds, voiced, draft.credits), costCents: aiClipCostCents(seconds, voiced), voiced };
   }
-  if (input.quality === "draft") return { durationSeconds: input.durationSeconds, credits: AI_DRAFT_CREDITS, costCents: aiDraftCostCents(input.durationSeconds), voiced: false };
+  // An Omni take is priced at Omni's rate, as createAiGeneration reserves it (ADR 0105); the credits are the same.
+  const omni = input.shot?.engine === "omni";
+  if (input.quality === "draft") return { durationSeconds: input.durationSeconds, credits: AI_DRAFT_CREDITS, costCents: omni ? aiOmniCostCents(input.durationSeconds, "draft") : aiDraftCostCents(input.durationSeconds), voiced: false };
   const voiced = Boolean(input.shot?.voice && input.shot.line);
-  return { durationSeconds: input.durationSeconds, credits: aiClipCredits(input.durationSeconds, voiced), costCents: aiClipCostCents(input.durationSeconds, voiced), voiced };
+  return { durationSeconds: input.durationSeconds, credits: aiClipCredits(input.durationSeconds, voiced), costCents: omni ? aiOmniCostCents(input.durationSeconds, "final") : aiClipCostCents(input.durationSeconds, voiced), voiced };
 }
 
 const generateAiShot: ToolSpec = {

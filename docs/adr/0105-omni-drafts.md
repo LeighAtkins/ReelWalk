@@ -93,6 +93,19 @@ project needs the Generative Language API enabled. No key is created or stored.
 
 Either way, turning it on is one line in the ops checkout's `terraform.tfvars`, then the usual `bash infra/deploy.sh`.
 
+## Amendment: refusals are refusals (2026-11-01, first live take)
+
+The first live Omni draft was refused with HTTP 403, and the take was left UNRESOLVED with its credit held. Veo's rule
+counts a submission as refused only when the error names a rejection code; the Interactions endpoint's 403 named none.
+
+- For Omni, any 4xx except a timeout is a refusal (`omniRefused`), and so is a request that never left because the
+  worker had no credentials to sign it (`OmniNotSent`). Both return the credit.
+- The error now carries Google's codes, never its text: the canonical status and the details' reasons, such as
+  `SERVICE_DISABLED`, `ACCESS_TOKEN_SCOPE_INSUFFICIENT` or `IAM_PERMISSION_DENIED`, or `NON_JSON_BODY` when the body is
+  not JSON. The next refusal names what to fix.
+
+The organisation's policy disallows API keys, so Omni runs only with the worker's own Google credentials.
+
 ## Not in this step
 
 1. A live comparison of Omni and Veo on the same flight. The worker's first Omni take is the first real request, so

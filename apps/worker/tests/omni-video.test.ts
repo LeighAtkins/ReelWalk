@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { omniConfigured, omniHeaders, omniRequest, videoOf } from "../src/omni-video";
+import { OmniNotSent, errorCodes, omniConfigured, omniHeaders, omniRefused, omniRequest, videoOf } from "../src/omni-video";
+import { VertexError } from "../src/vertex-video";
 
 const jpeg = (tag: string) => ({ bytesBase64Encoded: tag, mimeType: "image/jpeg" });
 
@@ -53,5 +54,24 @@ describe("omniHeaders", () => {
     expect(await omniHeaders("", async () => "ya29.token")).toEqual({ Authorization: "Bearer ya29.token", "x-goog-user-project": "reelwalk-prod" });
     await expect(omniHeaders("", async () => null)).rejects.toThrow(/no API key and no Google credentials/);
     if (before === undefined) delete process.env.GOOGLE_CLOUD_PROJECT; else process.env.GOOGLE_CLOUD_PROJECT = before;
+  });
+});
+
+describe("Omni refusals", () => {
+  it("reads Google's status and reasons from an error body, never its text", () => {
+    expect(errorCodes({ error: { code: 403, status: "PERMISSION_DENIED", message: "secret-ish text", details: [{ "@type": "x", reason: "SERVICE_DISABLED" }, { reason: "not a code" }] } }))
+      .toEqual({ status: "PERMISSION_DENIED", reasons: ["SERVICE_DISABLED"] });
+    expect(errorCodes("<html>")).toEqual({ reasons: [] });
+  });
+  it("counts any 4xx but a timeout, and a request that never left, as nothing made", () => {
+    expect(omniRefused(new VertexError("Gemini returned HTTP 403.", 403))).toBe(true);
+    expect(omniRefused(new VertexError("x", 400, "INVALID_ARGUMENT"))).toBe(true);
+    expect(omniRefused(new VertexError("x", 408))).toBe(false);
+    expect(omniRefused(new VertexError("x", 503))).toBe(false);
+    expect(omniRefused(new Error("socket hang up"))).toBe(false);
+    expect(omniRefused(new OmniNotSent("no credentials"))).toBe(true);
+  });
+  it("signals a credential failure as never sent", async () => {
+    await expect(omniHeaders("", async () => { throw new Error("token exchange failed"); })).rejects.toBeInstanceOf(OmniNotSent);
   });
 });

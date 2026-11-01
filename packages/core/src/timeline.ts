@@ -1,4 +1,5 @@
 import { walkInto } from "./walk";
+import { NAMED_EFFECTS } from "./title-effects";
 import { z } from "zod";
 import { cameraSchema } from "./camera";
 import { headLockSchema, normaliseHeadLockWindow } from "./head-lock";
@@ -87,7 +88,8 @@ export const TEXT_STYLES = ["plain", "box", "outline", "headline", "elegant", "t
  * a soft blur. "blurQuick" (ADR 0089) is the keyword arrival measured in the owner's reference reel: out of an 8 px
  * blur in 200 ms, no drift, gone in 150 ms.
  */
-export const TEXT_ANIMATIONS = ["auto", "pop", "fade", "rise", "type", "none", "fadeQuick", "maskUp", "trackIn", "blurIn", "blurQuick"] as const;
+/** The sixteen named effects (ADR 0103) follow ReelWalk's own arrivals. */
+export const TEXT_ANIMATIONS = ["auto", "pop", "fade", "rise", "type", "none", "fadeQuick", "maskUp", "trackIn", "blurIn", "blurQuick", ...NAMED_EFFECTS] as const;
 /** Particle kinds a title can carry (ADR 0055). */
 export const PARTICLE_KINDS = ["snow", "embers", "dust"] as const;
 export type ParticleKind = (typeof PARTICLE_KINDS)[number];

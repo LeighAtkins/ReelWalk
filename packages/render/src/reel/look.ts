@@ -161,6 +161,23 @@ export const TEXT_ANIMATION_LABELS: Record<TextAnimation, string> = {
   trackIn: "Track in",
   blurIn: "Blur in",
   blurQuick: "Quick blur",
+  // The sixteen effects (ADR 0103), in their families.
+  dotHop: "Dot hop",
+  rollout: "Rollout",
+  slingshot: "Slingshot",
+  splits: "Splits",
+  timelineScrub: "Timeline scrub",
+  tracedOutline: "Traced outline",
+  orbitRing: "Orbit ring",
+  pluckedString: "Plucked string",
+  stickerStack: "Sticker stack",
+  oneBigSlam: "One big slam",
+  tumblingLetters: "Tumbling letters",
+  heavyLanding: "Heavy landing",
+  pixelSwarm: "Pixel swarm",
+  pixelRain: "Pixel rain",
+  mosaicResolve: "Mosaic resolve",
+  ledScoreboard: "LED scoreboard",
 };
 
 /** Lacquer, the brand's one accent, for the status sticker. */

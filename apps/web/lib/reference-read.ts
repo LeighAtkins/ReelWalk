@@ -1,5 +1,5 @@
 import {
-  EFFECT_FAMILIES, EFFECT_NOTES, parseReferenceRead, REFERENCE_READ_JSON_SCHEMA, TEXT_ANIMATIONS,
+  EFFECT_FAMILIES, EFFECT_NOTES, isNamedEffect, parseReferenceRead, REFERENCE_READ_JSON_SCHEMA, TEXT_ANIMATIONS,
   type NamedEffect, type ReferenceAnalysis, type ReferenceRead,
 } from "@reelwalk/core";
 import { structuredAnswer, type AiUsage } from "./openai";
@@ -11,7 +11,7 @@ import { structuredAnswer, type AiUsage } from "./openai";
  * request per reading. Kept free of Next.js: the worker imports it.
  */
 
-const OWN_EFFECTS = TEXT_ANIMATIONS.filter((a) => a !== "auto");
+const OWN_EFFECTS = TEXT_ANIMATIONS.filter((a) => a !== "auto" && !isNamedEffect(a));
 
 export const REFERENCE_READ_INSTRUCTIONS = [
   "You read a short vertical video's on-screen text from its keyframes and describe its style so another video can follow it.",

@@ -100,3 +100,4 @@ export * from "./retention";
 export * from "./look";
 export * from "./stock";
 export * from "./style-recipe";
+export * from "./title-effects";

@@ -157,6 +157,7 @@ import { energiesOf, measureAssetMotion, measureClipMotion } from "./clip-energy
 import { useAutosave } from "./use-autosave";
 import { AiVideoPanel } from "../ai-video-panel";
 import { Sheet } from "./sheets";
+import { BoardSheet } from "./board-sheet";
 import type { InspectSource } from "./inspect";
 
 // The Player only runs in the browser.
@@ -188,6 +189,7 @@ type SheetName =
   | "music"
   | "zoom"
   | "logo"
+  | "board"
   | "hook"
   | "caption"
   | "export"
@@ -1396,6 +1398,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
     details: { icon: <DetailsIcon />, onClick: () => setSheet("details") },
     caption: { icon: <CaptionIcon />, onClick: () => setSheet("caption") },
     logo: { icon: <LogoIcon />, onClick: () => setSheet("logo"), disabled: !hasClips, pressed: timeline.logo !== null },
+    board: { icon: <LogoIcon />, onClick: () => setSheet("board"), disabled: !hasClips, pressed: Boolean(timeline.board) },
     plan: { icon: <PlanIcon />, onClick: () => setSheet("plan") },
     "ai-video": { icon: <MotionIcon />, onClick: () => { setAiMove(null); setSheet("ai-video"); } },
     director: { icon: <AskIcon />, onClick: () => setSheet("director"), disabled: !hasClips },
@@ -2085,6 +2088,15 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
             setLibrary((current) => ({ ...current, [asset.id]: asset }));
             return asset;
           }}
+          onClose={closeSheet}
+        />
+      ) : null}
+
+      {sheet === "board" ? (
+        <BoardSheet
+          timeline={timeline}
+          library={library}
+          onChange={(board) => runCommand({ type: "setBoard", board }, "board").rejected ?? null}
           onClose={closeSheet}
         />
       ) : null}

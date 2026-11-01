@@ -44,6 +44,7 @@ import { Watermark } from "./Watermark";
 import { PersonMatteView } from "./PersonMatte";
 import { ObjectMatteView } from "./ObjectMatte";
 import { HookView } from "./HookView";
+import { BoardView } from "./BoardView";
 
 /**
  * The clip's colour match (ADR 0070) as an SVG filter the CSS `filter: url(#…)`
@@ -811,6 +812,12 @@ export const ReelComposition: React.FC<ReelProps> = ({ timeline, assets, waterma
           <LightLeakOverlay />
         </Sequence>
       ))}
+      {/* A board of panels (ADR 0106): over the footage, under the titles, so a hook line can still sit on it. */}
+      {timeline.board ? (
+        <Sequence from={Math.round((timeline.board.startMs * fps) / 1000)} durationInFrames={Math.max(1, Math.round(((timeline.board.endMs - timeline.board.startMs) * fps) / 1000))} name="board">
+          <BoardView board={timeline.board} assets={assets} />
+        </Sequence>
+      ) : null}
       <PlanOverlayView timeline={timeline} />
       {/* Titles and what stands in front of them, bottom to top (ADR 0046): each title's occluders draw above
           that title only; the presenter above the "behind" titles, a plain caption above every matte. */}

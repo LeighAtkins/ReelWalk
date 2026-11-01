@@ -381,6 +381,17 @@ variable "sync_api_key" {
   default   = ""
   sensitive = true
 }
+# Gemini Omni Flash (ADR 0105). Either turn it on with the worker's own Google credentials (the ones Veo uses; the
+# project needs the Generative Language API enabled), or give a paid-tier Gemini API key, used only by the worker.
+variable "omni_enabled" {
+  type    = bool
+  default = false
+}
+variable "gemini_api_key" {
+  type      = string
+  default   = ""
+  sensitive = true
+}
 # "melotts:<lang>" or "aura-1:<speaker>"; the same voice on every take.
 variable "presenter_voice" {
   type    = string

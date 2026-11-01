@@ -1,13 +1,14 @@
 import { createHash } from "node:crypto";
 import {
   MOVES, PLAN_LIMITS, PLAN_MOTIONS, SHOT_PLAN_JSON_SCHEMA, acceptTake, describeRecipe, parsePlannedShots, planBlocked, planCredits, planIssues, planStateSchema,
-  requestRedo, shotPlanSchema, styleRecipeSchema, type PlanIssue, type PlanState, type ShotPlan,
+  finalizePlan, planEngine, planPhase, requestRedo, shotPlanSchema, styleRecipeSchema, type PlanIssue, type PlanState, type ShotPlan,
 } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
 import { z } from "zod";
 import { structuredAnswer } from "./openai";
 import { mediaScope } from "./media-scope";
 import { toLibraryAssets } from "./library";
+import { aiOmniConfigured } from "./ai-video";
 
 /**
  * Shot plans (ADR 0104): the owner describes a sequence; Claude plans it shot by shot (start and end frames, camera
@@ -28,6 +29,7 @@ export const SHOT_PLAN_INSTRUCTIONS = [
   "Frames: describe each start and end frame as one concrete still: where the camera stands and looks, what is in frame left to right, the light, and where the presenter is and how big (waist-up, full length). source keyframe means a still is made for it (or use one of the given footage frames by its assetId and atMs). source previous means the shot starts exactly on the previous shot's end frame (only when the previous transition is continuous). An end may be free (the take decides) only when the next shot cuts away.",
   "Transitions: continuous means no visible cut: the next shot starts on this shot's last frame and carries the same move on (a flight through several rooms in chunks; prefer this for fly-throughs, it is the most reliable join). cut is a hard cut to another room or angle. match-cut keeps the same camera move across a cut. whip is a fast pan out of this shot and into the next, and needs direction: both shots must turn that way (a whip right needs pan-right at the end of this shot and the start of the next). speed-ramp needs a moving camera that speeds into the cut. dissolve is rare (two at most).",
   "Rules the owner enforces, all of them: (1) Variety: never two shots of roughly the same view; each shot is a different room or a clearly different point of view. Never plan one shot cut into two. (2) The transition must match the camera move: never plan a spin or whip the camera does not make. (3) A reveal is a reveal: when a shot reveals something (the chandelier, the view), say so in reveals, and frame every earlier shot so it is NOT in view (turn the presenter away from it, frame tighter, put it behind the camera). (4) The hook is the first shot: it earns the first second (the presenter's line or a striking move), and something changes inside the first second. (5) Momentum: to build speed, speed up a moving shot into a speed-ramp or carry a flight on continuously; never repeat a view to fake pace. (6) Real scale and space: the camera moves through real openings, not walls; keep the architecture consistent from shot to shot.",
+  "What the video models refuse or get wrong, learned the hard way: never use the word nude in any sense (say beige or skin-tone) and do not describe revealing clothing or bodies; describe the presenter by hair, make-up, jewellery and a tailored outfit. An end frame must show the same place as its start frame, including whatever is visible through doorways, arches and windows in the start frame: a contradiction makes the model morph one room into another mid-shot. Describe one real property, the same materials in every shot.",
   "look is one sentence describing the place and light, repeated word for word in every still and take (materials, palette, time of day). outfit is what the presenter wears, word for word in every shot she is in, or null when she is not in the plan.",
   `Keep it to ${PLAN_LIMITS.shots} shots and ${PLAN_LIMITS.totalSeconds} s at most; most reels are 4 to 8 shots and 15 to 30 s.`,
   `Camera motions: ${PLAN_MOTIONS.join(", ")}. Named moves: ${MOVES.map((m) => `${m.id} (${m.blurb})`).join("; ")}.`,
@@ -78,6 +80,8 @@ const SHOT_PLAN_SCHEMA = () => JSON.parse(JSON.stringify(SHOT_PLAN_JSON_SCHEMA))
 export type ShotPlanView = {
   id: string; brief: string; status: string; waitingFor: string | null; approval: string; budgetCredits: number;
   plan: ShotPlan; state: PlanState; issues: PlanIssue[]; credits: { once: number; withRetakes: number; spent: number };
+  /** Which model makes the takes, and whether the plan is still in drafts (ADR 0105). */
+  engine: "veo" | "omni"; phase: "draft" | "final";
   reelId: string | null; error: string | null; createdAt: string; updatedAt: string;
 };
 
@@ -89,7 +93,8 @@ export function planView(row: Row): ShotPlanView {
   const spent = Object.values(state.shots).reduce((sum, s) => sum + s.takes.reduce((t, take) => t + (take.assetId ? take.credits : 0), 0), 0);
   return {
     id: row.id, brief: row.brief, status: row.status, waitingFor: row.waitingFor, approval: row.approval, budgetCredits: row.budgetCredits,
-    plan, state, issues: (row.issues as PlanIssue[] | null) ?? planIssues(plan), credits: { ...planCredits(plan), spent },
+    plan, state, issues: (row.issues as PlanIssue[] | null) ?? planIssues(plan), credits: { ...planCredits(plan, planEngine(state)), spent },
+    engine: planEngine(state), phase: planPhase(state),
     reelId: row.reelId, error: row.error, createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString(),
   };
 }
@@ -121,9 +126,12 @@ export async function createShotPlan(user: { id: string; workspaceId: string }, 
     brief, presenter: Boolean(presenter), recipe: recipe ? describeRecipe(recipe) : null,
     footage: assets.map((a) => ({ id: a.id, label: a.room ?? a.fileName, kind: a.kind, durationMs: a.durationMs })),
   }, ask);
-  const budget = input.budgetCredits ?? planCredits(plan).withRetakes;
+  const engine = input.engine ?? (aiOmniConfigured() ? "omni" : "veo");
+  if (engine === "omni" && !aiOmniConfigured()) throw new ShotPlanError("Gemini Omni is not set up on this deployment yet; plan with Veo.");
+  const budget = input.budgetCredits ?? planCredits(plan, engine).withRetakes;
+  const state = planStateSchema.parse({ engine, phase: engine === "omni" ? "draft" : "final" });
   const row = await prisma.shotPlan.create({ data: {
-    workspaceId: user.workspaceId, createdById: user.id, brief, plan: plan as never, state: planStateSchema.parse({}) as never, issues: issues as never,
+    workspaceId: user.workspaceId, createdById: user.id, brief, plan: plan as never, state: state as never, issues: issues as never,
     approval: input.approval ?? "storyboard", budgetCredits: Math.max(1, Math.min(500, Math.round(budget))), presenterId: presenter?.id ?? null,
   } });
   return planView(row);
@@ -136,6 +144,7 @@ export const planActionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("accept_take"), shotId, aiShotId: z.string().min(1).max(64) }),
   z.object({ action: z.literal("redo"), shotId, note: z.string().trim().max(400).optional() }),
   z.object({ action: z.literal("stop") }),
+  z.object({ action: z.literal("finalize") }),
   z.object({ action: z.literal("edit"), plan: z.unknown() }),
 ]);
 export type PlanAction = z.infer<typeof planActionSchema>;
@@ -147,6 +156,8 @@ export const createPlanSchema = z.object({
   referenceId: z.string().min(1).max(64).nullish(),
   mediaIds: z.array(z.string().min(1).max(64)).max(20).optional(),
   budgetCredits: z.number().int().min(1).max(500).optional(),
+  /** omni: 360p drafts first, final only once the owner confirms the draft reel (ADR 0105). Default: omni where it is set up. */
+  engine: z.enum(["veo", "omni"]).optional(),
 });
 
 /**
@@ -174,6 +185,10 @@ export async function actOnShotPlan(workspaceId: string, id: string, act: PlanAc
       return save({ state: requestRedo(view.plan, view.state, act.shotId, act.note?.slice(0, 400)).state as never, status: "running", waitingFor: null });
     case "stop":
       return save({ status: "stopped", waitingFor: null });
+    case "finalize":
+      // The owner confirmed the whole draft reel (ADR 0105): every shot is made again at full resolution and checked.
+      if (view.waitingFor !== "draft-review") throw new ShotPlanError("Finalise once the draft reel is assembled and waiting for your review.");
+      return save({ state: finalizePlan(view.plan, view.state) as never, status: "running", waitingFor: null });
     case "edit": {
       if (Object.values(view.state.shots).some((s) => s.takes.length > 0)) throw new ShotPlanError("Takes have been made; redo a shot instead of editing the plan.");
       const plan = shotPlanSchema.parse(act.plan);

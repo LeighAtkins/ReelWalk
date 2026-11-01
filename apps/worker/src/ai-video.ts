@@ -4,17 +4,19 @@ import path from "node:path";
 import { GetObjectCommand, PutObjectCommand, type S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { claimAiGeneration, failAiGeneration, prisma } from "@reelwalk/db";
-import { VertexError, VertexVideo, definitelyRejected } from "./vertex-video";
-import { aiThumbnail } from "./ai-thumbnail";
+import { VertexError, VertexVideo, definitelyRejected, vertexAuth } from "./vertex-video";
+import { aiThumbnail, videoDurationMs } from "./ai-thumbnail";
+import { OMNI_OPERATION, OmniVideo } from "./omni-video";
 import { aiFrames, decodeFrame, keyframes, type DecodedFrame } from "./ai-frames";
 import { VertexImages, type InlineImage } from "./vertex-images";
 import { fetchVideo, lipsyncConfigured, pollLipsync, presenterVoice, startLipsync, synthesiseLine, voicedPrompt } from "./voice";
 import { transcribeVideo, transcriptionAvailable } from "./transcribe";
 import { faceTrackOfTake } from "./take-face";
-import { clipSchema, escalateFraming, insertAiShot, isVoiceId, lineTrim, parseStoredAiShot, speakingFraming, timelineSchema, type AiShot, type PresenterFraming } from "@reelwalk/core";
+import { AI_OMNI_RESOLUTION, aiTakeSize, isOmniModel, clipSchema, escalateFraming, insertAiShot, isVoiceId, lineTrim, parseStoredAiShot, speakingFraming, timelineSchema, type AiShot, type PresenterFraming } from "@reelwalk/core";
 import { identityDecision, identityRejectionMessage, minFacePx, speakingEnd, type IdentityVerdict, type LocateAttempt } from "./identity";
 
 let provider: VertexVideo | undefined;
+let omni: OmniVideo | undefined;
 let images: VertexImages | undefined;
 const inline = (frame?: DecodedFrame): InlineImage | undefined => frame && { bytesBase64Encoded: frame.bytesBase64Encoded, mimeType: frame.mimeType };
 type Job = NonNullable<Awaited<ReturnType<typeof claimAiGeneration>>>;
@@ -25,7 +27,8 @@ type TakeVoice = { line: string; mode: "lipsync" | "veo"; voiceId?: string };
 /** The spoken line, voice mode and chosen voice of a take, when it has one (ADR 0038, ADR 0100). */
 function voiceOf(shot: AiShot | undefined): TakeVoice | null {
   // A draft (ADR 0076) is a silent preview: the voice is made, and paid for, with the final.
-  return shot?.line && shot.voice && shot.tier !== "draft" ? { line: shot.line, mode: shot.voice, ...(shot.voiceId ? { voiceId: shot.voiceId } : {}) } : null;
+  // An Omni draft keeps its line (ADR 0105): Omni makes the sound with the picture, and the owner reviews the draft with it.
+  return shot?.line && shot.voice && (shot.tier !== "draft" || shot.engine === "omni") ? { line: shot.line, mode: shot.voice, ...(shot.voiceId ? { voiceId: shot.voiceId } : {}) } : null;
 }
 
 /** A stored shot that asked for speech but no longer reads back (a voice since withdrawn): never submit it silent. */
@@ -111,6 +114,16 @@ export async function processAiVideo(s3: S3Client, bucket: string): Promise<bool
         return true;
       }
       const prompt = voice ? voicedPrompt(job.prompt, voice.line, voice.mode) : job.prompt;
+      // An Omni take carrying on from an earlier one (ADR 0105) names that take's interaction.
+      let previousInteractionId: string | undefined;
+      if (shot.success && shot.data.extendOf) {
+        const source = await prisma.aiGeneration.findFirst({ where: { id: shot.data.extendOf, workspaceId: job.workspaceId, status: "SUCCEEDED" }, select: { operationName: true } });
+        if (!source?.operationName?.startsWith(OMNI_OPERATION)) {
+          await refund(job, "The take to carry on from is no longer available. Your credit was returned.");
+          return true;
+        }
+        previousInteractionId = source.operationName.slice(OMNI_OPERATION.length);
+      }
       clearInterval(heartbeat); heartbeat = undefined;
       // The fence: only the lease holder of a row nobody has refunded may pay, and it says so before it does.
       const fenced = await prisma.aiGeneration.updateMany({ where: { id: job.id, leaseToken: job.leaseToken, status: "SUBMITTING", submitStartedAt: null },
@@ -122,7 +135,9 @@ export async function processAiVideo(s3: S3Client, bucket: string): Promise<bool
       sent = true;
       let operationName: string;
       try {
-        operationName = await provider.submit(job.model, job.durationSeconds, prompt, image, lastFrame, voice?.mode === "veo", ...(seed === undefined ? [] : [seed] as const));
+        operationName = isOmniModel(job.model)
+          ? await (omni ??= new OmniVideo(undefined, vertexAuth(s3.config.credentials))).submit({ model: job.model, prompt, resolution: AI_OMNI_RESOLUTION[shot.success && shot.data.tier === "draft" ? "draft" : "final"], durationSeconds: job.durationSeconds, image, lastFrame, previousInteractionId })
+          : await provider.submit(job.model, job.durationSeconds, prompt, image, lastFrame, voice?.mode === "veo", ...(seed === undefined ? [] : [seed] as const));
       } catch (error) {
         if (definitelyRejected(error)) {
           // Google refused it outright: nothing was made, so the credit and budget go back.
@@ -156,7 +171,7 @@ export async function processAiVideo(s3: S3Client, bucket: string): Promise<bool
         }
         return true;
       }
-      const result = await provider.poll(job.model, job.operationName);
+      const result = isOmniModel(job.model) ? await (omni ??= new OmniVideo(undefined, vertexAuth(s3.config.credentials))).poll(job.operationName) : await provider.poll(job.model, job.operationName);
       if (result.error) {
         await failAiGeneration(prisma, job.id, result.error);
       } else if (result.video) {
@@ -408,8 +423,10 @@ async function finish(s3: S3Client, bucket: string, job: Job, video: Buffer, sho
   const thumbnail = await aiThumbnail(video);
   await s3.send(new PutObjectCommand({ Bucket: bucket, Key: thumbKey, Body: thumbnail, ContentType: "image/jpeg" }));
   const words = voice ? await transcript(video, job.id) : null;
+  // Measured, not assumed: an Omni take is as long as the prompt made it (ADR 0105).
+  const durationMs = (await videoDurationMs(video)) ?? job.durationSeconds * 1000;
   // The auto-trim (ADR 0069): where the line sits in the take, and whether the take said it; only when words were heard.
-  const take = voice && words ? lineTrim(words, voice.line, job.durationSeconds * 1000) : null;
+  const take = voice && words ? lineTrim(words, voice.line, durationMs) : null;
   const transcriptRecord = words ? { ...words, ...(take ? { take } : {}) } : null;
   if (take) console.log(`ai-video: ${job.id}: line trim ${take.startMs}-${take.endMs} ms, distance ${take.distance}${take.wrongWords ? `, WRONG WORDS: heard "${take.heard}"` : ""}`);
   // Where her face goes through a presenter take, so keyword lockups follow her head (ADR 0089 round 3).
@@ -424,8 +441,8 @@ async function finish(s3: S3Client, bucket: string, job: Job, video: Buffer, sho
     await tx.mediaAsset.upsert({ where: { objectKey }, update: { thumbKey }, create: {
       id: `ai-${job.id}`, workspaceId: job.workspaceId, kind: "VIDEO", objectKey, thumbKey, previewKey: objectKey,
       contentType: "video/mp4", fileName: `${draft ? "AI draft" : "AI shot"} — ${voice ? `"${voice.line.slice(0, 40)}"` : job.prompt.slice(0, 60)}${note === "silent" ? " (silent)" : ""}.mp4`,
-      sizeBytes: BigInt(video.length), durationMs: job.durationSeconds * 1000, width: draft ? 720 : 1080, height: draft ? 1280 : 1920,
-      attribution: "AI-generated with Google Veo",
+      sizeBytes: BigInt(video.length), durationMs, ...aiTakeSize(job.model, draft ? "draft" : "final"),
+      attribution: isOmniModel(job.model) ? "AI-generated with Google Gemini Omni" : "AI-generated with Google Veo",
       ...(transcriptRecord ? { transcript: transcriptRecord as never } : {}),
     } });
     if (shot?.draftReelId) {
@@ -433,7 +450,7 @@ async function finish(s3: S3Client, bucket: string, job: Job, video: Buffer, sho
       const parsed = timelineSchema.safeParse(source?.timeline);
       if (source && parsed.success) {
         const timeline = parsed.data;
-        const clip = clipSchema.parse({ id: `ai-insert-ai-${job.id}`, assetId: `ai-${job.id}`, kind: "VIDEO", sourceStartMs: 0, sourceEndMs: job.durationSeconds * 1000 });
+        const clip = clipSchema.parse({ id: `ai-insert-ai-${job.id}`, assetId: `ai-${job.id}`, kind: "VIDEO", sourceStartMs: 0, sourceEndMs: durationMs });
         const next = insertAiShot(timeline, clip, shot);
         // A changed/deleted boundary leaves the clip in the library for review.
         if (next !== timeline) await tx.reel.upsert({ where: { id: `ai-promo-${job.id}` }, update: {}, create: {

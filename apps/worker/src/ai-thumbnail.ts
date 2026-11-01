@@ -23,3 +23,19 @@ export async function aiThumbnail(video: Buffer): Promise<Buffer> {
     await rm(directory, { recursive: true, force: true });
   }
 }
+
+/** A take's real length in ms (an Omni take's length is asked for in words, so it is measured, ADR 0105); null when unreadable. */
+export async function videoDurationMs(video: Buffer): Promise<number | null> {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "reelwalk-ai-probe-"));
+  try {
+    const input = path.join(directory, "input.mp4");
+    await writeFile(input, video);
+    const { stdout } = await run("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", input], { timeout: 30_000, windowsHide: true });
+    const seconds = Number(String(stdout).trim());
+    return Number.isFinite(seconds) && seconds > 0 ? Math.round(seconds * 1000) : null;
+  } catch {
+    return null;
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}

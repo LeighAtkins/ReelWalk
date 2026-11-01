@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { aiClipCredits } from "./ai";
+import { AI_DRAFT_CREDITS, aiClipCredits } from "./ai";
 import { rampPreset } from "./ramp";
 import { addClips, clipSchema, emptyTimeline, type Timeline } from "./timeline";
 import { MOVE_IDS } from "./moves";
@@ -292,6 +292,8 @@ export const takeSchema = z.object({
   /** The owner's own note for a redo. */
   note: z.string().max(400).optional(),
   credits: z.number().int().min(0).default(0),
+  /** A 360p draft made for the owner's review, or a final (ADR 0105). */
+  tier: z.enum(["draft", "final"]).optional(),
 });
 export type PlanTake = z.infer<typeof takeSchema>;
 
@@ -303,6 +305,8 @@ export const shotStateSchema = z.object({
   redo: z.object({ note: z.string().max(400).optional() }).optional(),
   /** Takes before this index were before the last redo: the attempts count from here. */
   attemptsFrom: z.number().int().min(0).default(0),
+  /** The draft the owner approved, kept when the plan goes final (ADR 0105). */
+  draftAiShotId: z.string().optional(),
 });
 export type ShotState = z.infer<typeof shotStateSchema>;
 
@@ -313,6 +317,13 @@ export const planStateSchema = z.object({
   reelId: z.string().optional(),
   /** The reel holds every accepted take (false again after a redo). */
   assembled: z.boolean().default(false),
+  /**
+   * Which model makes the takes, and where the plan is (ADR 0105). With Omni the plan is made first as 360p drafts, the
+   * owner reviews the assembled draft reel and asks for changes, and only when they confirm it is every shot made again
+   * at 1080p ("final"). A Veo plan is final from the start.
+   */
+  engine: z.enum(["veo", "omni"]).optional(),
+  phase: z.enum(["draft", "final"]).optional(),
 });
 export type PlanState = z.infer<typeof planStateSchema>;
 
@@ -325,7 +336,7 @@ export type PlanRunOptions = {
 
 export type PlanStep =
   | { kind: "keyframes"; frames: { shotId: string; end: "start" | "end" }[] }
-  | { kind: "wait"; reason: "storyboard" | "take-approval" | "take-failed" | "generating" | "budget"; shotId?: string }
+  | { kind: "wait"; reason: "storyboard" | "take-approval" | "take-failed" | "generating" | "budget" | "draft-review"; shotId?: string }
   | { kind: "take"; shotId: string; attempt: number; note: string }
   | { kind: "check"; shotId: string; aiShotId: string }
   | { kind: "assemble" }
@@ -368,7 +379,58 @@ export function nextPlanStep(plan: ShotPlan, state: PlanState, options: PlanRunO
     const note = [s.redo?.note, lastVerdict ? retryNote(shot, lastVerdict) : ""].filter(Boolean).join(" ");
     return { kind: "take", shotId: shot.id, attempt: s.redo ? 1 : attempts + 1, note };
   }
-  return state.assembled ? { kind: "done" } : { kind: "assemble" };
+  if (!state.assembled) return { kind: "assemble" };
+  // The draft reel is the owner's to review: changes are redos, and only their confirmation makes it final.
+  return planPhase(state) === "draft" ? { kind: "wait", reason: "draft-review" } : { kind: "done" };
+}
+
+/** Where the plan is (absent: final, as every plan before ADR 0105) and which model makes its takes (absent: Veo). */
+export const planPhase = (state: Pick<PlanState, "phase">) => state.phase ?? "final";
+export const planEngine = (state: Pick<PlanState, "engine">) => state.engine ?? "veo";
+
+/** What a take costs in the plan's current phase: a draft is one credit, a final its length and voice. */
+export const phaseCredits = (state: Pick<PlanState, "phase">) => (shot: Pick<PlanShot, "seconds" | "line">) =>
+  planPhase(state) === "draft" ? AI_DRAFT_CREDITS : shotCredits(shot);
+
+/**
+ * The owner confirmed the draft reel (ADR 0105): every shot is made again at full resolution, in order, and checked as
+ * before; continuing shots continue from the finals. The approved drafts are kept beside them.
+ */
+export function finalizePlan(plan: ShotPlan, state: PlanState): PlanState {
+  if (planPhase(state) !== "draft") throw new Error("The plan is already final.");
+  const missing = plan.shots.filter((s) => !state.shots[s.id]?.acceptedAiShotId);
+  if (missing.length) throw new Error(`Every shot needs an approved draft first (${missing.map((s) => s.id).join(", ")}).`);
+  const shots = Object.fromEntries(plan.shots.map((shot) => {
+    const s = state.shots[shot.id]!;
+    return [shot.id, { ...s, draftAiShotId: s.acceptedAiShotId, acceptedAiShotId: undefined, redo: undefined, attemptsFrom: s.takes.length }];
+  }));
+  return { ...state, shots, phase: "final", assembled: false };
+}
+
+/** Speech that ends closer than this to a take's end makes extending from it run the words on (the owner's warning). */
+export const EXTEND_SPEECH_CLEARANCE_MS = 3000;
+
+/**
+ * Whether a continuing shot should carry on from the previous take with Omni's scene extension (the footage before as
+ * context, the best guard against drift) or start fresh from that take's last frame as a still. Extension only when:
+ * the plan runs on Omni; the shot starts from the previous shot and has no planned end still (extension takes no end
+ * frame); and the previous take has no speech in its last few seconds, since extending a voiced take makes up words
+ * at the end. Returns the take to extend, or null.
+ */
+export function extendFrom(plan: ShotPlan, state: PlanState, shotId: string, takeInfo: (aiShotId: string) => { durationMs: number; speechEndMs: number | null } | null): string | null {
+  if (planEngine(state) !== "omni") return null;
+  const index = plan.shots.findIndex((s) => s.id === shotId);
+  const shot = plan.shots[index];
+  if (!shot || index === 0 || shot.start.source !== "previous" || shot.end.source !== "free") return null;
+  const prev = plan.shots[index - 1];
+  const accepted = state.shots[prev.id]?.acceptedAiShotId;
+  const info = accepted ? takeInfo(accepted) : null;
+  if (!accepted || !info) return null;
+  if (prev.line) {
+    // A voiced take whose speech end is unknown is treated as speaking to the end.
+    if (info.speechEndMs === null || info.durationMs - info.speechEndMs < EXTEND_SPEECH_CLEARANCE_MS) return null;
+  }
+  return accepted;
 }
 
 /** A new take started for a shot: it is recorded, and a redo it answers is used up (its attempts count afresh). */
@@ -484,6 +546,8 @@ export function planClips(plan: ShotPlan, state: PlanState, takeAsset: (aiShotId
       sourceStartMs: into === "continuous" ? 40 : 0, sourceEndMs: made.durationMs,
       speed: Math.max(0.25, Math.min(4, (made.durationMs - (into === "continuous" ? 40 : 0)) / playMs)),
       transitionIn: into === "dissolve" ? "fade" as const : "cut" as const,
+      // Only a shot with a line keeps its sound: the others' generated audio would fight the music.
+      speaks: Boolean(shot.line),
       // The shot that speeds into the cut carries the ramp (ADR 0067's into-cut).
       rampOut: shot.transitionOut.kind === "speed-ramp",
     }];
@@ -494,7 +558,7 @@ export function planClips(plan: ShotPlan, state: PlanState, takeAsset: (aiShotId
 export function planTimeline(plan: ShotPlan, state: PlanState, takeAsset: (aiShotId: string) => { assetId: string; durationMs: number } | null): Timeline {
   const clips = planClips(plan, state, takeAsset).map((c) => clipSchema.parse({
     id: `plan-${c.shotId}`, assetId: c.assetId, kind: "VIDEO", sourceStartMs: c.sourceStartMs, sourceEndMs: c.sourceEndMs,
-    speed: Number(c.speed.toFixed(3)), transitionIn: c.transitionIn, ...(c.rampOut ? { ramp: rampPreset("into-cut") } : {}),
+    speed: Number(c.speed.toFixed(3)), transitionIn: c.transitionIn, volume: c.speaks ? 1 : 0, ...(c.rampOut ? { ramp: rampPreset("into-cut") } : {}),
   }));
   return addClips(emptyTimeline(), clips);
 }
@@ -503,10 +567,14 @@ export function planTimeline(plan: ShotPlan, state: PlanState, takeAsset: (aiSho
 
 /** What one take of a shot costs: its length, plus the voice when it speaks (ADR 0038). */
 export const shotCredits = (shot: Pick<PlanShot, "seconds" | "line">) => aiClipCredits(shot.seconds, Boolean(shot.line));
-/** The plan made once with every take passing first time, and the budget that allows each shot a retake. */
-export function planCredits(plan: ShotPlan): { once: number; withRetakes: number } {
-  const once = plan.shots.reduce((sum, shot) => sum + shotCredits(shot), 0);
-  return { once, withRetakes: once * 2 };
+/**
+ * The plan made once with every take passing first time, and the budget that allows each shot a retake. On Omni that is
+ * a draft of every shot (one credit each, twice over for retakes and the owner's changes) and then one final each.
+ */
+export function planCredits(plan: ShotPlan, engine: "veo" | "omni" = "veo"): { once: number; withRetakes: number } {
+  const finals = plan.shots.reduce((sum, shot) => sum + shotCredits(shot), 0);
+  if (engine === "omni") return { once: plan.shots.length * AI_DRAFT_CREDITS + finals, withRetakes: plan.shots.length * AI_DRAFT_CREDITS * 3 + Math.ceil(finals * 1.5) };
+  return { once: finals, withRetakes: finals * 2 };
 }
 
 const nullable = (type: string | Record<string, unknown>) => (typeof type === "string" ? { type: [type, "null"] } : { anyOf: [type, { type: "null" }] });

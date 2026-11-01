@@ -92,8 +92,15 @@ export const aiShotSchema = z.object({
   mode: z.enum(AI_SHOT_MODES), first: frame.optional(), last: frame.optional(),
   /** A named camera move from the moves table (ADR 0076): its words replace the mode's own camera sentence. */
   move: z.enum(MOVE_IDS).optional(),
-  /** A draft is the cheap preview tier (ADR 0076): Veo 3.1 Lite at 720p, silent, no ending frame. Absent means a full take. */
+  /** A draft is the cheap preview tier (ADR 0076): Veo 3.1 Lite at 720p, silent, no ending frame; Omni at 360p (ADR 0105). Absent means a full take. */
   tier: z.enum(["draft", "final"]).optional(),
+  /** Which video model makes the take (ADR 0105): Veo (the default) or Gemini Omni Flash. */
+  engine: z.enum(["veo", "omni"]).optional(),
+  /**
+   * Omni only: carry on from an earlier Omni take of this workspace (its generation id), with the footage before as
+   * context, instead of from a still. Never from a take with speech near its end: the words run on (ADR 0105).
+   */
+  extendOf: z.string().min(1).max(64).optional(),
   /** The seed the take was asked for, so "Make it final" asks the closest reproducible take. Absent: the provider chose. */
   seed: z.number().int().min(0).max(4_294_967_295).optional(),
   /** On a final made from a draft: the draft's generation id, whose credit it uses. */
@@ -118,10 +125,13 @@ export const aiShotSchema = z.object({
   draftReelId: z.string().min(1).max(64).optional(),
 }).superRefine((shot, ctx) => {
   if (shot.mode !== "custom" && !shot.first) ctx.addIssue({ code: "custom", message: "Choose a source image or video." });
+  if (shot.extendOf && shot.engine !== "omni") ctx.addIssue({ code: "custom", message: "Only an Omni take can carry on from an earlier take." });
+  if (shot.extendOf && (shot.first || shot.last || shot.compose)) ctx.addIssue({ code: "custom", message: "A take that carries on from an earlier one starts where it ends: give it no frames." });
   if (aiConnectsClips(shot.mode) && !shot.last) ctx.addIssue({ code: "custom", message: "Choose an ending frame (the completed building for a construction timelapse)." });
   if (shot.last && !shot.first) ctx.addIssue({ code: "custom", message: "An ending frame needs a starting frame." });
   if (shot.move && aiConnectsClips(shot.mode)) ctx.addIssue({ code: "custom", message: "A camera move is for a single shot; a bridge, burst or construction timelapse has its own move." });
-  if (shot.tier === "draft" && shot.last) ctx.addIssue({ code: "custom", message: AI_DRAFT_NO_END_FRAME });
+  // Veo's draft model takes no ending frame; Omni's draft is the same model at 360p and does.
+  if (shot.tier === "draft" && shot.last && shot.engine !== "omni") ctx.addIssue({ code: "custom", message: AI_DRAFT_NO_END_FRAME });
   if (shot.finalOf && shot.tier === "draft") ctx.addIssue({ code: "custom", message: "A final made from a draft is not itself a draft." });
   if (shot.voice && !shot.line) ctx.addIssue({ code: "custom", message: "A voiced shot needs a line to say." });
   if (shot.voiceId !== undefined && !isVoiceId(shot.voiceId)) ctx.addIssue({ code: "custom", message: VOICE_NOT_OFFERED });

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
-  acceptPassed, checkTake, nextPlanStep, planStateSchema, planTimeline, readMotion, pickMatchingFrame, shotCredits, shotPlanSchema,
+  acceptPassed, checkTake, extendFrom, nextPlanStep, phaseCredits, planEngine, planPhase, planStateSchema, planTimeline, readMotion, pickMatchingFrame, shotPlanSchema, transcriptSchema,
   takeFrames, takePrompt, withTakeStarted, type Continuity, type Gray, type PlanShot, type PlanState, type PlanStep, type ShotPlan, type TakeMeasure,
 } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
@@ -22,7 +22,11 @@ export type PlanDeps = {
   /** Make and store one keyframe still; returns its new library asset id. */
   makeKeyframe(input: { user: PlanUser; planId: string; plan: ShotPlan; shot: PlanShot; end: "start" | "end"; presenterId: string | null }): Promise<string>;
   /** Start a take through the web's generation path; returns the generation's id and what it costs. */
-  startTake(input: { user: PlanUser; requestId: string; prompt: string; shot: PlanShot; first: FrameRef | null; last: FrameRef | null }): Promise<{ id: string; credits: number }>;
+  startTake(input: {
+    user: PlanUser; requestId: string; prompt: string; shot: PlanShot; first: FrameRef | null; last: FrameRef | null;
+    /** Which model and tier (ADR 0105), and the earlier Omni take to carry on from instead of the frames. */
+    engine: "veo" | "omni"; tier: "draft" | "final"; extendOf: string | null;
+  }): Promise<{ id: string; credits: number }>;
   /** A generation's state. */
   takeStatus(id: string): Promise<{ status: "waiting" | "succeeded" | "failed"; assetId?: string; durationMs?: number; error?: string | null }>;
   /** Grey frames of a take (72×128, 30 a second) and of a still, 0..255 as the motion code reads them. */
@@ -75,7 +79,7 @@ export async function refreshTakes(plan: ShotPlan, state: PlanState, deps: Pick<
 type Row = { id: string; workspaceId: string; approval: string; budgetCredits: number; presenterId: string | null; plan: unknown; state: unknown; reelId: string | null; createdBy: PlanUser };
 
 /** One step of a plan; returns the new state and how the plan should be left. */
-export async function runPlanStep(row: Row, plan: ShotPlan, state: PlanState, step: PlanStep, deps: PlanDeps, durations: Map<string, number>): Promise<{ state: PlanState; status?: "waiting" | "done" | "running"; waitingFor?: string; reelId?: string; delayMs?: number }> {
+export async function runPlanStep(row: Row, plan: ShotPlan, state: PlanState, step: PlanStep, deps: PlanDeps, durations: Map<string, number>, speechEnds: Map<string, number | null> = new Map()): Promise<{ state: PlanState; status?: "waiting" | "done" | "running"; waitingFor?: string; reelId?: string; delayMs?: number }> {
   const user = { ...row.createdBy, workspaceId: row.workspaceId };
   const takeAsset = (aiShotId: string) => {
     for (const shot of plan.shots) {
@@ -97,11 +101,18 @@ export async function runPlanStep(row: Row, plan: ShotPlan, state: PlanState, st
       return step.reason === "generating" ? { state, status: "running", delayMs: PLAN_POLL_MS } : { state, status: "waiting", waitingFor: step.shotId ? `${step.reason}:${step.shotId}` : step.reason };
     case "take": {
       const shot = plan.shots.find((s) => s.id === step.shotId)!;
-      const { first, last } = takeFrames(plan, state, shot.id, takeAsset);
+      const tier = planPhase(state) === "draft" ? "draft" as const : "final" as const;
+      // Carry on from the previous take with Omni's scene extension where the rule allows (never from speech near its
+      // end), else start from that take's real last frame as a still (ADR 0105).
+      const extendOf = extendFrom(plan, state, shot.id, (aiShotId) => {
+        const made = takeAsset(aiShotId);
+        return made ? { durationMs: made.durationMs, speechEndMs: speechEnds.get(made.assetId) ?? null } : null;
+      });
+      const { first, last } = extendOf ? { first: null, last: null } : takeFrames(plan, state, shot.id, takeAsset);
       const index = state.shots[shot.id]?.takes.length ?? 0;
-      const started = await deps.startTake({ user, requestId: deps.requestId(row.id, shot.id, index), prompt: takePrompt(plan, shot, step.note), shot, first, last });
-      deps.log?.(`shot-plan ${row.id}: take ${shot.id} #${step.attempt} -> ${started.id}`);
-      return { state: withTakeStarted(state, shot.id, { aiShotId: started.id, status: "queued", credits: started.credits, ...(step.note ? { note: step.note.slice(0, 400) } : {}) }), delayMs: PLAN_POLL_MS };
+      const started = await deps.startTake({ user, requestId: deps.requestId(row.id, shot.id, index), prompt: takePrompt(plan, shot, step.note), shot, first, last, engine: planEngine(state), tier, extendOf });
+      deps.log?.(`shot-plan ${row.id}: ${tier} take ${shot.id} #${step.attempt} -> ${started.id}${extendOf ? ` (extends ${extendOf})` : ""}`);
+      return { state: withTakeStarted(state, shot.id, { aiShotId: started.id, status: "queued", credits: started.credits, tier, ...(step.note ? { note: step.note.slice(0, 400) } : {}) }), delayMs: PLAN_POLL_MS };
     }
     case "check": {
       const shot = plan.shots.find((s) => s.id === step.shotId)!;
@@ -146,18 +157,22 @@ export async function processShotPlans(deps: PlanDeps): Promise<boolean> {
     let state = planStateSchema.parse(row.state ?? {});
     const options = { approval: row.approval as "auto" | "storyboard" | "each-take", budgetCredits: row.budgetCredits };
     const durations = new Map<string, number>();
+    // When each take's speech ends (its transcript's last word): extending runs a voiced take's words on (ADR 0105).
+    const speechEnds = new Map<string, number | null>();
     state = await refreshTakes(plan, state, deps);
     for (const take of Object.values(state.shots).flatMap((s) => s.takes)) {
       if (take.assetId && !durations.has(take.assetId)) {
-        const asset = await prisma.mediaAsset.findUnique({ where: { id: take.assetId }, select: { durationMs: true } });
+        const asset = await prisma.mediaAsset.findUnique({ where: { id: take.assetId }, select: { durationMs: true, transcript: true } });
         if (asset?.durationMs) durations.set(take.assetId, asset.durationMs);
+        const words = transcriptSchema.safeParse(asset?.transcript).data?.words;
+        speechEnds.set(take.assetId, words?.length ? words[words.length - 1].e : null);
       }
     }
     let status: string = "running", waitingFor: string | null = null, delayMs = 0, reelId = row.reelId;
     for (let i = 0; i < STEPS_PER_PASS; i++) {
       state = acceptPassed(plan, state, options);
-      const step = nextPlanStep(plan, state, options, shotCredits);
-      const out = await runPlanStep({ ...row, reelId }, plan, state, step, deps, durations);
+      const step = nextPlanStep(plan, state, options, phaseCredits(state));
+      const out = await runPlanStep({ ...row, reelId }, plan, state, step, deps, durations, speechEnds);
       state = out.state;
       if (out.reelId) reelId = out.reelId;
       // Save after every step: a take started is money spent, and must never be started again after a crash.

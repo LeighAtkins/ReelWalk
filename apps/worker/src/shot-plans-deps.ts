@@ -117,14 +117,16 @@ export function shotPlanDeps(s3: S3Client, bucket: string, log: (line: string) =
       });
       return id;
     },
-    async startTake({ user, requestId, prompt, shot, first, last }) {
+    async startTake({ user, requestId, prompt, shot, first, last, engine, tier, extendOf }) {
       const row = await createAiGeneration(user, {
-        requestId, prompt, durationSeconds: shot.seconds,
+        requestId, prompt, durationSeconds: shot.seconds, ...(tier === "draft" ? { quality: "draft" as const } : {}),
         shot: {
-          mode: first && last ? "bridge" : first ? "continue" : "custom",
+          mode: extendOf ? "custom" : first && last ? "bridge" : first ? "continue" : "custom",
           ...(first ? { first } : {}), ...(last ? { last } : {}),
           ...(shot.move ? { move: shot.move } : {}),
           ...(shot.line ? { line: shot.line, voice: "veo" as const } : {}),
+          ...(engine === "omni" ? { engine: "omni" as const } : {}),
+          ...(extendOf ? { extendOf } : {}),
         } as never,
       }, { exactPrompt: true });
       return { id: row.id, credits: row.credits };

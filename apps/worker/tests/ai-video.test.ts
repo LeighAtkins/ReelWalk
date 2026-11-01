@@ -7,7 +7,7 @@ const { claim, fail, frames, thumbnail, submit, poll, compose, identity, tts, st
     db: { aiGeneration: { findFirst: vi.fn(), updateMany: vi.fn() }, $transaction: vi.fn() } };
 });
 vi.mock("@reelwalk/db", () => ({ claimAiGeneration: claim, failAiGeneration: fail, prisma: db }));
-vi.mock("../src/ai-thumbnail", () => ({ aiThumbnail: thumbnail }));
+vi.mock("../src/ai-thumbnail", () => ({ aiThumbnail: thumbnail, videoDurationMs: async () => null }));
 vi.mock("../src/ai-frames", async (importOriginal) => ({ ...(await importOriginal<typeof import("../src/ai-frames")>()), aiFrames: frames }));
 vi.mock("../src/vertex-images", () => ({ VertexImages: class { compose = compose; checkIdentity = identity; } }));
 vi.mock("../src/voice", async (importOriginal) => ({ presenterVoice: (await importOriginal<typeof import("../src/voice")>()).presenterVoice, lipsyncConfigured: () => true, voicedPrompt: (p: string, l: string) => `${p} [${l}]`, synthesiseLine: tts, startLipsync: startSync, pollLipsync: pollSync, fetchVideo: fetchTake }));

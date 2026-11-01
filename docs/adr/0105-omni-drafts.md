@@ -122,6 +122,13 @@ What works within the organisation's policy:
   stored only in Parameter Store as `GEMINI_API_KEY` (from the ops `terraform.tfvars`) and never in the repository.
 - With it, the same metadata request returned 200. No organisation policy or IAM grant was changed.
 
+**Signing is not billing.** With the key in place, the first video request (a 1-credit 360p draft) was refused with
+`HTTP 402`. Per Gemini's billing documentation, that is the prepaid balance: Cloud free-trial credits are used only
+after the Gemini API prepay wallet has a positive balance, and the project's AI Studio account still had first-use
+onboarding (Gemini API and Starter Tier terms) to accept. A 402 is a refusal under `omniRefused`, so the credit comes
+back. So turning Omni on needs both the key and an active, funded Gemini billing setup, and the owner approves the
+latter. A metadata 200 does not prove that video generation works.
+
 ## Not in this step
 
 1. A live comparison of Omni and Veo on the same flight. The worker's first Omni take is the first real request, so

@@ -30,7 +30,7 @@ import { abortAfter, AttemptStopped, createAttemptScope, DEFAULT_GRACE_MS, linkA
  * "music-analysis" (ADR 0066) decodes a track with ffmpeg; "block-solve" and "block-reveal" (ADR 0093) read a drone
  * clip in 3D and draw its reveal. They run only in the worker and never call a paid provider.
  */
-export type AiStepKind = "ask" | "autopilot" | "director-review" | "music-analysis" | "block-solve" | "block-reveal" | "voiceover";
+export type AiStepKind = "ask" | "autopilot" | "director-review" | "music-analysis" | "block-solve" | "block-reveal" | "voiceover" | "reference-read";
 
 export type ClaimedStep = {
   id: string;

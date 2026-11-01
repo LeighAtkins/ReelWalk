@@ -71,6 +71,7 @@ model Workspace {
   aiGeneration String @default("on")
   funnelEvents FunnelEvent[]
   renderArtifacts RenderArtifact[]
+  styleReferences StyleReference[]
 
   // Set by the Stripe webhook from the subscription (plans in @reelwalk/core).
   plan                 Plan      @default(FREE)
@@ -602,12 +603,40 @@ model MediaAsset {
   transcript  Json?
   createdAt   DateTime    @default(now())
   renderJobs  RenderJob[]
+  // Set when this upload is a style reference (ADR 0102): read for its style, never placed in a reel.
+  styleReference StyleReference?
 
   // One copy per sound per workspace, so choosing it again reuses it.
   @@unique([workspaceId, instagramAudioId])
   @@index([workspaceId, createdAt])
   @@index([propertyId, createdAt])
   @@index([shared])
+}
+
+
+// A reel the owner downloaded (from Instagram or anywhere) and shared with ReelWalk to follow its style (ADR 0102).
+// Its footage is only read: the worker measures its cuts, motion, beat and speech, Claude reads its titles from
+// keyframes, and the result is a style recipe (styleRecipeSchema in @reelwalk/core). It is never rendered or posted.
+model StyleReference {
+  id           String     @id @default(cuid())
+  workspaceId  String
+  workspace    Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  mediaAssetId String     @unique
+  mediaAsset   MediaAsset @relation(fields: [mediaAssetId], references: [id], onDelete: Cascade)
+  // Where it came from, as the owner pasted it (a note only: nothing is fetched from it).
+  sourceUrl    String?
+  title        String?
+  // "measuring" (the worker is reading it), "reading" (Claude is reading its titles), "ready" or "failed".
+  status       String     @default("measuring")
+  // The worker's measurements (referenceAnalysisSchema in @reelwalk/core): shots, motion, beats, keyframe keys.
+  analysis     Json?
+  // The finished style recipe (styleRecipeSchema in @reelwalk/core).
+  recipe       Json?
+  error        String?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@index([workspaceId, createdAt])
 }
 
 // A walkthrough of one home: its floor plan, and the shots located on it.

@@ -17,7 +17,7 @@ import { withProviderGate, type ProviderGate } from "./provider-gate";
  * "music-analysis" (ADR 0066) decodes a track with ffmpeg; "block-solve" and "block-reveal" (ADR 0093) read a drone
  * clip in 3D and draw its reveal. They run only in the worker and never call a paid provider.
  */
-export type AiStepKind = "ask" | "autopilot" | "director-review" | "music-analysis" | "block-solve" | "block-reveal" | "voiceover";
+export type AiStepKind = "ask" | "autopilot" | "director-review" | "music-analysis" | "block-solve" | "block-reveal" | "voiceover" | "reference-read";
 
 export const askPayload = z.object({
   request: z.string(),
@@ -61,6 +61,7 @@ type StepInput = { kind: AiStepKind; user: StepUser; reelId: string; payload: un
 async function runStep(input: StepInput): Promise<unknown> {
   if (input.kind === "music-analysis") throw new Error("A track is analysed by the worker, not here.");
   if (input.kind === "block-solve" || input.kind === "block-reveal") throw new Error("Walk the block runs in the worker, not here.");
+  if (input.kind === "reference-read") throw new Error("A style reference is measured and read by the worker, not here.");
   if (input.kind === "voiceover") throw new Error("A voiceover is spoken and transcribed by the worker, not here.");
   const reel = await prisma.reel.findFirst({ where: { id: input.reelId, workspaceId: input.user.workspaceId }, select: { id: true, title: true } });
   if (!reel) throw new Error("This reel was deleted.");

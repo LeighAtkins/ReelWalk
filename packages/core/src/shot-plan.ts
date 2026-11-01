@@ -615,12 +615,28 @@ function dropNulls(value: unknown): unknown {
   return value;
 }
 
+/** Free text cut to `max` characters at the last word boundary that fits (the schema's limits; the planner's JSON schema cannot state them). */
+function clampText(value: unknown, max: number): unknown {
+  if (typeof value !== "string") return value;
+  const trimmed = value.trim();
+  if (trimmed.length <= max) return trimmed;
+  const cut = trimmed.slice(0, max);
+  const space = cut.lastIndexOf(" ");
+  return (space > max * 0.6 ? cut.slice(0, space) : cut).replace(/[\s,;:.-]+$/, "");
+}
+
+/** The free-text fields of a shot and their limits in planShotSchema. */
+const SHOT_TEXT_LIMITS = { place: 60, pov: 60, reveals: 80, action: 400, line: 200 } as const;
+
 /**
- * The planner's answer as a plan: nulls dropped, ids made unique and safe, a frame naming an asset the planner was not
- * given turned back into a keyframe to make, and the rest checked by shotPlanSchema (which throws on anything else).
+ * The planner's answer as a plan: nulls dropped, ids made unique and safe, free text cut to the schema's limits (a
+ * planner that writes "eye level, slightly low, looking up past the stair rail" for `pov` must not fail the whole
+ * plan), a frame naming an asset the planner was not given turned back into a keyframe to make, and the rest checked
+ * by shotPlanSchema (which throws on anything else).
  */
 export function parsePlannedShots(json: unknown, allowedAssetIds: readonly string[] = []): ShotPlan {
-  const raw = dropNulls(json) as { shots?: Record<string, unknown>[] } & Record<string, unknown>;
+  const parsed = dropNulls(json) as { shots?: Record<string, unknown>[] } & Record<string, unknown>;
+  const raw = { ...parsed, title: clampText(parsed.title, 80), look: clampText(parsed.look, 400), ...(parsed.outfit !== undefined ? { outfit: clampText(parsed.outfit, 160) } : {}) };
   const seen = new Set<string>();
   const shots = (raw.shots ?? []).slice(0, PLAN_LIMITS.shots).map((shot, i) => {
     let id = String(shot.id ?? `shot-${i + 1}`).toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 32) || `shot-${i + 1}`;
@@ -632,7 +648,8 @@ export function parsePlannedShots(json: unknown, allowedAssetIds: readonly strin
       if (typeof f.description === "string") f.description = f.description.slice(0, 600);
       return f;
     };
-    return { ...shot, id, start: frameOf(shot.start), end: frameOf(shot.end) };
+    const texts = Object.fromEntries(Object.entries(SHOT_TEXT_LIMITS).filter(([key]) => shot[key] !== undefined).map(([key, max]) => [key, clampText(shot[key], max)]));
+    return { ...shot, ...texts, id, start: frameOf(shot.start), end: frameOf(shot.end) };
   });
   return shotPlanSchema.parse({ version: 1, ...raw, shots });
 }

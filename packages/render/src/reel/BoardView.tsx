@@ -38,22 +38,29 @@ const lerpRect = (a: BoardRect, b: BoardRect, t: number): BoardRect => ({
 });
 
 /** A panel's footage: muted, cropped to the panel about its focus, playing from its start when its column comes in, held on its last frame. */
-const PanelMedia: React.FC<{ panel: BoardPanel; asset: ReelAsset; fromFrame: number; durationInFrames: number }> = ({ panel, asset, fromFrame, durationInFrames }) => {
+const PanelMedia: React.FC<{ panel: BoardPanel; asset: ReelAsset; fromFrame: number; durationInFrames: number; entryProgress?: number }> = ({ panel, asset, fromFrame, durationInFrames, entryProgress = 1 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const { isRendering } = useRemotionEnvironment();
+  // Start the first panel at the opening shot's full-frame crop, then settle into its panel framing.
+  const focusX = lerp(0.5, panel.focusX, entryProgress);
+  const focusY = lerp(0.5, panel.focusY, entryProgress);
+  const zoom = lerp(1, panel.zoom, entryProgress);
   const style: React.CSSProperties = {
     width: "100%",
     height: "100%",
-    objectFit: "cover",
-    objectPosition: `${(panel.focusX * 100).toFixed(2)}% ${(panel.focusY * 100).toFixed(2)}%`,
-    transformOrigin: `${(panel.focusX * 100).toFixed(2)}% ${(panel.focusY * 100).toFixed(2)}%`,
-    transform: `scale(${panel.zoom})`,
+    objectFit: panel.fit,
+    objectPosition: `${(focusX * 100).toFixed(2)}% ${(focusY * 100).toFixed(2)}%`,
+    transformOrigin: `${(focusX * 100).toFixed(2)}% ${(focusY * 100).toFixed(2)}%`,
+    transform: `scale(${zoom})`,
   };
   // The mirror flips the cropped picture about the panel's centre: flipped about the crop's focus instead, a zoomed
   // picture would slide out of the panel.
   const mirrored = (node: React.ReactNode) => (panel.mirror ? <div style={{ width: "100%", height: "100%", transform: "scaleX(-1)" }}>{node}</div> : node);
-  if (asset.kind === "IMAGE") return <>{mirrored(<Img src={resolveSrc(asset.src)} style={style} />)}</>;
+  const layers = panel.fit === "contain"
+    ? [{ ...style, position: "absolute" as const, inset: 0, objectFit: "cover" as const, objectPosition: "50% 0%", filter: "blur(12px)", transform: "scale(1.08)" }, { ...style, position: "absolute" as const, inset: 0 }]
+    : [style];
+  if (asset.kind === "IMAGE") return <>{mirrored(layers.map((layer, i) => <Img key={i} src={resolveSrc(asset.src)} style={layer} />))}</>;
   const startFrame = Math.round((panel.sourceStartMs * fps) / 1000);
   // Past the end of the file the last frame holds: the column may stay on screen longer than the footage runs.
   const lastFrame = asset.durationMs ? Math.max(0, Math.floor((asset.durationMs * fps) / 1000) - startFrame - 1) : Infinity;
@@ -65,7 +72,9 @@ const PanelMedia: React.FC<{ panel: BoardPanel; asset: ReelAsset; fromFrame: num
       {mirrored(
         <Freeze frame={(held ?? 0) + fromFrame} active={held !== null}>
           <Sequence from={fromFrame} durationInFrames={durationInFrames} layout="none" name={`panel ${panel.id}`}>
-            {isRendering ? <RenderVideo {...timing} objectFit="cover" style={{ ...style, objectFit: undefined }} /> : <Html5Video {...timing} style={style} />}
+            {layers.map((layer, i) => isRendering
+              ? <RenderVideo key={i} {...timing} objectFit={i === 0 ? "cover" : "contain"} style={{ ...layer, objectFit: undefined }} />
+              : <Html5Video key={i} {...timing} style={layer} />)}
           </Sequence>
         </Freeze>,
       )}
@@ -79,7 +88,7 @@ const PanelTitle: React.FC<{ board: Board; panel: BoardPanel; rect: BoardRect; t
   if (!title) return null;
   const fontSize = rect.height * 0.2;
   const shadow = `0 ${(fontSize * 0.04).toFixed(1)}px ${(fontSize * 0.12).toFixed(1)}px rgba(0,0,0,0.38)`;
-  const lead: React.CSSProperties = { fontFamily: FACE, fontWeight: 420, fontSize, lineHeight: 1.02, color: board.textColor, textShadow: shadow, whiteSpace: "nowrap" };
+  const lead: React.CSSProperties = { fontFamily: FACE, fontWeight: 420, fontSize, lineHeight: 1.02, color: board.textColor, textShadow: shadow, whiteSpace: "pre-line", textAlign: "center" };
   const key: React.CSSProperties = { fontFamily: FACE, fontWeight: 800, fontSize, lineHeight: 1.02, color: board.keywordColor, textShadow: shadow, whiteSpace: "nowrap" };
   const centre = title.side === "left" ? 0.2 : 0.8;
   let keyword: React.ReactNode = null;
@@ -180,7 +189,7 @@ export const BoardView: React.FC<{ board: Board; assets: Record<string, ReelAsse
                     </div>
                   ) : null}
                   <div style={{ position: "absolute", left: rect.left, top: rect.top, width: rect.width, height: rect.height, borderRadius: entering ? radius * f.entry : radius, overflow: "hidden", opacity, backgroundColor: "#1d1b19", boxShadow: `0 ${8 * scale}px ${22 * scale}px rgba(0,0,0,${(0.2 * (entering ? f.entry : 1)).toFixed(3)})` }}>
-                    {asset ? <PanelMedia panel={panel} asset={asset} fromFrame={mediaFrom} durationInFrames={Math.max(1, boardFrames - mediaFrom)} /> : null}
+                    {asset ? <PanelMedia panel={panel} asset={asset} fromFrame={mediaFrom} durationInFrames={Math.max(1, boardFrames - mediaFrom)} entryProgress={entering ? f.entry : 1} /> : null}
                     {/* The shrinking first panel carries no words until it has landed: they belong to the panel, not the full frame. */}
                     {entering ? null : <PanelTitle board={board} panel={panel} rect={rects[row]} titleMs={reelMs - keywordAt} lifeMs={columnEnd - keywordAt + board.slideMs} />}
                   </div>

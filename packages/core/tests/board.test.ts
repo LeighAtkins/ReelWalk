@@ -39,7 +39,15 @@ describe("a board (ADR 0106)", () => {
     const board = reference();
     expect(board).toMatchObject({ background: "#f8f6f1", textColor: "#ffffff", keywordColor: "#f2df3a", slideMs: 220, entryMs: 250, radius: 22 });
     expect(board.outro).toMatchObject({ glyph: "instagram", dimTo: 0.25 });
-    expect(board.panels[0]).toMatchObject({ focusX: 0.5, zoom: 1, mirror: false, sourceStartMs: 0 });
+    expect(board.panels[0]).toMatchObject({ focusX: 0.5, zoom: 1, mirror: false, sourceStartMs: 0, fit: "cover" });
+  });
+
+  it("keeps a portrait panel's whole-shot framing and position through a saved timeline", () => {
+    const board = reference();
+    board.panels[0] = { ...board.panels[0], fit: "contain", focusX: 0.85, focusY: 0.5 };
+    const saved = timelineSchema.parse(JSON.parse(JSON.stringify({ ...reelOf(13770), board })));
+    expect(saved.board?.panels[0]).toMatchObject({ fit: "contain", focusX: 0.85, focusY: 0.5 });
+    expect(referencedAssetIds(saved)).toContain("take");
   });
 
   it("refuses what cannot be drawn: too many panels, repeated ids, column times out of order, an outro off the board", () => {

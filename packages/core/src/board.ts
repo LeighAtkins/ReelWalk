@@ -43,6 +43,8 @@ export const boardPanelSchema = z.object({
   assetId: z.string().min(1),
   /** Where in the footage the panel starts playing when its column comes into view (the first column: when the board starts). */
   sourceStartMs: ms.default(0),
+  /** Cover crops the shot; contain keeps a portrait shot whole over a softened copy of its background. */
+  fit: z.enum(["cover", "contain"]).default("cover"),
   /** The point of the footage kept in the panel's crop (0..1 across and down). */
   focusX: z.number().min(0).max(1).default(0.5),
   focusY: z.number().min(0).max(1).default(0.5),

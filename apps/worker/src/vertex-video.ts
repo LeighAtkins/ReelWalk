@@ -5,13 +5,20 @@ export type AwsCredentials = () => Promise<{ accessKeyId: string; secretAccessKe
 
 // The Google library's built-in AWS metadata flow supports EC2, not ECS.
 // Reuse the AWS SDK's refreshing task-role provider instead of storing a key.
-export function federatedVideoAuth(credentials: AwsCredentials, audience: string, email: string) {
+export const CLOUD_PLATFORM_SCOPE = "https://www.googleapis.com/auth/cloud-platform";
+/**
+ * The Gemini API refuses a cloud-platform-only token (ACCESS_TOKEN_SCOPE_INSUFFICIENT, seen on 2026-11-01 from both the
+ * owner's own token and the worker's); it needs a generative-language scope as well (ADR 0105).
+ */
+export const GEMINI_SCOPES = [CLOUD_PLATFORM_SCOPE, "https://www.googleapis.com/auth/generative-language.retriever"];
+
+export function federatedVideoAuth(credentials: AwsCredentials, audience: string, email: string, scopes: string[] = [CLOUD_PLATFORM_SCOPE]) {
   return new AwsClient({
     audience,
     subject_token_type: "urn:ietf:params:aws:token-type:aws4_request",
     token_url: "https://sts.googleapis.com/v1/token",
     service_account_impersonation_url: `https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/${email}:generateAccessToken`,
-    scopes: ["https://www.googleapis.com/auth/cloud-platform"],
+    scopes,
     aws_security_credentials_supplier: {
       getAwsRegion: async () => process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || "us-east-2",
       getAwsSecurityCredentials: async () => {
@@ -48,15 +55,15 @@ export function vertexVideoParameters(durationSeconds: number, generateAudio = f
 }
 
 /** A bearer-token source for Vertex: workload identity through the task role when configured, otherwise application default credentials. */
-export function vertexAuth(credentials?: AwsCredentials): () => Promise<string | null | undefined> {
+export function vertexAuth(credentials?: AwsCredentials, scopes: string[] = [CLOUD_PLATFORM_SCOPE]): () => Promise<string | null | undefined> {
   const audience = process.env.GOOGLE_WORKLOAD_IDENTITY_AUDIENCE;
   const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
   if (audience || email) {
     if (!audience || !email || !credentials) throw new Error("Incomplete Google workload identity configuration.");
-    const auth = federatedVideoAuth(credentials, audience, email);
+    const auth = federatedVideoAuth(credentials, audience, email, scopes);
     return async () => (await auth.getAccessToken()).token;
   }
-  const auth = new GoogleAuth({ scopes: ["https://www.googleapis.com/auth/cloud-platform"] });
+  const auth = new GoogleAuth({ scopes });
   return () => auth.getAccessToken();
 }
 

@@ -3,7 +3,7 @@ import { AI_DRAFT_MODEL, AI_VIDEO_MODEL, CHAINED_REFERENCE_MESSAGE, MOVE_IDS, ai
 import { aiCreditSummary, prisma, reserveAiGeneration } from "@reelwalk/db";
 import type { Prisma } from "@reelwalk/db";
 import { z } from "zod";
-import { mediaScope } from "./workspace";
+import { mediaScope } from "./media-scope";
 import { storageBlockedReason } from "./quotas";
 import { assertAiOn } from "./ai-gate";
 

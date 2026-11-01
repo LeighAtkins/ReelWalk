@@ -744,7 +744,10 @@ const generateAiShot: ToolSpec = {
   scopes: ["ai:generate"],
   readOnly: false,
   write: true,
-  limits: (userId) => [{ key: `mcp:ai:${userId}`, max: 10, windowMs: HOUR }],
+  // Only a start spends: a quote is a read and has its own, looser limit, so asking the price never uses up a start.
+  limits: (userId, args) => [args.confirmCredits === undefined
+    ? { key: `mcp:ai-quote:${userId}`, max: 60, windowMs: HOUR }
+    : { key: `mcp:ai:${userId}`, max: 10, windowMs: HOUR }],
   input: {
     prompt: z.string().trim().min(10).max(2000).describe("What the camera sees and does. Describe real places and light; no text or logos in the picture."),
     referenceAssetId: z.string().min(1).max(64).optional(),
@@ -826,7 +829,7 @@ const getReference: ToolSpec = {
   name: "get_reference",
   title: "Read a style reference's recipe",
   description:
-    "Read one style reference's recipe: its shots (start, end, motion), pacing (shot count, median shot, cuts per second, first cut), speech (words per minute, when it starts, the transcript), beat (BPM and the share of cuts on a beat), and every title with when it shows, its box (fractions of the frame), its effect and its look. `gaps` lists title effects ReelWalk cannot draw yet: pick the nearest effect ReelWalk has (pop, rise, type, maskUp, trackIn, blurIn, fadeQuick, kinetic words) and say so. To follow it, match its pacing, title timing, placement and hook with the person's own footage and words; never copy its footage or its exact wording.",
+    "Read one style reference's recipe: its shots (start, end, motion), pacing (shot count, median shot, cuts per second, first cut), speech (words per minute, when it starts, the transcript), beat (BPM and the share of cuts on a beat), and every title with when it shows, its box (fractions of the frame), its effect and its look. `gaps` lists title effects ReelWalk cannot draw yet: pick the nearest effect ReelWalk has (pop, rise, type, maskUp, trackIn, blurIn, fadeQuick, kinetic words, or one of the sixteen title effects of ADR 0103) and say so. To follow it, match its pacing, title timing, placement and hook with the person's own footage and words; never copy its footage or its exact wording.",
   scopes: ["reels:read"],
   readOnly: true,
   input: { referenceId: z.string().min(1).max(64).describe("From list_references.") },
@@ -839,7 +842,104 @@ const getReference: ToolSpec = {
   },
 };
 
-export const TOOLS: ToolSpec[] = [listWorkspacesTool, listReels, getReel, getBrandKit, listReferences, getReference, listMedia, searchStock, createReel, addMedia, applyCommands, addVoiceoverTool, getFrames, getChecks, getAudioTrace, exportReel, getExport, generateAiShot, getAiShot];
+// ── Shot plans (ADR 0104) ────────────────────────────────────────
+
+/** A plan as the connector shows it: the shots with their frames and transitions, each shot's takes and checks, what it waits for. */
+function planForAssistant(view: import("../shot-plans").ShotPlanView) {
+  return {
+    id: view.id, status: view.status, waitingFor: view.waitingFor, approval: view.approval, error: view.error,
+    credits: { budget: view.budgetCredits, ...view.credits }, reelId: view.reelId, title: view.plan.title, look: view.plan.look, outfit: view.plan.outfit ?? null,
+    issues: view.issues,
+    storyboardApproved: view.state.storyboardApproved,
+    shots: view.plan.shots.map((shot) => {
+      const state = view.state.shots[shot.id];
+      return {
+        ...shot,
+        accepted: state?.acceptedAiShotId ?? null,
+        takes: (state?.takes ?? []).map((t) => ({ aiShotId: t.aiShotId, assetId: t.assetId ?? null, status: t.status, problems: t.verdict?.problems ?? [], notes: t.verdict?.notes ?? [] })),
+      };
+    }),
+  };
+}
+
+const planShotsTool: ToolSpec = {
+  name: "plan_shots",
+  title: "Plan an AI sequence shot by shot",
+  description:
+    "Plan a multi-shot AI video (ADR 0104) before making any of it: Claude writes the shot list (each shot's start and end frame, camera move, length, the presenter's line, and the transition into the next shot), and ReelWalk checks the joins (a whip must turn the way the camera turns, no two shots of the same view, a reveal must not already be in view, a continuous join starts on the previous shot's last frame). Nothing is made or spent: it answers the plan, its continuity issues and its credit estimate (`credits.once` if every take passes first time; `budget` allows retakes).\n\n" +
+    "Then update_shot_plan `start` with `confirmCredits` equal to the budget, once the person agreed. The worker makes a keyframe still for each planned frame (the storyboard), waits for `approve_storyboard` (unless approval is \"auto\"), then makes the takes one at a time: each take flies from its start still to its end still, is checked (did it land on the end frame, did the camera move the planned way) and is made again with the correction when it fails (up to three tries), so a take that goes wrong never costs the shots after it. A shot that continues from the previous one starts on that take's real last frame. When every shot has a take, they are assembled into a new reel (reelId). Read progress with get_shot_plan.",
+  scopes: ["ai:generate"],
+  readOnly: false,
+  write: true,
+  limits: (userId) => [{ key: `mcp:plan:${userId}`, max: 20, windowMs: HOUR }],
+  input: {
+    brief: z.string().trim().min(10).max(2000).describe("The video: what it is for, the hook, the rooms or places, the mood, the presenter's lines if any."),
+    approval: z.enum(["auto", "storyboard", "each-take"]).default("storyboard").describe("storyboard: stop for approval after the keyframes; each-take: also after every passed take; auto: never stop."),
+    presenterId: z.string().min(1).max(64).optional().describe("The presenter kit to put in the shots (the app's Set up presenter)."),
+    referenceId: z.string().min(1).max(64).optional().describe("A ready style reference to follow (list_references)."),
+    mediaIds: z.array(z.string().min(1).max(64)).max(20).optional().describe("Library footage or photos the plan may use as start or end frames."),
+    budgetCredits: z.number().int().min(1).max(500).optional().describe("The most the plan may spend; default twice the first-time cost."),
+  },
+  async run(ctx, args) {
+    const { createShotPlan, createPlanSchema } = await import("../shot-plans");
+    const parsed = createPlanSchema.safeParse(args);
+    if (!parsed.success) return failure(parsed.error.issues[0]?.message ?? "Describe the video in a sentence or two.");
+    try {
+      const view = await createShotPlan(ctx.user, parsed.data);
+      return ok({ plan: planForAssistant(view), next: view.issues.some((i) => i.level === "error")
+        ? "The plan has continuity errors: fix them with update_shot_plan edit (the whole plan, corrected) before starting."
+        : `Show the person the shots and the estimate. To start: update_shot_plan { planId: "${view.id}", action: "start", confirmCredits: ${view.budgetCredits} }.` });
+    } catch (error) {
+      return failure(error instanceof Error ? error.message.slice(0, 300) : "The plan could not be made.");
+    }
+  },
+};
+
+const getShotPlanTool: ToolSpec = {
+  name: "get_shot_plan",
+  title: "Read a shot plan's progress",
+  description: "One shot plan (plan_shots): its status (planned, running, waiting, done, stopped, failed), what it waits for (storyboard, take-approval:<shot>, take-failed:<shot>, budget:<shot>), every shot with its keyframe stills (start/end assetId), its takes with their check results, the credits spent, and the assembled reelId when done. Look at keyframes or takes by placing them in a scratch reel and exporting, or through the app.",
+  scopes: ["ai:generate"],
+  readOnly: true,
+  input: { planId: z.string().min(1).max(64) },
+  async run(ctx, args) {
+    const { getShotPlan } = await import("../shot-plans");
+    const view = await getShotPlan(ctx.user.workspaceId, (args as { planId: string }).planId);
+    return view ? ok({ plan: planForAssistant(view) }) : failure("That plan is not in this workspace.");
+  },
+};
+
+const updateShotPlanTool: ToolSpec = {
+  name: "update_shot_plan",
+  title: "Start, approve, redo or edit a shot plan",
+  description:
+    "The person's decisions on a shot plan. `start` (with `confirmCredits` equal to the plan's budget, after they agreed to it) lets the worker make the storyboard and the takes. `approve_storyboard` once the keyframes are right. `accept_take` keeps a take (`shotId`, `aiShotId`): one waiting for approval, or one that failed its checks but looks right. `redo` makes a shot again with an optional `note` (what to change); shots continuing from it are made again too. `stop` pauses it. `edit` replaces the whole plan (`plan`, the same shape plan_shots answered, corrected) before any take was made; keyframes whose description did not change are kept.",
+  scopes: ["ai:generate"],
+  readOnly: false,
+  write: true,
+  input: {
+    planId: z.string().min(1).max(64),
+    action: z.enum(["start", "approve_storyboard", "accept_take", "redo", "stop", "edit"]),
+    confirmCredits: z.number().int().min(0).optional(),
+    shotId: z.string().min(1).max(40).optional(),
+    aiShotId: z.string().min(1).max(64).optional(),
+    note: z.string().trim().max(400).optional(),
+    plan: z.record(z.string(), z.unknown()).optional(),
+  },
+  async run(ctx, args) {
+    const { actOnShotPlan, planActionSchema } = await import("../shot-plans");
+    const { planId, ...rest } = args as { planId: string } & Record<string, unknown>;
+    const action = planActionSchema.safeParse(rest);
+    if (!action.success) return failure(`That ${String(rest.action)} is missing something: ${action.error.issues[0]?.message ?? "check the fields"}.`);
+    try {
+      return ok({ plan: planForAssistant(await actOnShotPlan(ctx.user.workspaceId, planId, action.data)) });
+    } catch (error) {
+      return failure(error instanceof Error ? error.message.slice(0, 300) : "That could not be done.");
+    }
+  },
+};
+
+export const TOOLS: ToolSpec[] = [listWorkspacesTool, listReels, getReel, getBrandKit, listReferences, getReference, listMedia, searchStock, createReel, addMedia, applyCommands, addVoiceoverTool, getFrames, getChecks, getAudioTrace, exportReel, getExport, generateAiShot, getAiShot, planShotsTool, getShotPlanTool, updateShotPlanTool];
 
 // ── Running one ──────────────────────────────────────────────────
 

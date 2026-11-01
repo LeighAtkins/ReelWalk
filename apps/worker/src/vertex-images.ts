@@ -146,6 +146,19 @@ export class VertexImages {
   }
 
   /**
+   * A storyboard keyframe (ADR 0104): one still made from a description, with reference images for what must carry over
+   * (the presenter's kit stills, the shot's own start frame for its end frame, the previous shot's frame for the place).
+   */
+  async keyframe(prompt: string, references: { image: InlineImage; role: string }[] = [], model = AI_IMAGE_MODEL): Promise<InlineImage> {
+    const parts = [{ text: [prompt, ...references.map((r, i) => `Image ${i + 1}: ${r.role}.`)].join("\n") }, ...references.map((r) => inlinePart(r.image))];
+    const result = await this.generate(model, parts, { responseModalities: ["IMAGE"], imageConfig: { aspectRatio: "9:16" } });
+    const image = imageFromResponse(result);
+    if (!image) throw new Error("Google did not return a keyframe.");
+    const jpeg = await portraitJpeg(Buffer.from(image.bytesBase64Encoded, "base64"));
+    return { bytesBase64Encoded: jpeg.toString("base64"), mimeType: "image/jpeg" };
+  }
+
+  /**
    * The identity gate's question (ADR 0056): is the face in the 1080×1920 composite the reference's person?
    * Locate her face (Gemini's own box_2d format, then in stated pixels if that box is implausible or the
    * crop shows no face), crop it with the hair, and compare the crop, not the frame, with the kit's face.

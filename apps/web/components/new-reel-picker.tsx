@@ -143,6 +143,12 @@ export function NewReelPicker({ librarySize = 0, tours = [] }: { librarySize?: n
           <span className="start-tile-title">Follow a reel&apos;s style</span>
           <span className="start-tile-sub">Share a reel you like</span>
         </Link>
+        {/* Shot plans (ADR 0104): an AI sequence planned shot by shot, storyboarded, made one take at a time. */}
+        <Link href="/plans" className="start-tile" prefetch={false} data-testid="plan-ai-sequence">
+          <SparkIcon size={20} />
+          <span className="start-tile-title">Plan an AI sequence</span>
+          <span className="start-tile-sub">Storyboard, then shot by shot</span>
+        </Link>
         {/* Shoot assist (ADR 0063): an optional shot list before anything is filmed. */}
         <Link href="/new/shoot" className="start-tile" prefetch={false} data-testid="plan-shoot">
           <CheckIcon size={20} />

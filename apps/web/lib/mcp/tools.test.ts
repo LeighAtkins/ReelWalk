@@ -118,7 +118,12 @@ describe("the tool list", () => {
 
   it("marks reads read-only and exactly the tools that change data as writes", () => {
     const writes = TOOLS.filter((spec) => !spec.readOnly).map((spec) => spec.name).sort();
-    expect(writes).toEqual(["add_media", "add_voiceover", "apply_commands", "create_reel", "export_reel", "generate_ai_shot"]);
+    expect(writes).toEqual(["add_media", "add_voiceover", "apply_commands", "create_reel", "export_reel", "generate_ai_shot", "plan_shots", "update_shot_plan"]);
+  });
+  it("counts only a confirmed AI start against the ten an hour; a quote has its own limit", () => {
+    const spec = TOOLS.find((t) => t.name === "generate_ai_shot")!;
+    expect(spec.limits!("u1", { prompt: "a shot of a room" })).toEqual([{ key: "mcp:ai-quote:u1", max: 60, windowMs: 3_600_000 }]);
+    expect(spec.limits!("u1", { prompt: "a shot of a room", confirmCredits: 1 })).toEqual([{ key: "mcp:ai:u1", max: 10, windowMs: 3_600_000 }]);
   });
 });
 

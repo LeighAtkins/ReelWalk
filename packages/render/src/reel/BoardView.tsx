@@ -38,17 +38,21 @@ const lerpRect = (a: BoardRect, b: BoardRect, t: number): BoardRect => ({
 });
 
 /** A panel's footage: muted, cropped to the panel about its focus, playing from its start when its column comes in, held on its last frame. */
-const PanelMedia: React.FC<{ panel: BoardPanel; asset: ReelAsset; fromFrame: number; durationInFrames: number }> = ({ panel, asset, fromFrame, durationInFrames }) => {
+const PanelMedia: React.FC<{ panel: BoardPanel; asset: ReelAsset; fromFrame: number; durationInFrames: number; entryProgress?: number }> = ({ panel, asset, fromFrame, durationInFrames, entryProgress = 1 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const { isRendering } = useRemotionEnvironment();
+  // Start the first panel at the opening shot's full-frame crop, then settle into its panel framing.
+  const focusX = lerp(0.5, panel.focusX, entryProgress);
+  const focusY = lerp(0.5, panel.focusY, entryProgress);
+  const zoom = lerp(1, panel.zoom, entryProgress);
   const style: React.CSSProperties = {
     width: "100%",
     height: "100%",
     objectFit: panel.fit,
-    objectPosition: `${(panel.focusX * 100).toFixed(2)}% ${(panel.focusY * 100).toFixed(2)}%`,
-    transformOrigin: `${(panel.focusX * 100).toFixed(2)}% ${(panel.focusY * 100).toFixed(2)}%`,
-    transform: `scale(${panel.zoom})`,
+    objectPosition: `${(focusX * 100).toFixed(2)}% ${(focusY * 100).toFixed(2)}%`,
+    transformOrigin: `${(focusX * 100).toFixed(2)}% ${(focusY * 100).toFixed(2)}%`,
+    transform: `scale(${zoom})`,
   };
   // The mirror flips the cropped picture about the panel's centre: flipped about the crop's focus instead, a zoomed
   // picture would slide out of the panel.
@@ -185,7 +189,7 @@ export const BoardView: React.FC<{ board: Board; assets: Record<string, ReelAsse
                     </div>
                   ) : null}
                   <div style={{ position: "absolute", left: rect.left, top: rect.top, width: rect.width, height: rect.height, borderRadius: entering ? radius * f.entry : radius, overflow: "hidden", opacity, backgroundColor: "#1d1b19", boxShadow: `0 ${8 * scale}px ${22 * scale}px rgba(0,0,0,${(0.2 * (entering ? f.entry : 1)).toFixed(3)})` }}>
-                    {asset ? <PanelMedia panel={panel} asset={asset} fromFrame={mediaFrom} durationInFrames={Math.max(1, boardFrames - mediaFrom)} /> : null}
+                    {asset ? <PanelMedia panel={panel} asset={asset} fromFrame={mediaFrom} durationInFrames={Math.max(1, boardFrames - mediaFrom)} entryProgress={entering ? f.entry : 1} /> : null}
                     {/* The shrinking first panel carries no words until it has landed: they belong to the panel, not the full frame. */}
                     {entering ? null : <PanelTitle board={board} panel={panel} rect={rects[row]} titleMs={reelMs - keywordAt} lifeMs={columnEnd - keywordAt + board.slideMs} />}
                   </div>

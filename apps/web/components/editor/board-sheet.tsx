@@ -137,13 +137,28 @@ export function BoardSheet({ timeline, library, onChange, onClose }: {
                 </div>
                 <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
                   <label className="field" style={{ flex: 1 }}>Lead
-                    <input className="text-input" maxLength={40} value={title.lead} onChange={(event) => updatePanel(index, { title: { ...title, lead: event.target.value } })} />
+                    <textarea className="text-input" rows={2} maxLength={40} value={title.lead} onChange={(event) => updatePanel(index, { title: { ...title, lead: event.target.value } })} />
                   </label>
                   <label className="field" style={{ flex: 1 }}>Keyword
                     <input className="text-input" maxLength={40} value={title.keyword} data-testid="board-keyword" onChange={(event) => event.target.value.trim() && updatePanel(index, { title: { ...title, keyword: event.target.value } })} />
                   </label>
                 </div>
                 <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
+                  <label className="field">Framing
+                    <select className="text-input" value={panel.fit} onChange={(event) => updatePanel(index, { fit: event.target.value as "cover" | "contain" })}>
+                      <option value="cover">Fill and crop</option>
+                      <option value="contain">Fit whole shot</option>
+                    </select>
+                  </label>
+                  <label className="field">Across (%)
+                    <input className="text-input" type="number" min="0" max="100" value={Math.round(panel.focusX * 100)} onChange={(event) => updatePanel(index, { focusX: Math.max(0, Math.min(1, Number(event.target.value) / 100)) })} />
+                  </label>
+                  <label className="field">Down (%)
+                    <input className="text-input" type="number" min="0" max="100" value={Math.round(panel.focusY * 100)} onChange={(event) => updatePanel(index, { focusY: Math.max(0, Math.min(1, Number(event.target.value) / 100)) })} />
+                  </label>
+                  <label className="field">Zoom
+                    <input className="text-input" type="number" min="1" max="4" step="0.1" value={panel.zoom} onChange={(event) => updatePanel(index, { zoom: Math.max(1, Math.min(4, Number(event.target.value))) })} />
+                  </label>
                   <label className="field" style={{ flex: 1 }}>Effect
                     <select className="text-input" value={title.effect} onChange={(event) => updatePanel(index, { title: { ...title, effect: event.target.value as BoardKeywordEffect } })}>
                       <option value="none">None</option>

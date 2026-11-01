@@ -44,6 +44,8 @@ silent.
 - **Panels.**
   - Footage from the library, playing from `sourceStartMs` when its column arrives and holding its last frame.
   - A crop about `focusX` and `focusY`, with `zoom` and `mirror`.
+  - `fit: contain` keeps portrait footage whole over a softened background copy, positioned by the same focus controls.
+    The default remains `cover`, preserving existing boards. This avoids cutting a presenter out of a wide panel.
   - A `label` above the panel.
   - A `title`: a `lead` line in the text colour and a `keyword` in the accent colour, on the `left` or `right`. The
     keyword arrives `delayMs` after its column with any of the sixteen effects, typed out, a quick fade, or none.
@@ -65,11 +67,16 @@ silent.
   - add a 2×2 board from the reel's own footage;
   - set the start, end, grid and column times;
   - per panel, set its footage, label, lead, keyword, effect, side and mirroring;
+  - choose fill/crop or fit-whole-shot framing and adjust its horizontal/vertical position; lead text can use two lines;
   - turn the outro on with a handle;
   - remove the board.
 
 **Not a flattening.** Each panel is its own footage, crop and title, drawn live. The board is never baked into a video
 outside the editor, so every word and effect stays editable.
+
+**Release order.** Deploy the board-capable worker and update the PC worker before enabling board creation in the web
+app. An older timeline parser may silently discard an unknown optional `board` field; its payload-readability check
+alone does not prove that it will draw the board. Verify the actual worker image before the first board export.
 
 ## Not in this step
 

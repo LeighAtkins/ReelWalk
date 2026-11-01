@@ -818,7 +818,16 @@ export async function runTool(spec: ToolSpec, ctx: ToolContext, args: Record<str
   const limits: Limit[] = [{ key: `mcp:calls:${userId}`, max: 120, windowMs: MINUTE }];
   if (spec.write) limits.push({ key: `mcp:writes:${userId}`, max: 30, windowMs: MINUTE });
   limits.push(...(spec.limits?.(userId, args) ?? []));
-  if (!(await allow(limits))) return failure("Rate limit reached for this connection. Wait a minute (or an hour for stock, AI and export calls) and try again.", { rateLimited: true });
+  // The owner's non-expiring personal allowance also removes our connector's
+  // artificial request caps. Membership, scopes and native generation/export
+  // guards still run; neither a customer nor a client-supplied flag can opt in.
+  const personalOwner = ctx.user.role === "OWNER" && ctx.user.homeWorkspaceId === ctx.user.workspaceId;
+  const ownerGrant = personalOwner ? await prisma.aiCreditGrant.findUnique({
+    where: { source: `owner-personal-lifetime:${ctx.user.workspaceId}` },
+    select: { workspaceId: true, kind: true, expiresAt: true },
+  }) : null;
+  const unrestricted = ownerGrant?.workspaceId === ctx.user.workspaceId && ownerGrant.kind === "OWNER" && ownerGrant.expiresAt === null;
+  if (!unrestricted && !(await allow(limits))) return failure("Rate limit reached for this connection. Wait a minute (or an hour for stock, AI and export calls) and try again.", { rateLimited: true });
   try {
     return await spec.run(ctx, args);
   } catch (error) {

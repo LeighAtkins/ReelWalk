@@ -476,7 +476,7 @@ const COMMAND_SHEET = [
   "retimeToLength{totalMs}",
   "hook{pattern:voice-in|motion-in|text-punch|pattern-interrupt|question|null}",
   "addText{text:{id,text,startMs,endMs?,x,y,style,size,font,shadow,color}}",
-  "updateText{textId,patch} (patch.animation auto|fadeQuick|maskUp|trackIn|blurIn, auto on style elegant tracks in, style location is a location lower third, patch.kinetic {preset:\"focus\"} brings each word into focus out of a blur (ADR 0092) and syncTextToSpeech then lands each on its spoken word, patch.font tight is Inter Tight, the heavy tight grotesk, and patch.blend invert works with both)",
+  "updateText{textId,patch} (patch.animation auto|fadeQuick|maskUp|trackIn|blurIn, auto on style elegant tracks in, or one of the sixteen title effects (ADR 0103): dots dotHop|rollout|slingshot|splits, line art timelineScrub|tracedOutline|orbitRing|pluckedString, drop-ins stickerStack|oneBigSlam|tumblingLetters|heavyLanding, pixels pixelSwarm|pixelRain|mosaicResolve|ledScoreboard, best on a short headline that holds 1 s or more, style location is a location lower third, patch.kinetic {preset:\"focus\"} brings each word into focus out of a blur (ADR 0092) and syncTextToSpeech then lands each on its spoken word, patch.font tight is Inter Tight, the heavy tight grotesk, and patch.blend invert works with both)",
   "setEndCard{endCard:{text,durationMs 1000-5000,reveal:cut|leak}|null}",
   "setVoiceover{voiceover:null} (takes the spoken voiceover and its vo- captions off, the add_voiceover tool adds one)",
   "applyTextStyle{textId,style:<kit style name>|null}",

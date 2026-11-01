@@ -24,6 +24,8 @@ import { layoutMeasure } from "./measure";
 import { textExit, titleFont } from "./title-motion";
 import { revealStyle } from "./toolbox/title-reveal";
 import { isTitleReveal, RevealFace } from "./toolbox/RevealFace";
+import { TitleEffect } from "./toolbox/TitleEffect";
+import { isTitleEffect } from "./toolbox/title-effects";
 import { lightLeakOverlays } from "./toolbox/cut-overlays";
 import { LightLeakOverlay } from "./toolbox/LightLeak";
 import { LocationLowerThird } from "./toolbox/LocationLowerThird";
@@ -232,6 +234,8 @@ function textMotion(text: TextOverlay, frame: number, fps: number, durationInFra
   const animation = titleArrival(text);
   const clamp = { extrapolateLeft: "clamp", extrapolateRight: "clamp" } as const;
   const still = { scale: 1, opacity: 1, rise: 0, chars: null };
+  // The sixteen effects (ADR 0103) move their own letters and parts (TitleEffect); on a surface they arrive as a cut.
+  if (isTitleEffect(animation)) return still;
   switch (animation) {
     case "fade": {
       // A slow fade in and out, no movement: the words settle onto the picture.
@@ -610,7 +614,15 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
         {moving ? (
           <span style={{ ...motionFace, ...pass.face, ...(slide ? { transform: `translateX(${slide.dx.toFixed(2)}px)${lean}` } : {}) }}>{letters(0.25)}</span>
         ) : chars === null ? (
-          isTitleReveal(arrival) ? (
+          isTitleEffect(arrival) ? (
+            <TitleEffect effect={arrival} text={text.text} face={{ ...face, ...pass.face }} color={text.color} fontSize={font.fontSize} titleMs={titleMs} lifeMs={(durationInFrames * 1000) / fps}
+              {...(() => {
+                // The block the words actually make: their wrapped lines, so dots and lines sit against the real edges.
+                const lines = wrap.mode === "wrap" ? wrapTitleLines(text.text, font, measure, wrap.width) : text.text.split("\n");
+                const widest = Math.max(...lines.map((part) => measure(part || " ", font).width));
+                return { boxWidth: wrap.mode === "wrap" ? Math.min(wrap.width, widest) : Math.min(wrap.maxWidth, widest), heightEm: lines.length * (Number(css.lineHeight) || TITLE_LEADING) };
+              })()} />
+          ) : isTitleReveal(arrival) ? (
             <RevealFace face={{ ...face, ...pass.face }} text={text.text} reveal={revealStyle(arrival, frame, fps, durationInFrames)} masked={arrival === "maskUp"}
               lines={arrival === "trackIn" && wrap.mode === "wrap" ? wrapTitleLines(text.text, font, measure, wrap.width) : null} />
           ) : <span style={{ ...face, ...pass.face }}>{text.text}</span>

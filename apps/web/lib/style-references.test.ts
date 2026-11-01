@@ -23,12 +23,12 @@ describe("referenceView", () => {
     const recipe = {
       version: 1, durationMs: 13_775, shots: [{ startMs: 0, endMs: 13_775 }],
       pacing: { shotCount: 1, medianShotMs: 13_775, meanShotMs: 13_775, cutsPerSecond: 0, firstCutMs: null }, speech: null, beat: null,
-      titles: [{ text: "slam.", startMs: 5300, endMs: 7100, effect: "oneBigSlam" }], notes: [],
+      titles: [{ text: "slam.", startMs: 5300, endMs: 7100, effect: "other", effectNote: "letters melt into the floor" }], notes: [],
     };
     const view = referenceView({ ...row, status: "ready", recipe });
     expect(view.status).toBe("ready");
     expect(view.summary).toContain("13.8 s, 1 shot, one continuous shot.");
-    expect(view.gaps.map((g) => g.effect)).toEqual(["oneBigSlam"]);
+    expect(view.gaps.map((g) => g.effect)).toEqual(["other"]);
   });
   it("shows an unreadable recipe as none and an unknown status as failed", () => {
     const view = referenceView({ ...row, status: "weird", recipe: { version: 2 } });

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { TEXT_ANIMATIONS } from "./timeline";
+import { type EffectFamily } from "./title-effects";
 
 /**
  * Style references (ADR 0102): a reel the owner downloaded from Instagram (or anywhere) and shared with ReelWalk, read
@@ -16,43 +17,9 @@ import { TEXT_ANIMATIONS } from "./timeline";
  *   describeRecipe(recipe)                 a short plain summary, for the page and for an assistant following it
  */
 
-/**
- * Title effects a reference can use. The first group are ReelWalk's own (TEXT_ANIMATIONS); the rest are named effects
- * read off references, grouped by family. The four families of sixteen come from the owner's reference of
- * 2026-10-31 ("16 ways to hook viewers with a title"): dots, line art, drop-ins and pixels.
- */
-export const EFFECT_FAMILIES = {
-  dots: ["dotHop", "rollout", "slingshot", "splits"],
-  lineArt: ["timelineScrub", "tracedOutline", "orbitRing", "pluckedString"],
-  dropIns: ["stickerStack", "oneBigSlam", "tumblingLetters", "heavyLanding"],
-  pixels: ["pixelSwarm", "pixelRain", "mosaicResolve", "ledScoreboard"],
-} as const;
-export type EffectFamily = keyof typeof EFFECT_FAMILIES;
-export const NAMED_EFFECTS = Object.values(EFFECT_FAMILIES).flat() as readonly (typeof EFFECT_FAMILIES)[EffectFamily][number][];
-export type NamedEffect = (typeof NAMED_EFFECTS)[number];
-
-/** What each named effect is, in a line: used in prompts and on the recipe page. */
-export const EFFECT_NOTES: Record<NamedEffect, string> = {
-  dotHop: "a dot hops along the line and the word appears behind it",
-  rollout: "a dot rolls in and the word unrolls from it",
-  slingshot: "a dot slings the word in from the side with an overshoot",
-  splits: "three dots split apart and become the word",
-  timelineScrub: "a thin line scrubs across and reveals the word as it passes",
-  tracedOutline: "the word's outline is drawn as a stroke, then fills",
-  orbitRing: "a ring orbits the line, then the word settles inside it",
-  pluckedString: "a line vibrates like a plucked string, then resolves into the word",
-  stickerStack: "each word drops in on its own label sticker, stacking upwards",
-  oneBigSlam: "one huge word slams down with motion trails and a hit",
-  tumblingLetters: "the letters fall and rotate into place one by one",
-  heavyLanding: "the word drops from above and lands with a squash",
-  pixelSwarm: "particles swarm in and converge into the word",
-  pixelRain: "pixels rain down and stack into the word",
-  mosaicResolve: "chunky mosaic blocks resolve into the sharp word",
-  ledScoreboard: "the word scrolls in as an LED dot-matrix",
-};
-
 const ownAnimations = TEXT_ANIMATIONS.filter((a) => a !== "auto");
-export const TITLE_EFFECTS = [...ownAnimations, ...NAMED_EFFECTS, "other"] as const;
+/** Effects a recipe can name: ReelWalk's own arrivals (including the sixteen named effects, ADR 0103), or "other". */
+export const TITLE_EFFECTS = [...ownAnimations, "other"] as const;
 export type TitleEffect = (typeof TITLE_EFFECTS)[number];
 
 const ms = z.number().int().min(0).max(600_000);
@@ -205,9 +172,6 @@ export type EffectSupport =
 /** Whether ReelWalk draws a title effect today, and with which animation. */
 export function effectSupport(effect: TitleEffect): EffectSupport {
   if ((ownAnimations as readonly string[]).includes(effect)) return { supported: true, animation: effect as (typeof TEXT_ANIMATIONS)[number] };
-  for (const [family, members] of Object.entries(EFFECT_FAMILIES) as [EffectFamily, readonly NamedEffect[]][]) {
-    if (members.includes(effect as NamedEffect)) return { supported: false, family, note: EFFECT_NOTES[effect as NamedEffect] };
-  }
   return { supported: false, family: null, note: "an effect with no name yet" };
 }
 

@@ -31,6 +31,10 @@ import { HOOK_DESCRIPTIONS, HOOK_FONTS, HOOK_LABELS, type Hook, type HookKind,
   MOTIONS,
   SPEEDS,
   TEXT_ANIMATIONS,
+  EFFECT_FAMILIES,
+  EFFECT_FAMILY_LABELS,
+  isNamedEffect,
+  type EffectFamily,
   TEXT_COLORS,
   maxTextSize,
   TEXT_STYLES,
@@ -1100,7 +1104,21 @@ export function TextSheet({
       </>)}
       {/* A callout and word-by-word or from-behind type bring the words in themselves. */}
       {draft.callout || (draft.kinetic && draft.kinetic.preset !== "count") ? null : (
-        <Segmented<TextAnimation> label="Arrives" options={TEXT_ANIMATIONS} value={draft.animation} onChange={(animation) => setDraft({ ...draft, animation })} format={(animation) => TEXT_ANIMATION_LABELS[animation]} />
+        <>
+          <Segmented<TextAnimation> label="Arrives" options={TEXT_ANIMATIONS.filter((animation) => !isNamedEffect(animation))} value={isNamedEffect(draft.animation) ? "auto" : draft.animation} onChange={(animation) => setDraft({ ...draft, animation })} format={(animation) => TEXT_ANIMATION_LABELS[animation]} />
+          {/* The sixteen effects (ADR 0103), by family; choosing one replaces the arrival above. */}
+          <label className="field">Effect
+            <select className="text-input" value={isNamedEffect(draft.animation) ? draft.animation : ""} data-testid="text-effect"
+              onChange={(event) => setDraft({ ...draft, animation: (event.target.value || "auto") as TextAnimation })}>
+              <option value="">None</option>
+              {(Object.keys(EFFECT_FAMILIES) as EffectFamily[]).map((family) => (
+                <optgroup key={family} label={EFFECT_FAMILY_LABELS[family]}>
+                  {EFFECT_FAMILIES[family].map((effect) => <option key={effect} value={effect}>{TEXT_ANIMATION_LABELS[effect]}</option>)}
+                </optgroup>
+              ))}
+            </select>
+          </label>
+        </>
       )}
       <button type="button" className="btn btn-block" disabled={!draft.text.trim()} onClick={() => onSave({ ...draft, text: draft.text.trim() })}>
         {initial ? "Save text" : draft.callout ? "Add callout" : "Add text"}

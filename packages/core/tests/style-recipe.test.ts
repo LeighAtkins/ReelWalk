@@ -75,10 +75,10 @@ describe("effects", () => {
     expect(Object.keys(EFFECT_FAMILIES)).toEqual(["dots", "lineArt", "dropIns", "pixels"]);
     expect(NAMED_EFFECTS).toHaveLength(16);
   });
-  it("knows ReelWalk's own animations and reports the named ones as missing, with their family", () => {
+  it("draws ReelWalk's own animations and the sixteen named effects (ADR 0103); only an unnamed one is a gap", () => {
     expect(effectSupport("type")).toEqual({ supported: true, animation: "type" });
     expect(effectSupport("maskUp")).toEqual({ supported: true, animation: "maskUp" });
-    expect(effectSupport("oneBigSlam")).toMatchObject({ supported: false, family: "dropIns" });
+    for (const effect of NAMED_EFFECTS) expect(effectSupport(effect)).toEqual({ supported: true, animation: effect });
     expect(effectSupport("other")).toMatchObject({ supported: false, family: null });
   });
 });
@@ -99,18 +99,16 @@ describe("a recipe", () => {
     notes: ["Outro: a dark card with an animated Instagram logo and the handle."],
   });
 
-  it("lists what ReelWalk cannot draw yet, each effect once, in order", () => {
-    expect(recipeGaps(recipe).map((g) => [g.effect, g.family, g.firstMs])).toEqual([
-      ["dotHop", "dots", 1900], ["slingshot", "dots", 1950], ["oneBigSlam", "dropIns", 5300], ["other", null, 8000],
-    ]);
-    expect(recipeGaps(recipe).at(-1)?.note).toBe("letters spiral in");
+  it("lists only what ReelWalk cannot draw yet, with the model's note", () => {
+    expect(recipeGaps(recipe).map((g) => [g.effect, g.family, g.firstMs])).toEqual([["other", null, 8000]]);
+    expect(recipeGaps(recipe)[0].note).toBe("letters spiral in");
   });
 
   it("describes itself plainly", () => {
     const text = describeRecipe(recipe);
     expect(text).toContain("13.8 s, 3 shots, first cut at 1.8 s");
     expect(text).toContain("Spoken: 37 words");
-    expect(text).toContain("Not drawn by ReelWalk yet: dotHop, slingshot, oneBigSlam, other.");
+    expect(text).toContain("Not drawn by ReelWalk yet: other.");
     expect(text).toContain("Outro: a dark card");
   });
 

@@ -6,7 +6,7 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { claimAiGeneration, failAiGeneration, prisma } from "@reelwalk/db";
 import { VertexError, VertexVideo, definitelyRejected, vertexAuth } from "./vertex-video";
 import { aiThumbnail, videoDurationMs } from "./ai-thumbnail";
-import { OMNI_OPERATION, OmniVideo } from "./omni-video";
+import { OMNI_OPERATION, OmniVideo, omniRefused } from "./omni-video";
 import { aiFrames, decodeFrame, keyframes, type DecodedFrame } from "./ai-frames";
 import { VertexImages, type InlineImage } from "./vertex-images";
 import { fetchVideo, lipsyncConfigured, pollLipsync, presenterVoice, startLipsync, synthesiseLine, voicedPrompt } from "./voice";
@@ -139,14 +139,15 @@ export async function processAiVideo(s3: S3Client, bucket: string): Promise<bool
           ? await (omni ??= new OmniVideo(undefined, vertexAuth(s3.config.credentials))).submit({ model: job.model, prompt, resolution: AI_OMNI_RESOLUTION[shot.success && shot.data.tier === "draft" ? "draft" : "final"], durationSeconds: job.durationSeconds, image, lastFrame, previousInteractionId })
           : await provider.submit(job.model, job.durationSeconds, prompt, image, lastFrame, voice?.mode === "veo", ...(seed === undefined ? [] : [seed] as const));
       } catch (error) {
-        if (definitelyRejected(error)) {
+        // Omni's refusals are told apart by status alone (omniRefused); Veo's need a named rejection code.
+        if (definitelyRejected(error) || (isOmniModel(job.model) && omniRefused(error))) {
           // Google refused it outright: nothing was made, so the credit and budget go back.
           await failAiGeneration(prisma, job.id, "The video service could not start this shot. Your credit was returned.", true, { onlyIf: { leaseToken: job.leaseToken } });
         } else {
           // A timeout, network error, 5xx or abort may have started a paid operation: hold, never refund or resend.
           await markUnresolved(job);
         }
-        console.error(`ai-video: ${job.id}: submit ${definitelyRejected(error) ? "rejected" : "outcome unknown"}: ${error instanceof Error ? error.message : "unknown"}`);
+        console.error(`ai-video: ${job.id}: submit ${definitelyRejected(error) || (isOmniModel(job.model) && omniRefused(error)) ? "rejected" : "outcome unknown"}: ${error instanceof Error ? error.message : "unknown"}`);
         return true;
       }
       await saveOperation(job, operationName, identity);

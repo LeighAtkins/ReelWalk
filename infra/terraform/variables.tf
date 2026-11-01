@@ -381,8 +381,9 @@ variable "sync_api_key" {
   default   = ""
   sensitive = true
 }
-# Gemini Omni Flash (ADR 0105). Either turn it on with the worker's own Google credentials (the ones Veo uses; the
-# project needs the Generative Language API enabled), or give a paid-tier Gemini API key, used only by the worker.
+# Gemini Omni Flash (ADR 0105). gemini_api_key is a Gemini-restricted authorization key bound to the worker's service
+# account (Google refuses service-account OAuth for the Gemini API); setting it turns Omni on. omni_enabled only forces
+# the website's switch on.
 variable "omni_enabled" {
   type    = bool
   default = false

@@ -381,6 +381,12 @@ variable "sync_api_key" {
   default   = ""
   sensitive = true
 }
+# Gemini Omni Flash (ADR 0105): a paid-tier Gemini API key, used only by the worker. Empty leaves Omni off.
+variable "gemini_api_key" {
+  type      = string
+  default   = ""
+  sensitive = true
+}
 # "melotts:<lang>" or "aura-1:<speaker>"; the same voice on every take.
 variable "presenter_voice" {
   type    = string

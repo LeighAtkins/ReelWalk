@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { omniRequest, videoOf } from "../src/omni-video";
+import { omniConfigured, omniRequest, videoOf } from "../src/omni-video";
 
 const jpeg = (tag: string) => ({ bytesBase64Encoded: tag, mimeType: "image/jpeg" });
 
@@ -31,5 +31,16 @@ describe("videoOf", () => {
     expect(videoOf(interaction)).toEqual({ data: "QUJD", mimeType: "video/mp4" });
     expect(videoOf({ steps: [{ type: "model_output", output: { type: "video", uri: "https://x/files/1:download?alt=media" } }] })).toEqual({ uri: "https://x/files/1:download?alt=media" });
     expect(videoOf({ status: "completed", steps: [{ type: "model_output", content: [{ type: "text", text: "blocked" }] }] })).toBeNull();
+  });
+});
+
+describe("omniConfigured", () => {
+  it("treats Parameter Store's placeholder for an empty key as no key", () => {
+    const before = process.env.GEMINI_API_KEY;
+    process.env.GEMINI_API_KEY = "unset";
+    expect(omniConfigured()).toBe(false);
+    process.env.GEMINI_API_KEY = "AIza-test";
+    expect(omniConfigured()).toBe(true);
+    if (before === undefined) delete process.env.GEMINI_API_KEY; else process.env.GEMINI_API_KEY = before;
   });
 });

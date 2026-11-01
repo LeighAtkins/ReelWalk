@@ -78,6 +78,16 @@ which would fight the music.
 - never use the word "nude" in any sense, and don't describe revealing clothing (it blocked the presenter twice);
 - an end frame must show the same place as its start, including what is seen through openings.
 
+## Turning it on
+
+Terraform carries it (`infra/terraform`):
+
+- `gemini_api_key` (sensitive) goes into Parameter Store as `GEMINI_API_KEY`, which the worker task reads as a secret.
+- The web gets `AI_OMNI_ENABLED`, true exactly when the key is set.
+- An empty key is stored as "unset", and the worker treats that as no key.
+
+So turning it on is one line in the ops checkout's `terraform.tfvars`, then the usual `bash infra/deploy.sh`.
+
 ## Not in this step
 
 1. A live comparison of Omni and Veo on the same flight. The worker's first Omni take is the first real request, so

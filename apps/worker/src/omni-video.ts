@@ -20,8 +20,14 @@ export const OMNI_OPERATION = "omni:";
 
 export type OmniImage = { bytesBase64Encoded: string; mimeType: string };
 
+/** The key, or "" when absent: an empty Terraform value is stored in Parameter Store as "unset". */
+export function omniKey(): string {
+  const key = process.env.GEMINI_API_KEY ?? "";
+  return key === "unset" ? "" : key;
+}
+
 export function omniConfigured(): boolean {
-  return Boolean(process.env.GEMINI_API_KEY);
+  return omniKey() !== "";
 }
 
 /** The interaction's request body (exported for tests). */
@@ -58,7 +64,7 @@ export function videoOf(interaction: unknown): { data?: string; uri?: string; mi
 }
 
 export class OmniVideo {
-  constructor(private readonly key = process.env.GEMINI_API_KEY ?? "") {}
+  constructor(private readonly key = omniKey()) {}
 
   private async call(method: "GET" | "POST", path: string, body?: unknown) {
     if (!this.key) throw new Error("Gemini Omni is not configured (GEMINI_API_KEY).");

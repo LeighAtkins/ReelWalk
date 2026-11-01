@@ -104,11 +104,7 @@ counts a submission as refused only when the error names a rejection code; the I
   `SERVICE_DISABLED`, `ACCESS_TOKEN_SCOPE_INSUFFICIENT` or `IAM_PERMISSION_DENIED`, or `NON_JSON_BODY` when the body is
   not JSON. The next refusal names what to fix.
 
-The organisation's policy disallows API keys, so Omni runs only with the worker's own Google credentials. The 403's reason
-turned out to be `ACCESS_TOKEN_SCOPE_INSUFFICIENT`: the owner's own token, with only the cloud-platform scope, got the
-same refusal from the Gemini API. So Omni's token asks for `GEMINI_SCOPES` (cloud-platform and
-`generative-language.retriever`), and Veo's is unchanged. The worker's service account also needs
-`roles/serviceusage.serviceUsageConsumer` on the project its requests are billed to.
+The organisation's policy disallows API keys, so Omni runs only with the worker's own Google credentials.
 
 ## Not in this step
 

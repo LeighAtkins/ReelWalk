@@ -3,8 +3,8 @@
 web:
   image:
     repository: ghcr.io/leighatkins/reelwalk-web
-    tag: "a6cb4cdccf4392da49e4d21fd02fb0e9f37cc734"
+    tag: "af288465c5d33019dbad47278acf05da39f97f93"
 worker:
   image:
     repository: ghcr.io/leighatkins/reelwalk-worker
-    tag: "a6cb4cdccf4392da49e4d21fd02fb0e9f37cc734"
+    tag: "af288465c5d33019dbad47278acf05da39f97f93"

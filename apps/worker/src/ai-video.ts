@@ -4,7 +4,7 @@ import path from "node:path";
 import { GetObjectCommand, PutObjectCommand, type S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { claimAiGeneration, failAiGeneration, prisma } from "@reelwalk/db";
-import { VertexError, VertexVideo, definitelyRejected } from "./vertex-video";
+import { VertexError, VertexVideo, definitelyRejected, vertexAuth } from "./vertex-video";
 import { aiThumbnail, videoDurationMs } from "./ai-thumbnail";
 import { OMNI_OPERATION, OmniVideo } from "./omni-video";
 import { aiFrames, decodeFrame, keyframes, type DecodedFrame } from "./ai-frames";
@@ -136,7 +136,7 @@ export async function processAiVideo(s3: S3Client, bucket: string): Promise<bool
       let operationName: string;
       try {
         operationName = isOmniModel(job.model)
-          ? await (omni ??= new OmniVideo()).submit({ model: job.model, prompt, resolution: AI_OMNI_RESOLUTION[shot.success && shot.data.tier === "draft" ? "draft" : "final"], durationSeconds: job.durationSeconds, image, lastFrame, previousInteractionId })
+          ? await (omni ??= new OmniVideo(undefined, vertexAuth(s3.config.credentials))).submit({ model: job.model, prompt, resolution: AI_OMNI_RESOLUTION[shot.success && shot.data.tier === "draft" ? "draft" : "final"], durationSeconds: job.durationSeconds, image, lastFrame, previousInteractionId })
           : await provider.submit(job.model, job.durationSeconds, prompt, image, lastFrame, voice?.mode === "veo", ...(seed === undefined ? [] : [seed] as const));
       } catch (error) {
         if (definitelyRejected(error)) {
@@ -171,7 +171,7 @@ export async function processAiVideo(s3: S3Client, bucket: string): Promise<bool
         }
         return true;
       }
-      const result = isOmniModel(job.model) ? await (omni ??= new OmniVideo()).poll(job.operationName) : await provider.poll(job.model, job.operationName);
+      const result = isOmniModel(job.model) ? await (omni ??= new OmniVideo(undefined, vertexAuth(s3.config.credentials))).poll(job.operationName) : await provider.poll(job.model, job.operationName);
       if (result.error) {
         await failAiGeneration(prisma, job.id, result.error);
       } else if (result.video) {

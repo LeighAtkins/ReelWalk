@@ -86,7 +86,12 @@ Terraform carries it (`infra/terraform`):
 - The web gets `AI_OMNI_ENABLED`, true exactly when the key is set.
 - An empty key is stored as "unset", and the worker treats that as no key.
 
-So turning it on is one line in the ops checkout's `terraform.tfvars`, then the usual `bash infra/deploy.sh`.
+There are two ways to sign. With `gemini_api_key` set, the worker uses the key. Without one, set
+`omni_enabled = true`: the worker signs with its own Google credentials, the Application Default Credentials or the
+workload identity Veo already uses. The request carries `x-goog-user-project` set to `GOOGLE_CLOUD_PROJECT`, and that
+project needs the Generative Language API enabled. No key is created or stored.
+
+Either way, turning it on is one line in the ops checkout's `terraform.tfvars`, then the usual `bash infra/deploy.sh`.
 
 ## Not in this step
 

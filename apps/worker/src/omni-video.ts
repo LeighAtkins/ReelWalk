@@ -10,8 +10,8 @@ import { VertexError } from "./vertex-video";
  * The first image part is the start frame and a second one the end frame; `previous_interaction_id` extends an earlier
  * take with its footage as context (store must stay true so a take can be extended later). There is no duration field:
  * the length is asked for in the prompt, and the take is measured when it arrives. Resolution is fixed when the take is
- * made (no upscaling an earlier take), so a final is a new take. Authenticated with the deployment's Gemini API key;
- * Vertex offers this model only on provisioned throughput, not pay-as-you-go.
+ * made (no upscaling an earlier take), so a final is a new take. Signed with the deployment's Gemini API key, or without
+ * one by the worker's own Google credentials (omniHeaders); Vertex offers this model only on provisioned throughput.
  */
 
 const BASE = "https://generativelanguage.googleapis.com/v1beta";
@@ -28,6 +28,19 @@ export function omniKey(): string {
 
 export function omniConfigured(): boolean {
   return omniKey() !== "";
+}
+
+/**
+ * How a request is signed: with the API key when there is one, else with the worker's own Google credentials
+ * (Application Default Credentials, or the workload identity Veo uses), billed to GOOGLE_CLOUD_PROJECT. The second way
+ * needs the Generative Language API enabled on that project and no key at all.
+ */
+export async function omniHeaders(key: string, token?: () => Promise<string | null | undefined>): Promise<Record<string, string>> {
+  if (key) return { "x-goog-api-key": key };
+  const bearer = token ? await token() : null;
+  if (!bearer) throw new Error("Gemini Omni has no API key and no Google credentials.");
+  const project = process.env.GOOGLE_CLOUD_PROJECT;
+  return { Authorization: `Bearer ${bearer}`, ...(project ? { "x-goog-user-project": project } : {}) };
 }
 
 /** The interaction's request body (exported for tests). */
@@ -64,12 +77,12 @@ export function videoOf(interaction: unknown): { data?: string; uri?: string; mi
 }
 
 export class OmniVideo {
-  constructor(private readonly key = omniKey()) {}
+  constructor(private readonly key = omniKey(), private readonly token?: () => Promise<string | null | undefined>) {}
 
   private async call(method: "GET" | "POST", path: string, body?: unknown) {
-    if (!this.key) throw new Error("Gemini Omni is not configured (GEMINI_API_KEY).");
+    const auth = await omniHeaders(this.key, this.token);
     const response = await fetch(`${BASE}${path}`, {
-      method, headers: { "x-goog-api-key": this.key, ...(body ? { "Content-Type": "application/json" } : {}) },
+      method, headers: { ...auth, ...(body ? { "Content-Type": "application/json" } : {}) },
       ...(body ? { body: JSON.stringify(body) } : {}),
       // Deliberately no retry on the POST: repeating a timed-out create can charge twice (as for Veo).
       signal: AbortSignal.timeout(90_000),
@@ -101,7 +114,7 @@ export class OmniVideo {
     let buffer: Buffer | null = null;
     if (video?.data) buffer = Buffer.from(video.data, "base64");
     else if (video?.uri) {
-      const file = await fetch(video.uri, { headers: { "x-goog-api-key": this.key }, signal: AbortSignal.timeout(120_000) });
+      const file = await fetch(video.uri, { headers: await omniHeaders(this.key, this.token), signal: AbortSignal.timeout(120_000) });
       if (file.ok) buffer = Buffer.from(await file.arrayBuffer());
     }
     if (!buffer) {

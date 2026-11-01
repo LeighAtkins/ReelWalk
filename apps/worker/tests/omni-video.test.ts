@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { omniConfigured, omniRequest, videoOf } from "../src/omni-video";
+import { omniConfigured, omniHeaders, omniRequest, videoOf } from "../src/omni-video";
 
 const jpeg = (tag: string) => ({ bytesBase64Encoded: tag, mimeType: "image/jpeg" });
 
@@ -42,5 +42,16 @@ describe("omniConfigured", () => {
     process.env.GEMINI_API_KEY = "AIza-test";
     expect(omniConfigured()).toBe(true);
     if (before === undefined) delete process.env.GEMINI_API_KEY; else process.env.GEMINI_API_KEY = before;
+  });
+});
+
+describe("omniHeaders", () => {
+  it("signs with the key when there is one, else with the worker's Google credentials billed to its project", async () => {
+    expect(await omniHeaders("AIza-test")).toEqual({ "x-goog-api-key": "AIza-test" });
+    const before = process.env.GOOGLE_CLOUD_PROJECT;
+    process.env.GOOGLE_CLOUD_PROJECT = "reelwalk-prod";
+    expect(await omniHeaders("", async () => "ya29.token")).toEqual({ Authorization: "Bearer ya29.token", "x-goog-user-project": "reelwalk-prod" });
+    await expect(omniHeaders("", async () => null)).rejects.toThrow(/no API key and no Google credentials/);
+    if (before === undefined) delete process.env.GOOGLE_CLOUD_PROJECT; else process.env.GOOGLE_CLOUD_PROJECT = before;
   });
 });

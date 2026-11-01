@@ -54,8 +54,8 @@ locals {
     LOCAL_RENDER_FALLBACK_SECONDS = tostring(var.local_render_fallback_seconds)
     # Lip-synced takes (ADR 0038/0060): the sync.so key lives only on the worker, so the web is told it is there.
     LIPSYNC_ENABLED = tostring(local.lipsync_enabled)
-    # Gemini Omni drafts (ADR 0105): the key lives on the worker; the web is only told whether there is one.
-    AI_OMNI_ENABLED = tostring(nonsensitive(var.gemini_api_key != ""))
+    # Gemini Omni drafts (ADR 0105): on by choice (the worker signs with its Google credentials) or by a key on the worker.
+    AI_OMNI_ENABLED = tostring(var.omni_enabled || nonsensitive(var.gemini_api_key != ""))
   }
 
   # On exactly when the worker can lip-sync (apps/worker/src/voice.ts lipsyncConfigured): voice on, its URL and key,

@@ -123,11 +123,13 @@ What works within the organisation's policy:
 - With it, the same metadata request returned 200. No organisation policy or IAM grant was changed.
 
 **Signing is not billing.** With the key in place, the first video request (a 1-credit 360p draft) was refused with
-`HTTP 402`. Per Gemini's billing documentation, that is the prepaid balance: Cloud free-trial credits are used only
-after the Gemini API prepay wallet has a positive balance, and the project's AI Studio account still had first-use
-onboarding (Gemini API and Starter Tier terms) to accept. A 402 is a refusal under `omniRefused`, so the credit comes
-back. So turning Omni on needs both the key and an active, funded Gemini billing setup, and the owner approves the
-latter. A metadata 200 does not prove that video generation works.
+`HTTP 402`, Gemini's prepaid-billing refusal. The project's AI Studio account still had first-use onboarding (Gemini API
+and Starter Tier terms) to accept, and the Gemini API needs its own paid billing. Google Cloud's Free Trial and Welcome
+credits do not pay for the Gemini API at all, even after prepaying; only specifically eligible promotional credits do. A
+402 is a refusal under `omniRefused`, so the credit comes back. A metadata 200 does not prove that video generation works.
+
+**Status: deferred.** The owner chose to stay on Veo (paid from the Cloud credits) and not to set up paid Gemini billing.
+The Omni code stays in place, off until a key and paid Gemini billing are both in place.
 
 ## Not in this step
 

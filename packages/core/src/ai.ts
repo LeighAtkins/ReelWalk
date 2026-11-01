@@ -25,6 +25,22 @@ export const AI_DRAFT_NO_END_FRAME = "A draft is made from a starting frame only
 export const aiDraftCostCents = (seconds: AiClipSeconds) => seconds * AI_DRAFT_COST_CENTS_PER_SECOND;
 /** What the full take costs once a draft's credit is used toward it. */
 export const aiFinalCredits = (seconds: AiClipSeconds, voiced: boolean, draftCredits: number) => Math.max(1, aiClipCredits(seconds, voiced) - draftCredits);
+/**
+ * Gemini Omni Flash (ADR 0105): Google's video model on the Gemini API, chosen per take beside Veo. Pay per second by
+ * resolution; its 360p tier is the cheap draft a shot plan is made and checked in, and only a confirmed reel is made
+ * again at 1080p (Google upscales from 720p; there is no upscaling an earlier take, so a final is a new take).
+ */
+export const AI_OMNI_MODEL = "gemini-omni-1.1-flash";
+export const AI_OMNI_RESOLUTION = { draft: "360p", final: "1080p" } as const;
+export const AI_OMNI_COST_CENTS_PER_SECOND = { "360p": 3, "720p": 10, "1080p": 15 } as const;
+export const isOmniModel = (model: string) => model.startsWith("gemini-omni");
+export const aiOmniCostCents = (seconds: AiClipSeconds, tier: "draft" | "final") => seconds * AI_OMNI_COST_CENTS_PER_SECOND[AI_OMNI_RESOLUTION[tier]];
+/** The picture size a take of this model and tier is stored at (portrait). */
+export function aiTakeSize(model: string, tier: "draft" | "final" | undefined): { width: number; height: number } {
+  if (isOmniModel(model)) return tier === "draft" ? { width: 360, height: 640 } : { width: 1080, height: 1920 };
+  return tier === "draft" ? { width: 720, height: 1280 } : { width: 1080, height: 1920 };
+}
+
 /** The resolution a model is asked for: the draft model's 720p, everything else 1080p. */
 export const aiVideoResolution = (model: string) => (model === AI_DRAFT_MODEL ? "720p" : "1080p");
 

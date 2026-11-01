@@ -1,5 +1,5 @@
 import { randomInt } from "node:crypto";
-import { AI_DRAFT_MODEL, AI_VIDEO_MODEL, CHAINED_REFERENCE_MESSAGE, MOVE_IDS, aiClipCostCents, aiDefaultClipSeconds, aiDraftCostCents, aiShotSchema, aiShotPrompt, composeFraming, directionStill, hasDirection, isEquirect, isGeneratedAssetId, parseStoredAiShot, referenceDepthOf, type AiShot } from "@reelwalk/core";
+import { AI_DRAFT_MODEL, AI_OMNI_MODEL, AI_VIDEO_MODEL, aiOmniCostCents, CHAINED_REFERENCE_MESSAGE, MOVE_IDS, aiClipCostCents, aiDefaultClipSeconds, aiDraftCostCents, aiShotSchema, aiShotPrompt, composeFraming, directionStill, hasDirection, isEquirect, isGeneratedAssetId, parseStoredAiShot, referenceDepthOf, type AiShot } from "@reelwalk/core";
 import { aiCreditSummary, prisma, reserveAiGeneration } from "@reelwalk/db";
 import type { Prisma } from "@reelwalk/db";
 import { z } from "zod";
@@ -18,6 +18,11 @@ export function aiVoiceConfigured(): boolean {
  */
 export function aiLipsyncConfigured(): boolean {
   return aiVoiceConfigured() && process.env.LIPSYNC_ENABLED === "true";
+}
+
+/** Gemini Omni Flash (ADR 0105): the worker holds the Gemini API key; the web only needs the switch. */
+export function aiOmniConfigured(): boolean {
+  return process.env.AI_OMNI_ENABLED === "true";
 }
 
 export function aiVideoConfigured(): boolean {
@@ -85,6 +90,13 @@ export async function createAiGeneration(user: AiUser, request: z.infer<typeof g
   }) : null;
   if (merged && !merged.success) throw new Error(merged.error.issues[0]?.message || "Choose a valid shot.");
   const input = { ...request, shot: merged?.data ?? request.shot };
+  const omni = input.shot?.engine === "omni";
+  if (omni && !aiOmniConfigured()) throw new Error("Gemini Omni is being connected. Please check back soon.");
+  if (input.shot?.extendOf) {
+    // Carrying on from an earlier take (ADR 0105): only a finished Omni take of this workspace, whose interaction the worker can extend.
+    const source = await prisma.aiGeneration.findFirst({ where: { id: input.shot.extendOf, workspaceId: user.workspaceId, status: "SUCCEEDED" }, select: { model: true, operationName: true } });
+    if (!source || !source.model.startsWith("gemini-omni") || !source.operationName?.startsWith("omni:")) throw new Error("Choose a finished Omni take from this workspace to carry on from.");
+  }
   if (input.shot?.draftReelId && !await prisma.reel.findFirst({ where: { id: input.shot.draftReelId, workspaceId: user.workspaceId }, select: { id: true } })) {
     throw new Error("That source reel is no longer available.");
   }
@@ -135,7 +147,7 @@ export async function createAiGeneration(user: AiUser, request: z.infer<typeof g
   const voiced = Boolean(input.shot?.voice) && !draft;
   if (voiced && !aiVoiceConfigured()) throw new Error("Voiced shots are being connected. Please check back soon.");
   const durationSeconds = input.durationSeconds ?? aiDefaultClipSeconds(input.shot?.mode, input.shot?.move);
-  const costCents = draft ? aiDraftCostCents(durationSeconds) : aiClipCostCents(durationSeconds, voiced);
+  const costCents = omni ? aiOmniCostCents(durationSeconds, draft ? "draft" : "final") : draft ? aiDraftCostCents(durationSeconds) : aiClipCostCents(durationSeconds, voiced);
   const budgetCents = Number(process.env.AI_VIDEO_BUDGET_CENTS ?? 24000);
   if (!Number.isSafeInteger(budgetCents) || budgetCents < costCents) throw new Error("AI generation is temporarily paused.");
   return reserveAiGeneration(prisma, {
@@ -143,7 +155,7 @@ export async function createAiGeneration(user: AiUser, request: z.infer<typeof g
     prompt: input.shot && !options.exactPrompt ? aiShotPrompt(input.shot.mode, input.prompt, input.shot) : input.prompt,
     shot: input.shot, frameSources: frames.length ? frames : undefined,
     referenceKey: reference?.objectKey, referenceType: reference?.contentType,
-    model: draft ? AI_DRAFT_MODEL : AI_VIDEO_MODEL, durationSeconds, costCents, budgetCents, voiced,
+    model: omni ? AI_OMNI_MODEL : draft ? AI_DRAFT_MODEL : AI_VIDEO_MODEL, durationSeconds, costCents, budgetCents, voiced,
     presenterId: kit?.id, referenceDepth, ...(draft ? { tier: "draft" as const } : {}),
   });
 }

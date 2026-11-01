@@ -97,6 +97,25 @@ describe("runPlanStep", () => {
   });
 });
 
+describe("drafts and extension (ADR 0105)", () => {
+  const free = shotPlanSchema.parse({ ...plan, shots: [plan.shots[0], { ...plan.shots[1], end: { description: "wherever it lands", source: "free" } }] });
+  const accepted = (state: PlanState): PlanState => ({ ...state, shots: { hall: { takes: [{ aiShotId: "gen1", assetId: "ai-gen1", status: "accepted", credits: 1 }], acceptedAiShotId: "gen1", attemptsFrom: 0 } } });
+  it("makes a 360p Omni draft in the draft phase", async () => {
+    const deps = fakes();
+    await runPlanStep(row, plan, { ...empty, engine: "omni", phase: "draft" }, { kind: "take", shotId: "hall", attempt: 1, note: "" }, deps, new Map());
+    expect(deps.startTake).toHaveBeenCalledWith(expect.objectContaining({ engine: "omni", tier: "draft", extendOf: null, first: { assetId: "kf-a", atMs: 0 } }));
+  });
+  it("extends a silent take with no frames, and starts a voiced one's successor from its last frame", async () => {
+    const extend = fakes();
+    await runPlanStep(row, free, accepted({ ...empty, engine: "omni", phase: "draft" }), { kind: "take", shotId: "kitchen", attempt: 1, note: "" }, extend, new Map([["ai-gen1", 8000]]), new Map([["ai-gen1", null]]));
+    expect(extend.startTake).toHaveBeenCalledWith(expect.objectContaining({ extendOf: "gen1", first: null, last: null }));
+    const voiced = shotPlanSchema.parse({ ...free, shots: [{ ...free.shots[0], presenter: true, line: "Sixteen ways to hook viewers." }, free.shots[1]] });
+    const fresh = fakes();
+    await runPlanStep({ ...row, plan: voiced }, voiced, accepted({ ...empty, engine: "omni", phase: "draft" }), { kind: "take", shotId: "kitchen", attempt: 1, note: "" }, fresh, new Map([["ai-gen1", 8000]]), new Map([["ai-gen1", 7400]]));
+    expect(fresh.startTake).toHaveBeenCalledWith(expect.objectContaining({ extendOf: null, first: { assetId: "ai-gen1", atMs: 7960 } }));
+  });
+});
+
 describe("refreshTakes", () => {
   it("moves made takes to checking and failed ones to failed with their credits returned", async () => {
     const state: PlanState = { ...empty, shots: { hall: { takes: [{ aiShotId: "a", status: "generating", credits: 2 }, { aiShotId: "b", status: "queued", credits: 2 }], attemptsFrom: 0 } } };

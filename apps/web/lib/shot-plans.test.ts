@@ -46,6 +46,8 @@ describe("the request", () => {
   it("says the owner's rules and lists the footage it may use", () => {
     expect(SHOT_PLAN_INSTRUCTIONS).toContain("never two shots of roughly the same view");
     expect(SHOT_PLAN_INSTRUCTIONS).toContain("frame every earlier shot so it is NOT in view");
+    expect(SHOT_PLAN_INSTRUCTIONS).toContain("never use the word nude");
+    expect(SHOT_PLAN_INSTRUCTIONS).toContain("visible through doorways, arches and windows");
     const text = planRequest({ brief: "Tour", presenter: true, footage: [{ id: "a1", label: "kitchen", kind: "VIDEO", durationMs: 6200 }] });
     expect(text).toContain("a1 (kitchen, VIDEO, 6.2 s)");
     expect(text).toContain("A presenter is available");

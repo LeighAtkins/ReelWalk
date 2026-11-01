@@ -137,6 +137,12 @@ export function NewReelPicker({ librarySize = 0, tours = [] }: { librarySize?: n
           <span className="start-tile-title">Describe a video</span>
           <span className="start-tile-sub">Type an idea, get options</span>
         </Link>
+        {/* Style references (ADR 0102): a reel the owner downloaded and shared, read for its style. */}
+        <Link href="/references" className="start-tile" prefetch={false} data-testid="follow-a-style">
+          <SparkIcon size={20} />
+          <span className="start-tile-title">Follow a reel&apos;s style</span>
+          <span className="start-tile-sub">Share a reel you like</span>
+        </Link>
         {/* Shoot assist (ADR 0063): an optional shot list before anything is filmed. */}
         <Link href="/new/shoot" className="start-tile" prefetch={false} data-testid="plan-shoot">
           <CheckIcon size={20} />

@@ -3,8 +3,11 @@
 // apps/web through this package's tsconfig paths; that module tree is kept
 // free of Next.js imports.
 import { directorFailureMessage, runAiStep } from "@/lib/ai-steps";
+import { withProviderGate } from "@/lib/provider-gate";
+import { readReference } from "@/lib/reference-read";
 import type { AiStepExecutor } from "./ai-jobs";
 import { runMusicAnalysisStep } from "./music-analysis";
+import { runReferenceReadStep } from "./reference-read";
 import { runVoiceoverStep } from "./voiceover";
 import { runBlockRevealStep, runBlockSolveStep, runInStepScope } from "./walk-block";
 
@@ -21,7 +24,10 @@ export const aiStepExecutor: AiStepExecutor = {
           ? runInStepScope(gate.signal, (scope) => runBlockRevealStep(step, scope))
           : step.kind === "voiceover"
             ? runInStepScope(gate.signal, (scope) => runVoiceoverStep(step, scope, gate))
-            : runAiStep({ kind: step.kind, user: step.user, reelId: step.reelId, payload: step.payload, identity: `step:${step.id}:g${step.generation}` }, gate),
+            // A style reference (ADR 0102): measured here, then read by the model once through the gate.
+            : step.kind === "reference-read"
+              ? runInStepScope(gate.signal, (scope) => runReferenceReadStep(step, scope, (input) => withProviderGate(gate, () => readReference(input))))
+              : runAiStep({ kind: step.kind, user: step.user, reelId: step.reelId, payload: step.payload, identity: `step:${step.id}:g${step.generation}` }, gate),
   describeError: (step, error) =>
     step.kind === "director-review" ? directorFailureMessage(error) : (error instanceof Error ? error.message : String(error)).slice(0, 300),
 };

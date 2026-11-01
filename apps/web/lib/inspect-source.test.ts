@@ -29,7 +29,7 @@ describe("Inspect's original file", () => {
     const { d, presigned, wheres } = deps(assets);
     expect(await inspectOriginalUrl(d, "ws1", "mine")).toEqual({ url: "https://s3.example/ws1/orig.mp4?X-Amz-Expires=900", expiresInSeconds: INSPECT_URL_SECONDS });
     expect(presigned).toEqual([{ key: "ws1/orig.mp4", seconds: 900 }]);
-    expect(wheres[0]).toEqual({ id: "mine", OR: [{ workspaceId: "ws1" }, { shared: true }] });
+    expect(wheres[0]).toEqual({ id: "mine", OR: [{ workspaceId: "ws1" }, { shared: true }], styleReference: { is: null } });
   });
 
   it("refuses another studio's asset, anything not a picture, and malformed ids, without signing", async () => {

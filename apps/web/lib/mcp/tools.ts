@@ -44,6 +44,7 @@ import { saveReelFor } from "../save-reel";
 import { mediaScope } from "../media-scope";
 import { AI_OFF_CODE, AI_OFF_MESSAGE, aiIsOff } from "../ai-gate";
 import { listWorkspaces } from "../workspaces";
+import { getStyleReference, listStyleReferences } from "../style-references";
 import { MINUTE, HOUR } from "./http";
 import { clipForAsset } from "./clips";
 import type { ActingUser } from "./acting-user";
@@ -804,7 +805,41 @@ const getAiShot: ToolSpec = {
   },
 };
 
-export const TOOLS: ToolSpec[] = [listWorkspacesTool, listReels, getReel, getBrandKit, listMedia, searchStock, createReel, addMedia, applyCommands, addVoiceoverTool, getFrames, getChecks, getAudioTrace, exportReel, getExport, generateAiShot, getAiShot];
+// Style references (ADR 0102): reels the owner downloaded and shared, read into recipes to follow. Read-only here; a
+// reference is added in the app (the owner uploads the video), never fetched from a link.
+const listReferences: ToolSpec = {
+  name: "list_references",
+  title: "List style references",
+  description:
+    "The workspace's style references: reels the person downloaded (from Instagram or anywhere) and shared with ReelWalk so their reels can follow that style. Each has a status (measuring, reading, ready, failed) and, once ready, a short summary of how it is made. Read one in full with get_reference. References are added in the app at /references; their footage is never in the media library and must never be placed in a reel.",
+  scopes: ["reels:read"],
+  readOnly: true,
+  input: { limit: z.number().int().min(1).max(50).default(20).describe("How many, newest first.") },
+  async run(ctx, args) {
+    const { limit } = args as { limit: number };
+    const references = await listStyleReferences(ctx.user.workspaceId, limit);
+    return ok({ references: references.map((r) => ({ id: r.id, title: r.title, status: r.status, sourceUrl: r.sourceUrl, durationMs: r.durationMs, summary: r.summary, error: r.error })) });
+  },
+};
+
+const getReference: ToolSpec = {
+  name: "get_reference",
+  title: "Read a style reference's recipe",
+  description:
+    "Read one style reference's recipe: its shots (start, end, motion), pacing (shot count, median shot, cuts per second, first cut), speech (words per minute, when it starts, the transcript), beat (BPM and the share of cuts on a beat), and every title with when it shows, its box (fractions of the frame), its effect and its look. `gaps` lists title effects ReelWalk cannot draw yet: pick the nearest effect ReelWalk has (pop, rise, type, maskUp, trackIn, blurIn, fadeQuick, kinetic words) and say so. To follow it, match its pacing, title timing, placement and hook with the person's own footage and words; never copy its footage or its exact wording.",
+  scopes: ["reels:read"],
+  readOnly: true,
+  input: { referenceId: z.string().min(1).max(64).describe("From list_references.") },
+  async run(ctx, args) {
+    const { referenceId } = args as { referenceId: string };
+    const reference = await getStyleReference(ctx.user.workspaceId, referenceId);
+    if (!reference) return failure("That reference is not in this workspace.");
+    if (reference.status !== "ready") return ok({ id: reference.id, status: reference.status, error: reference.error, message: reference.status === "failed" ? "It could not be read; the person can add it again at /references." : "Still being read; try again in a minute." });
+    return ok({ id: reference.id, title: reference.title, sourceUrl: reference.sourceUrl, summary: reference.summary, recipe: reference.recipe, gaps: reference.gaps });
+  },
+};
+
+export const TOOLS: ToolSpec[] = [listWorkspacesTool, listReels, getReel, getBrandKit, listReferences, getReference, listMedia, searchStock, createReel, addMedia, applyCommands, addVoiceoverTool, getFrames, getChecks, getAudioTrace, exportReel, getExport, generateAiShot, getAiShot];
 
 // ── Running one ──────────────────────────────────────────────────
 

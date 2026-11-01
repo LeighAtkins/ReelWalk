@@ -4,6 +4,7 @@ import { BackIcon } from "@/components/icons";
 import { NewShotPlan } from "@/components/shot-plan";
 import { listPresenters } from "@/lib/presenters";
 import { listShotPlans } from "@/lib/shot-plans";
+import { aiOmniConfigured } from "@/lib/ai-video";
 import { getCurrentUser } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
@@ -23,7 +24,7 @@ export default async function PlansPage() {
       <p className="muted" style={{ marginBottom: 16 }}>
         Describe the video and ReelWalk plans it shot by shot: where each shot starts and ends, how the camera moves and how it joins the next. You see a still of every start and end first; then each shot is made and checked before the next, so one bad take never costs the rest.
       </p>
-      {user.workspace.aiGeneration !== "off" ? <NewShotPlan presenters={presenters.map((p) => ({ id: p.id, name: p.name }))} /> : <p className="muted">AI is off for this workspace.</p>}
+      {user.workspace.aiGeneration !== "off" ? <NewShotPlan presenters={presenters.map((p) => ({ id: p.id, name: p.name }))} omni={aiOmniConfigured()} /> : <p className="muted">AI is off for this workspace.</p>}
       {plans.length ? (
         <ul className="stack" style={{ gap: 8, marginTop: 20, listStyle: "none", padding: 0 }}>
           {plans.map((plan) => (

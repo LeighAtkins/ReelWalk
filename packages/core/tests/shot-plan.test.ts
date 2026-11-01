@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   acceptPassed, acceptTake, checkTake, classify, nextPlanStep, planBlocked, planClips, planIssues, requestRedo, retryNote, shotPlanSchema,
-  takeFrames, takePrompt, planTimeline, withTakeStarted, keyframePrompt, CONTINUITY_TAKE_PROMPT, CONTINUITY_KEYFRAMES_PROMPT, type PlanShot, type PlanState, type ShotPlan,
+  takeFrames, takePrompt, planTimeline, withTakeStarted, finalizePlan, phaseCredits, planCredits, extendFrom, aiShotSchema, aiOmniCostCents, aiTakeSize, AI_OMNI_MODEL, isOmniModel, keyframePrompt, CONTINUITY_TAKE_PROMPT, CONTINUITY_KEYFRAMES_PROMPT, type PlanShot, type PlanState, type ShotPlan,
 } from "../src";
 
 const frame = (description: string, extra: Record<string, unknown> = {}) => ({ description, ...extra });
@@ -196,5 +196,82 @@ describe("frames, prompts and the cut", () => {
     expect(clips.map((c) => [c.shotId, c.sourceStartMs, Number(c.speed.toFixed(3))])).toEqual([["hall", 0, 1.667], ["kitchen", 40, 1.658]]);
     const timeline = planTimeline(plan, state, asset);
     expect(timeline.clips.map((c) => [c.id, c.assetId, c.speed])).toEqual([["plan-hall", "ai-hall", 1.667], ["plan-kitchen", "ai-kitchen", 1.658]]);
+  });
+});
+
+describe("drafts first, then final (ADR 0105)", () => {
+  const plan = withStills(villa());
+  const all = (state: PlanState, tier: "draft" | "final") => {
+    let next = state;
+    for (const s of plan.shots) next = acceptTake(withTakeStarted(next, s.id, { aiShotId: `${tier}-${s.id}`, assetId: `ai-${tier}-${s.id}`, status: "passed", credits: 1, tier }), s.id, `${tier}-${s.id}`);
+    return next;
+  };
+  it("waits for the owner's review of the draft reel instead of finishing", () => {
+    const drafted = { ...all({ ...empty, storyboardApproved: true, engine: "omni", phase: "draft" }, "draft"), assembled: true };
+    expect(nextPlanStep(plan, drafted, { approval: "storyboard", budgetCredits: 100 }, phaseCredits(drafted))).toEqual({ kind: "wait", reason: "draft-review" });
+    expect(phaseCredits(drafted)(plan.shots[0])).toBe(1);
+  });
+  it("finalising remakes every shot in order, keeps the drafts, then finishes", () => {
+    const drafted = { ...all({ ...empty, storyboardApproved: true, engine: "omni", phase: "draft" }, "draft"), assembled: true };
+    const final = finalizePlan(plan, drafted);
+    expect(final.phase).toBe("final");
+    expect(final.shots.hook).toMatchObject({ draftAiShotId: "draft-hook", acceptedAiShotId: undefined });
+    expect(nextPlanStep(plan, final, { approval: "storyboard", budgetCredits: 100 }, phaseCredits(final))).toMatchObject({ kind: "take", shotId: "hook", attempt: 1 });
+    expect(phaseCredits(final)(plan.shots[0])).toBe(2);
+    const done = { ...all(final, "final"), assembled: true };
+    expect(nextPlanStep(plan, done, { approval: "storyboard", budgetCredits: 100 }, phaseCredits(done))).toEqual({ kind: "done" });
+  });
+  it("refuses to finalise before every shot has an approved draft", () => {
+    expect(() => finalizePlan(plan, { ...empty, engine: "omni", phase: "draft" })).toThrow(/approved draft first/);
+  });
+  it("prices an Omni plan as drafts of every shot, then one final each", () => {
+    expect(planCredits(plan, "omni")).toEqual({ once: 5 + 10, withRetakes: 15 + 15 });
+  });
+});
+
+describe("extending a take (ADR 0105)", () => {
+  const open = shotPlanSchema.parse({ ...villa(), shots: [
+    shot("hall", { place: "hall", transitionOut: { kind: "continuous" } }),
+    shot("kitchen", { place: "kitchen", start: frame("carrying on", { source: "previous" }), end: frame("wherever it lands", { source: "free" }) }),
+  ] });
+  const voiced = shotPlanSchema.parse({ ...open, shots: [{ ...open.shots[0], presenter: true, line: "Sixteen ways to hook viewers." }, open.shots[1]] });
+  const kept = (state: PlanState) => acceptTake(withTakeStarted(state, "hall", { aiShotId: "g1", assetId: "ai-g1", status: "passed", credits: 1 }), "hall", "g1");
+  const omni: PlanState = { ...empty, engine: "omni" };
+  it("extends a silent take when the next shot carries on with a free end", () => {
+    expect(extendFrom(open, kept(omni), "kitchen", () => ({ durationMs: 8000, speechEndMs: null }))).toBe("g1");
+  });
+  it("never extends a take with speech in its last few seconds: the words would run on", () => {
+    expect(extendFrom(voiced, kept(omni), "kitchen", () => ({ durationMs: 8000, speechEndMs: 7200 }))).toBeNull();
+    expect(extendFrom(voiced, kept(omni), "kitchen", () => ({ durationMs: 8000, speechEndMs: null }))).toBeNull();
+    expect(extendFrom(voiced, kept(omni), "kitchen", () => ({ durationMs: 8000, speechEndMs: 3500 }))).toBe("g1");
+  });
+  it("starts fresh from the last frame on Veo, or when the shot has a planned end still", () => {
+    expect(extendFrom(open, kept(empty), "kitchen", () => ({ durationMs: 8000, speechEndMs: null }))).toBeNull();
+    const planned = shotPlanSchema.parse({ ...open, shots: [open.shots[0], { ...open.shots[1], end: { description: "the island", source: "keyframe", assetId: "kf" } }] });
+    expect(extendFrom(planned, kept(omni), "kitchen", () => ({ durationMs: 8000, speechEndMs: null }))).toBeNull();
+  });
+  it("keeps the sound only on shots with a line", () => {
+    const plan = withStills(villa());
+    let state: PlanState = empty;
+    for (const id of ["hook", "hall"]) state = acceptTake(withTakeStarted(state, id, { aiShotId: `g-${id}`, assetId: `ai-${id}`, status: "passed", credits: 1 }), id, `g-${id}`);
+    const timeline = planTimeline(plan, state, (id) => ({ assetId: `ai-${id.slice(2)}`, durationMs: 8000 }));
+    expect(timeline.clips.map((c) => [c.id, c.volume])).toEqual([["plan-hook", 1], ["plan-hall", 0]]);
+  });
+});
+
+describe("Omni shots", () => {
+  it("lets an Omni draft have an end frame, and only Omni carry on from a take", () => {
+    const frames = { first: { assetId: "a", atMs: 0 }, last: { assetId: "b", atMs: 0 } };
+    expect(aiShotSchema.safeParse({ mode: "bridge", ...frames, tier: "draft", engine: "omni" }).success).toBe(true);
+    expect(aiShotSchema.safeParse({ mode: "bridge", ...frames, tier: "draft" }).success).toBe(false);
+    expect(aiShotSchema.safeParse({ mode: "custom", engine: "omni", extendOf: "gen1" }).success).toBe(true);
+    expect(aiShotSchema.safeParse({ mode: "custom", extendOf: "gen1" }).success).toBe(false);
+    expect(aiShotSchema.safeParse({ mode: "custom", engine: "omni", extendOf: "gen1", first: frames.first }).success).toBe(false);
+  });
+  it("prices and sizes Omni takes by tier", () => {
+    expect(aiOmniCostCents(8, "draft")).toBe(24);
+    expect(aiOmniCostCents(8, "final")).toBe(120);
+    expect(aiTakeSize(AI_OMNI_MODEL, "draft")).toEqual({ width: 360, height: 640 });
+    expect(isOmniModel("gemini-omni-1.1-flash")).toBe(true);
   });
 });

@@ -11,6 +11,7 @@ const WAITING: Record<string, string> = {
   "take-approval": "A take passed its checks and waits for you.",
   "take-failed": "A shot failed its checks three times. Keep one of its takes anyway, or redo it with a note.",
   budget: "The next take would go past the budget.",
+  "draft-review": "The draft reel is ready at 360p. Watch it, redo any shot with a note on what to change, and when the whole reel is right, make it final: each shot is made again at 1080p and checked.",
 };
 const STATUS: Record<string, string> = { planned: "Planned", running: "Making", waiting: "Waiting for you", done: "Done", stopped: "Stopped", failed: "Stopped on an error" };
 const TRANSITION: Record<string, string> = { continuous: "carries on, no cut", cut: "cut", "match-cut": "match cut", whip: "whip", "speed-ramp": "speed ramp into the cut", dissolve: "dissolve" };
@@ -53,7 +54,7 @@ export function ShotPlanBoard({ initial, initialMedia }: { initial: ShotPlanView
     <div className="stack" style={{ gap: 16 }}>
       <section className="card" style={{ padding: 16 }}>
         <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
-          <strong>{STATUS[view.status] ?? view.status}</strong>
+          <strong>{STATUS[view.status] ?? view.status}{view.engine === "omni" ? ` · ${view.phase === "draft" ? "drafts (360p)" : "final (1080p)"}` : ""}</strong>
           <span className="muted small">
             {view.credits.spent} of {view.budgetCredits} credits used · about {view.credits.once} if every take passes first time
           </span>
@@ -72,6 +73,8 @@ export function ShotPlanBoard({ initial, initialMedia }: { initial: ShotPlanView
             </button>
           ) : null}
           {waitingReason === "storyboard" ? <button className="btn btn-primary" disabled={busy} onClick={() => act({ action: "approve_storyboard" })}>Approve the storyboard</button> : null}
+          {waitingReason === "draft-review" ? <button className="btn btn-primary" disabled={busy} onClick={() => act({ action: "finalize" })}>The whole reel is right: make it final</button> : null}
+          {waitingReason === "draft-review" && view.reelId ? <a className="btn" href={`/reels/${view.reelId}`}>Watch the draft reel</a> : null}
           {view.status === "running" || view.status === "waiting" ? <button className="btn btn-quiet" disabled={busy} onClick={() => act({ action: "stop" })}>Stop</button> : null}
           {view.reelId ? <a className="btn" href={`/reels/${view.reelId}`}>Open the reel</a> : null}
         </div>
@@ -142,7 +145,7 @@ function ShotCard({ shot, index, view, media, busy, note, onNote, onKeep, onRedo
               <div key={take.aiShotId} className="row" style={{ gap: 10, alignItems: "flex-start" }}>
                 {item ? <video src={item.url} muted loop playsInline controls style={{ width: 96, aspectRatio: "9 / 16", borderRadius: 6, background: "#000" }} /> : <div style={{ width: 96 }} />}
                 <div className="small" style={{ flex: 1 }}>
-                  <strong>Take {n + 1}</strong> · {kept ? "kept" : take.status}
+                  <strong>{take.tier === "draft" ? "Draft" : "Take"} {n + 1}</strong> · {kept ? "kept" : take.status}
                   {take.verdict?.problems.map((p, k) => <p key={k} style={{ color: "var(--danger)" }}>{p}</p>)}
                   {take.verdict?.notes.map((p, k) => <p key={k} className="muted">{p}</p>)}
                   {take.assetId && !kept && ["passed", "failed"].includes(take.status) ? (
@@ -165,16 +168,17 @@ function ShotCard({ shot, index, view, media, busy, note, onNote, onKeep, onRedo
 }
 
 /** A new plan: the brief and how often to stop for the owner. */
-export function NewShotPlan({ presenters }: { presenters: { id: string; name: string }[] }) {
+export function NewShotPlan({ presenters, omni = false }: { presenters: { id: string; name: string }[]; omni?: boolean }) {
   const [brief, setBrief] = useState("");
   const [approval, setApproval] = useState("storyboard");
   const [presenterId, setPresenterId] = useState("");
+  const [engine, setEngine] = useState(omni ? "omni" : "veo");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   async function plan() {
     setBusy(true); setError(null);
     try {
-      const response = await fetch("/api/plans", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ brief, approval, ...(presenterId ? { presenterId } : {}) }) });
+      const response = await fetch("/api/plans", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ brief, approval, engine, ...(presenterId ? { presenterId } : {}) }) });
       const answer = await response.json().catch(() => null) as { ok?: boolean; message?: string; plan?: { id: string } } | null;
       if (!response.ok || !answer?.ok || !answer.plan) throw new Error(answer?.message ?? "The plan could not be made.");
       window.location.href = `/plans/${answer.plan.id}`;
@@ -193,6 +197,12 @@ export function NewShotPlan({ presenters }: { presenters: { id: string; name: st
           <option value="each-take">Stop after every take</option>
           <option value="auto">Make it all without stopping</option>
         </select>
+        {omni ? (
+          <select className="input" value={engine} onChange={(e) => setEngine(e.target.value)} aria-label="How it is made">
+            <option value="omni">Cheap 360p drafts first, final when you confirm</option>
+            <option value="veo">Veo, full quality straight away</option>
+          </select>
+        ) : null}
         {presenters.length ? (
           <select className="input" value={presenterId} onChange={(e) => setPresenterId(e.target.value)} aria-label="Presenter">
             <option value="">No presenter</option>

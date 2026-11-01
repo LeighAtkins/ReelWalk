@@ -847,7 +847,7 @@ const getReference: ToolSpec = {
 /** A plan as the connector shows it: the shots with their frames and transitions, each shot's takes and checks, what it waits for. */
 function planForAssistant(view: import("../shot-plans").ShotPlanView) {
   return {
-    id: view.id, status: view.status, waitingFor: view.waitingFor, approval: view.approval, error: view.error,
+    id: view.id, status: view.status, waitingFor: view.waitingFor, approval: view.approval, error: view.error, engine: view.engine, phase: view.phase,
     credits: { budget: view.budgetCredits, ...view.credits }, reelId: view.reelId, title: view.plan.title, look: view.plan.look, outfit: view.plan.outfit ?? null,
     issues: view.issues,
     storyboardApproved: view.state.storyboardApproved,
@@ -867,7 +867,8 @@ const planShotsTool: ToolSpec = {
   title: "Plan an AI sequence shot by shot",
   description:
     "Plan a multi-shot AI video (ADR 0104) before making any of it: Claude writes the shot list (each shot's start and end frame, camera move, length, the presenter's line, and the transition into the next shot), and ReelWalk checks the joins (a whip must turn the way the camera turns, no two shots of the same view, a reveal must not already be in view, a continuous join starts on the previous shot's last frame). Nothing is made or spent: it answers the plan, its continuity issues and its credit estimate (`credits.once` if every take passes first time; `budget` allows retakes).\n\n" +
-    "Then update_shot_plan `start` with `confirmCredits` equal to the budget, once the person agreed. The worker makes a keyframe still for each planned frame (the storyboard), waits for `approve_storyboard` (unless approval is \"auto\"), then makes the takes one at a time: each take flies from its start still to its end still, is checked (did it land on the end frame, did the camera move the planned way) and is made again with the correction when it fails (up to three tries), so a take that goes wrong never costs the shots after it. A shot that continues from the previous one starts on that take's real last frame. When every shot has a take, they are assembled into a new reel (reelId). Read progress with get_shot_plan.",
+    "Then update_shot_plan `start` with `confirmCredits` equal to the budget, once the person agreed. The worker makes a keyframe still for each planned frame (the storyboard), waits for `approve_storyboard` (unless approval is \"auto\"), then makes the takes one at a time: each take flies from its start still to its end still, is checked (did it land on the end frame, did the camera move the planned way) and is made again with the correction when it fails (up to three tries), so a take that goes wrong never costs the shots after it. A shot that continues from the previous one starts on that take's real last frame. When every shot has a take, they are assembled into a new reel (reelId). Read progress with get_shot_plan.\n\n" +
+    "With engine \"omni\" (Gemini Omni Flash, ADR 0105; the default where it is set up) the plan is made first as cheap 360p drafts: the draft reel is assembled and waits (waitingFor draft-review) for the person to watch it and ask for changes (redo a shot with a note). Only when they confirm the whole reel does update_shot_plan finalize make every shot again at 1080p, checked the same way. A continuing shot carries on from the previous take with Omni's scene extension, except after a take with speech near its end, which would run the words on; then it starts from that take's last frame.",
   scopes: ["ai:generate"],
   readOnly: false,
   write: true,
@@ -879,6 +880,7 @@ const planShotsTool: ToolSpec = {
     referenceId: z.string().min(1).max(64).optional().describe("A ready style reference to follow (list_references)."),
     mediaIds: z.array(z.string().min(1).max(64)).max(20).optional().describe("Library footage or photos the plan may use as start or end frames."),
     budgetCredits: z.number().int().min(1).max(500).optional().describe("The most the plan may spend; default twice the first-time cost."),
+    engine: z.enum(["veo", "omni"]).optional().describe("omni: 360p drafts first, final at 1080p once the person confirms the draft reel. veo: full quality straight away."),
   },
   async run(ctx, args) {
     const { createShotPlan, createPlanSchema } = await import("../shot-plans");
@@ -913,13 +915,13 @@ const updateShotPlanTool: ToolSpec = {
   name: "update_shot_plan",
   title: "Start, approve, redo or edit a shot plan",
   description:
-    "The person's decisions on a shot plan. `start` (with `confirmCredits` equal to the plan's budget, after they agreed to it) lets the worker make the storyboard and the takes. `approve_storyboard` once the keyframes are right. `accept_take` keeps a take (`shotId`, `aiShotId`): one waiting for approval, or one that failed its checks but looks right. `redo` makes a shot again with an optional `note` (what to change); shots continuing from it are made again too. `stop` pauses it. `edit` replaces the whole plan (`plan`, the same shape plan_shots answered, corrected) before any take was made; keyframes whose description did not change are kept.",
+    "The person's decisions on a shot plan. `start` (with `confirmCredits` equal to the plan's budget, after they agreed to it) lets the worker make the storyboard and the takes. `approve_storyboard` once the keyframes are right. `accept_take` keeps a take (`shotId`, `aiShotId`): one waiting for approval, or one that failed its checks but looks right. `redo` makes a shot again with an optional `note` (what to change); shots continuing from it are made again too. `stop` pauses it. `finalize` (an Omni plan waiting for draft-review, only once the person confirmed the whole draft reel) makes every shot again at 1080p. `edit` replaces the whole plan (`plan`, the same shape plan_shots answered, corrected) before any take was made; keyframes whose description did not change are kept.",
   scopes: ["ai:generate"],
   readOnly: false,
   write: true,
   input: {
     planId: z.string().min(1).max(64),
-    action: z.enum(["start", "approve_storyboard", "accept_take", "redo", "stop", "edit"]),
+    action: z.enum(["start", "approve_storyboard", "accept_take", "redo", "stop", "edit", "finalize"]),
     confirmCredits: z.number().int().min(0).optional(),
     shotId: z.string().min(1).max(40).optional(),
     aiShotId: z.string().min(1).max(64).optional(),

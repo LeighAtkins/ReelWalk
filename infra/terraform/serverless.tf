@@ -54,6 +54,8 @@ locals {
     LOCAL_RENDER_FALLBACK_SECONDS = tostring(var.local_render_fallback_seconds)
     # Lip-synced takes (ADR 0038/0060): the sync.so key lives only on the worker, so the web is told it is there.
     LIPSYNC_ENABLED = tostring(local.lipsync_enabled)
+    # Gemini Omni drafts (ADR 0105): the key lives on the worker; the web is only told whether there is one.
+    AI_OMNI_ENABLED = tostring(nonsensitive(var.gemini_api_key != ""))
   }
 
   # On exactly when the worker can lip-sync (apps/worker/src/voice.ts lipsyncConfigured): voice on, its URL and key,
@@ -73,6 +75,7 @@ locals {
     OPENAI_API_KEY        = var.openai_api_key
     VOICE_TTS_KEY         = var.voice_tts_key
     SYNC_API_KEY          = var.sync_api_key
+    GEMINI_API_KEY        = var.gemini_api_key
     STRIPE_SECRET_KEY     = var.stripe_secret_key
     STRIPE_WEBHOOK_SECRET = var.stripe_webhook_secret
     # Bearer secret EventBridge sends to /api/scheduled-posts/run (scheduled_posts.tf).
@@ -214,7 +217,7 @@ resource "aws_ecs_task_definition" "worker" {
           BACKUP_BUCKET = aws_s3_bucket.backups.bucket
         }) : { name = k, value = v }
       ]
-      secrets = [for k, p in aws_ssm_parameter.app : { name = k, valueFrom = p.arn } if contains(["DATABASE_URL", "VOICE_TTS_KEY", "SYNC_API_KEY"], k)]
+      secrets = [for k, p in aws_ssm_parameter.app : { name = k, valueFrom = p.arn } if contains(["DATABASE_URL", "VOICE_TTS_KEY", "SYNC_API_KEY", "GEMINI_API_KEY"], k)]
       logConfiguration = {
         logDriver = "awslogs"
         options = {

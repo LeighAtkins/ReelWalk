@@ -94,6 +94,38 @@ describe("a local worker's allowlist (ADR 0094)", () => {
   });
 });
 
+describe("a local worker older than the export (stale PC build)", () => {
+  it("hands a job whose payload it cannot read to the cloud, unclaimed, instead of failing it", async () => {
+    const d = deps({ lock: lock("held"), waitMs: 60_000, readable: vi.fn(async () => false) });
+    const message = delivery();
+    expect(await handleLocalDelivery(d, message)).toBe("handed-off");
+    expect(d.handOff).toHaveBeenCalledWith({ jobId: "job-1", generation: 2 });
+    // Never claimed: no attempt is spent and no FAILED is written, so neither the export nor its retry dies here.
+    expect(d.handle).not.toHaveBeenCalled();
+    expect(message.delete).toHaveBeenCalled();
+  });
+
+  it("renders a payload it can read", async () => {
+    const d = deps({ readable: vi.fn(async () => true) });
+    expect(await handleLocalDelivery(d, delivery())).toBe("succeeded");
+    expect(d.handOff).not.toHaveBeenCalled();
+  });
+});
+
+describe("whether a build can read an export payload", () => {
+  it("is false for a title effect this build does not know, true for one it does", async () => {
+    const { reelExportPayloadReadable } = await import("@reelwalk/core");
+    const payload = (animation: string) => ({
+      timeline: { version: 1, clips: [], texts: [{ id: "t", text: "Hi", startMs: 0, endMs: 1000, x: 0.5, y: 0.3, animation }], music: null },
+      output: { width: 1080, watermark: false },
+      assets: {},
+    });
+    expect(reelExportPayloadReadable(payload("an-effect-from-the-future"))).toBe(false);
+    expect(reelExportPayloadReadable({ nonsense: true })).toBe(false);
+    expect(reelExportPayloadReadable(payload("fade"))).toBe(true);
+  });
+});
+
 /** A job store over one in-memory row per job: snapshot and claim read the same row, so a test can change it between them. */
 function memoryStore(rows: Map<string, JobSnapshot>): JobStore {
   return {

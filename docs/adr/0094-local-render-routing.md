@@ -428,3 +428,16 @@ Against d7c78f0's sources, 14 of the new tests fail: 12 of 28 in the worker's he
 tests, and 2 of 10 in db routing. The reviewer's two exact reproductions cannot be replayed against the new code,
 because the decisions they exploited are gone: the old lock had only `host=` and `boot=`, and the old script used
 `docker ps`.
+
+## Amendment: a PC build older than the export hands it to the cloud (2026-11-01)
+
+The owner's PC worker ran an older image (`a16c65f`) than the deployed web app (`a607b9d`). An export using the new
+title effects (ADR 0103) was claimed on the PC, its payload failed the PC's schema (`maskUp`, `blurIn`… are not options
+it knew), and the job was marked FAILED. Retrying it could not help: a retry is routed afresh, which for our studio means
+the PC again, where it fails the same way.
+
+Now the PC worker reads the job's payload before taking the heavy lock or claiming it. A reel or story export whose
+payload its own build cannot parse (`reelExportPayloadReadable`) is handed to the cloud queue the same way as a job of
+another workspace: unclaimed, so no attempt is spent and nothing is marked FAILED. The cloud worker runs the deployed
+build. The PC logs that it is older than the export and should be updated and restarted. A payload that no build can
+read still fails on the cloud, after its attempts, as before.

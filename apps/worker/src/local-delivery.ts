@@ -14,6 +14,9 @@ import type { HeavyLock, ReleaseHeavyLock } from "./heavy-lock";
  * attempt is spent, and its cloud message starts a fresh receive count. A
  * shutdown while waiting hands the message back to the local queue.
  *
+ * A job this PC may not render (another workspace's, or a payload newer than this PC's build) goes to the cloud at
+ * once, unclaimed, so it does not fail here and fail again on every retry.
+ *
  * Before any of that, one read settles a message that is no longer worth
  * claiming (stale, a duplicate, or another worker's), without the lock: a
  * backlog of messages whose jobs already fell back to the cloud must not each
@@ -35,6 +38,12 @@ export type LocalDeliveryDeps = {
   settle?: (delivery: Delivery, message: RenderJobMessage) => Promise<Outcome | null>;
   /** Whether this PC may render the job (its workspace is one the PC's IAM user may write for). */
   allowed?: (message: RenderJobMessage) => Promise<boolean>;
+  /**
+   * Whether this PC's code can read the job's payload. False when the PC runs an older build than the web app (a new
+   * title effect, say): the job goes to the cloud, which runs the deployed build, instead of failing here. Failing it
+   * would fail every retry the same way, since a retry is routed to this PC again.
+   */
+  readable?: (message: RenderJobMessage) => Promise<boolean>;
   /** The normal handler: claims (calling `onClaimed`), renders, reports. */
   handle: (delivery: Delivery, onClaimed: () => void) => Promise<Outcome>;
   shutdown?: AbortSignal;
@@ -57,6 +66,13 @@ export async function handleLocalDelivery(deps: LocalDeliveryDeps, delivery: Del
   if (deps.allowed && !(await deps.allowed(message))) {
     const moved = await deps.handOff(message);
     log(`[${message.jobId}] not a workspace this PC renders for; ${moved ? "handed the job to the cloud queue" : "the job has moved on already"}`);
+    await delivery.delete();
+    return moved ? "handed-off" : "discarded";
+  }
+
+  if (deps.readable && !(await deps.readable(message))) {
+    const moved = await deps.handOff(message);
+    log(`[${message.jobId}] this PC's worker is older than the export (it cannot read the payload; update and restart it); ${moved ? "handed the job to the cloud queue" : "the job has moved on already"}`);
     await delivery.delete();
     return moved ? "handed-off" : "discarded";
   }

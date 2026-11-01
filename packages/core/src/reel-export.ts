@@ -37,6 +37,15 @@ export const reelExportPayloadSchema = z.object({
 });
 export type ReelExportPayload = z.infer<typeof reelExportPayloadSchema>;
 
+/**
+ * Whether this build can read an export's frozen payload at all. False means the payload was written by newer code
+ * (a title effect, a field this build's schema does not know): a worker older than the web app should hand the job to
+ * one that is current instead of failing it, which a retry on the same worker would only repeat.
+ */
+export function reelExportPayloadReadable(value: unknown): boolean {
+  return reelExportPayloadSchema.safeParse(value).success;
+}
+
 export function parseReelExportPayload(value: unknown): ReelExportPayload {
   const payload = reelExportPayloadSchema.parse(value);
   const missing = referencedAssetIds(payload.timeline).filter((id) => !payload.assets[id]);

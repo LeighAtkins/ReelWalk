@@ -4,7 +4,7 @@
 # environment by accident, apply, and confirm App Runner serves it.
 #
 # Usage, from the checkout that holds infra/terraform/terraform.tfvars:
-#   bash infra/deploy.sh            # the current head of origin/main
+#   bash infra/deploy.sh            # the newest commit of main that CI built (not a bot release commit)
 #   bash infra/deploy.sh <full sha> # a specific commit that CI has built
 #
 # ALLOW_WORKER_ENV_CHANGE=1 lets a plan through that changes the worker's
@@ -21,7 +21,9 @@ SERVICE_ARN=arn:aws:apprunner:us-east-2:734329326838:service/reelwalk-web/1a3d56
 TFVARS=infra/terraform/terraform.tfvars
 [ -f "$TFVARS" ] || { echo "no $TFVARS here; run from the ops checkout"; exit 1; }
 
-SHA=${1:-$(gh api "repos/$REPO/commits/main" --jq .sha)}
+# The newest commit on main that CI built: the bot's "release: deploy" commits only record an image tag (for Argo CD)
+# and have no images of their own, so deploying one would wait for images that never come.
+SHA=${1:-$(gh api "repos/$REPO/commits?sha=main&per_page=20" --jq '[.[] | select(.author.login != "github-actions[bot]" and (.commit.message | startswith("release: deploy") | not))][0].sha')}
 OLD=$(sed -nE 's/^image_tag *= *"(.*)"/\1/p' "$TFVARS")
 [ "$SHA" = "$OLD" ] && { echo "$SHA is already deployed"; exit 0; }
 echo "[$(date +%T)] deploy ${SHA:0:7} (was ${OLD:0:7})"

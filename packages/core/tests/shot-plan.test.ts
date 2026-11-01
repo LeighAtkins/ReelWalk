@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   acceptPassed, acceptTake, checkTake, classify, nextPlanStep, planBlocked, planClips, planIssues, requestRedo, retryNote, shotPlanSchema,
-  takeFrames, takePrompt, planTimeline, withTakeStarted, finalizePlan, phaseCredits, planCredits, extendFrom, aiShotSchema, aiOmniCostCents, aiTakeSize, AI_OMNI_MODEL, isOmniModel, keyframePrompt, CONTINUITY_TAKE_PROMPT, CONTINUITY_KEYFRAMES_PROMPT, type PlanShot, type PlanState, type ShotPlan,
+  takeFrames, takePrompt, planTimeline, withTakeStarted, finalizePlan, phaseCredits, planCredits, extendFrom, aiShotSchema, aiOmniCostCents, aiTakeSize, AI_OMNI_MODEL, isOmniModel, keyframePrompt, CONTINUITY_TAKE_PROMPT, CONTINUITY_KEYFRAMES_PROMPT, parsePlannedShots, type PlanShot, type PlanState, type ShotPlan,
 } from "../src";
 
 const frame = (description: string, extra: Record<string, unknown> = {}) => ({ description, ...extra });
@@ -273,5 +273,23 @@ describe("Omni shots", () => {
     expect(aiOmniCostCents(8, "final")).toBe(120);
     expect(aiTakeSize(AI_OMNI_MODEL, "draft")).toEqual({ width: 360, height: 640 });
     expect(isOmniModel("gemini-omni-1.1-flash")).toBe(true);
+  });
+});
+
+describe("reading the planner's answer", () => {
+  it("cuts free text to the schema's limits at a word instead of failing the whole plan (a 61-character pov did)", () => {
+    const pov = "eye level, slightly low, looking up past the rail at the chandelier above";
+    const plan = parsePlannedShots({
+      title: "A really long title that keeps going well past the eighty characters the plan schema allows",
+      look: "warm oak and linen, golden hour",
+      outfit: null,
+      shots: [{ ...shot("office"), pov, place: "a really Instagrammable home office in a stylish apartment at golden hour", reveals: null, playSeconds: null, move: null, line: null, presenter: false, start: frame("the office", { source: "keyframe", assetId: null, atMs: null }), end: frame("the office", { source: "keyframe", assetId: null, atMs: null }), transitionOut: { kind: "cut", direction: null } }],
+    });
+    expect(plan.shots[0].pov.length).toBeLessThanOrEqual(60);
+    expect(pov.startsWith(plan.shots[0].pov)).toBe(true);
+    expect(plan.shots[0].pov).not.toMatch(/[ ,]$/);
+    expect(plan.shots[0].place.length).toBeLessThanOrEqual(60);
+    expect(plan.title.length).toBeLessThanOrEqual(80);
+    expect(plan.outfit).toBeUndefined();
   });
 });

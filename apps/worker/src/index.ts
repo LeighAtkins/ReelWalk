@@ -18,7 +18,7 @@ import { processAiVideo } from "./ai-video";
 import { processShotPlans } from "./shot-plans";
 import { shotPlanDeps } from "./shot-plans-deps";
 import { processPresenterKit } from "./presenter-kits";
-import { AI_STEP_QUEUE_RETENTION_MS, AI_STEP_REAP_AFTER_MS, localKeyFor, serializeRenderJobMessage } from "@reelwalk/core";
+import { AI_STEP_QUEUE_RETENTION_MS, AI_STEP_REAP_AFTER_MS, localKeyFor, reelExportPayloadReadable, serializeRenderJobMessage } from "@reelwalk/core";
 import { createAiStepStore, type AiStepDeps } from "./ai-jobs";
 import { aiStepExecutor } from "./ai-executor";
 import { checkHeavyLockDir, createHeavyLock } from "./heavy-lock";
@@ -262,6 +262,11 @@ const loops = [
         allowed: async (message) => {
           const job = await prisma.renderJob.findUnique({ where: { id: message.jobId }, select: { workspaceId: true } });
           return !job || localWorkspaces.has(job.workspaceId);
+        },
+        // A reel export this PC's (older) build cannot read goes to the cloud, which runs the deployed build, instead of failing here.
+        readable: async (message) => {
+          const job = await prisma.renderJob.findUnique({ where: { id: message.jobId }, select: { kind: true, payload: true } });
+          return !job || (job.kind !== "REEL" && job.kind !== "STORY") || reelExportPayloadReadable(job.payload);
         },
         handle,
         shutdown: shutdown.signal,

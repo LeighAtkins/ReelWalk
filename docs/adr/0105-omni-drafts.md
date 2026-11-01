@@ -26,7 +26,7 @@ Three facts shape how it is used:
 - **No upscaling an earlier take.** Resolution is set when a take is made (1080p and 4K are Google's upscale of its
   720p). A final is a new take of the same shot, made again and checked again.
 - **No pay-as-you-go on Vertex.** On Vertex the model is offered only on provisioned throughput or fixed quota. So it is
-  called on the Gemini API's Interactions endpoint, with the deployment's Gemini API key.
+  called on the Gemini API's Interactions endpoint, with the deployment's Gemini authorization key.
 - **Extension invents speech.** Extending a take that has speech near its end makes up words at the end (the owner's
   warning).
 
@@ -83,15 +83,53 @@ which would fight the music.
 Terraform carries it (`infra/terraform`):
 
 - `gemini_api_key` (sensitive) goes into Parameter Store as `GEMINI_API_KEY`, which the worker task reads as a secret.
-- The web gets `AI_OMNI_ENABLED`, true exactly when the key is set.
+- The web gets `AI_OMNI_ENABLED`, true when the key is set (or when `omni_enabled` forces it).
 - An empty key is stored as "unset", and the worker treats that as no key.
 
-There are two ways to sign. With `gemini_api_key` set, the worker uses the key. Without one, set
-`omni_enabled = true`: the worker signs with its own Google credentials, the Application Default Credentials or the
-workload identity Veo already uses. The request carries `x-goog-user-project` set to `GOOGLE_CLOUD_PROJECT`, and that
-project needs the Generative Language API enabled. No key is created or stored.
+The worker signs with the key. The code can also fall back to the worker's own Google token, the workload identity Veo
+uses, but Google refuses that for service accounts (see the second amendment). So `gemini_api_key` is what turns Omni on.
+`omni_enabled` only forces the website's switch on.
 
-Either way, turning it on is one line in the ops checkout's `terraform.tfvars`, then the usual `bash infra/deploy.sh`.
+Turning it on is one line in the ops checkout's `terraform.tfvars`, then the usual `bash infra/deploy.sh`.
+
+## Amendment: refusals are refusals (2026-11-01, first live take)
+
+The first live Omni draft was refused with HTTP 403, and the take was left UNRESOLVED with its credit held. Veo's rule
+counts a submission as refused only when the error names a rejection code; the Interactions endpoint's 403 named none.
+
+- For Omni, any 4xx except a timeout is a refusal (`omniRefused`), and so is a request that never left because the
+  worker had no credentials to sign it (`OmniNotSent`). Both return the credit.
+- The error now carries Google's codes, never its text: the canonical status and the details' reasons, such as
+  `SERVICE_DISABLED`, `ACCESS_TOKEN_SCOPE_INSUFFICIENT` or `IAM_PERMISSION_DENIED`, or `NON_JSON_BODY` when the body is
+  not JSON. The next refusal names what to fix.
+
+## Amendment: how the worker signs (2026-11-01, measured under the worker's own role)
+
+A metadata-only probe ran under the actual ECS worker task role, with no video request:
+
+- With the cloud-platform scope only, Gemini answered `403 ACCESS_TOKEN_SCOPE_INSUFFICIENT`.
+- With a generative-language scope added, it answered `403` "Access to Gemini API is restricted with service accounts.
+  Use authorization keys instead."
+- Google's documentation says new service-account OAuth access to the Gemini API is restricted from 27 August 2026.
+
+**A scope does not fix this.** A scope change briefly in this PR was taken out again.
+
+What works within the organisation's policy:
+
+- The policy forbids downloadable service-account keys (`iam.disableServiceAccountKeyCreation`). Its
+  `iam.managed.disableServiceAccountApiKeyCreation` explicitly allows keys for `generativelanguage.googleapis.com`.
+- So the worker uses a **Gemini-restricted authorization key bound to the `reelwalk-video` service account**. It is
+  stored only in Parameter Store as `GEMINI_API_KEY` (from the ops `terraform.tfvars`) and never in the repository.
+- With it, the same metadata request returned 200. No organisation policy or IAM grant was changed.
+
+**Signing is not billing.** With the key in place, the first video request (a 1-credit 360p draft) was refused with
+`HTTP 402`, Gemini's prepaid-billing refusal. The project's AI Studio account still had first-use onboarding (Gemini API
+and Starter Tier terms) to accept, and the Gemini API needs its own paid billing. Google Cloud's Free Trial and Welcome
+credits do not pay for the Gemini API at all, even after prepaying; only specifically eligible promotional credits do. A
+402 is a refusal under `omniRefused`, so the credit comes back. A metadata 200 does not prove that video generation works.
+
+**Status: deferred.** The owner chose to stay on Veo (paid from the Cloud credits) and not to set up paid Gemini billing.
+The Omni code stays in place, off until a key and paid Gemini billing are both in place.
 
 ## Not in this step
 

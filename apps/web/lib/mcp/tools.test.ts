@@ -556,6 +556,11 @@ describe("generate_ai_shot", () => {
     const [, request] = m.ai.createAiGeneration.mock.calls[0]!;
     expect(request).toMatchObject({ quality: "draft", durationSeconds: 4, shot: { mode: "custom", tier: "draft", line: directed.line, voice: "veo", compose: { framing: "close", allowGeneratedReference: true, presenter: { assetId: "ai-identity", atMs: 1200 } } } });
   });
+  it("quotes an Omni take at Omni's rate (3¢ a second as a draft, 15¢ final) for the same credits", async () => {
+    const shot = { mode: "continue", engine: "omni", first: { assetId: "hall-still", atMs: 1000 } };
+    expect((await run("generate_ai_shot", { ...args, shot, quality: "draft" })).data.quote).toMatchObject({ credits: 1, costCents: 12, tier: "draft" });
+    expect((await run("generate_ai_shot", { ...args, shot: { mode: "continue", first: { assetId: "hall-still", atMs: 1000 } }, quality: "draft" })).data.quote).toMatchObject({ credits: 1, costCents: 20 });
+  });
   it("prices a voiced full take with its spoken line", async () => {
     expect((await run("generate_ai_shot", { ...args, shot: directed })).data.quote).toMatchObject({ credits: 2, voiced: true });
     expect((await run("generate_ai_shot", { ...args, shot: directed, durationSeconds: 8 })).data.quote).toMatchObject({ credits: 3 });

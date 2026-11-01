@@ -37,7 +37,7 @@ function reelOf(durationMs: number): Timeline {
 describe("a board (ADR 0106)", () => {
   it("fills in the reference's look: an off-white board, white lead, yellow keyword, rounded panels", () => {
     const board = reference();
-    expect(board).toMatchObject({ background: "#f8f6f1", textColor: "#ffffff", keywordColor: "#f2df3a", slideMs: 220, entryMs: 250, radius: 22 });
+    expect(board).toMatchObject({ background: "#f8f6f1", textColor: "#ffffff", keywordColor: "#f2df3a", textShade: 0, slideMs: 220, entryMs: 250, radius: 22 });
     expect(board.outro).toMatchObject({ glyph: "instagram", dimTo: 0.25 });
     expect(board.panels[0]).toMatchObject({ focusX: 0.5, zoom: 1, mirror: false, sourceStartMs: 0, fit: "cover" });
   });
@@ -48,6 +48,13 @@ describe("a board (ADR 0106)", () => {
     const saved = timelineSchema.parse(JSON.parse(JSON.stringify({ ...reelOf(13770), board })));
     expect(saved.board?.panels[0]).toMatchObject({ fit: "contain", focusX: 0.85, focusY: 0.5 });
     expect(referencedAssetIds(saved)).toContain("take");
+  });
+
+  it("saves readable text shading without changing the footage or accepting an invalid opacity", () => {
+    const shaded = { ...reference(), textShade: 0.75 };
+    expect(boardSchema.parse(JSON.parse(JSON.stringify(shaded))).textShade).toBe(0.75);
+    expect(boardSchema.safeParse({ ...shaded, textShade: 1 }).success).toBe(false);
+    expect(boardSchema.safeParse({ ...shaded, textShade: -0.1 }).success).toBe(false);
   });
 
   it("refuses what cannot be drawn: too many panels, repeated ids, column times out of order, an outro off the board", () => {

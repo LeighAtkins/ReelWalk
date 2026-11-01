@@ -88,6 +88,8 @@ export const boardSchema = z
     background: hex.default("#f8f6f1"),
     textColor: hex.default("#ffffff"),
     keywordColor: hex.default("#f2df3a"),
+    /** Dark shade behind a panel's words, fading away before the presenter. Zero preserves older boards. */
+    textShade: z.number().min(0).max(0.9).default(0),
     labelColor: hex.default("#5f5a52"),
     /** Panel corner radius, px of a 1080-wide frame. */
     radius: z.number().min(0).max(80).default(22),

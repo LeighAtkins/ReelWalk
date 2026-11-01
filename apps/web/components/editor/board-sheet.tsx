@@ -97,6 +97,9 @@ export function BoardSheet({ timeline, library, onChange, onClose }: {
           </select>
         </label>
       </div>
+      <label className="field">Shade behind the words (%)
+        <input className="text-input" type="number" min="0" max="90" step="5" value={Math.round(board.textShade * 100)} onChange={(event) => update({ textShade: Math.max(0, Math.min(0.9, Number(event.target.value) / 100)) })} />
+      </label>
       {board.columns > 1 ? (
         <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
           {starts.slice(1).map((at, i) => (

@@ -71,6 +71,8 @@ export const BUILT_IN_CONTROLS: readonly ControlSpec[] = [
   { id: "details", label: "Details", targets: ["reel"], order: 50, place: "more" },
   { id: "caption", label: "Caption", targets: ["reel"], order: 60, place: "more" },
   { id: "logo", label: "Logo", targets: ["reel"], order: 70, place: "more" },
+  // A board of panels side by side (ADR 0106).
+  { id: "board", label: "Board", targets: ["reel"], order: 75, place: "more" },
   { id: "plan", label: "Floor plan", targets: ["reel"], order: 80, place: "more", when: (c) => c.timeline.plan !== null && c.timeline.plan !== undefined },
   { id: "ai-video", label: "AI video", targets: ["reel"], order: 90, place: "more", when: (c) => !c.aiOff },
   { id: "director", label: "Ask Opus", targets: ["reel"], order: 95, place: "more", when: (c) => c.askAvailable },

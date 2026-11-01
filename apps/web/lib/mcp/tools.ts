@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import {
   addClips,
+  boardColumnStarts,
   AI_DRAFT_CREDITS,
   aiClipCostCents,
   aiClipCredits,
@@ -189,6 +190,14 @@ function summarise(timeline: Timeline, library: Record<string, { fileName: strin
     voiceover: timeline.voiceover ? { script: timeline.voiceover.script, voice: timeline.voiceover.voice, atMs: timeline.voiceover.atMs } : null,
     hook: timeline.hook ? timeline.hook.kind : null,
     opening: timeline.opening ?? null,
+    // A board of panels (ADR 0106): its grid and timing, and each panel's label, footage and words.
+    board: timeline.board
+      ? {
+          startMs: timeline.board.startMs, endMs: timeline.board.endMs, rows: timeline.board.rows, columns: timeline.board.columns,
+          columnStartsMs: boardColumnStarts(timeline.board), outro: timeline.board.outro ?? null,
+          panels: timeline.board.panels.map((panel) => ({ id: panel.id, label: panel.label, assetId: panel.assetId, sourceStartMs: panel.sourceStartMs, mirror: panel.mirror, title: panel.title ?? null })),
+        }
+      : null,
   };
 }
 
@@ -478,6 +487,7 @@ const COMMAND_SHEET = [
   "addText{text:{id,text,startMs,endMs?,x,y,style,size,font,shadow,color}}",
   "updateText{textId,patch} (patch.animation auto|fadeQuick|maskUp|trackIn|blurIn, auto on style elegant tracks in, or one of the sixteen title effects (ADR 0103): dots dotHop|rollout|slingshot|splits, line art timelineScrub|tracedOutline|orbitRing|pluckedString, drop-ins stickerStack|oneBigSlam|tumblingLetters|heavyLanding, pixels pixelSwarm|pixelRain|mosaicResolve|ledScoreboard, best on a short headline that holds 1 s or more, style location is a location lower third, patch.kinetic {preset:\"focus\"} brings each word into focus out of a blur (ADR 0092) and syncTextToSpeech then lands each on its spoken word, patch.font tight is Inter Tight, the heavy tight grotesk, and patch.blend invert works with both)",
   "setEndCard{endCard:{text,durationMs 1000-5000,reveal:cut|leak}|null}",
+  "setBoard{board:{startMs,endMs,rows 1-6,columns 1-6,panels:[{id,label,assetId,sourceStartMs?,focusX? 0-1,focusY? 0-1,zoom? 1-4,mirror?,title?:{lead?,keyword,effect:none|fadeQuick|type|<one of the sixteen effects>,side:left|right,delayMs?}}] column by column top to bottom,columnAtMs?:[ms per column after the first],slideMs? (220),entryMs? (250: the opening frame shrinks into the first panel),staggerMs?,background?,textColor?,keywordColor?,labelColor?,radius?,outro?:{atMs,handle,glyph:instagram|none,dimTo? 0.25}}|null} (ADR 0106: a grid of silent video panels over part of the reel, one column on screen at a time, all its panels playing at once, each with its own label and title, for comparing several looks side by side, never flattened into full-screen shots)",
   "setVoiceover{voiceover:null} (takes the spoken voiceover and its vo- captions off, the add_voiceover tool adds one)",
   "applyTextStyle{textId,style:<kit style name>|null}",
   "syncTextToSpeech{textId,clipId?,holdMs?} (the title appears with the first word it repeats from the clip's speech, each word as it is said, and fades after the last, and a title with kinetic focus keeps it)",

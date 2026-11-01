@@ -8,6 +8,7 @@ import { motionCutSchema, withoutMotionCut } from "./motion-cut";
 import { planOverlaySchema, roomTitle, spotSchema, type PlanOverlay } from "./plan";
 import { colorMatchSchema, colorStatsSchema, lookSchema } from "./look";
 import { textTreatmentSchema } from "./brand-fonts";
+import { boardAssetIds, boardSchema } from "./board";
 
 /**
  * A reel's edit, as a plain JSON document. The browser edits it, Postgres
@@ -656,6 +657,8 @@ export const timelineSchema = z.object({
   sfx: z.array(sfxClipSchema).max(MAX_SFX).optional(),
   /** A spoken voiceover over the footage (ADR 0099). Absent on every saved reel: none. */
   voiceover: voiceoverSchema.optional(),
+  /** A board of video panels over part of the reel (ADR 0106). Absent on every saved reel: none. */
+  board: boardSchema.optional(),
 });
 
 export type Clip = z.infer<typeof clipSchema>;
@@ -1103,5 +1106,7 @@ export function referencedAssetIds(timeline: Timeline): string[] {
   if (timeline.voiceover) ids.add(timeline.voiceover.assetId);
   // A keyword's picture fill (ADR 0089) is loaded, checked and exported like any other picture.
   for (const text of timeline.texts) if (text.fill?.kind === "image") ids.add(text.fill.assetId);
+  // A board's panels (ADR 0106) play library footage of their own.
+  for (const id of boardAssetIds(timeline.board)) ids.add(id);
   return [...ids];
 }

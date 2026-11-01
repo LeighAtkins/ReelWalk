@@ -27,6 +27,15 @@ describe("presenter voice", () => {
     expect(voicedPrompt("She lands.", "Who needs a front door?", "veo")).toContain('says aloud');
     expect(voicedPrompt("She lands.", "Who needs a front door?", "lipsync")).toContain("mouth moving naturally");
   });
+
+  it("does not override a studio's American accent or conversational delivery", () => {
+    const direction = "Neutral General American accent. Speak casually to a friend and point left.";
+    const prompt = voicedPrompt(direction, "See how these dots pull focus?", "veo");
+    expect(prompt).toContain(direction);
+    expect(prompt).toContain('"See how these dots pull focus?"');
+    expect(prompt).toContain("voice, accent and delivery specified in the direction");
+    expect(prompt).not.toContain("Australian");
+  });
 });
 
 // ADR 0100: what actually goes to the voice Worker for a take's chosen voice, with the key handled as before.

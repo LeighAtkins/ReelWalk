@@ -87,4 +87,7 @@ alone does not prove that it will draw the board. Verify the actual worker image
 
 ## Readability after owner review
 
-The white and yellow titles blended into the warm room footage. Boards can now set `textShade` (0?0.9, default 0 for existing boards): a dark gradient behind the words fades out before the presenter. It follows the title side and enters with the panel, preserving the seamless first frame. The Board sheet exposes its strength. Narrated demos should time each column to its spoken explanation and leave the settled words visible; keep the narration on the underlying editable clips rather than baking it into the board.
+The white and yellow titles blended into the warm room footage. Boards can now set `textShade` (0 to 0.9, default 0 for existing boards): a dark gradient behind the words fades out before the presenter. It follows the title side and enters with the panel, preserving the seamless first frame. The Board sheet exposes its strength. Narrated demos should time each column to its spoken explanation and leave the settled words visible; keep the narration on the underlying editable clips rather than baking it into the board.
+
+
+**Spoken direction.** The Veo worker appends the exact line and lip-match instruction, but must not append a fixed accent that contradicts the studio direction. For the American demo, give each cut one short conversational thought and point toward the actual text location. Alternate the panel title side and the matching mirrored footage together (left, right, left, right); inspect gestures in the rendered frames before accepting a take.

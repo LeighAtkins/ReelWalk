@@ -103,6 +103,6 @@ export async function fetchVideo(url: string): Promise<Buffer> {
 /** How a spoken line is written into the Veo prompt for each voice mode. */
 export function voicedPrompt(prompt: string, line: string, voice: "lipsync" | "veo"): string {
   return voice === "veo"
-    ? `${prompt} She says aloud, clearly, in a warm Australian accent: "${line}". Her lips match the words.`
+    ? `${prompt} She says aloud, clearly, using the voice, accent and delivery specified in the direction: "${line}". Her lips match the words.`
     : `${prompt} She is speaking these words to camera, mouth moving naturally with them, face clearly visible: "${line}". No other people speak.`;
 }

@@ -48,7 +48,7 @@ export const boardPanelSchema = z.object({
   focusY: z.number().min(0).max(1).default(0.5),
   /** A closer crop: 1 fills the panel, 2 shows the middle half. */
   zoom: z.number().min(1).max(4).default(1),
-  /** Mirrored left to right, so the subject faces the words. */
+  /** Mirrored left to right about the panel's centre (after the crop), so the subject faces the words. */
   mirror: z.boolean().default(false),
   title: boardTitleSchema.optional(),
 });
@@ -180,7 +180,8 @@ export function boardFrame(board: Board, reelMs: number): BoardFrame {
     const p = board.slideMs > 0 ? clamp01((reelMs - starts[column]) / board.slideMs) : reelMs >= starts[column] ? 1 : 0;
     scroll += easeInOut(p);
   }
-  const entry = board.entryMs > 0 ? easeInOut(clamp01((reelMs - board.startMs) / board.entryMs)) : 1;
+  // Fast out of the full frame, settling into the panel (the reference is half-way down a third of the way in).
+  const entry = board.entryMs > 0 ? easeOut(clamp01((reelMs - board.startMs) / board.entryMs)) : 1;
   const backdrop = board.entryMs > 0 ? clamp01((reelMs - board.startMs) / (board.entryMs * 0.6)) : 1;
   let brightness = 1, glyph = 0, handle = 0, pulse = 0;
   if (board.outro && reelMs >= board.outro.atMs) {
@@ -198,8 +199,9 @@ export function boardFrame(board: Board, reelMs: number): BoardFrame {
 /** A panel's fade-in during the entry: the first panel is there at once (it is the shrinking frame), the rest staggered. */
 export function boardPanelEntryOpacity(board: Board, column: number, row: number, reelMs: number): number {
   if (column > 0 || row === 0 || board.entryMs === 0) return 1;
-  const from = board.startMs + board.entryMs * 0.4 + row * board.staggerMs;
-  return easeOut(clamp01((reelMs - from) / 200));
+  // From the board's first frame, a row at a time, each over 150 ms: all of them are showing before the first panel lands.
+  const from = board.startMs + (row - 1) * board.staggerMs;
+  return easeOut(clamp01((reelMs - from) / 150));
 }
 
 /** Every library asset a board shows. */

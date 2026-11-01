@@ -48,9 +48,12 @@ const PanelMedia: React.FC<{ panel: BoardPanel; asset: ReelAsset; fromFrame: num
     objectFit: "cover",
     objectPosition: `${(panel.focusX * 100).toFixed(2)}% ${(panel.focusY * 100).toFixed(2)}%`,
     transformOrigin: `${(panel.focusX * 100).toFixed(2)}% ${(panel.focusY * 100).toFixed(2)}%`,
-    transform: `scale(${panel.zoom})${panel.mirror ? " scaleX(-1)" : ""}`,
+    transform: `scale(${panel.zoom})`,
   };
-  if (asset.kind === "IMAGE") return <Img src={resolveSrc(asset.src)} style={style} />;
+  // The mirror flips the cropped picture about the panel's centre: flipped about the crop's focus instead, a zoomed
+  // picture would slide out of the panel.
+  const mirrored = (node: React.ReactNode) => (panel.mirror ? <div style={{ width: "100%", height: "100%", transform: "scaleX(-1)" }}>{node}</div> : node);
+  if (asset.kind === "IMAGE") return <>{mirrored(<Img src={resolveSrc(asset.src)} style={style} />)}</>;
   const startFrame = Math.round((panel.sourceStartMs * fps) / 1000);
   // Past the end of the file the last frame holds: the column may stay on screen longer than the footage runs.
   const lastFrame = asset.durationMs ? Math.max(0, Math.floor((asset.durationMs * fps) / 1000) - startFrame - 1) : Infinity;
@@ -58,11 +61,15 @@ const PanelMedia: React.FC<{ panel: BoardPanel; asset: ReelAsset; fromFrame: num
   const held = local > lastFrame ? lastFrame : null;
   const timing = { src: resolveSrc(asset.src), trimBefore: startFrame, muted: true, volume: 0 };
   return (
-    <Freeze frame={(held ?? 0) + fromFrame} active={held !== null}>
-      <Sequence from={fromFrame} durationInFrames={durationInFrames} layout="none" name={`panel ${panel.id}`}>
-        {isRendering ? <RenderVideo {...timing} objectFit="cover" style={{ ...style, objectFit: undefined }} /> : <Html5Video {...timing} style={style} />}
-      </Sequence>
-    </Freeze>
+    <>
+      {mirrored(
+        <Freeze frame={(held ?? 0) + fromFrame} active={held !== null}>
+          <Sequence from={fromFrame} durationInFrames={durationInFrames} layout="none" name={`panel ${panel.id}`}>
+            {isRendering ? <RenderVideo {...timing} objectFit="cover" style={{ ...style, objectFit: undefined }} /> : <Html5Video {...timing} style={style} />}
+          </Sequence>
+        </Freeze>,
+      )}
+    </>
   );
 };
 

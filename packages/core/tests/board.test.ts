@@ -86,6 +86,8 @@ describe("a board (ADR 0106)", () => {
     const board = reference();
     expect(boardFrame(board, 1800)).toMatchObject({ scroll: 0, entry: 0, backdrop: 0, brightness: 1 });
     expect(boardFrame(board, 2050).entry).toBe(1);
+    // Fast out of the full frame: more than half-way by a third of the entry.
+    expect(boardFrame(board, 1800 + 85).entry).toBeGreaterThan(0.6);
     expect(boardFrame(board, 3000).scroll).toBe(0);
     expect(boardFrame(board, 3450 + 110).scroll).toBeCloseTo(0.5, 5); // halfway through the first slide
     expect(boardFrame(board, 3450 + 220).scroll).toBe(1);
@@ -97,8 +99,10 @@ describe("a board (ADR 0106)", () => {
     const board = reference();
     expect(boardPanelEntryOpacity(board, 0, 0, 1800)).toBe(1);
     expect(boardPanelEntryOpacity(board, 0, 1, 1800)).toBe(0);
-    expect(boardPanelEntryOpacity(board, 0, 1, 2200)).toBeGreaterThan(0.9);
-    expect(boardPanelEntryOpacity(board, 0, 3, 2000)).toBeLessThan(boardPanelEntryOpacity(board, 0, 1, 2000));
+    expect(boardPanelEntryOpacity(board, 0, 1, 1950)).toBeCloseTo(1, 5);
+    expect(boardPanelEntryOpacity(board, 0, 3, 1900)).toBeLessThan(boardPanelEntryOpacity(board, 0, 1, 1900));
+    // As in the reference, every panel of the first column is showing by the time the first one lands.
+    expect(boardPanelEntryOpacity(board, 0, 3, 1800 + 250)).toBeGreaterThan(0.6);
     expect(boardPanelEntryOpacity(board, 1, 2, 1800)).toBe(1);
   });
 

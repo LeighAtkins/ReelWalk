@@ -5,7 +5,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { GetObjectCommand, PutObjectCommand, type S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { CHECK_SERIES, checkDecodeArgs, keyframePrompt, type Gray } from "@reelwalk/core";
+import { CHECK_SERIES, CONTINUITY_KEYFRAMES_PROMPT, CONTINUITY_TAKE_PROMPT, checkDecodeArgs, keyframePrompt, type Gray } from "@reelwalk/core";
 import { prisma } from "@reelwalk/db";
 import { createAiGeneration } from "@/lib/ai-video";
 import { takeRequestId } from "@/lib/shot-plans";
@@ -72,12 +72,29 @@ export function shotPlanDeps(s3: S3Client, bucket: string, log: (line: string) =
       const index = plan.shots.findIndex((s) => s.id === shot.id);
       const carry = end === "end" ? shot.start.assetId ? { id: shot.start.assetId, atMs: shot.start.atMs ?? 0, role: "this shot's start frame: the same place and light, seen from where the camera has moved to" } : null
         : index > 0 && plan.shots[index - 1].end.assetId ? { id: plan.shots[index - 1].end.assetId!, atMs: plan.shots[index - 1].end.atMs ?? 0, role: "the previous shot's last frame: the same property, materials and light" } : null;
+      let carried: InlineImage | null = null;
       if (carry) {
         const asset = await prisma.mediaAsset.findUnique({ where: { id: carry.id }, select: { objectKey: true, kind: true } });
-        if (asset) references.push({ image: await inline(asset.objectKey, asset.kind as "IMAGE" | "VIDEO", carry.atMs, "veo-jpeg"), role: carry.role });
+        if (asset) {
+          carried = await inline(asset.objectKey, asset.kind as "IMAGE" | "VIDEO", carry.atMs, "veo-jpeg");
+          references.push({ image: carried, role: carry.role });
+        }
       }
-      const prompt = keyframePrompt(plan, shot, end);
+      let prompt = keyframePrompt(plan, shot, end);
       let still = await images.keyframe(prompt, references);
+      // The storyboard's continuity check (ADR 0104): an end still must be the same place as its start, or Veo morphs one
+      // into the other mid-take. Checked here, before any video is paid for; remade once with what was wrong, then refused.
+      const startStill = end === "end" ? carried : null;
+      if (startStill) {
+        const verdict = await images.judgeContinuity(CONTINUITY_KEYFRAMES_PROMPT, [startStill, still]).catch(() => null);
+        if (verdict && !verdict.consistent) {
+          log(`shot-plan ${planId}: ${shot.id} end keyframe contradicts its start: ${verdict.problems.join("; ")}`);
+          prompt = `${prompt} Fix these contradictions with the start frame: ${verdict.problems.join("; ")}.`;
+          still = await images.keyframe(prompt, references);
+          const again = await images.judgeContinuity(CONTINUITY_KEYFRAMES_PROMPT, [startStill, still]).catch(() => null);
+          if (again && !again.consistent) throw new Error(`The ${shot.id} end keyframe kept contradicting its start (${again.problems.join("; ").slice(0, 200)}); edit the frame's description.`);
+        }
+      }
       if (face) {
         // The identity gate (ADR 0056) on her keyframe: one remake when it is not her, then refuse rather than drift.
         const verdict = await images.checkIdentity(still, face).catch(() => null);
@@ -122,6 +139,15 @@ export function shotPlanDeps(s3: S3Client, bucket: string, log: (line: string) =
     async takeFrames(assetId) {
       const { url } = await assetUrl(assetId);
       return greySeries(url);
+    },
+    async judgeTake(assetId) {
+      images ??= new VertexImages(undefined, undefined, s3.config.credentials);
+      const asset = await prisma.mediaAsset.findUnique({ where: { id: assetId }, select: { objectKey: true, durationMs: true } });
+      if (!asset?.durationMs) return null;
+      // Seven frames from first to last: enough to see a wall turn into shelves, few enough for one quick request.
+      const times = [0, 1, 2, 3, 4, 5, 6].map((i) => Math.min(asset.durationMs! - 40, Math.round((i / 6) * asset.durationMs!)));
+      const frames = await Promise.all(times.map((t) => inline(asset.objectKey, "VIDEO", t, "veo-jpeg")));
+      return images.judgeContinuity(CONTINUITY_TAKE_PROMPT, frames);
     },
     async stillFrame(frame) {
       const { url, asset } = await assetUrl(frame.assetId);

@@ -118,6 +118,26 @@ A redo assembles the same reel again.
   confirmed starts against its ten an hour; a quote has its own limit of sixty, so asking the price never uses up a
   start.
 
+## Amendment: the continuity judge (2026-11-01, after the first demo)
+
+The first demo flight passed the landing check and still went wrong. It flew from the hall still to the kitchen still,
+and its last frame matched the kitchen still. But the two stills had been made separately: through the hall's arch the
+kitchen had a white wall with a range hood and a tall window, and the kitchen still had open shelves of pottery and a
+doorway. Veo dissolved one into the other between 3.6 s and 4.8 s. The owner saw it at once. The motion and landing
+checks cannot see it: both ends match, and the camera moves the planned way.
+
+A plan whose end frame contradicts its start frame forces Veo to morph. So continuity is now judged in words, by a
+vision model (`AI_IDENTITY_MODEL`, the identity gate's model), at two checkpoints:
+
+- **Storyboard, before anything is paid for.** An end still is made with its start still as a reference, and the prompt
+  says it is the same place, including what is seen through doorways, arches and windows. Then
+  `CONTINUITY_KEYFRAMES_PROMPT` asks whether the two can be one continuous place. A contradiction remakes the end still
+  once, with the contradictions in the prompt; a second refusal stops the plan with them named.
+- **Every take.** Seven frames from first to last go to `CONTINUITY_TAKE_PROMPT`: does anything change what it is beyond
+  what the camera reveals or hides? A change fails the take ("The place changes during the take: …"), and the retake is
+  told that nothing in the property changes, only the camera. A judge that cannot answer leaves a note, never a pass
+  dressed as a check.
+
 ## Not in this step
 
 1. Composing the presenter into a real footage plate for a keyframe (ADR 0036's compose). The storyboard makes her

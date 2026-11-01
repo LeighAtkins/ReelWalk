@@ -14,6 +14,7 @@ const m = vi.hoisted(() => {
       mediaAsset: { findMany: fn() },
       renderJob: { findFirst: fn() },
       aiGeneration: { findFirst: fn() },
+      aiCreditGrant: { findUnique: fn() },
       workspace: { findUnique: fn(), findMany: fn() },
       workspaceMember: { findMany: fn() },
     },
@@ -138,6 +139,51 @@ describe("runTool", () => {
     expect(m.prisma.reel.create).not.toHaveBeenCalled();
     await runTool(tool("export_reel"), ctxWith(), { reelId: "r" }, async (limits) => (seen.push(limits.map((limit) => limit.key)), false));
     expect(seen[1]).toEqual(["mcp:calls:u1", "mcp:writes:u1", "mcp:export:u1"]);
+  });
+
+  it("removes connector limits only for the personally entitled home-workspace owner", async () => {
+    const ctx = ctxWith();
+    Object.assign(ctx.user, { role: "OWNER", homeWorkspaceId: "ws1" });
+    m.prisma.aiCreditGrant.findUnique.mockResolvedValue({ workspaceId: "ws1", kind: "OWNER", expiresAt: null });
+    const allow = vi.fn().mockResolvedValue(false);
+    const run = vi.fn().mockResolvedValue({ content: [{ type: "text", text: "ok" }] });
+    await runTool({ ...tool("export_reel"), run }, ctx, {}, allow);
+    expect(allow).not.toHaveBeenCalled();
+    expect(run).toHaveBeenCalledOnce();
+    expect(m.prisma.aiCreditGrant.findUnique).toHaveBeenCalledWith({
+      where: { source: "owner-personal-lifetime:ws1" },
+      select: { workspaceId: true, kind: true, expiresAt: true },
+    });
+  });
+
+  it.each([
+    ["OWNER", "ws1", null],
+    ["OWNER", "ws1", { workspaceId: "other", kind: "OWNER", expiresAt: null }],
+    ["OWNER", "ws1", { workspaceId: "ws1", kind: "TEST", expiresAt: null }],
+    ["OWNER", "ws1", { workspaceId: "ws1", kind: "OWNER", expiresAt: new Date("2099-01-01") }],
+    ["EDITOR", "ws1", { workspaceId: "ws1", kind: "OWNER", expiresAt: null }],
+    ["OWNER", "other", { workspaceId: "ws1", kind: "OWNER", expiresAt: null }],
+  ])("keeps limits without an eligible personal entitlement (%s, %s)", async (role, homeWorkspaceId, grant) => {
+    const ctx = ctxWith();
+    Object.assign(ctx.user, { role, homeWorkspaceId });
+    m.prisma.aiCreditGrant.findUnique.mockResolvedValue(grant);
+    const allow = vi.fn().mockResolvedValue(false);
+    const run = vi.fn();
+    const result = await runTool({ ...tool("export_reel"), run }, ctx, {}, allow);
+    expect(allow).toHaveBeenCalledOnce();
+    expect(run).not.toHaveBeenCalled();
+    expect(JSON.parse((result.content[0] as any).text).rateLimited).toBe(true);
+  });
+
+  it("still checks scopes before consulting a personal entitlement", async () => {
+    const ctx = ctxWith(["reels:read"]);
+    Object.assign(ctx.user, { role: "OWNER", homeWorkspaceId: "ws1" });
+    const allow = vi.fn();
+    const run = vi.fn();
+    await runTool({ ...tool("export_reel"), run }, ctx, {}, allow);
+    expect(m.prisma.aiCreditGrant.findUnique).not.toHaveBeenCalled();
+    expect(allow).not.toHaveBeenCalled();
+    expect(run).not.toHaveBeenCalled();
   });
 
   it("turns a thrown error into a tool error without internals", async () => {

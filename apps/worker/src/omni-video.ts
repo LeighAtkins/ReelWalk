@@ -10,8 +10,8 @@ import { VertexError } from "./vertex-video";
  * The first image part is the start frame and a second one the end frame; `previous_interaction_id` extends an earlier
  * take with its footage as context (store must stay true so a take can be extended later). There is no duration field:
  * the length is asked for in the prompt, and the take is measured when it arrives. Resolution is fixed when the take is
- * made (no upscaling an earlier take), so a final is a new take. Signed with the deployment's Gemini API key, or without
- * one by the worker's own Google credentials (omniHeaders); Vertex offers this model only on provisioned throughput.
+ * made (no upscaling an earlier take), so a final is a new take. Signed with the deployment's Gemini authorization key,
+ * bound to the worker's service account (ADR 0105); Vertex offers this model only on provisioned throughput.
  */
 
 const BASE = "https://generativelanguage.googleapis.com/v1beta";
@@ -57,9 +57,10 @@ export function omniConfigured(): boolean {
 }
 
 /**
- * How a request is signed: with the API key when there is one, else with the worker's own Google credentials
- * (Application Default Credentials, or the workload identity Veo uses), billed to GOOGLE_CLOUD_PROJECT. The second way
- * needs the Generative Language API enabled on that project and no key at all.
+ * How a request is signed: with the authorization key when there is one (the way that works), else with the worker's
+ * own Google token billed to GOOGLE_CLOUD_PROJECT. Google refuses service-account tokens for the Gemini API ("Access to
+ * Gemini API is restricted with service accounts", measured 2026-11-01, ADR 0105), so the fallback only ever reaches a
+ * clear 403 refusal; it stays for credentials Google may still accept, such as a user's in local development.
  */
 export async function omniHeaders(key: string, token?: () => Promise<string | null | undefined>): Promise<Record<string, string>> {
   if (key) return { "x-goog-api-key": key };

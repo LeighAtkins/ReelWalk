@@ -72,6 +72,7 @@ model Workspace {
   funnelEvents FunnelEvent[]
   renderArtifacts RenderArtifact[]
   styleReferences StyleReference[]
+  shotPlans    ShotPlan[]
 
   // Set by the Stripe webhook from the subscription (plans in @reelwalk/core).
   plan                 Plan      @default(FREE)
@@ -219,6 +220,7 @@ model User {
   aiEdits     AiEdit[]
   scheduledPosts ScheduledPost[]
   aiGenerations AiGeneration[]
+  shotPlans   ShotPlan[]
   oauthGrants OAuthGrant[]
   // Every workspace this person can switch to (ADR 0079). `workspaceId` above stays their home workspace.
   memberships WorkspaceMember[]
@@ -1039,4 +1041,39 @@ model MusicCandidate {
 
   @@index([igAudioId])
   @@index([score])
+}
+
+// An AI sequence planned shot by shot (ADR 0104): the plan (shotPlanSchema in @reelwalk/core), its storyboard stills and
+// its takes, made one at a time by the worker with a check after each.
+model ShotPlan {
+  id            String    @id @default(cuid())
+  workspaceId   String
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdById   String
+  createdBy     User      @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  // What the owner asked for.
+  brief         String
+  // "planned" (made, not started), "running", "waiting" (for the owner: see waitingFor), "done", "stopped" or "failed".
+  status        String    @default("planned")
+  waitingFor    String?
+  // The shot list (shotPlanSchema) and where each shot is (planStateSchema).
+  plan          Json
+  state         Json
+  // The continuity issues of the current plan (planIssues), kept so a list shows them without recomputing.
+  issues        Json?
+  // "auto", "storyboard" or "each-take".
+  approval      String    @default("storyboard")
+  budgetCredits Int
+  presenterId   String?
+  // The reel the accepted takes are assembled into.
+  reelId        String?
+  error         String?
+  leaseToken    String?
+  leaseUntil    DateTime?
+  nextRunAt     DateTime  @default(now())
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([workspaceId, createdAt])
+  @@index([status, nextRunAt])
 }

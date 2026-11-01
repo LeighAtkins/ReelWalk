@@ -15,6 +15,8 @@ import { handleDeadLetter, handleDelivery, settleRedundant, type ClaimedJob, typ
 import { renderJob, type RunStorage } from "./render";
 import { createJobStore } from "./store";
 import { processAiVideo } from "./ai-video";
+import { processShotPlans } from "./shot-plans";
+import { shotPlanDeps } from "./shot-plans-deps";
 import { processPresenterKit } from "./presenter-kits";
 import { AI_STEP_QUEUE_RETENTION_MS, AI_STEP_REAP_AFTER_MS, localKeyFor, serializeRenderJobMessage } from "@reelwalk/core";
 import { createAiStepStore, type AiStepDeps } from "./ai-jobs";
@@ -208,6 +210,7 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
   });
 }
 
+let planDeps: ReturnType<typeof shotPlanDeps> | undefined;
 async function aiVideoLoop() {
   while (!stopping) {
     try {
@@ -215,6 +218,9 @@ async function aiVideoLoop() {
       // A presenter kit's face crop first (ADR 0056): a composed take may be waiting for it.
       const kit = await processPresenterKit(s3, config.s3Bucket).catch(() => { console.error("presenter: face crop temporarily unavailable"); return false; });
       if (await processAiVideo(s3, config.s3Bucket) || kit) lastWorkAt = Date.now();
+      // Shot plans (ADR 0104) after the takes: a plan's next step often waits on a take this pass just finished.
+      planDeps ??= shotPlanDeps(s3, config.s3Bucket);
+      if (await processShotPlans(planDeps).catch(() => { console.error("shot-plan: processing temporarily unavailable"); return false; })) lastWorkAt = Date.now();
     } catch {
       console.error("ai-video: processing temporarily unavailable");
     } finally { aiBusy = false; }

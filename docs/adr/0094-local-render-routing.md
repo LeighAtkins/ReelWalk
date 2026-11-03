@@ -441,3 +441,10 @@ payload its own build cannot parse (`reelExportPayloadReadable`) is handed to th
 another workspace: unclaimed, so no attempt is spent and nothing is marked FAILED. The cloud worker runs the deployed
 build. The PC logs that it is older than the export and should be updated and restarted. A payload that no build can
 read still fails on the cloud, after its attempts, as before.
+
+## Amendment: person-matte exports and the render page's origin (2026-11-03)
+
+PC exports with titles behind the presenter failed with `video error 4` (`net::ERR_FAILED` on the footage). The cause is
+not specific to the PC: the render page's origin moved between `localhost:3000` and `:3002`, and the bucket's CORS allows
+only `:3000`. The cloud worker lost the same draw less often. ADR 0107 pins the page to `http://localhost:3000`; nothing
+in this ADR's routing changes.

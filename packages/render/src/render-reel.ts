@@ -7,6 +7,7 @@ import { clipDurationMs, clipStartsMs, isInstagramMusic, REEL_FORMAT, type Timel
 import { mkdtemp, rm } from "node:fs/promises";
 import { REEL_COMPOSITION_ID, type ReelAsset } from "./reel/types";
 import { renderConcurrency } from "./concurrency";
+import { RENDER_PAGE_PORT, serveBundle } from "./bundle-server";
 
 let bundled: Promise<string> | null = null;
 
@@ -42,17 +43,30 @@ async function withBrowser<T>(use: (browser: Awaited<ReturnType<typeof openBrows
 /**
  * Webpack-bundling the compositions takes several seconds. Reel assets are
  * passed as URLs rather than copied into the bundle, so one bundle serves every
- * render this process does.
+ * render this process does. It is served once, on RENDER_PAGE_PORT (ADR 0107):
+ * every page has the origin the media bucket's CORS allows, however many
+ * stills draw at once. If that port is taken, Remotion serves the bundle
+ * itself as before, and a person matte may then fail its CORS check.
  */
 function getServeUrl(): Promise<string> {
   if (!bundled) {
     const entryPoint = path.join(path.dirname(fileURLToPath(import.meta.url)), "index.ts");
     // The bundled sound set (ADR 0066) is served from the package's public dir, so `staticFile("sfx/…")` resolves in the worker.
     const publicDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "public");
-    bundled = bundle({ entryPoint, publicDir, webpackOverride: (config) => config }).catch((error) => {
-      bundled = null;
-      throw error;
-    });
+    bundled = bundle({ entryPoint, publicDir, webpackOverride: (config) => config })
+      .then((dir) =>
+        serveBundle(dir).then(
+          ({ url }) => url,
+          (error) => {
+            console.warn(`render page: port ${RENDER_PAGE_PORT} is not free (${error instanceof Error ? error.message : error}); Remotion serves the bundle on its own ports, where person mattes can fail CORS`);
+            return dir;
+          },
+        ),
+      )
+      .catch((error) => {
+        bundled = null;
+        throw error;
+      });
   }
   return bundled;
 }

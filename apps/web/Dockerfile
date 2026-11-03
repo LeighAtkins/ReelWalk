@@ -41,6 +41,10 @@ ENV HOSTNAME=0.0.0.0
 # own vulnerable dependencies) are removed.
 # ffmpeg: the verification routes (ADR 0071) cut frames from an export and
 # decode it for the checks when the worker has not stored them.
+# The upgrade layer is rebuilt whenever this ARG changes: bump the date when Alpine ships
+# fixes that CI's cached layer lacks (2026-11-03: libexpat 2.10.0-r0 for CVE-2026-117610 /
+# CVE-2026-118370).
+ARG BASE_REFRESH=2026-11-03
 RUN apk upgrade --no-cache \
   && apk add --no-cache ffmpeg \
   && rm -rf /usr/local/lib/node_modules /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /opt/yarn-*

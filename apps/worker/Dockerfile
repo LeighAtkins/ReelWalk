@@ -1,5 +1,5 @@
 ## ── Stage 1: runtime base ─────────────────────────────────────
-FROM node:22-bookworm-slim AS runtime
+FROM node:23-bookworm-slim AS runtime
 
 # Security updates, then ffmpeg plus the shared libraries Chrome Headless Shell needs,
 # python3 for Walk the block's drone solve (ADR 0093, OpenCV in the /opt/block venv),

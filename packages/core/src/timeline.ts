@@ -8,6 +8,7 @@ import { motionCutSchema, withoutMotionCut } from "./motion-cut";
 import { planOverlaySchema, roomTitle, spotSchema, type PlanOverlay } from "./plan";
 import { colorMatchSchema, colorStatsSchema, lookSchema } from "./look";
 import { textTreatmentSchema } from "./brand-fonts";
+import { accentAssetIds, accentsSchema } from "./accents";
 import { boardAssetIds, boardSchema } from "./board";
 
 /**
@@ -346,6 +347,10 @@ export const textSchema = z
       z.object({ kind: z.literal("gradient"), colors: z.array(z.string().regex(/^#[0-9a-f]{6}$/i)).min(2).max(4), /** Degrees, CSS convention (180: top to bottom). */ angle: z.number().min(0).max(360).optional() }),
       z.object({ kind: z.literal("image"), assetId: z.string().min(1) }),
     ]).optional(),
+    /** A soft light around the letters (ADR 0108): `radius` in fractions of the font size, `strength` 0–1. Works with a colour or a gradient fill. Absent: none. */
+    glow: z.object({ color: z.string().regex(/^#[0-9a-f]{6}$/i), radius: z.number().min(0.02).max(0.5).default(0.12), strength: z.number().min(0.1).max(1).default(0.8) }).optional(),
+    /** A display word of a stacked type lockup (ADR 0108): may be as large as a lockup's keyword. Absent: an ordinary title's limit. */
+    display: z.literal(true).optional(),
     /** Set in italic (ADR 0089, the reference's caption words). Absent: upright. */
     italic: z.boolean().optional(),
     /** The face's weight, overriding the style's own (ADR 0089: the lockup keyword is Playfair 600). Absent: the style's. */
@@ -394,11 +399,11 @@ export const textSchema = z
   })
   .refine((text) => text.endMs > text.startMs, { message: "Text must be on screen for a positive time" })
   .refine((text) => text.size >= minTextSize(text.style), { message: "Text is too small for this style", path: ["size"] })
-  .refine((text) => text.size <= maxTextSize(text), { message: `Text is too large: only a lockup's keyword may pass size ${TEXT_SIZE_MAX}`, path: ["size"] });
+  .refine((text) => text.size <= maxTextSize(text), { message: `Text is too large: only a lockup's keyword or a display word may pass size ${TEXT_SIZE_MAX}`, path: ["size"] });
 
-/** Largest `size` a title may have: a keyword lockup's hero word may be far bigger than an ordinary title (ADR 0089). */
-export function maxTextSize(text: { lockup?: { role: string } | undefined }): number {
-  return text.lockup?.role === "keyword" ? KEYWORD_SIZE_MAX : TEXT_SIZE_MAX;
+/** Largest `size` a title may have: a keyword lockup's hero word (ADR 0089) and a display word (ADR 0108) may be far bigger than an ordinary title. */
+export function maxTextSize(text: { lockup?: { role: string } | undefined; display?: true | undefined }): number {
+  return text.lockup?.role === "keyword" || text.display ? KEYWORD_SIZE_MAX : TEXT_SIZE_MAX;
 }
 
 /** A song's sections (ADR 0059), found by `analyseSong`. */
@@ -659,6 +664,8 @@ export const timelineSchema = z.object({
   voiceover: voiceoverSchema.optional(),
   /** A board of video panels over part of the reel (ADR 0106). Absent on every saved reel: none. */
   board: boardSchema.optional(),
+  /** Portals and lens flares over the footage, under the titles (ADR 0108). Absent on every saved reel: none. */
+  accents: accentsSchema.optional(),
 });
 
 export type Clip = z.infer<typeof clipSchema>;
@@ -912,7 +919,7 @@ export function addText(timeline: Timeline, text: Omit<TextOverlay, "endMs" | "a
   const startMs = Math.max(0, Math.min(Math.round(text.startMs), Math.max(0, total - MIN_CLIP_MS)));
   const endMs = Math.min(total, Math.round(text.endMs ?? startMs + DEFAULT_TEXT_MS));
   if (endMs <= startMs) return timeline;
-  return { ...timeline, texts: [...timeline.texts, textSchema.parse({ ...text, startMs, endMs, size: fitTextSize(text.style, text.size) })] };
+  return { ...timeline, texts: [...timeline.texts, textSchema.parse({ ...text, startMs, endMs, size: fitTextSize(text.style, text.size, maxTextSize(text)) })] };
 }
 
 export function updateText(timeline: Timeline, id: string, patch: Partial<Omit<TextOverlay, "id">>): Timeline {
@@ -1108,5 +1115,7 @@ export function referencedAssetIds(timeline: Timeline): string[] {
   for (const text of timeline.texts) if (text.fill?.kind === "image") ids.add(text.fill.assetId);
   // A board's panels (ADR 0106) play library footage of their own.
   for (const id of boardAssetIds(timeline.board)) ids.add(id);
+  // So do a portal's wall and person (ADR 0108).
+  for (const id of accentAssetIds(timeline.accents)) ids.add(id);
   return [...ids];
 }

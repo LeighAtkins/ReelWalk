@@ -38,6 +38,7 @@ import { speechSync } from "./wall-text";
 import { composeKeywordLockups, type LockupOptions } from "./keyword-lockup";
 import type { Transcript, TranscriptWord } from "./transcript";
 import { withVoiceover } from "./voiceover";
+import { accentsSchema, type AccentsInput } from "./accents";
 import { boardSchema, type BoardInput } from "./board";
 import {
   clipDurationMs,
@@ -233,6 +234,7 @@ export type Command =
    * null takes it off. Must lie inside the reel and use the reel's library; nothing is retimed.
    */
   | { type: "setBoard"; board: BoardInput | null }
+  | { type: "setAccents"; accents: AccentsInput | null }
   /** Several commands as one step and one undo ("Fix all", ADR 0062): all of them land, or none. */
   | { type: "batch"; commands: BatchableCommand[] };
 
@@ -250,7 +252,7 @@ const COMMAND_TYPE_REGISTRY: Record<Command["type"], true> = {
   trimClip: true, moveClip: true, splitClip: true, deleteClip: true, duplicateClip: true, setSpeed: true, setMusic: true, snapToBeat: true, pace: true, setOnBeat: true,
   retime: true, retimeToLength: true, insertPresenterTakes: true, cutaways: true, applyFinish: true, hook: true, applyProposal: true,
   setRamp: true, setCamera: true, setHeadLock: true, applyMove: true, matchCuts: true, setTransition: true, setMotionCut: true, dayAt: true, updateText: true, placeOnSurface: true, syncTextToSpeech: true, applyTextStyle: true, composeKeywordLockup: true, updateClip: true, matchLook: true, addText: true,
-  autoSfx: true, setSfx: true, dropOnCut: true, setEndCard: true, setVoiceover: true, setBoard: true, batch: true,
+  autoSfx: true, setSfx: true, dropOnCut: true, setEndCard: true, setVoiceover: true, setBoard: true, setAccents: true, batch: true,
 };
 /** The type of every command, in registry order. */
 export const COMMAND_TYPES = Object.keys(COMMAND_TYPE_REGISTRY) as Command["type"][];
@@ -480,6 +482,19 @@ function run(timeline: Timeline, command: Command, context: CommandContext): Tim
       if (parsed.data.endMs > total) throw new Error(`The board ends at ${parsed.data.endMs} ms, after the reel (${total} ms). End it by then.`);
       return { ...timeline, board: parsed.data };
     }
+    case "setAccents": {
+      if (command.accents === null) {
+        const rest = { ...timeline };
+        delete rest.accents;
+        return rest;
+      }
+      const parsed = accentsSchema.safeParse(command.accents);
+      if (!parsed.success) throw new Error(`Those accents are not valid: ${parsed.error.issues.map((issue) => issue.message).join("; ")}.`);
+      const total = timelineDurationMs(timeline);
+      const late = parsed.data.find((accent) => accent.endMs > total);
+      if (late) throw new Error(`Accent ${late.id} ends at ${late.endMs} ms, after the reel (${total} ms). End it by then.`);
+      return { ...timeline, accents: parsed.data };
+    }
     case "setEndCard": {
       if (command.endCard === null) {
         const rest = { ...timeline };
@@ -643,7 +658,7 @@ export function diffTimelines(before: Timeline, after: Timeline): Change[] {
     if (!a || !b || !same(a, b)) changes.push({ kind: "text", id });
   }
   if (!same(before.music, after.music)) changes.push({ kind: "music" });
-  for (const key of ["plan", "details", "logo", "cover", "hook", "opening", "look", "sfx", "endCard", "voiceover", "board"] as const) {
+  for (const key of ["plan", "details", "logo", "cover", "hook", "opening", "look", "sfx", "endCard", "voiceover", "board", "accents"] as const) {
     if (!same(before[key], after[key])) changes.push({ kind: "other", key });
   }
   return changes;

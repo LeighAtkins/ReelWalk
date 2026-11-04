@@ -6,6 +6,8 @@ import "@fontsource-variable/archivo/wdth-italic.css";
 import "@fontsource-variable/noto-sans-jp/wght.css";
 // Playfair Display (SIL Open Font Licence 1.1): the "elegant" style and the serif hook since ADR 0083 (the owner's choice).
 import "@fontsource-variable/playfair-display/wght.css";
+// Its true italic: the serif words of a stacked type lockup (ADR 0108).
+import "@fontsource-variable/playfair-display/wght-italic.css";
 // Cormorant Garamond (SIL Open Font Licence 1.1): the title font "serif", and the elegant style before ADR 0083.
 import "@fontsource-variable/cormorant-garamond/wght.css";
 import "@fontsource-variable/bodoni-moda/opsz.css";
@@ -41,7 +43,7 @@ export function useFontsFor(text: string, weight: number, brandFamilies: readonl
       document.fonts.load(`${weight} 64px "Bodoni Moda Variable"`, sample),
       document.fonts.load(`${weight} 64px "Inter Tight Variable"`, sample),
       ...brandFamilies.map((family) => document.fonts.load(`${weight} 64px "${family}"`, sample)),
-      ...(italic ? [document.fonts.load(`italic ${weight} 64px "Archivo Variable"`, sample)] : []),
+      ...(italic ? [document.fonts.load(`italic ${weight} 64px "Archivo Variable"`, sample), document.fonts.load(`italic ${weight} 64px "Playfair Display Variable"`, sample)] : []),
     ])
       .catch(() => undefined)
       .finally(() => {

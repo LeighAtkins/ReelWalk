@@ -56,6 +56,7 @@ export * from "./plans";
 export * from "./queue";
 export * from "./schedule-time";
 export * from "./reel-export";
+export * from "./accents";
 export * from "./board";
 export * from "./timeline";
 export * from "./uploads";

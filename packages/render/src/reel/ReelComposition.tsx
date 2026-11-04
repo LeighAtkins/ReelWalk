@@ -34,13 +34,14 @@ import { clipSpans, mediaHandles, planCuts, type CutPlan } from "./transition-pl
 import { AtCuts, presentationOf, timingOf } from "./transitions";
 import { MotionCutBlur } from "./motion-cut-blur";
 import { useFontsFor } from "./fonts";
-import { clipFilterCss, ELEGANT_FADE_S, FILTER_GRADES, invertLayers, textFillCss, textTreatmentCss, whiteBalanceId, whiteBalanceValues } from "./look";
+import { clipFilterCss, ELEGANT_FADE_S, FILTER_GRADES, invertLayers, textFillCss, textGlowFilter, textTreatmentCss, whiteBalanceId, whiteBalanceValues } from "./look";
 import { DetailsCardView } from "./DetailsCardView";
 import { EndCardView } from "./EndCardView";
 import { PanoView } from "./PanoView";
 import { PlanOverlayView } from "./PlanOverlayView";
 import type { ReelAsset, ReelProps } from "./types";
 import { Watermark } from "./Watermark";
+import { AccentsView } from "./AccentsView";
 import { PersonMatteView } from "./PersonMatte";
 import { ObjectMatteView } from "./ObjectMatte";
 import { HookView } from "./HookView";
@@ -495,6 +496,7 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
   const cursor = chars !== null && chars < text.text.length && Math.floor(frame / (fps / 4)) % 2 === 0;
   // Paint on the surface: hard-light keeps the wall's own light and grain through the letters (white lightens, dark darkens), with the footage's softness.
   // The blend's own 0.92 multiplies the fade; spread after `opacity`, a flat 0.92 used to cancel it.
+  const glow = textGlowFilter(text.glow, font.fontSize);
   const meet = text.blend === "surface" ? { mixBlendMode: "hard-light" as const, filter: "blur(0.6px)", opacity: visible * 0.92 } : {};
   const reelMs = ((from + frame) * 1000) / fps;
   // Shine and kinetic type (ADR 0061): drawn inside the face span, so in the plane for a surface title.
@@ -533,7 +535,7 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
         {planeParticles("back")}
         {/* Painted on a chosen surface, the text exists only on that surface: anything in front of the surface's edge (a wall, a railing) hides it. */}
         {passes.map((pass) => (
-        <div key={pass.key} style={{ position: "absolute", left: rect.left, top: rect.top, width: w, height: h, display: "flex", alignItems: "center", justifyContent: "center", transformOrigin: "0 0", transform: placed ? matrix3d(placed) : undefined, opacity: visible, whiteSpace: "nowrap", textAlign: "center", overflow: clipToPlane ? "hidden" : "visible", ...mask, ...meet, ...(pass.mixBlendMode ? { mixBlendMode: pass.mixBlendMode } : {}), ...(slide ? { clipPath: slide.clipPath } : {}) }}>
+        <div key={pass.key} style={{ position: "absolute", left: rect.left, top: rect.top, width: w, height: h, display: "flex", alignItems: "center", justifyContent: "center", transformOrigin: "0 0", transform: placed ? matrix3d(placed) : undefined, opacity: visible, whiteSpace: "nowrap", textAlign: "center", overflow: clipToPlane ? "hidden" : "visible", ...mask, ...(glow ? { filter: glow } : {}), ...meet, ...(pass.mixBlendMode ? { mixBlendMode: pass.mixBlendMode } : {}), ...(slide ? { clipPath: slide.clipPath } : {}) }}>
           {/* The plane's box is only its frame: the words sit on one line (or the lines the author typed), scaled to fill or fit it, warped with it. */}
           <span style={{ ...(moving ? motionFace : face), ...pass.face, position: "relative", whiteSpace: text.text.includes("\n") ? "pre" : "nowrap", overflowWrap: "normal", wordBreak: "keep-all", transform: `${slide ? `translateX(${slide.dx.toFixed(2)}px) ` : ""}scale(${scale * fitScale})${lean}` }}>
             {moving ? letters(h / Math.max(1, w)) : chars === null ? text.text : (<>
@@ -605,6 +607,8 @@ const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline
           display: "flex",
           justifyContent: "center",
           transform: motion,
+          // On the box, so it wraps whatever the arrival does to the letters (a blur, a gradient fill clipped to them).
+          ...(glow ? { filter: glow } : {}),
           ...meet,
           ...(pass.mixBlendMode ? { mixBlendMode: pass.mixBlendMode } : {}),
           // After the surface blend, whose own 0.92 is kept: the callout's reveal multiplies it rather than being overwritten.
@@ -818,6 +822,8 @@ export const ReelComposition: React.FC<ReelProps> = ({ timeline, assets, waterma
           <BoardView board={timeline.board} assets={assets} />
         </Sequence>
       ) : null}
+      {/* Portals and lens flares (ADR 0108): in the shot, behind the type. */}
+      {timeline.accents?.length ? <AccentsView timeline={timeline} assets={assets} /> : null}
       <PlanOverlayView timeline={timeline} />
       {/* Titles and what stands in front of them, bottom to top (ADR 0046): each title's occluders draw above
           that title only; the presenter above the "behind" titles, a plain caption above every matte. */}

@@ -340,6 +340,17 @@ export function textCss(style: TextStyle, color: string, size: number): CSSPrope
  * paint over a clipped background, so the soft shadow becomes a drop shadow on the letters' outline instead. `src` is
  * the picture's URL for an image fill; without it the letters stay in their colour. Null: no fill.
  */
+/**
+ * A title's glow (ADR 0108): a tight halo and a wide one around the letters' own shape. A filter, not a text-shadow,
+ * because a gradient fill clips to the glyphs and a text-shadow would paint over it.
+ */
+export function textGlowFilter(glow: TextOverlay["glow"], fontSize: number): string | null {
+  if (!glow) return null;
+  const alpha = (value: number) => Math.round(Math.min(1, value) * 255).toString(16).padStart(2, "0");
+  const tight = (glow.radius * fontSize * 0.45).toFixed(1), wide = (glow.radius * fontSize * 1.5).toFixed(1);
+  return `drop-shadow(0 0 ${tight}px ${glow.color}${alpha(glow.strength)}) drop-shadow(0 0 ${wide}px ${glow.color}${alpha(glow.strength * 0.75)})`;
+}
+
 export function textFillCss(fill: TextOverlay["fill"], src?: string): CSSProperties | null {
   if (!fill) return null;
   let image: string;

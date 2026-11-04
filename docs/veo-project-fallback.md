@@ -11,3 +11,7 @@ This is billing-failure failover, not a free-credit meter. If the primary is a p
 The owner authorized one live test on project `project-ff7636a6-ffa9-431a-8f8`. A single 4-second, silent, 720p Veo 3.1 Fast lake clip succeeded and returned an MP4. The request and operation receipt are kept in the local private task output. It used the new project service account via owner impersonation. This proves live model access, not the final invoice or application-worker identity exchange. The existing production worker identity has been granted access to the new project; the deployed fallback must still be checked after release.
 
 The organization blocks both service-account keys and bound Cloud AI API keys. Those policies remain enforced. No AI Studio prepayment or Google Cloud billing upgrade was performed.
+
+## Owner-directed primary switch
+
+The owner subsequently requested switching immediately instead of waiting for exhaustion. Set `google_video_project` to the new project and leave `google_cloud_fallback_project` empty. The override affects the worker only, preserving the web AI provider project. Operational task revision 206 and the PC worker were switched on 2026-11-04 using the existing deployed image, after checking no active AI or render jobs. No fallback to the old billing project is configured.

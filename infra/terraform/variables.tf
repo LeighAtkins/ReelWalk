@@ -404,3 +404,9 @@ variable "google_cloud_fallback_project" {
   type        = string
   default     = ""
 }
+
+variable "google_video_project" {
+  description = "Optional worker-only Google project override for video and image generation; does not move the web AI provider."
+  type        = string
+  default     = ""
+}

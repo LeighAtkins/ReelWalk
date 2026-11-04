@@ -212,6 +212,7 @@ resource "aws_ecs_task_definition" "worker" {
           GOOGLE_WORKLOAD_IDENTITY_AUDIENCE = var.google_workload_identity_audience
           GOOGLE_SERVICE_ACCOUNT_EMAIL      = var.google_service_account_email
           GOOGLE_CLOUD_FALLBACK_PROJECT      = var.google_cloud_fallback_project
+          GOOGLE_CLOUD_PROJECT               = var.google_video_project != "" ? var.google_video_project : var.google_cloud_project
           # Up to max_workers of these share the database pooler with the web app.
           DATABASE_POOL_MAX = "3"
           # Where the nightly backup task writes (backups.tf).

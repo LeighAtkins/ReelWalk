@@ -90,3 +90,45 @@ describe("submit failure classification (ADR 0056)", () => {
     expect(definitelyRejected(new DOMException("timed out", "TimeoutError"))).toBe(false);
   });
 });
+
+
+describe("billing project fallback", () => {
+  const billingRefusal = () => Response.json({ error: { status: "PERMISSION_DENIED", details: [{ "@type": "type.googleapis.com/google.rpc.ErrorInfo", domain: "googleapis.com", reason: "BILLING_DISABLED" }] } }, { status: 403 });
+  it("switches once only after a structured billing refusal, keeping the exact paid request", async () => {
+    vi.stubEnv("GOOGLE_CLOUD_FALLBACK_PROJECT", "backup");
+    const fetcher = vi.fn().mockResolvedValueOnce(billingRefusal()).mockResolvedValueOnce(Response.json({ name: "projects/backup/locations/us-central1/publishers/google/models/veo/operations/one" })).mockResolvedValueOnce(Response.json({ name: "next" }));
+    vi.stubGlobal("fetch", fetcher);
+    const provider = new VertexVideo("primary");
+    await provider.submit("veo", 4, "A lake");
+    expect(fetcher.mock.calls[0]![0]).toContain("/projects/primary/");
+    expect(fetcher.mock.calls[1]![0]).toContain("/projects/backup/");
+    expect(fetcher.mock.calls[1]![1].body).toBe(fetcher.mock.calls[0]![1].body);
+    await provider.submit("veo", 4, "Another lake");
+    expect(fetcher.mock.calls[2]![0]).toContain("/projects/backup/");
+  });
+  it.each([429, 403, 503, 408])("does not switch on an ordinary HTTP %i failure", async status => {
+    vi.stubEnv("GOOGLE_CLOUD_FALLBACK_PROJECT", "backup");
+    const fetcher = vi.fn().mockImplementation(async () => Response.json({ error: { status: status === 429 ? "RESOURCE_EXHAUSTED" : "PERMISSION_DENIED", message: "billing disabled" } }, { status }));
+    vi.stubGlobal("fetch", fetcher);
+    await expect(new VertexVideo("primary").submit("veo", 4, "A lake")).rejects.toBeInstanceOf(VertexError);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+  it("does not switch after a network failure or retry a rejected fallback", async () => {
+    vi.stubEnv("GOOGLE_CLOUD_FALLBACK_PROJECT", "backup");
+    const fetcher = vi.fn().mockRejectedValue(new Error("lost response")); vi.stubGlobal("fetch", fetcher);
+    await expect(new VertexVideo("primary").submit("veo", 4, "A lake")).rejects.toThrow("lost response");
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    fetcher.mockReset().mockResolvedValue(billingRefusal());
+    await expect(new VertexVideo("primary").submit("veo", 4, "A lake")).rejects.toBeInstanceOf(VertexError);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+  it("polls the saved project's operation after a worker restart and rejects unrelated routes", async () => {
+    vi.stubEnv("GOOGLE_CLOUD_FALLBACK_PROJECT", "backup");
+    const fetcher = vi.fn().mockResolvedValue(Response.json({ done: false })); vi.stubGlobal("fetch", fetcher);
+    const provider = new VertexVideo("primary");
+    await provider.poll("veo", "projects/backup/locations/us-central1/publishers/google/models/veo/operations/one");
+    expect(fetcher.mock.calls[0]![0]).toContain("/projects/backup/");
+    await expect(provider.poll("veo", "projects/stranger/locations/us-central1/publishers/google/models/veo/operations/one")).rejects.toThrow("Unexpected");
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+});

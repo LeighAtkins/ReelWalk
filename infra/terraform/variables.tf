@@ -398,3 +398,15 @@ variable "presenter_voice" {
   type    = string
   default = "melotts:en"
 }
+
+variable "google_cloud_fallback_project" {
+  description = "Optional Veo project used only after a definitive primary BILLING_DISABLED refusal."
+  type        = string
+  default     = ""
+}
+
+variable "google_video_project" {
+  description = "Optional worker-only Google project override for video and image generation; does not move the web AI provider."
+  type        = string
+  default     = ""
+}

@@ -24,7 +24,7 @@ export function federatedVideoAuth(credentials: AwsCredentials, audience: string
 
 export class VertexError extends Error {
   /** Google's canonical error code from the response (e.g. "INVALID_ARGUMENT"), when it sent one; the body itself is never kept. */
-  constructor(message: string, public readonly status: number, public readonly reason?: string) { super(message); }
+  constructor(message: string, public readonly status: number, public readonly reason?: string, public readonly billingDisabled = false) { super(message); }
 }
 
 /** Canonical codes that mean Google refused the request outright, so no operation can exist (ADR 0056). */
@@ -62,38 +62,58 @@ export function vertexAuth(credentials?: AwsCredentials): () => Promise<string |
 
 export class VertexVideo {
   private readonly getToken: () => Promise<string | null | undefined>;
+  private activeProject: string;
+  private readonly fallbackProject = process.env.GOOGLE_CLOUD_FALLBACK_PROJECT?.trim() || undefined;
   constructor(private readonly project = process.env.GOOGLE_CLOUD_PROJECT!, private readonly location = process.env.GOOGLE_CLOUD_LOCATION || "us-central1", credentials?: AwsCredentials) {
     this.getToken = vertexAuth(credentials);
+    this.activeProject = project;
   }
 
-  private async request(model: string, method: string, body: unknown) {
+  private async request(model: string, method: string, body: unknown, project = this.project, location = this.location) {
     // Deliberately no retry on predictLongRunning: repeating a timed-out POST
     // can charge twice. Polling is read-only and can be resumed safely.
     const token = await this.getToken();
     if (!token) throw new Error("Google credentials could not be refreshed.");
-    const url = `https://${this.location}-aiplatform.googleapis.com/v1/projects/${this.project}/locations/${this.location}/publishers/google/models/${model}:${method}`;
+    const url = `https://${location}-aiplatform.googleapis.com/v1/projects/${project}/locations/${location}/publishers/google/models/${model}:${method}`;
     const response = await fetch(url, {
       method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       body: JSON.stringify(body), signal: AbortSignal.timeout(90_000),
     });
     if (!response.ok) {
       // Never persist provider bodies: they may contain request data or credentials. Only the canonical code is read.
-      const reason = await response.json().then((body: { error?: { status?: unknown } }) => typeof body?.error?.status === "string" ? body.error.status : undefined, () => undefined);
-      throw new VertexError(`Google video service returned HTTP ${response.status}${reason ? ` (${reason})` : ""}.`, response.status, reason);
+      const error = await response.json().then((body: { error?: { status?: unknown; details?: { "@type"?: string; domain?: string; reason?: string }[] } }) => body.error, () => undefined);
+      const reason = typeof error?.status === "string" ? error.status : undefined;
+      // Only Google's structured billing refusal permits a second paid POST. Quota, IAM,
+      // safety, timeouts and server errors never switch projects or duplicate a submission.
+      const billingDisabled = response.status === 403 && reason === "PERMISSION_DENIED" && Array.isArray(error?.details)
+        && error.details.some(detail => detail["@type"] === "type.googleapis.com/google.rpc.ErrorInfo" && detail.domain === "googleapis.com" && detail.reason === "BILLING_DISABLED");
+      throw new VertexError(`Google video service returned HTTP ${response.status}${reason ? ` (${reason})` : ""}.`, response.status, reason, billingDisabled);
     }
     return response.json();
   }
 
   async submit(model: string, durationSeconds: number, prompt: string, image?: { bytesBase64Encoded: string; mimeType: string }, lastFrame?: { bytesBase64Encoded: string; mimeType: string }, generateAudio = false, seed?: number) {
-    const result = await this.request(model, "predictLongRunning", {
+    const body = {
       instances: [{ prompt, ...(image ? { image } : {}), ...(lastFrame ? { lastFrame } : {}) }], parameters: vertexVideoParameters(durationSeconds, generateAudio, { model, seed }),
-    });
+    };
+    let result;
+    try {
+      result = await this.request(model, "predictLongRunning", body, this.activeProject);
+    } catch (error) {
+      if (!(error instanceof VertexError) || !error.billingDisabled || !this.fallbackProject || this.activeProject === this.fallbackProject) throw error;
+      // The first project definitively refused before making an operation. At most one fallback.
+      result = await this.request(model, "predictLongRunning", body, this.fallbackProject);
+      this.activeProject = this.fallbackProject;
+    }
     if (typeof result.name !== "string") throw new Error("Google did not return a video operation.");
     return result.name as string;
   }
 
   async poll(model: string, operationName: string): Promise<{ done: boolean; video?: Buffer; error?: string }> {
-    const result = await this.request(model, "fetchPredictOperation", { operationName });
+    // Persisted Google operation names carry their billing project across process restarts.
+    const route = /^projects\/([^/]+)\/locations\/([^/]+)\/publishers\/google\/models\/([^/]+)\/operations\/[^/]+$/.exec(operationName);
+    if (route && (![this.project, this.fallbackProject].includes(route[1]) || route[2] !== this.location || route[3] !== model)) throw new Error("Unexpected Google video operation route.");
+    const result = await this.request(model, "fetchPredictOperation", { operationName }, route?.[1] ?? this.project, route?.[2] ?? this.location);
     if (!result.done) return { done: false };
     if (result.error) return { done: true, error: "Google could not generate this shot. Your credit was returned." };
     const video = result.response?.videos?.[0];

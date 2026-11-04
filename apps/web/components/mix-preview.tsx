@@ -1,17 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import type { AudioTrace, InstagramAudioChoice } from "@reelwalk/core";
-import { PlayWithSound } from "./export-sound";
 
-/**
- * Hear and see the mix before posting (ADR 0066). The strip draws what the
- * audio trace knows: the export's loudness every 250 ms, the song's beats
- * and drop, the cuts (off-beat ones marked) and where speech is. Under it,
- * the recommended post sound volume, and "Mix preview": the export's own
- * track with the Instagram sound mixed in at that level, so the mix heard
- * here is the mix Instagram will make.
- */
+/** Audio trace and recommended levels; the posting controls own the one selected-mix transport. */
 
 type Trace = AudioTrace & { exportJobId: string | null };
 
@@ -41,11 +33,6 @@ export function MixPreview({ reelId, sound, initial = null }: { reelId: string; 
       cancelled = true;
     };
   }, [reelId, initial]);
-
-  const mixed = useMemo<InstagramAudioChoice | null>(
-    () => (sound && trace ? { ...sound, audioVolume: trace.recommended.audioVolume, videoVolume: trace.recommended.videoVolume } : null),
-    [sound, trace],
-  );
 
   if (error) {
     return (
@@ -108,7 +95,7 @@ export function MixPreview({ reelId, sound, initial = null }: { reelId: string; 
           ))}
         </ul>
       ) : null}
-      {mixed ? <PlayWithSound sound={mixed} testId="mix-play" label="Mix preview" hint="The export's own track with the Instagram sound mixed in at the level above, as Instagram will mix it." /> : null}
+      <p className="muted small">These are recommended levels. Use the selected music preview in the posting controls to hear your current mix.</p>
     </section>
   );
 }

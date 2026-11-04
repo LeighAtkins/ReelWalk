@@ -49,7 +49,7 @@ test("a studio can edit to an Instagram sound, snap to its beat, and export with
 
   // Adjust: Instagram plays it from its start, so there is no start control; the beat can be snapped again.
   await current.getByRole("button", { name: "Adjust" }).click();
-  await expect(sheet.getByTestId("music-start-locked")).toHaveText("Instagram plays this sound from its start.");
+  await expect(sheet.getByTestId("music-start-locked")).toContainText("Instagram auto-posting starts this sound at 0:00");
   await expect(sheet.getByText("Start the song at")).toHaveCount(0);
   await expect(sheet.getByText("Volume in this preview")).toBeVisible();
   await expect(sheet.getByTestId("snap-to-beat")).toContainText("120 bpm");
@@ -68,12 +68,20 @@ test("a studio can edit to an Instagram sound, snap to its beat, and export with
   await expect(page.getByTestId("sound-chosen")).toHaveText("Open House Morning · ReelWalk Test Band");
   await expect(page.getByTestId("reel-sound-note")).toContainText("Open House Morning");
 
-  // Play with sound plays the export with the sound, from the private copy.
+  // Native video Play now previews the chosen mix, not a different silent/export-only track.
   const playWithSound = page.getByTestId("play-with-sound");
   await expect(playWithSound).toHaveAttribute("data-state", "idle");
-  await page.getByTestId("play-with-sound-button").click();
+  await page.getByTestId("export-video").evaluate((element: HTMLVideoElement) => {
+    // The transport deliberately pauses while loading music, which can abort this first play promise.
+    // The assertions below require actual playback of both tracks after loading.
+    void element.play().catch(() => undefined);
+  });
   await expect(page.getByTestId("play-with-sound-audio")).toHaveAttribute("src", /instagram-audio\/fake-music-1\.wav/, { timeout: 30_000 });
   await expect(playWithSound).toHaveAttribute("data-state", /playing|paused/);
+  await expect.poll(() => page.getByTestId("play-with-sound-audio").evaluate((element: HTMLAudioElement) => element.paused)).toBe(false);
+  await page.getByTestId("export-video").evaluate((element: HTMLVideoElement) => { element.pause(); element.currentTime = 2; });
+  await expect(playWithSound).toHaveAttribute("data-state", "paused");
+  await expect.poll(() => page.getByTestId("play-with-sound-audio").evaluate((element: HTMLAudioElement) => Math.abs(element.currentTime - 2))).toBeLessThan(.1);
   await page.getByTestId("play-with-sound-stop").click();
   await expect(playWithSound).toHaveAttribute("data-state", "idle");
 
@@ -81,6 +89,10 @@ test("a studio can edit to an Instagram sound, snap to its beat, and export with
   await page.getByTestId("sound-open").click();
   const picker = page.getByRole("dialog", { name: "Instagram sound" });
   await picker.getByTestId("sound-tab-trending").click();
+  await picker.getByTestId("sound-preview").first().click();
+  await expect(picker.getByTestId("sound-audition-player")).toBeVisible();
+  await expect(picker.getByTestId("sound-audition-player")).toHaveAttribute("controls", "");
+  await expect(picker).toContainText("automatic posts still start at 0:00");
   await picker.locator('[data-testid="sound-option"][data-audio-id="fake-sound-1"]').click();
   await picker.getByTestId("sound-confirm").click();
   await expect(page.getByTestId("sound-control")).toHaveAttribute("data-audio-id", "fake-sound-1");

@@ -398,3 +398,9 @@ variable "presenter_voice" {
   type    = string
   default = "melotts:en"
 }
+
+variable "google_cloud_fallback_project" {
+  description = "Optional Veo project used only after a definitive primary BILLING_DISABLED refusal."
+  type        = string
+  default     = ""
+}

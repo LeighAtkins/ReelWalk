@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { CameraKeyframeInput, CameraKeyframeJob } from "@reelwalk/core";
 import type { LibraryAsset } from "@/lib/library";
+import styles from "./shot-workspace.module.css";
 
 type Job = CameraKeyframeJob<LibraryAsset>;
 type State = { enabled: boolean; reason: string | null; balanceRemaining: number; jobs: Job[] };
@@ -135,17 +136,17 @@ export function ShotKeyframePanel({ role, input, recoveryKey, selectedAssetId, d
     try { await refresh(); } catch { setError("Could not refresh the saved image links. No new image was generated."); }
   }
   const image = (kind: "source" | "candidate", url: string) => <img key={`${candidateKey}:${kind}`} src={url} alt={kind === "source" ? "Original portrait source" : `Generated ${role} frame`}
-    style={{ width: "100%", aspectRatio: "9 / 16", objectFit: "contain", display: "block", background: "#101313", borderRadius: 8 }}
+    className={styles.keyframeImage}
     onLoad={() => { if (visibleKey.current === candidateKey) setLoaded(old => ({ ...old, [`${candidateKey}:${kind}`]: true })); }}
     onError={() => { if (visibleKey.current === candidateKey) { setFailed(candidateKey); setLoaded({}); } }} />;
 
-  return <section aria-label={`Prepare ${role} image`} style={{ padding: "12px 0", borderTop: "1px solid var(--border, #39413f)" }}>
+  return <section aria-label={`Prepare ${role} image`} className={styles.keyframe}>
     <p className="muted small">{role === "end" ? "Make the ending image first. Review it before spending video credits." : "Optionally prepare a new starting view from this photo."}</p>
     {!input ? <p className="muted small">Choose a JPEG or PNG photo to prepare this frame.</p> : null}
-    {isSelected ? <p role="status">Selected as {role === "start" ? "Start" : "End"}.</p> : job?.candidateUrl && job.sourceUrl ? <>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-        <figure style={{ margin: 0 }}>{image("source", job.sourceUrl)}<figcaption className="small">Original</figcaption></figure>
-        <figure style={{ margin: 0 }}>{image("candidate", job.candidateUrl)}<figcaption className="small">{role === "start" ? "New Start" : "New End"}</figcaption></figure>
+    {isSelected ? <p role="status" className={styles.selectedStatus}>Selected as {role === "start" ? "Start" : "End"}.</p> : job?.candidateUrl && job.sourceUrl ? <>
+      <div className={styles.comparison}>
+        <figure>{image("source", job.sourceUrl)}<figcaption className={styles.caption}>Original</figcaption></figure>
+        <figure>{image("candidate", job.candidateUrl)}<figcaption className={styles.caption}>{role === "start" ? "New Start" : "New End"}</figcaption></figure>
       </div>
       {failed === candidateKey ? <p className="error small" role="alert">The image preview could not load. Your image is saved. <button type="button" disabled={busy} onClick={retryPreview}>Retry preview</button></p> : null}
       <button className="btn btn-block" type="button" disabled={disabled || busy || !ready} onClick={use}>Use this {role === "start" ? "Start" : "End"}</button>
@@ -162,7 +163,7 @@ export function ShotKeyframePanel({ role, input, recoveryKey, selectedAssetId, d
       {busy ? "Working…" : `${job?.candidateUrl ? "Try another" : `Generate ${role === "start" ? "Start" : "End"} image`} · 1 credit`}
     </button>
     {job || error || unresolved ? <button type="button" className="btn btn-quiet" disabled={busy} onClick={() => refresh(undefined, true).then(() => setError("")).catch(e => setError(e.message))}>Refresh status</button> : null}
-    {matching.length ? <details><summary>Saved images</summary>{matching.map(item => <button key={item.id} type="button" disabled={busy} onClick={() => {
+    {matching.length ? <details className={styles.details}><summary>Saved images</summary>{matching.map(item => <button key={item.id} type="button" disabled={busy} onClick={() => {
       try { localStorage.setItem(choiceKey, JSON.stringify({ id: item.id })); setSelected(item.id); setDismissed(undefined); setLoaded({}); setFailed(null); }
       catch { setError("This browser could not save the frame choice."); }
     }}>Image {matching.length - matching.indexOf(item)} · {item.status.toLowerCase()}</button>)}</details> : null}

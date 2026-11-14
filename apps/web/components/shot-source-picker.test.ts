@@ -1,9 +1,13 @@
 import { createElement, isValidElement, type ReactElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
 import { clipSchema } from "@reelwalk/core";
 import type { LibraryAsset } from "@/lib/library";
 import { ShotSourcePicker, type ShotSourcePickerProps } from "./shot-source-picker";
+import styles from "./shot-workspace.module.css";
+
+const workspaceCss = readFileSync(new URL("./shot-workspace.module.css", import.meta.url), "utf8");
 
 const image = { id: "home", kind: "IMAGE", fileName: "Home.jpg", url: "/home-full.jpg", thumbUrl: "/home-thumb.jpg", isPano: false } as LibraryAsset;
 const video = { ...image, id: "tour", kind: "VIDEO", fileName: "Tour.mp4", url: "/tour.mp4", thumbUrl: null, durationMs: 8000 } as LibraryAsset;
@@ -26,7 +30,8 @@ describe("visual shot source picker", () => {
     expect(markup).toContain('aria-label="Start reference"');
     expect(markup).toContain('src="/home-full.jpg"');
     expect(markup).toContain('src="/home-thumb.jpg"');
-    expect(markup).toContain("aspect-ratio:9 / 16");
+    expect(markup).toContain(styles.previewFrame);
+    expect(workspaceCss).toMatch(/\.previewFrame\s*\{[^}]*aspect-ratio:\s*9\s*\/\s*16/s);
     expect(markup).toContain("object-fit:cover");
     expect(markup).toContain("Portrait framing");
     expect(markup).toContain("<figcaption");
@@ -90,5 +95,13 @@ describe("visual shot source picker", () => {
   it("disables all source and time controls while the parent is busy", () => {
     const nodes = rendered(props({ value: "asset:tour", frame: { assetId: video.id, atMs: 0 }, disabled: true, allowNone: true }));
     for (const node of nodes.filter(node => node.type === "button" || node.type === "input")) expect(node.props.disabled).toBe(true);
+  });
+
+  it("marks the selected source visibly as well as programmatically", () => {
+    const markup = html(props({ value: "asset:home", frame: { assetId: image.id, atMs: 0 } }));
+    expect(markup).toContain(styles.selectedMark);
+    expect(markup).toContain('aria-hidden="true">✓ ');
+    expect(markup).toMatch(/aria-pressed="true"[^>]*>[^]*?Library/);
+    expect(markup).not.toContain("max-width:216px");
   });
 });

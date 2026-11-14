@@ -383,7 +383,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
   const [inspecting, setInspecting] = useState(false);
   const exitTheater = useCallback(() => { setTheater(false); setChecking(false); setPlacing(false); setInspecting(false); setPlacingStatus({ text: null, busy: false }); }, []);
   const openInspect = useCallback(() => { playerRef.current?.pause(); setSheet(null); setChecking(false); setPlacing(false); setInspecting(true); setTheater(true); }, []);
-  const openCorners = useCallback((tool: "corners" | "cutouts" = "corners") => { playerRef.current?.pause(); setChecking(false); setPlacing(tool); setTheater(true); }, []);
+  const openCorners = useCallback((tool: "corners" | "cutouts" = "corners") => { playerRef.current?.pause(); setSheet(null); setChecking(false); setPlacing(tool); setTheater(true); }, []);
   const playerRef = useRef<PlayerRef>(null);
   // The Player loads after this component and remounts when the reel goes
   // from empty to non-empty; state makes the event subscription follow it.
@@ -1742,7 +1742,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         </p>
       ) : null}
 
-      {sheet === "ai-video" ? <Sheet title="AI video" onClose={closeSheet}>
+      {sheet === "ai-video" ? <Sheet title="AI video" size="wide" onClose={closeSheet}>
         <AiVideoPanel initialMove={aiMove} photos={libraryList} clips={timeline.clips} selectedClip={selectedClip} reelId={reel.id} beforeGenerate={autosave.flush} onAdd={(asset, shot) => {
           const clip = { ...clipFromAsset(asset), id: `ai-insert-${asset.id}` };
           if (shot && insertAiShot(timeline, clip, shot) === timeline) {

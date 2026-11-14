@@ -1,8 +1,9 @@
-import { analyseAudio as analyseTrack, analyseSong, BEAT_SAMPLE_RATE, detectBeats, mediaKindFor, resolveUploadType, type AudioAnalysis as TrackAnalysis, type BeatGrid, type MediaKind, type SongMap } from "@reelwalk/core";
+import { BEAT_SAMPLE_RATE, mediaKindFor, resolveUploadType, type AudioAnalysis as TrackAnalysis, type BeatGrid, type MediaKind, type SongMap } from "@reelwalk/core";
 import { abortUpload, completeUpload, confirmUpload, createUpload } from "@/app/actions";
 import type { LibraryAsset } from "@/lib/library";
 import { roomHintFor } from "@/lib/pending-files";
 import { shrinkVideo } from "./shrink";
+import { analyseAudioSamples } from "./audio-samples";
 
 type Probe = { kind: MediaKind; durationMs: number | null; width: number | null; height: number | null; thumb: Blob | null };
 
@@ -173,8 +174,7 @@ async function analyseAudio(data: ArrayBuffer): Promise<AudioAnalysis> {
     source.start();
     const rendered = await offline.startRendering();
     const samples = rendered.getChannelData(0);
-    const beat = detectBeats(samples);
-    return { durationMs: Math.round(decoded.duration * 1000), beat, songMap: beat ? analyseSong(samples, beat) : null, track: analyseTrack(samples) };
+    return { durationMs: Math.round(decoded.duration * 1000), ...analyseAudioSamples(samples) };
   } catch {
     // Not decodable here: the song still works, just without beat snapping.
     return UNREADABLE;

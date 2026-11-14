@@ -1,0 +1,34 @@
+.native {
+  border: 0;
+  color: inherit;
+  font: inherit;
+  overscroll-behavior: contain;
+}
+
+/* Existing sheet/panel display rules must not expose a dialog before showModal. */
+.native:not([open]) {
+  display: none;
+}
+
+.native::backdrop {
+  background: rgb(0 0 0 / 0.55);
+  overflow: hidden;
+  overscroll-behavior: contain;
+}
+
+.bottomSheet {
+  inset: auto auto 0 50%;
+  margin: 0;
+  max-width: 100%;
+}
+
+.bottomSheet[data-size="wide"] {
+  width: min(100%, 72rem);
+}
+
+.fullScreen {
+  height: 100dvh;
+  max-height: 100dvh;
+  max-width: 100%;
+  padding: 0;
+}

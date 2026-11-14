@@ -84,7 +84,7 @@ import { SurfacePicker } from "./surface-picker";
 import { planarShift } from "./title-metrics";
 import { crossingNow } from "./pass-crossing";
 import { asCallout, beatForMotion, motionMode, motionStartMs, withMotionMode, withMotionStartAt } from "./type-motion-draft";
-import { Sheet } from "../sheet";
+import { ModalPanel, Sheet } from "../sheet";
 import { HeadLockControl } from "./head-lock-control";
 
 // ── Shell ───────────────────────────────────────────────────────
@@ -252,7 +252,7 @@ export function MediaSheet({
                   data-testid="library-item"
                   onClick={() => toggle(asset.id)}
                 >
-                  {asset.thumbUrl ? <img src={asset.thumbUrl} alt="" /> : null}
+                  {asset.thumbUrl ? <img src={asset.thumbUrl} alt="" width={90} height={160} loading={order >= 0 ? "eager" : "lazy"} decoding="async" /> : null}
                   {asset.isAiGenerated ? <span className="library-ai-badge ai-source-badge">AI</span> : null}
                   {suggest?.(asset) ? <span className="chip timecode library-suggest" data-testid="library-suggest">{suggest(asset)}</span> : null}
                   <span className="chip timecode">{order >= 0 ? order + 1 : asset.isPano ? "360" : asset.durationMs ? formatDuration(asset.durationMs) : "Photo"}</span>
@@ -2018,7 +2018,7 @@ export function AutopilotSheet({
   // (the upload count, the button) lives in a footer of fixed height. On a
   // phone the keyboard then only shortens the panel; nothing jumps.
   return (
-    <div className="panel" role="dialog" aria-modal="true" aria-labelledby={titleId}>
+    <ModalPanel labelledBy={titleId} onClose={() => { if (!running) onClose(); }}>
       <header className="panel-head">
         <h2 id={titleId}>Make it for me</h2>
         <button type="button" className="icon-btn" aria-label="Close" onClick={onClose} disabled={running}>
@@ -2155,7 +2155,7 @@ export function AutopilotSheet({
           </button>
         ) : null}
       </footer>
-    </div>
+    </ModalPanel>
   );
 }
 

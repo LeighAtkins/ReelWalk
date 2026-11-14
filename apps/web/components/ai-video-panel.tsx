@@ -9,6 +9,7 @@ import { CAMERA_KEYFRAME_MOVES, cameraKeyframeVideoPrompt, type CameraKeyframeMo
 import { ShotSourcePicker } from "./shot-source-picker";
 import { ShotKeyframePanel } from "./shot-keyframe-panel";
 import { shotBuilderDraftSchema, shotBuilderRecoveryKey } from "./shot-builder-draft";
+import styles from "./shot-workspace.module.css";
 import { AI_QUEUE_LIMIT, queueLabel, type QueuePosition, type TakeTrim } from "@reelwalk/core";
 
 type Job = { id: string; prompt: string; status: string; error: string | null; asset: LibraryAsset | null; shot: unknown; draftId: string | null;
@@ -222,39 +223,46 @@ export function AiVideoPanel({ photos, clips = [], selectedClip, reelId, beforeG
     finally { setBusy(false); }
   }
 
-  return <div className="ai-video-panel">
-    <p className="ai-credit-count" role="status">{state ? `${state.balance.remaining} AI ${state.balance.remaining === 1 ? "credit" : "credits"} available` : "Loading your credits…"}</p>
-    <p className="muted small">Choose the pictures, review your ending, then make the video.</p>
+  return <div className={`ai-video-panel ${styles.workspace}`}>
+    <header className={styles.header}>
+      <p className={styles.intro}>Choose the pictures, review your ending, then make the video.</p>
+      <p className="ai-credit-count" role="status">{state ? `${state.balance.remaining} AI ${state.balance.remaining === 1 ? "credit" : "credits"} available` : "Loading your credits…"}</p>
+    </header>
     {state && !state.enabled ? <p className="toast" role="status">AI video is being connected. Your credits are ready for when it opens.</p> : null}
     {recoveryError ? <p className="error small" role="status">{recoveryError}</p> : null}
-    <form onSubmit={generate} className="ai-video-form">
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}>
-        {picker(false)}{picker(true)}
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+    <form onSubmit={generate} className={`ai-video-form ${styles.form}`}>
+      <div className={styles.layout}>
+      <section className={styles.references} aria-label="Shot references">
+        <h3 className={styles.sectionTitle}>Choose your frames</h3>
+        <div className={styles.referencePair}>{picker(false)}{picker(true)}</div>
+      </section>
+      <section className={styles.direction} aria-label="Shot direction">
+        <h3 className={styles.sectionTitle}>Shape the move</h3>
         <label className="field">Camera move
           <select className="text-input" value={direction ?? "custom"} disabled={busy || bridge} onChange={e => { resetGeneratedFrames(); setDirection(e.target.value === "custom" ? null : e.target.value as CameraKeyframeMove); if (e.target.value !== "custom") setMove(""); setMode("custom"); requestId.current = null; }}>
             {CAMERA_KEYFRAME_MOVES.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}<option value="custom">Custom direction</option>
           </select>
         </label>
         <label className="field">Distance (about)
-          <span style={{ display: "flex", alignItems: "center", gap: 6 }}><input className="text-input" aria-label="Approximate camera distance in metres" type="number" min={0.5} max={10} step={0.5} value={distanceM} disabled={busy || !direction || bridge}
+          <span className={styles.distance}><input className="text-input" aria-label="Approximate camera distance in metres" type="number" min={0.5} max={10} step={0.5} value={distanceM} disabled={busy || !direction || bridge}
             onChange={e => { const value = e.currentTarget.valueAsNumber; if (Number.isFinite(value)) { resetGeneratedFrames(); setDistanceM(Math.min(10, Math.max(0.5, value))); } }} />m</span>
         </label>
-      </div>
-      <p className="muted small">An approximate camera direction. AI can change unseen details; review the image before video.</p>
+      <p className={styles.hint}>An approximate camera direction. Review unseen details in the image before video.</p>
       <label className="field">Length<select className="text-input" value={seconds} disabled={busy} onChange={e => { resetGeneratedFrames(); setChosenSeconds(Number(e.target.value) as 4 | 8); }}>
         <option value={4}>4 seconds</option><option value={8}>8 seconds</option>
       </select></label>
       <label className="field">Anything else? <span className="muted small">Optional</span><input className="text-input" maxLength={600} value={frameNotes} disabled={busy} placeholder="For example: dusk, with the same furniture"
         onChange={e => { resetGeneratedFrames(); setFrameNotes(e.target.value); }} /></label>
+      </section>
+      <section className={styles.preparation} aria-label="Review prepared images">
       <ShotKeyframePanel role="end" input={imageInput("end")} recoveryKey={recoveryKey} selectedAssetId={lastFrame?.assetId} disabled={busy || !draftLoaded}
         onAssets={receiveAssets} onBalance={receiveBalance} onBlocked={setEndImageBlocked} onUse={asset => useImage("end", asset)} onKeepSource={input => chooseSource(true, `asset:${input.source.assetId}`)} />
-      <details><summary>Prepare a different Start image</summary>
+      <details className={styles.details}><summary>Prepare a different Start image</summary>
         <ShotKeyframePanel role="start" input={imageInput("start")} recoveryKey={recoveryKey} selectedAssetId={firstFrame?.assetId} disabled={busy || !draftLoaded}
           onAssets={receiveAssets} onBalance={receiveBalance} onBlocked={setStartImageBlocked} onUse={asset => useImage("start", asset)} onKeepSource={input => chooseSource(false, `asset:${input.source.assetId}`)} />
       </details>
-      <details><summary>More shot options</summary>
+      </section>
+      <details className={`${styles.advanced} ${styles.details}`}><summary>More shot options</summary>
       <label className="field">Make a shot
         <select className="text-input" value={mode} disabled={busy} onChange={e => {
           const value = e.target.value as AiShotMode;
@@ -321,14 +329,17 @@ export function AiVideoPanel({ photos, clips = [], selectedClip, reelId, beforeG
       </label>
       {anchor && reelId ? <label className="field"><span><input type="checkbox" checked={draft} disabled={busy} onChange={e => setDraft(e.target.checked)} /> Automatically make a separate promo draft</span>
         <span className="muted small">Completes while you are away. Keeps your original reel, music and captions. Changed boundaries wait for review.</span></label> : null}
-      </details>
       <p className="muted small">References use the original frame with a centre crop to portrait. Review joins, especially with zoom, colour effects or letterboxing.</p>
+      </details>
+      <footer className={styles.finish}>
       <p className="muted small">New images and videos use credits. Review generated property details before publishing.</p>
       {error ? <p className="error small" role="alert">{error}</p> : null}
       <button className="btn btn-block" type="submit" disabled={busy || !draftLoaded || startImageBlocked || endImageBlocked || !state?.enabled || state.balance.remaining < credits || state.jobs.filter(active).length >= AI_QUEUE_LIMIT || (!firstFrame && direction !== null) || (!!firstFrame && !assetFor(firstFrame)) || (!!lastFrame && !assetFor(lastFrame)) || ((bridge || useEndReference) && !lastFrame) || (mode !== "custom" && !firstFrame)}>
         {busy ? "Starting…" : `${draftMode ? "Draft" : "Generate video ·"} ${seconds}-second clip · ${credits} ${credits === 1 ? "credit" : "credits"}`}
       </button>
       <p className="muted small"><Link href="/account">Plans and more credits</Link></p>
+      </footer>
+      </div>
     </form>
     <div className="ai-video-results" aria-live="polite">
       {state?.jobs.map(job => <article className="ai-video-result" key={job.id}>

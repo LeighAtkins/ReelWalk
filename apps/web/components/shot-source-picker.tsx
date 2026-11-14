@@ -3,6 +3,7 @@
 import { useState, type CSSProperties } from "react";
 import { aiBoundary, type Clip } from "@reelwalk/core";
 import type { LibraryAsset } from "@/lib/library";
+import styles from "./shot-workspace.module.css";
 
 export type ShotSourcePickerProps = {
   label: string; value: string; frame?: { assetId: string; atMs: number };
@@ -17,7 +18,7 @@ function SourcePicture({ asset, atMs, thumbnail = false, disabled = false }: { a
   const [original, setOriginal] = useState(!thumbnail || !asset.thumbUrl);
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
-  if (failed) return <span role="status" style={{ display: "block", padding: 8, fontSize: 12 }}>
+  if (failed) return <span role="status" className={styles.sourceHint}>
     Preview unavailable. {!thumbnail ? <><button type="button" disabled={disabled} onClick={() => { setFailed(false); setAttempt(n => n + 1); }}>Retry preview</button>
       <span> If it still fails, reload the page to refresh the media link.</span></> : <span>Tap to preview.</span>}
   </span>;
@@ -46,29 +47,29 @@ export function ShotSourcePicker({ label, value, frame, photos, clips, allowVide
     }),
     ...available.map(asset => ({ value: `asset:${asset.id}`, asset, atMs: 0, caption: asset.kind === "VIDEO" ? "Video" : "Photo", group: "Library" })),
   ];
-  return <section aria-label={`${label} reference`} style={{ minWidth: 0 }}>
-    <strong>{label}</strong>
-    <figure style={{ margin: "8px 0" }}>
-      <div style={{ width: "100%", maxWidth: 216, aspectRatio: "9 / 16", background: "#101313", borderRadius: 8, overflow: "hidden", margin: "0 auto" }}>
+  return <section aria-label={`${label} reference`} className={styles.source}>
+    <strong className={styles.sourceTitle}>{label}</strong>
+    <figure className={styles.sourceFigure}>
+      <div className={styles.previewFrame}>
         {selected && frame ? <SourcePicture key={`${selected.id}:${selected.url}:${frame.atMs}`} asset={selected} atMs={frame.atMs} disabled={disabled} /> :
-          <p role="status" style={{ padding: 16 }}>{value ? "This reference is unavailable. Choose another below." : "Choose a reference below."}</p>}
+          <p role="status" className={styles.emptyPreview}>{value ? "This reference is unavailable. Choose another below." : "Choose a reference below."}</p>}
       </div>
-      {selected ? <figcaption style={{ overflowWrap: "anywhere", fontSize: 12, marginTop: 6 }}>{selected.fileName}{selected.kind === "VIDEO" && frame ? ` · ${(frame.atMs / 1000).toFixed(3)}s` : ""}</figcaption> : null}
+      {selected ? <figcaption className={styles.caption}>{selected.fileName}{selected.kind === "VIDEO" && frame ? ` · ${(frame.atMs / 1000).toFixed(3)}s` : ""}</figcaption> : null}
     </figure>
-    {selected ? <p className="muted small">Portrait framing · centre crop · outside edges are excluded.</p> : null}
+    {selected ? <p className={styles.sourceHint}>Portrait framing · centre crop · outside edges are excluded.</p> : null}
     {videoTime ? <label className="field">Frame time (seconds)
       <input className="text-input" type="number" min={0} max={maxMs / 1000} step="0.001" value={(frame?.atMs ?? 0) / 1000} disabled={disabled}
         onChange={e => { const seconds = e.currentTarget.valueAsNumber; if (Number.isFinite(seconds)) onTimeChange(Math.min(maxMs, Math.max(0, Math.round(seconds * 1000)))); }} />
     </label> : selected?.kind === "VIDEO" && frame ? <p className="muted small">Uses the trimmed shot&apos;s {ending ? "first" : "last"} source frame.</p> : null}
     {allowNone ? <button className="btn btn-quiet" type="button" disabled={disabled} aria-pressed={!value} onClick={() => onChange("")}>No reference</button> : null}
-    <div role="group" aria-label={`Choose ${label} reference`} style={{ display: "flex", gap: 8, overflowX: "auto", padding: "8px 0" }}>
+    <div role="group" aria-label={`Choose ${label} reference`} className={styles.sourceChoices}>
       {options.map(option => <button key={option.value} type="button" disabled={disabled} aria-pressed={value === option.value}
         aria-label={`${option.group}: ${option.caption} · ${option.asset.fileName}`} onClick={() => onChange(option.value)}
-        style={{ flex: "0 0 104px", padding: 4, borderRadius: 8, border: value === option.value ? "2px solid var(--signal, #d7ef9c)" : "2px solid #39413f", background: "transparent", color: "inherit", textAlign: "left" }}>
-        <span style={{ display: "block", height: 78, overflow: "hidden", borderRadius: 4, background: "#101313" }}>
+        className={styles.sourceChoice}>
+        <span className={styles.choiceImage}>
           <SourcePicture key={`${option.value}:${option.asset.url}:${option.asset.thumbUrl}`} asset={option.asset} atMs={option.atMs} thumbnail />
         </span>
-        <span style={{ display: "block", fontSize: 11, marginTop: 4 }}>{option.group} · {option.caption}</span>
+        <span className={styles.choiceLabel}>{value === option.value ? <span className={styles.selectedMark} aria-hidden="true">✓ </span> : null}{option.group} · {option.caption}</span>
       </button>)}
     </div>
     {!options.length ? <p role="status">Add a JPEG or PNG photo{allowVideos ? " or video" : ""} to your media library first.</p> : null}

@@ -5,6 +5,7 @@ import {
   DeleteObjectsCommand,
   GetObjectCommand,
   HeadObjectCommand,
+  ListObjectsV2Command,
   PutObjectCommand,
   S3Client,
   UploadPartCommand,
@@ -86,13 +87,52 @@ export async function abortMultipartUpload(objectKey: string, uploadId: string):
 export async function deleteObjects(objectKeys: string[]): Promise<void> {
   for (let start = 0; start < objectKeys.length; start += 1000) {
     const batch = objectKeys.slice(start, start + 1000);
-    await s3.send(new DeleteObjectsCommand({ Bucket: bucket, Delete: { Objects: batch.map((Key) => ({ Key })), Quiet: true } }));
+    const result = await s3.send(new DeleteObjectsCommand({ Bucket: bucket, Delete: { Objects: batch.map((Key) => ({ Key })), Quiet: true } }));
+    if (result.Errors?.length) throw new Error("Storage could not delete every requested file.");
   }
+}
+
+/** Includes requests, unaccepted candidates, receipts and writes whose DB commit failed. Never includes source library keys. */
+export async function keyframeObjectKeys(workspaceIds: string[]): Promise<string[]> {
+  const keys: string[] = [];
+  for (const workspaceId of workspaceIds) {
+    const prefix = `private/keyframes/${workspaceId}/`;
+    let token: string | undefined;
+    do {
+      const page = await s3.send(new ListObjectsV2Command({ Bucket: bucket, Prefix: prefix, ContinuationToken: token }));
+      for (const object of page.Contents ?? []) if (object.Key?.startsWith(prefix)) keys.push(object.Key);
+      token = page.IsTruncated ? page.NextContinuationToken : undefined;
+      if (page.IsTruncated && !token) throw new Error("Could not enumerate all private image files.");
+    } while (token);
+  }
+  return keys;
 }
 
 /** Server-side write, for files the app fetches itself (stock imports). Browser uploads use presigned URLs instead. */
 export async function putObject(objectKey: string, body: Buffer, contentType: string): Promise<void> {
   await s3.send(new PutObjectCommand({ Bucket: bucket, Key: objectKey, Body: body, ContentType: contentType }));
+}
+
+/** Bounded private reads for frozen image requests and receipts. */
+export async function readKeyframeObject(objectKey: string, maxBytes = 24 * 1024 * 1024): Promise<Buffer> {
+  const result = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: objectKey }));
+  if (!result.Body || (result.ContentLength ?? 0) > maxBytes) throw new Error("Image object is unavailable or too large.");
+  const chunks: Buffer[] = []; let size = 0;
+  for await (const chunk of result.Body as AsyncIterable<Uint8Array>) {
+    size += chunk.byteLength;
+    if (size > maxBytes) throw new Error("Image object exceeds its bound.");
+    chunks.push(Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
+}
+/** Content-addressed keys are written once, including after lost write responses. */
+export async function putKeyframeObject(objectKey: string, body: Buffer, contentType: string): Promise<void> {
+  try {
+    await s3.send(new PutObjectCommand({ Bucket: bucket, Key: objectKey, Body: body, ContentType: contentType, IfNoneMatch: "*" }));
+  } catch (error) {
+    if ((error as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode !== 412) throw error;
+    if (!(await readKeyframeObject(objectKey)).equals(body)) throw new Error("Immutable image object changed.");
+  }
 }
 
 export async function headObject(objectKey: string): Promise<{ sizeBytes: number; contentType: string } | null> {

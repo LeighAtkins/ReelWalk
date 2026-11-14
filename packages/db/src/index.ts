@@ -7,6 +7,8 @@ export * from "./local-render";
 export * from "./render-artifacts";
 export * from "./password";
 export * from "./ai-credits";
+export * from "./ai-keyframes";
+export * from "./keyframe-storage";
 export * from "./scheduled-posts";
 
 export const DEFAULT_WORKSPACE_SLUG = "demo";

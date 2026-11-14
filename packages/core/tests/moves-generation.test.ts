@@ -2,10 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AI_DRAFT_MODEL, AI_VIDEO_MODEL, MOVES, aiClipCostCents, aiDraftCostCents, movePrompt } from "../src";
 
 // ADR 0076: a move and a draft ride on the ordinary generation request; "Make it final" reads everything from the draft.
-const mocks = vi.hoisted(() => ({ mediaAsset: { findFirst: vi.fn() }, aiGeneration: { findFirst: vi.fn() }, reel: { findFirst: vi.fn() }, reserve: vi.fn() }));
+const mocks = vi.hoisted(() => ({ mediaAsset: { findFirst: vi.fn() }, aiKeyframe: { findFirst: vi.fn().mockResolvedValue(null) }, aiGeneration: { findFirst: vi.fn() }, reel: { findFirst: vi.fn() }, reserve: vi.fn() }));
 // The workspace AI switch has its own tests (apps/web/lib/ai-off.test.ts); here every workspace has AI on.
 vi.mock("@/lib/ai-gate", () => ({ aiOffResponse: async () => null, aiIsOff: async () => false, assertAiOn: async () => undefined, AI_OFF_MESSAGE: "off" }));
-vi.mock("@reelwalk/db", () => ({ prisma: { mediaAsset: mocks.mediaAsset, aiGeneration: mocks.aiGeneration, reel: mocks.reel, presenter: { findFirst: vi.fn() } }, reserveAiGeneration: mocks.reserve, aiCreditSummary: vi.fn() }));
+vi.mock("@reelwalk/db", () => ({ prisma: { mediaAsset: mocks.mediaAsset, aiKeyframe: mocks.aiKeyframe, aiGeneration: mocks.aiGeneration, reel: mocks.reel, presenter: { findFirst: vi.fn() } }, reserveAiGeneration: mocks.reserve, aiCreditSummary: vi.fn() }));
 vi.mock("@/lib/quotas", () => ({ storageBlockedReason: async () => null }));
 vi.mock("@/lib/workspace", () => ({ mediaScope: (workspaceId: string) => ({ OR: [{ workspaceId }, { shared: true }] }) }));
 const aiVideoModule = "@/lib/ai-video";
@@ -23,9 +23,17 @@ beforeEach(() => {
   process.env.AI_VIDEO_ENABLED = "true"; process.env.GOOGLE_CLOUD_PROJECT = "p"; delete process.env.VOICE_ENABLED;
   mocks.reserve.mockImplementation(async (_db, data) => ({ id: "generation", ...data }));
   mocks.mediaAsset.findFirst.mockImplementation(async ({ where }) => where.id === "kitchen" ? photo : null);
+  mocks.aiKeyframe.findFirst.mockResolvedValue(null);
 });
 
 describe("a camera move on a generation request", () => {
+  it("carries an explicitly used image's immutable provenance to Veo", async () => {
+    mocks.aiKeyframe.findFirst.mockResolvedValue({ id: "image-job", candidateHash: "a".repeat(64), candidateKey: photo.objectKey });
+    await createAiGeneration(user, generationInput.parse(request()));
+    expect(mocks.reserve.mock.calls[0][1].frameSources[0]).toMatchObject({ key: photo.objectKey, role: "first", keyframe: { jobId: "image-job", sha256: "a".repeat(64) } });
+    mocks.aiKeyframe.findFirst.mockResolvedValue({ id: "image-job", candidateHash: "a".repeat(64), candidateKey: "changed.jpg" });
+    await expect(createAiGeneration(user, generationInput.parse(request()))).rejects.toThrow("approved keyframe changed");
+  });
   it("is stored on the shot and replaces the shot type's camera sentence in the prompt Veo gets", async () => {
     await createAiGeneration(user, generationInput.parse(request({ move: "dolly-zoom", prompt: "A bright living room." })));
     const reserved = mocks.reserve.mock.calls[0][1];

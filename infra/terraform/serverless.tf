@@ -27,6 +27,7 @@ locals {
     RENDER_RETRY_BACKOFF_SECONDS = "15"
     OUTBOX_POLL_SECONDS          = "5"
     AI_VIDEO_ENABLED             = tostring(var.ai_video_enabled)
+    AI_KEYFRAMES_ENABLED         = tostring(var.ai_keyframes_enabled)
     AI_VIDEO_BUDGET_CENTS        = tostring(var.ai_video_budget_cents)
     GOOGLE_CLOUD_PROJECT         = var.google_cloud_project
     GOOGLE_CLOUD_LOCATION        = "us-central1"

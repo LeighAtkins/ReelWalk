@@ -15,6 +15,7 @@ import { handleDeadLetter, handleDelivery, settleRedundant, type ClaimedJob, typ
 import { renderJob, type RunStorage } from "./render";
 import { createJobStore } from "./store";
 import { processAiVideo } from "./ai-video";
+import { processKeyframes } from "./ai-keyframes";
 import { processShotPlans } from "./shot-plans";
 import { shotPlanDeps } from "./shot-plans-deps";
 import { processPresenterKit } from "./presenter-kits";
@@ -120,6 +121,7 @@ async function pollLoop(name: string, queueUrl: string, handle: (delivery: Deliv
         lastWorkAt = Date.now();
       } else if (idleExit && !aiBusy && config.idleExitSeconds > 0 && Date.now() - lastWorkAt > config.idleExitSeconds * 1000) {
         if (await prisma.aiGeneration.count({ where: { status: { in: ["QUEUED", "SUBMITTING", "RUNNING"] } } })) continue;
+        if (await prisma.aiKeyframe.count({ where: { status: { in: ["QUEUED", "SUBMITTING"] } } })) continue;
         console.log(`${name}: idle for ${config.idleExitSeconds}s, exiting`);
         stopping = true;
         shutdown.abort();
@@ -215,6 +217,7 @@ async function aiVideoLoop() {
   while (!stopping) {
     try {
       aiBusy = true;
+      if (await processKeyframes(s3).catch(() => { console.error("keyframes: processing temporarily unavailable"); return false; })) lastWorkAt = Date.now();
       // A presenter kit's face crop first (ADR 0056): a composed take may be waiting for it.
       const kit = await processPresenterKit(s3, config.s3Bucket).catch(() => { console.error("presenter: face crop temporarily unavailable"); return false; });
       if (await processAiVideo(s3, config.s3Bucket) || kit) lastWorkAt = Date.now();

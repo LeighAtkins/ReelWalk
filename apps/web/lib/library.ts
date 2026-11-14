@@ -10,6 +10,8 @@ export type LibraryAsset = {
   fileName: string;
   /** Confirmed by a completed generation record, independent of filename. */
   isAiGenerated?: boolean;
+  /** An explicitly accepted concept frame, with immutable output provenance. */
+  aiKeyframe?: { jobId: string; sourceAssetId: string; outputHash: string; model: string };
   /** A generated take with the presenter in it (composed from her kit, or a script's take), not AI b-roll (ADR 0064). */
   isPresenterTake?: boolean;
   url: string;
@@ -72,7 +74,7 @@ type LibraryAssetInput = {
   transcript?: unknown;
 };
 
-async function serializeLibraryAsset(asset: LibraryAssetInput, generation: { checks: unknown; presenter: boolean } | undefined): Promise<LibraryAsset> {
+async function serializeLibraryAsset(asset: LibraryAssetInput, generation: { checks: unknown; presenter: boolean; keyframe?: LibraryAsset["aiKeyframe"] } | undefined): Promise<LibraryAsset> {
   const spot = spotSchema.safeParse(asset.spot);
   // The editor plays the light preview rendition when one exists; exports always use the original.
   const [url, thumbUrl] = await Promise.all([mediaUrl(asset.previewKey ?? asset.objectKey), asset.thumbKey ? mediaUrl(asset.thumbKey) : null]);
@@ -82,6 +84,7 @@ async function serializeLibraryAsset(asset: LibraryAssetInput, generation: { che
     kind: asset.kind,
     fileName: asset.fileName,
     isAiGenerated: Boolean(generation),
+    ...(generation?.keyframe ? { aiKeyframe: generation.keyframe } : {}),
     ...(generation?.presenter ? { isPresenterTake: true } : {}),
     url,
     ...(face ? { face } : {}),
@@ -120,7 +123,10 @@ export async function toLibraryAssets(assets: LibraryAssetInput[]): Promise<Libr
   const jobs = ids.length ? await prisma.aiGeneration.findMany({
     where: { status: "SUCCEEDED", assetId: { in: ids } }, select: { assetId: true, identityChecks: true, shot: true },
   }) : [];
-  const generated = new Map(jobs.map(job => [job.assetId, { checks: job.identityChecks, presenter: withPresenter(job.shot) }]));
+  const generated = new Map<string | null, { checks: unknown; presenter: boolean; keyframe?: LibraryAsset["aiKeyframe"] }>(jobs.map(job => [job.assetId, { checks: job.identityChecks, presenter: withPresenter(job.shot) }]));
+  const imageIds = assets.filter(asset => asset.kind === "IMAGE").map(asset => asset.id);
+  const keyframes = imageIds.length ? await prisma.aiKeyframe.findMany({ where: { status: "USED", assetId: { in: imageIds } }, select: { id: true, assetId: true, input: true, candidateHash: true } }) : [];
+  for (const job of keyframes) if (job.assetId && job.candidateHash) generated.set(job.assetId, { checks: null, presenter: false, keyframe: { jobId: job.id, sourceAssetId: (job.input as { source: { assetId: string } }).source.assetId, outputHash: job.candidateHash, model: "gemini-3-pro-image" } });
   return Promise.all(assets.map(asset => serializeLibraryAsset(asset, generated.get(asset.id))));
 }
 

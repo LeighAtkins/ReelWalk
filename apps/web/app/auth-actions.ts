@@ -3,7 +3,7 @@
 import { randomBytes } from "node:crypto";
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import { DEFAULT_USER_EMAIL, hashPassword, prisma, renderArtifactKeys, verifyPassword } from "@reelwalk/db";
+import { DEFAULT_USER_EMAIL, hashPassword, prisma, renderArtifactKeys, verifyPassword, keyframeStorageTransaction } from "@reelwalk/db";
 import { checksKeyFor, exportAudioKeyFor, frameThumbKeyFor, renderSourceKeyFor, thumbKeyFor } from "@reelwalk/core";
 import { pickAttribution, withAttribution } from "@/lib/attribution";
 import { createSession, destroySession } from "@/lib/auth";
@@ -11,7 +11,7 @@ import { slugify } from "@/lib/slug";
 import { loadSeats } from "@/lib/workspaces";
 import { canManage } from "@/lib/workspace-access";
 import { recordFunnelEvent } from "@/lib/funnel";
-import { deleteObjects } from "@/lib/storage";
+import { deleteObjects, keyframeObjectKeys } from "@/lib/storage";
 import { clearAttempts, clientIp, countAttempt, MINUTE, overLimit, type Limit } from "@/lib/throttle";
 import { getCurrentUser } from "@/lib/workspace";
 
@@ -196,8 +196,13 @@ export async function deleteAccount(formData: FormData): Promise<void> {
   ].filter((key): key is string => Boolean(key));
   // Everything else (sessions, reels, media rows, render jobs and outputs, connected accounts, seats) cascades from
   // the workspace or the user; the user row goes last, whether or not their home workspace went with them.
-  await prisma.workspace.deleteMany({ where: { id: { in: goingWith } } });
-  await prisma.user.deleteMany({ where: { id: user.id } });
+  await keyframeStorageTransaction(prisma, goingWith, async tx => {
+    // Same lock as admission and worker artifact writes: no late image can appear after deletion.
+    for (const id of [...goingWith].sort()) await tx.$queryRaw`SELECT "id" FROM "Workspace" WHERE "id" = ${id} FOR UPDATE`;
+    await deleteObjects(await keyframeObjectKeys(goingWith));
+    await tx.workspace.deleteMany({ where: { id: { in: goingWith } } });
+    await tx.user.deleteMany({ where: { id: user.id } });
+  }, { timeout: 30_000 });
   await deleteObjects(keys).catch((error) => console.error(`deleteAccount: ${keys.length} objects not deleted for ${goingWith.join(",")}`, error));
   await destroySession();
   redirect("/login?deleted=1");

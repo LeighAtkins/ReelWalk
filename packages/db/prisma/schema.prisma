@@ -73,6 +73,7 @@ model Workspace {
   renderArtifacts RenderArtifact[]
   styleReferences StyleReference[]
   shotPlans    ShotPlan[]
+  aiKeyframes AiKeyframe[]
 
   // Set by the Stripe webhook from the subscription (plans in @reelwalk/core).
   plan                 Plan      @default(FREE)
@@ -90,6 +91,36 @@ model Workspace {
   // The workspace's brand kit (ADR 0078): bundled fonts, palette and named text styles, validated by
   // brandKitSchema in @reelwalk/core. Null for every workspace until an admin assigns one.
   brandKit             Json?
+}
+
+// A bounded image request. SUBMITTING/UNKNOWN are never dispatched again.
+model AiKeyframe {
+  id String @id @default(cuid())
+  workspaceId String
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  userId String
+  requestId String
+  inputHash String
+  requestHash String
+  input Json
+  snapshot Json
+  status String @default("QUEUED")
+  credits Int @default(1)
+  creditRefunded Boolean @default(false)
+  heldCostCents Int @default(100)
+  grantId String
+  submittedAt DateTime?
+  responseKey String?
+  responseHash String?
+  candidateKey String?
+  candidateHash String?
+  assetId String? @unique
+  error String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([workspaceId, requestId])
+  @@index([workspaceId, createdAt])
+  @@index([status, createdAt])
 }
 
 model AiCreditGrant {

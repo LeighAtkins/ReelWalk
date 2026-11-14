@@ -95,6 +95,28 @@ export async function putObject(objectKey: string, body: Buffer, contentType: st
   await s3.send(new PutObjectCommand({ Bucket: bucket, Key: objectKey, Body: body, ContentType: contentType }));
 }
 
+/** Bounded private reads for frozen image requests and receipts. */
+export async function readKeyframeObject(objectKey: string, maxBytes = 24 * 1024 * 1024): Promise<Buffer> {
+  const result = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: objectKey }));
+  if (!result.Body || (result.ContentLength ?? 0) > maxBytes) throw new Error("Image object is unavailable or too large.");
+  const chunks: Buffer[] = []; let size = 0;
+  for await (const chunk of result.Body as AsyncIterable<Uint8Array>) {
+    size += chunk.byteLength;
+    if (size > maxBytes) throw new Error("Image object exceeds its bound.");
+    chunks.push(Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
+}
+/** Content-addressed keys are written once, including after lost write responses. */
+export async function putKeyframeObject(objectKey: string, body: Buffer, contentType: string): Promise<void> {
+  try {
+    await s3.send(new PutObjectCommand({ Bucket: bucket, Key: objectKey, Body: body, ContentType: contentType, IfNoneMatch: "*" }));
+  } catch (error) {
+    if ((error as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode !== 412) throw error;
+    if (!(await readKeyframeObject(objectKey)).equals(body)) throw new Error("Immutable image object changed.");
+  }
+}
+
 export async function headObject(objectKey: string): Promise<{ sizeBytes: number; contentType: string } | null> {
   try {
     const head = await s3.send(new HeadObjectCommand({ Bucket: bucket, Key: objectKey }));

@@ -1,5 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { createHash } from "node:crypto";
+import sharp from "sharp";
 import { GetObjectCommand, type S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { z } from "zod";
@@ -13,6 +15,7 @@ const sources = z.array(z.object({
   // Rows from before composed keyframes (ADR 0036) have no role: they are the start frame, then the end frame.
   role: roles.optional(), compose: z.string().max(1000).optional(),
   framing: z.enum(PRESENTER_FRAMINGS).optional(),
+  keyframe: z.object({ jobId: z.string().min(1), sha256: z.string().regex(/^[a-f0-9]{64}$/) }).strict().optional(),
 })).min(1).max(4);
 export type FrameSource = z.infer<typeof sources>[number];
 
@@ -89,10 +92,24 @@ export async function aiFrames(s3: S3Client, bucket: string, input: unknown): Pr
   const frames: DecodedFrame[] = [];
   for (const source of sources.parse(input)) {
     const output = frameOutput(source.role, Boolean(source.compose));
-    const bytes = await decodeFrame(s3, bucket, source.key, source.atMs, output, source.framing);
+    const bytes = source.keyframe ? await exactKeyframe(s3, bucket, source) : await decodeFrame(s3, bucket, source.key, source.atMs, output, source.framing);
     frames.push({ bytesBase64Encoded: bytes.toString("base64"), mimeType: output === "veo-jpeg" ? "image/jpeg" : "image/png",
       ...(source.role ? { role: source.role } : {}), ...(source.compose ? { compose: source.compose } : {}), ...(source.framing ? { framing: source.framing } : {}),
       source: { key: source.key, kind: source.kind, atMs: source.atMs } });
   }
   return frames;
+}
+
+/** Approved portrait JPEG bytes are the reviewed frame, without another crop or JPEG encode. */
+export async function exactKeyframe(s3: S3Client, bucket: string, source: FrameSource): Promise<Buffer> {
+  if (!source.keyframe || source.kind !== "IMAGE" || source.atMs !== 0 || source.compose || source.role === "presenter" || source.role === "face") throw new Error("Invalid approved keyframe source.");
+  const object = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: source.key }));
+  if (!object.Body || (object.ContentLength ?? 0) > 16 * 1024 * 1024) throw new Error("Approved keyframe is unavailable.");
+  const chunks: Buffer[] = []; let size = 0;
+  for await (const chunk of object.Body as AsyncIterable<Uint8Array>) { size += chunk.byteLength; if (size > 16 * 1024 * 1024) throw new Error("Approved keyframe is too large."); chunks.push(Buffer.from(chunk)); }
+  const bytes = Buffer.concat(chunks);
+  if (!isJpeg(bytes) || createHash("sha256").update(bytes).digest("hex") !== source.keyframe.sha256) throw new Error("Approved keyframe pixels changed.");
+  const metadata = await sharp(bytes).metadata();
+  if (metadata.width !== 1080 || metadata.height !== 1920 || metadata.orientation && metadata.orientation !== 1 || (metadata.pages ?? 1) !== 1) throw new Error("Approved keyframe is not the reviewed portrait view.");
+  return bytes;
 }

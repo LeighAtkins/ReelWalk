@@ -259,6 +259,12 @@ variable "ai_video_enabled" {
   default = false
 }
 
+# Image-first Nano Banana references; enabled explicitly after its database migration.
+variable "ai_keyframes_enabled" {
+  type    = bool
+  default = false
+}
+
 variable "ai_video_budget_cents" {
   description = "Lifetime application ceiling for Vertex video attempts, in USD cents. Raise deliberately after the trial."
   type        = number

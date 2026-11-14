@@ -141,7 +141,11 @@ export async function createAiGeneration(user: AiUser, request: z.infer<typeof g
     // The direction's expression and pose go into the still (ADR 0069): the first frame is what Veo continues from.
     const acting = written && role !== "presenter" && hasDirection(input.shot?.direction) ? directionStill(input.shot!.direction, role) : "";
     const described = written ? [written, acting].filter(Boolean).join(" ").slice(0, 1000) : undefined;
-    frames.push({ key: asset.objectKey, kind: asset.kind, atMs: asset.kind === "IMAGE" ? 0 : frame.atMs, role, ...(described ? { compose: described, framing: input.shot ? composeFraming(input.shot) : "medium" } : {}) });
+    const keyframe = role !== "presenter" && asset.kind === "IMAGE" ? await prisma.aiKeyframe.findFirst({ where: { assetId: asset.id, workspaceId: user.workspaceId, status: "USED" }, select: { id: true, candidateHash: true, candidateKey: true } }) : null;
+    if (keyframe && (keyframe.candidateKey !== asset.objectKey || !keyframe.candidateHash || described)) throw new Error("This approved keyframe changed or was given another image edit. Choose the reviewed frame again.");
+    frames.push({ key: asset.objectKey, kind: asset.kind, atMs: asset.kind === "IMAGE" ? 0 : frame.atMs, role,
+      ...(keyframe ? { keyframe: { jobId: keyframe.id, sha256: keyframe.candidateHash } } : {}),
+      ...(described ? { compose: described, framing: input.shot ? composeFraming(input.shot) : "medium" } : {}) });
   }
   // A draft is a silent preview: the voice is made, and charged, with the final.
   const voiced = Boolean(input.shot?.voice) && !draft;

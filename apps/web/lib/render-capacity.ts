@@ -38,16 +38,16 @@ const sqs = new SQSClient({ region });
 async function outstandingJobs(): Promise<number | null> {
   if (!queueUrl) return null;
   try {
-    const [{ Attributes = {} }, aiJobs] = await Promise.all([sqs.send(
+    const [{ Attributes = {} }, aiJobs, keyframes] = await Promise.all([sqs.send(
       new GetQueueAttributesCommand({
         QueueUrl: queueUrl,
         AttributeNames: ["ApproximateNumberOfMessages", "ApproximateNumberOfMessagesNotVisible", "ApproximateNumberOfMessagesDelayed"],
       }),
-    ), prisma.aiGeneration.count({ where: { status: { in: ["QUEUED", "SUBMITTING", "RUNNING"] } } })]);
+    ), prisma.aiGeneration.count({ where: { status: { in: ["QUEUED", "SUBMITTING", "RUNNING"] } } }), prisma.aiKeyframe.count({ where: { status: { in: ["QUEUED", "SUBMITTING"] } } })]);
     return (
       Number(Attributes.ApproximateNumberOfMessages ?? 0) +
       Number(Attributes.ApproximateNumberOfMessagesNotVisible ?? 0) +
-      Number(Attributes.ApproximateNumberOfMessagesDelayed ?? 0) + aiJobs
+      Number(Attributes.ApproximateNumberOfMessagesDelayed ?? 0) + aiJobs + keyframes
     );
   } catch (error) {
     console.error("render-capacity: could not read the queue", error);

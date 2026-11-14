@@ -5,8 +5,20 @@ vi.mock("node:util", () => ({ promisify: () => execute }));
 vi.mock("@aws-sdk/s3-request-presigner", () => ({ getSignedUrl: sign }));
 import { aiFrames, frameArguments, plateCropFilter } from "../src/ai-frames";
 import type { S3Client } from "@aws-sdk/client-s3";
+import { Readable } from "node:stream";
+import { createHash } from "node:crypto";
+import sharp from "sharp";
 
 describe("AI reference frames", () => {
+  it("delivers the exact approved portrait JPEG to Veo without another crop or encode", async () => {
+    execute.mockReset();
+    const jpeg = await sharp({ create: { width: 1080, height: 1920, channels: 3, background: "#d0c0a0" } }).jpeg().toBuffer();
+    const source = { key: "private/candidate.jpg", kind: "IMAGE", atMs: 0, role: "first", keyframe: { jobId: "job", sha256: createHash("sha256").update(jpeg).digest("hex") } };
+    const s3 = { send: vi.fn(async () => ({ Body: Readable.from([jpeg]), ContentLength: jpeg.length })) } as unknown as S3Client;
+    const result = await aiFrames(s3, "media", [source]);
+    expect(Buffer.from(result[0].bytesBase64Encoded, "base64")).toEqual(jpeg); expect(result[0].mimeType).toBe("image/jpeg"); expect(execute).not.toHaveBeenCalled();
+    await expect(aiFrames(s3, "media", [{ ...source, keyframe: { ...source.keyframe, sha256: "0".repeat(64) } }])).rejects.toThrow("pixels changed");
+  });
   it("seeks the two source timestamps and returns separate JPEG images", async () => {
     execute.mockResolvedValue({ stdout: Buffer.concat([Buffer.from([0xff, 0xd8]), Buffer.alloc(200)]) });
     const frames = await aiFrames({} as S3Client, "media", [

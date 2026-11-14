@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { CAMERA_KEYFRAME_HOLD_CENTS, CAMERA_KEYFRAME_MODEL, cameraKeyframePrompt, type CameraKeyframeInput } from "@reelwalk/core";
 import { lockBillingAccount, AiCreditError } from "./ai-credits";
+import { keyframeStorageTransaction } from "./keyframe-storage";
 import type { Prisma, PrismaClient } from "./generated/prisma/client";
 
 export const keyframeHash = (bytes: string | Buffer) => createHash("sha256").update(bytes).digest("hex");
@@ -28,8 +29,8 @@ export function assertSameKeyframe(existing: { inputHash: string; requestHash: s
 }
 export async function reserveKeyframe(db: PrismaClient, actor: { id: string; workspaceId: string }, value: {
   requestId: string; input: CameraKeyframeInput; inputHash: string; requestHash: string; snapshot: KeyframeSnapshot;
-}, now = new Date()) {
-  return db.$transaction(async tx => {
+}, now = new Date(), persist?: () => Promise<void>) {
+  return keyframeStorageTransaction(db, [actor.workspaceId], async tx => {
     const account = await lockBillingAccount(tx, actor.workspaceId, now);
     if (!await tx.user.findFirst({ where: { id: actor.id, OR: [{ workspaceId: actor.workspaceId }, { memberships: { some: { workspaceId: actor.workspaceId } } }] }, select: { id: true } })) throw new KeyframeError("This account no longer has access.", 403);
     const existing = await tx.aiKeyframe.findUnique({ where: { workspaceId_requestId: { workspaceId: actor.workspaceId, requestId: value.requestId } } });
@@ -48,8 +49,10 @@ export async function reserveKeyframe(db: PrismaClient, actor: { id: string; wor
     const reserved = await tx.aiSpendBudget.updateMany({ where: { id: "vertex-video", reservedCents: { lte: budgetCents - CAMERA_KEYFRAME_HOLD_CENTS } }, data: { reservedCents: { increment: CAMERA_KEYFRAME_HOLD_CENTS } } });
     if (reserved.count !== 1) throw new KeyframeError("AI generation is temporarily paused. No credits used.", 403);
     await tx.aiCreditGrant.update({ where: { id: grants[0].id }, data: { remaining: { decrement: 1 } } });
+    // Only admitted new work may retain private inputs. The billing lock also serializes same-ID retries.
+    await persist?.();
     return tx.aiKeyframe.create({ data: { workspaceId: actor.workspaceId, userId: actor.id, requestId: value.requestId, inputHash: value.inputHash, requestHash: value.requestHash, input: value.input as Prisma.InputJsonValue, snapshot: value.snapshot as unknown as Prisma.InputJsonValue, grantId: grants[0].id } });
-  });
+  }, { timeout: 30_000 });
 }
 /** Definitively unsubmitted work releases both the customer credit and provider hold. */
 export async function failUnsubmittedKeyframe(db: PrismaClient, id: string, error: string) {

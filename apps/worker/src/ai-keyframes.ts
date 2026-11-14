@@ -1,12 +1,23 @@
 import sharp from "sharp";
 import type { S3Client } from "@aws-sdk/client-s3";
 import { CAMERA_KEYFRAME_MODEL, cameraKeyframeGenerateSchema } from "@reelwalk/core";
-import { prisma, keyframeHash, keyframesEnabled, makeKeyframeRequest, failUnsubmittedKeyframe, refundRefusedKeyframe, type AiKeyframe, type KeyframeSnapshot } from "@reelwalk/db";
+import { prisma, keyframeHash, keyframesEnabled, makeKeyframeRequest, failUnsubmittedKeyframe, refundRefusedKeyframe, keyframeStorageTransaction, type AiKeyframe, type KeyframeSnapshot, type Prisma } from "@reelwalk/db";
 import { readKeyframeObject, putKeyframeObject } from "../../web/lib/storage";
 import { keyframeTransport, type KeyframeReceipt } from "./vertex-keyframes";
 
-export const keyframeWorkerServices = { db: prisma, read: readKeyframeObject, put: putKeyframeObject, transport: keyframeTransport, enabled: keyframesEnabled, failUnsubmitted: failUnsubmittedKeyframe, refundRefused: refundRefusedKeyframe };
+export const keyframeWorkerServices = { db: prisma, storageTransaction: keyframeStorageTransaction, read: readKeyframeObject, put: putKeyframeObject, transport: keyframeTransport, enabled: keyframesEnabled, failUnsubmitted: failUnsubmittedKeyframe, refundRefused: refundRefusedKeyframe };
 export const keyframeReceiptKey = (job: Pick<AiKeyframe, "id" | "workspaceId" | "requestHash">) => `private/keyframes/${job.workspaceId}/receipts/${job.id}-${job.requestHash}.json`;
+
+/** Serialize private writes with account deletion, including a provider response that arrives late. */
+async function retainArtifact(job: AiKeyframe, services: typeof keyframeWorkerServices, key: string, bytes: Buffer, contentType: string, data: Prisma.AiKeyframeUpdateManyMutationInput) {
+  return services.storageTransaction(services.db, [job.workspaceId], async tx => {
+    await tx.$queryRaw`SELECT "id" FROM "Workspace" WHERE "id" = ${job.workspaceId} FOR UPDATE`;
+    if (!await tx.aiKeyframe.findFirst({ where: { id: job.id, workspaceId: job.workspaceId, status: { in: ["SUBMITTING", "UNKNOWN"] } }, select: { id: true } })) return false;
+    await services.put(key, bytes, contentType);
+    await tx.aiKeyframe.updateMany({ where: { id: job.id }, data });
+    return true;
+  }, { timeout: 30_000 });
+}
 
 export async function checkedKeyframeRequest(job: AiKeyframe, read = readKeyframeObject) {
   const snapshot = job.snapshot as unknown as KeyframeSnapshot;
@@ -55,8 +66,7 @@ async function importReceipt(job: AiKeyframe, receipt: KeyframeReceipt, services
     return;
   }
   // Storage/DB outages remain recoverable from the paid receipt without another model call.
-  await services.put(candidate.key, candidate.jpeg, "image/jpeg");
-  await services.db.aiKeyframe.updateMany({ where: { id: job.id, status: { in: ["SUBMITTING", "UNKNOWN"] } }, data: { status: "CANDIDATE", candidateKey: candidate.key, candidateHash: candidate.hash, error: null } });
+  await retainArtifact(job, services, candidate.key, candidate.jpeg, "image/jpeg", { status: "CANDIDATE", candidateKey: candidate.key, candidateHash: candidate.hash, error: null });
 }
 async function recoverReceipt(job: AiKeyframe, services: typeof keyframeWorkerServices) {
   const key = keyframeReceiptKey(job);
@@ -95,8 +105,7 @@ export async function processKeyframes(s3: Pick<S3Client, "config">, services = 
     if (!claimed) return true;
     const receipt = await transport.submit(request); // The only paid POST. Never dispatched a second time.
     const bytes = Buffer.from(JSON.stringify(receipt)), key = keyframeReceiptKey(job);
-    await services.put(key, bytes, "application/json");
-    await services.db.aiKeyframe.updateMany({ where: { id: job.id, status: "SUBMITTING" }, data: { responseKey: key, responseHash: keyframeHash(bytes) } });
+    if (!await retainArtifact(job, services, key, bytes, "application/json", { responseKey: key, responseHash: keyframeHash(bytes) })) return true;
     await importReceipt(job, receipt, services);
   } catch {
     if (claimed) await services.db.aiKeyframe.updateMany({ where: { id: job.id, status: "SUBMITTING" }, data: { status: "UNKNOWN", error: "Image outcome is unknown. No automatic retry; its cost remains reserved." } });

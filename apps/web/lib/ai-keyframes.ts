@@ -25,7 +25,6 @@ async function prepareSource(actor: Actor, assetId: string, prefix: string): Pro
   if ((metadata.pages ?? 1) !== 1 || !["jpeg", "png", "webp"].includes(metadata.format ?? "")) throw new KeyframeError("Choose a still photograph.");
   const png = await image.rotate().resize(1080, 1920, { fit: "cover", position: "centre" }).png().toBuffer();
   const canonicalHash = keyframeHash(png), canonicalKey = `${prefix}/${canonicalHash}.png`;
-  await putKeyframeObject(canonicalKey, png, "image/png");
   return { snapshot: { assetId, objectKey: asset.objectKey, originalHash: keyframeHash(original), canonicalKey, canonicalHash }, png };
 }
 export async function generateKeyframe(actor: Actor, value: CameraKeyframeGenerateInput) {
@@ -33,6 +32,12 @@ export async function generateKeyframe(actor: Actor, value: CameraKeyframeGenera
   const requestId = parsed.requestId;
   const input = cameraKeyframeGenerateSchema.omit({ action: true, requestId: true }).strip().parse(parsed);
   if (actor.email === "demo@reelwalk.local") throw new KeyframeError("Create your own account to generate an image.", 403);
+  const inputHash = keyframeHash(JSON.stringify(input));
+  const existing = await prisma.aiKeyframe.findUnique({ where: { workspaceId_requestId: { workspaceId: actor.workspaceId, requestId } } });
+  if (existing) {
+    if (existing.inputHash !== inputHash) throw new KeyframeError("This saved request belongs to different frames or camera settings.");
+    return keyframeView(existing);
+  }
   if (!keyframesEnabled()) throw new KeyframeError("Image generation is paused. No credits used.", 403);
   const storageError = await storageBlockedReason(actor.workspaceId, 40 * 1024 * 1024, "A generated image");
   if (storageError) throw new KeyframeError(storageError);
@@ -41,10 +46,13 @@ export async function generateKeyframe(actor: Actor, value: CameraKeyframeGenera
   const continuity = input.continuity ? await prepareSource(actor, input.continuity.assetId, prefix) : null;
   const request = makeKeyframeRequest(input, source.png, continuity?.png);
   const requestHash = keyframeHash(request), requestKey = `${prefix}/${requestHash}.json`;
-  await putKeyframeObject(requestKey, Buffer.from(request), "application/json");
   const snapshot: KeyframeSnapshot = { model: CAMERA_KEYFRAME_MODEL, source: source.snapshot, ...(continuity ? { continuity: continuity.snapshot } : {}), requestKey,
     price: { inputPerMillion: 2, outputPerMillion: 120, inputTokenBound: 8192, outputTokenBound: 8192, maximumUsdMicros: 999424, evidence: "https://cloud.google.com/model-garden/pricing/" } };
-  return keyframeView(await reserveKeyframe(prisma, actor, { requestId, input, inputHash: keyframeHash(JSON.stringify(input)), requestHash, snapshot }));
+  return keyframeView(await reserveKeyframe(prisma, actor, { requestId, input, inputHash, requestHash, snapshot }, new Date(), async () => {
+    await putKeyframeObject(source.snapshot.canonicalKey, source.png, "image/png");
+    if (continuity) await putKeyframeObject(continuity.snapshot.canonicalKey, continuity.png, "image/png");
+    await putKeyframeObject(requestKey, Buffer.from(request), "application/json");
+  }));
 }
 export async function listKeyframes(actor: Actor) {
   const [jobs, balance] = await Promise.all([prisma.aiKeyframe.findMany({ where: { workspaceId: actor.workspaceId }, orderBy: { createdAt: "desc" }, take: 30 }), aiCreditSummary(prisma, actor.workspaceId)]);

@@ -255,7 +255,8 @@ test("placing on landscape footage under Fill and Fit: loupe, handles and tracke
   expect(Math.hypot(edited[1][0] - release[0], edited[1][1] - release[1])).toBeLessThan(1.5);
   await expectTitleOnHandles(page, "Fill, ½, after moving corner 2");
   await page.getByTestId("corners-done").click();
-  await page.locator(".sheet-close").click();
+  // Pin releases its modal before full-screen placement; Done returns directly to the editor.
+  await expect(page.locator("dialog[open]")).toHaveCount(0);
 
   // ── Fit: the whole landscape picture between bands ──
   await page.getByTestId("clip").first().click();
@@ -283,4 +284,5 @@ test("placing on landscape footage under Fill and Fit: loupe, handles and tracke
   console.log(`Fit: top edge turned ${(turn(laterFit) - turn(placedFit)).toFixed(1)}° at ½`);
   await expectTitleOnHandles(page, "Fit, ½, tracked");
   await page.getByTestId("corners-done").click();
+  await expect(page.locator("dialog[open]")).toHaveCount(0);
 });

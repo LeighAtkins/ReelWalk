@@ -7,6 +7,7 @@ import styles from "./shot-workspace.module.css";
 
 type Job = CameraKeyframeJob<LibraryAsset>;
 type State = { enabled: boolean; reason: string | null; balanceRemaining: number; jobs: Job[] };
+type SavedRequest = { requestId: string; inputKey: string; input?: CameraKeyframeInput };
 const running = (job: Job) => ["QUEUED", "SUBMITTING", "UNKNOWN"].includes(job.status);
 
 /** Both the pending request and candidate approval belong to these exact visible choices. */
@@ -19,6 +20,11 @@ export function keyframeMatches(job: Pick<CameraKeyframeJob, "input">, input: Ca
   return !!input && keyframeInputKey(job.input) === keyframeInputKey(input);
 }
 
+export function savedKeyframeInput(saved: SavedRequest, current: CameraKeyframeInput | null): CameraKeyframeInput | null {
+  const frozen = saved.input ?? current;
+  return frozen && keyframeInputKey(frozen) === saved.inputKey ? frozen : null;
+}
+
 export function ShotKeyframePanel({ role, input, recoveryKey, selectedAssetId, disabled = false, onUse, onKeepSource, onAssets, onBalance, onBlocked }: {
   role: "start" | "end"; input: CameraKeyframeInput | null; recoveryKey: string; disabled?: boolean;
   selectedAssetId?: string;
@@ -29,7 +35,7 @@ export function ShotKeyframePanel({ role, input, recoveryKey, selectedAssetId, d
   const [state, setState] = useState<State>(), [busy, setBusy] = useState(false), [error, setError] = useState("");
   const [historyReady, setHistoryReady] = useState(false), [selected, setSelected] = useState<string>();
   const [dismissed, setDismissed] = useState<string>();
-  const [pending, setPending] = useState<{ requestId: string; inputKey: string }>();
+  const [pending, setPending] = useState<SavedRequest>();
   const [imageAttempt, setImageAttempt] = useState(0), [loaded, setLoaded] = useState<Record<string, boolean>>({}), [failed, setFailed] = useState<string | null>(null);
   const mounted = useRef(true), locked = useRef(false), currentInput = useRef(input), currentProps = useRef({ onAssets, onUse, onBalance });
   currentInput.current = input; currentProps.current = { onAssets, onUse, onBalance };
@@ -60,7 +66,7 @@ export function ShotKeyframePanel({ role, input, recoveryKey, selectedAssetId, d
       }
       const saved = sessionStorage.getItem(storageKey);
       if (saved) {
-        const recovered = JSON.parse(saved) as { requestId: string; inputKey: string };
+        const recovered = JSON.parse(saved) as SavedRequest;
         if (typeof recovered?.requestId !== "string" || typeof recovered?.inputKey !== "string") throw new Error("The saved image request could not be read. Keep this page open and check status.");
         const found = data.jobs.find((item: Job) => item.requestId === recovered.requestId);
         if (found) {
@@ -90,15 +96,16 @@ export function ShotKeyframePanel({ role, input, recoveryKey, selectedAssetId, d
     return () => { clearInterval(timer); abort.abort(); };
   }, [state?.jobs, pending, storageKey]);
 
-  async function generate() {
-    if (!input || locked.current || disabled || !state?.enabled || state.balanceRemaining < 1 || !historyReady || unresolved || job && running(job)) return;
+  async function generate(retry = false) {
+    const frozen = retry && pending ? savedKeyframeInput(pending, input) : input;
+    if (!frozen || locked.current || disabled || !historyReady || (!retry && (!state?.enabled || state.balanceRemaining < 1 || unresolved || job && running(job)))) return;
     locked.current = true; setBusy(true); setError(""); setDismissed(undefined); setFailed(null); setLoaded({});
-    const frozen = input, inputKey = keyframeInputKey(frozen), requestId = crypto.randomUUID();
+    const inputKey = keyframeInputKey(frozen), requestId = retry && pending ? pending.requestId : crypto.randomUUID();
     let sent = false;
     try {
       // A failed storage write stops before a paid request, rather than losing its recovery identity.
-      sessionStorage.setItem(storageKey, JSON.stringify({ requestId, inputKey }));
-      setPending({ requestId, inputKey });
+      sessionStorage.setItem(storageKey, JSON.stringify({ requestId, inputKey, input: frozen }));
+      setPending({ requestId, inputKey, input: frozen });
       sent = true;
       const response = await fetch("/api/ai/keyframes", { method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "generate", requestId, ...frozen }) });
@@ -157,9 +164,11 @@ export function ShotKeyframePanel({ role, input, recoveryKey, selectedAssetId, d
     </> : null}
     {job && running(job) ? <p role="status" className="muted small">{job.status === "UNKNOWN" ? "The provider outcome needs checking. The request will not be submitted again." : "Making your image. You can leave and reopen this shot."}</p> : null}
     {job?.error ? <p className="error small">{job.error}</p> : null}
-    {unresolved ? <p role="status" className="muted small">Checking the saved request. No second image will be submitted.</p> : null}
+    {pending ? <p role="status" className="muted small">Your image request is saved. Check its status or retry the same request.
+      <button type="button" className="btn btn-quiet" disabled={disabled || busy || !historyReady || !savedKeyframeInput(pending, input)} onClick={() => generate(true)}>Retry saved request</button>
+    </p> : null}
     {state && !state.enabled ? <p className="muted small">{state.reason || "Image preparation is not enabled on this installation yet."}</p> : null}
-    <button className="btn btn-quiet" type="button" disabled={disabled || busy || !input || !historyReady || !state?.enabled || state.balanceRemaining < 1 || unresolved || !!job && running(job)} onClick={generate}>
+    <button className="btn btn-quiet" type="button" disabled={disabled || busy || !input || !historyReady || !state?.enabled || state.balanceRemaining < 1 || unresolved || !!job && running(job)} onClick={() => generate()}>
       {busy ? "Working…" : `${job?.candidateUrl ? "Try another" : `Generate ${role === "start" ? "Start" : "End"} image`} · 1 credit`}
     </button>
     {job || error || unresolved ? <button type="button" className="btn btn-quiet" disabled={busy} onClick={() => refresh(undefined, true).then(() => setError("")).catch(e => setError(e.message))}>Refresh status</button> : null}

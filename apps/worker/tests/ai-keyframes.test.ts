@@ -20,17 +20,27 @@ function fixture() {
     Object.assign(row, data); return { count: 1 };
   });
   const creditUpdate = vi.fn();
-  const tx = { $queryRaw: vi.fn(), aiCreditGrant: { update: creditUpdate }, workspace: { findUnique: vi.fn().mockResolvedValue({ aiGeneration: "on" }) }, user: { findFirst: vi.fn().mockResolvedValue({ id: "u" }) }, mediaAsset: { findFirst: vi.fn().mockResolvedValue({ id: "photo" }) }, aiKeyframe: { updateMany: update, findUniqueOrThrow: vi.fn(async () => ({ ...row })) } };
+  const tx = { $queryRaw: vi.fn(), aiCreditGrant: { update: creditUpdate }, workspace: { findUnique: vi.fn().mockResolvedValue({ aiGeneration: "on" }) }, user: { findFirst: vi.fn().mockResolvedValue({ id: "u" }) }, mediaAsset: { findFirst: vi.fn().mockResolvedValue({ id: "photo" }) }, aiKeyframe: { updateMany: update, findFirst: vi.fn().mockResolvedValue({ id: row.id }), findUniqueOrThrow: vi.fn(async () => ({ ...row })) } };
   const db = { aiKeyframe: { findMany: vi.fn(async () => ["UNKNOWN", "SUBMITTING"].includes(row.status) ? [{ ...row }] : []), findFirst: vi.fn(async () => row.status === "QUEUED" ? { ...row } : null), updateMany: update }, $transaction: vi.fn(async (fn: (db: typeof tx) => unknown) => fn(tx)) };
   const read = vi.fn(async (key: string) => { const value = objects.get(key); if (!value) throw new Error("Missing"); return value; });
   const put = vi.fn(async (key: string, bytes: Buffer) => { objects.set(key, bytes); });
   const submit = vi.fn();
-  const services = { db, read, put, transport: vi.fn(async () => ({ submit })), enabled: () => true, failUnsubmitted: vi.fn(), refundRefused: vi.fn(refundRefusedKeyframe) } as unknown as typeof keyframeWorkerServices;
+  const services = { db, storageTransaction: (_db: unknown, _ids: string[], callback: (db: typeof tx) => unknown) => db.$transaction(callback), read, put, transport: vi.fn(async () => ({ submit })), enabled: () => true, failUnsubmitted: vi.fn(), refundRefused: vi.fn(refundRefusedKeyframe) } as unknown as typeof keyframeWorkerServices;
   return { row, objects, read, put, submit, services, tx, creditUpdate };
 }
 const s3 = { config: {} } as Pick<S3Client, "config">;
 beforeEach(() => { vi.clearAllMocks(); });
 describe("one-dispatch image worker", () => {
+  it("does not recreate private files when the account is deleted while a paid response is in flight", async () => {
+    const f = fixture();
+    f.submit.mockImplementation(async () => {
+      f.tx.aiKeyframe.findFirst.mockResolvedValue(null);
+      return { version: 1, status: 200, incomplete: false, bodyBase64: "e30=" };
+    });
+    await processKeyframes(s3, f.services);
+    expect(f.submit).toHaveBeenCalledOnce(); expect(f.put).not.toHaveBeenCalled();
+    expect(f.tx.$queryRaw.mock.calls[0][0].join(" ")).toContain('FROM "Workspace"');
+  });
   it("retains an unknown hold after timeout and never dispatches a second POST", async () => {
     const f = fixture(); f.submit.mockRejectedValue(new Error("timeout after request"));
     await processKeyframes(s3, f.services); await processKeyframes(s3, f.services);

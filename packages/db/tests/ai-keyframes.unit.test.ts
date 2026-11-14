@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { PrismaClient, AiKeyframe } from "../src/generated/prisma/client";
 const lock = vi.hoisted(() => vi.fn());
 vi.mock("../src/ai-credits", () => ({ lockBillingAccount: lock, AiCreditError: class extends Error {} }));
+vi.mock("../src/keyframe-storage", () => ({ keyframeStorageTransaction: (db: PrismaClient, _ids: string[], callback: Parameters<PrismaClient["$transaction"]>[0]) => db.$transaction(callback as never) }));
 import { reserveKeyframe, assertSameKeyframe, makeKeyframeRequest, keyframeHash, refundRefusedKeyframe, type KeyframeSnapshot } from "../src/ai-keyframes";
 const input = { role: "end" as const, source: { assetId: "photo", atMs: 0 as const }, move: "shift-right" as const, distanceM: 3, durationSeconds: 4 as const };
 const png = Buffer.from([137,80,78,71,13,10,26,10,0]);
@@ -37,6 +38,33 @@ describe("image reservation", () => {
     expect(tx.aiSpendBudget.updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "vertex-video", reservedCents: { lte: 23900 } }, data: { reservedCents: { increment: 100 } } }));
     expect(tx.aiCreditGrant.update).toHaveBeenCalledWith({ where: { id: "grant" }, data: { remaining: { decrement: 1 } } });
     expect(tx.aiKeyframe.create).toHaveBeenCalledWith({ data: expect.objectContaining({ requestHash: value.requestHash, inputHash: value.inputHash }) });
+  });
+  it.each(["paused", "queue", "credits", "budget", "access"])("retains no inputs when admission fails for %s", async reason => {
+    const { tx, db } = fixture(); const persist = vi.fn();
+    if (reason === "paused") lock.mockResolvedValue({ aiGeneration: "off" });
+    if (reason === "queue") tx.aiKeyframe.count.mockResolvedValue(4);
+    if (reason === "credits") tx.$queryRaw.mockResolvedValue([]);
+    if (reason === "budget") tx.aiSpendBudget.updateMany.mockResolvedValue({ count: 0 });
+    if (reason === "access") tx.user.findFirst.mockResolvedValue(null);
+    await expect(reserveKeyframe(db, { id: "u", workspaceId: "w" }, value, new Date(), persist)).rejects.toThrow();
+    expect(persist).not.toHaveBeenCalled(); expect(tx.aiKeyframe.create).not.toHaveBeenCalled();
+  });
+  it("persists only admitted inputs before exposing a job, and never repeats persistence for the same request", async () => {
+    const { tx, db } = fixture();
+    const persist = vi.fn(async () => {
+      expect(tx.aiCreditGrant.update).toHaveBeenCalledOnce();
+      expect(tx.aiSpendBudget.updateMany).toHaveBeenCalledOnce();
+      expect(tx.aiKeyframe.create).not.toHaveBeenCalled();
+    });
+    const row = await reserveKeyframe(db, { id: "u", workspaceId: "w" }, value, new Date(), persist);
+    tx.aiKeyframe.findUnique.mockResolvedValue(row as AiKeyframe);
+    await reserveKeyframe(db, { id: "u", workspaceId: "w" }, value, new Date(), persist);
+    expect(persist).toHaveBeenCalledOnce(); expect(tx.aiKeyframe.create).toHaveBeenCalledOnce();
+  });
+  it("does not expose a queued job if retaining its inputs fails", async () => {
+    const { tx, db } = fixture();
+    await expect(reserveKeyframe(db, { id: "u", workspaceId: "w" }, value, new Date(), async () => { throw Error("storage unavailable"); })).rejects.toThrow("storage unavailable");
+    expect(tx.aiKeyframe.create).not.toHaveBeenCalled();
   });
   it("refuses unavailable foreign source before budget or credit writes", async () => {
     const { tx, db } = fixture(); tx.mediaAsset.findFirst.mockResolvedValue(null);

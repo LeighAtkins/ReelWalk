@@ -149,7 +149,7 @@ export function ShotKeyframePanel({ role, input, recoveryKey, selectedAssetId, d
 
   return <section aria-label={`Prepare ${role} image`} className={styles.keyframe}>
     <p className="muted small">{role === "end" ? "Make the ending image first. Review it before spending video credits." : "Optionally prepare a new starting view from this photo."}</p>
-    {!input ? <p className="muted small">Choose a JPEG or PNG photo to prepare this frame.</p> : null}
+    {!input ? <p className="muted small">Choose a photo to prepare this frame.</p> : null}
     {isSelected ? <p role="status" className={styles.selectedStatus}>Selected as {role === "start" ? "Start" : "End"}.</p> : job?.candidateUrl && job.sourceUrl ? <>
       <div className={styles.comparison}>
         <figure>{image("source", job.sourceUrl)}<figcaption className={styles.caption}>Original</figcaption></figure>

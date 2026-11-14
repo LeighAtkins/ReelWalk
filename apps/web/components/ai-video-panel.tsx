@@ -10,6 +10,8 @@ import { ShotSourcePicker } from "./shot-source-picker";
 import { ShotKeyframePanel } from "./shot-keyframe-panel";
 import { shotBuilderDraftSchema, shotBuilderRecoveryKey } from "./shot-builder-draft";
 import styles from "./shot-workspace.module.css";
+import { uploadFile } from "./editor/upload";
+import { shotFramePhoto } from "./shot-frame-photo";
 import { AI_QUEUE_LIMIT, queueLabel, type QueuePosition, type TakeTrim } from "@reelwalk/core";
 
 type Job = { id: string; prompt: string; status: string; error: string | null; asset: LibraryAsset | null; shot: unknown; draftId: string | null;
@@ -22,11 +24,12 @@ const active = (job: Job) => ["QUEUED", "SUBMITTING", "RUNNING"].includes(job.st
 const DEFAULT_PROMPT = "Make the sequence flow naturally and keep the referenced property's identity recognisable.";
 const tierOf = (job: Job): "draft" | "final" | null => { const tier = (job.shot as { tier?: string } | null)?.tier; return tier === "draft" || tier === "final" ? tier : null; };
 
-export function AiVideoPanel({ photos, clips = [], selectedClip, reelId, beforeGenerate, onAdd, initialMove = null }: {
+export function AiVideoPanel({ photos, clips = [], selectedClip, reelId, beforeGenerate, onAdd, onLibraryAsset, initialMove = null }: {
   photos: LibraryAsset[]; clips?: Clip[]; selectedClip?: Clip | null; reelId?: string;
   /** A camera move the Moves sheet chose (ADR 0076): selected, with its words in the prompt. */
   initialMove?: MoveId | null;
   beforeGenerate?(): Promise<boolean>; onAdd?(asset: LibraryAsset, shot?: AiShot): void;
+  onLibraryAsset?(asset: LibraryAsset): void;
 }) {
   const [state, setState] = useState<State | null>(null);
   const [prompt, setPrompt] = useState(initialMove ? movePrompt(initialMove) : DEFAULT_PROMPT);
@@ -64,6 +67,10 @@ export function AiVideoPanel({ photos, clips = [], selectedClip, reelId, beforeG
   const allPhotos = [...photos.filter(asset => !extraPhotos[asset.id]), ...Object.values(extraPhotos)];
   const [draftLoaded, setDraftLoaded] = useState(false), [recoveryError, setRecoveryError] = useState("");
   const recoveryKey = shotBuilderRecoveryKey(reelId, selectedClip?.id);
+  const mediaLock = useRef(false), alive = useRef(true), scope = useRef(recoveryKey);
+  scope.current = recoveryKey;
+  const [mediaProgress, setMediaProgress] = useState<string | null>(null);
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   useEffect(() => {
     setDraftLoaded(false);
     try {
@@ -169,10 +176,28 @@ export function AiVideoPanel({ photos, clips = [], selectedClip, reelId, beforeG
     } else { setLast(`asset:${asset.id}`); setLastMs(0); setUseEndReference(true); setGeneratedEnd(true); }
     setQuality("final"); requestId.current = null;
   }
+  async function addReference(ending: boolean, file?: File) {
+    if (busy || mediaLock.current) return;
+    const originalScope = recoveryKey, frame = ending ? lastFrame : firstFrame, sourceAsset = assetFor(frame);
+    mediaLock.current = true; setBusy(true); setError(null); setMediaProgress(file ? "Uploading photo…" : "Saving video frame…");
+    try {
+      const photoFile = file ?? (frame && sourceAsset?.kind === "VIDEO" ? await shotFramePhoto(sourceAsset.id, sourceAsset.fileName, frame.atMs) : null);
+      if (!photoFile || !/\.(jpe?g|png|webp)$/i.test(photoFile.name) || photoFile.type && !["image/jpeg", "image/png", "image/webp"].includes(photoFile.type) || photoFile.size > 20 * 1024 * 1024) throw Error("Choose a JPEG, PNG or WebP photo under 20 MB.");
+      const asset = await uploadFile(photoFile, fraction => { if (alive.current) setMediaProgress(`Uploading photo… ${Math.round(fraction * 100)}%`); });
+      onLibraryAsset?.(asset);
+      if (!alive.current || scope.current !== originalScope) return;
+      receiveAssets([asset]);
+      if (asset.kind !== "IMAGE" || asset.isPano) throw Error("Choose a regular photo rather than a 360 image.");
+      chooseSource(ending, `asset:${asset.id}`);
+      if (!ending) setMode("custom");
+    } catch (e) { if (alive.current && scope.current === originalScope) setError(e instanceof Error ? e.message : "Could not add this photo. Try again."); }
+    finally { mediaLock.current = false; if (alive.current) { setBusy(false); setMediaProgress(null); } }
+  }
   function picker(ending: boolean) {
     return <ShotSourcePicker label={ending ? "End" : "Start"} value={ending ? last : photo} frame={ending ? lastFrame : firstFrame}
       photos={allPhotos} clips={clips} allowVideos={!camera} allowNone disabled={busy}
-      onChange={value => chooseSource(ending, value)} onTimeChange={atMs => (ending ? setLastMs : setFirstMs)(atMs)} />;
+      onChange={value => chooseSource(ending, value)} onTimeChange={atMs => (ending ? setLastMs : setFirstMs)(atMs)}
+      onUpload={file => void addReference(ending, file)} onSaveFrame={() => void addReference(ending)} />;
   }
 
   async function generate(event: React.FormEvent) {
@@ -230,6 +255,7 @@ export function AiVideoPanel({ photos, clips = [], selectedClip, reelId, beforeG
     </header>
     {state && !state.enabled ? <p className="toast" role="status">AI video is being connected. Your credits are ready for when it opens.</p> : null}
     {recoveryError ? <p className="error small" role="status">{recoveryError}</p> : null}
+    {mediaProgress ? <p role="status">{mediaProgress}</p> : null}
     <form onSubmit={generate} className={`ai-video-form ${styles.form}`}>
       <div className={styles.layout}>
       <section className={styles.references} aria-label="Shot references">
@@ -255,6 +281,7 @@ export function AiVideoPanel({ photos, clips = [], selectedClip, reelId, beforeG
         onChange={e => { resetGeneratedFrames(); setFrameNotes(e.target.value); }} /></label>
       </section>
       <section className={styles.preparation} aria-label="Review prepared images">
+      {!imageInput("end") && assetFor(firstFrame)?.kind === "VIDEO" ? <p className="muted small">To make an ending image from this video, choose “Save this frame as photo” under Start, or upload an End photo.</p> : null}
       <ShotKeyframePanel role="end" input={imageInput("end")} recoveryKey={recoveryKey} selectedAssetId={lastFrame?.assetId} disabled={busy || !draftLoaded}
         onAssets={receiveAssets} onBalance={receiveBalance} onBlocked={setEndImageBlocked} onUse={asset => useImage("end", asset)} onKeepSource={input => chooseSource(true, `asset:${input.source.assetId}`)} />
       <details className={styles.details}><summary>Prepare a different Start image</summary>

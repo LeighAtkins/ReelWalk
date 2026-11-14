@@ -25,6 +25,24 @@ function controls(node: ReactNode): ReactElement<Record<string, unknown>>[] {
 const rendered = (input: ShotSourcePickerProps) => controls(ShotSourcePicker(input));
 
 describe("visual shot source picker", () => {
+  it("offers direct upload for each role, clears the input for retry, and leaves selection to upload completion", () => {
+    for (const label of ["Start", "End"]) {
+      const onUpload = vi.fn(), input = props({ label, onUpload });
+      const field = rendered(input).find(node => node.type === "input" && node.props.type === "file")!;
+      expect(field.props["aria-label"]).toBe(`Upload ${label} photo`);
+      const file = new File(["photo"], "mine.jpg", { type: "image/jpeg" }), target = { files: [file], value: "mine.jpg" };
+      (field.props.onChange as (e: unknown) => void)({ currentTarget: target });
+      expect(onUpload).toHaveBeenCalledWith(file); expect(target.value).toBe(""); expect(input.onChange).not.toHaveBeenCalled();
+    }
+  });
+  it("makes saving a selected video frame explicit and disables it while busy", () => {
+    const onSaveFrame = vi.fn();
+    const input = props({ value: "asset:tour", frame: { assetId: video.id, atMs: 2000 }, onSaveFrame, disabled: true, onUpload: vi.fn() });
+    const nodes = rendered(input), save = nodes.find(node => node.props.children === "Save this frame as photo")!;
+    expect(save.props.disabled).toBe(true);
+    expect(nodes.find(node => node.type === "input" && node.props.type === "file")!.props.disabled).toBe(true);
+    (save.props.onClick as () => void)(); expect(onSaveFrame).toHaveBeenCalledOnce();
+  });
   it("shows the selected full-resolution portrait, filenames as captions and both source groups", () => {
     const markup = html(props());
     expect(markup).toContain('aria-label="Start reference"');
@@ -85,7 +103,7 @@ describe("visual shot source picker", () => {
     const markup = html(input);
     expect(markup).toContain("This reference is unavailable. Choose another below.");
     expect(markup).not.toContain("Tour.mp4");
-    expect(markup).not.toContain("Room.webp");
+    expect(markup).toContain("Room.webp");
     const clear = rendered(input).find(node => node.props.children === "No reference")!;
     (clear.props.onClick as () => void)();
     expect(input.onChange).toHaveBeenCalledWith("");

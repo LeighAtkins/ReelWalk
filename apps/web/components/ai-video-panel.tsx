@@ -231,7 +231,7 @@ export function AiVideoPanel({ card, onCardRecovery, onCardDraft, onCardRequest,
   }
   function picker(ending: boolean, original = false) {
     const value = original ? startBase : ending ? last : photo;
-    return <ShotSourcePicker label={original ? "Reference photo" : ending ? "End" : "Start"} value={value} frame={original ? source(startBase, true, 0) : ending ? lastFrame : firstFrame}
+    return <ShotSourcePicker label={original ? "Reference photo" : ending ? "End" : "Start"} value={value} frame={original ? source(startBase, true, firstMs) : ending ? lastFrame : firstFrame}
       photos={allPhotos} clips={clips} allowVideos={!camera} allowNone disabled={busy} fullReference={original}
       onChange={value => chooseSource(ending, value)} onTimeChange={atMs => (ending ? setLastMs : setFirstMs)(atMs)}
       onUpload={file => void addReference(ending, file)} onSaveFrame={() => void addReference(ending)} />;

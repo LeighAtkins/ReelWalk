@@ -1743,7 +1743,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
       ) : null}
 
       {sheet === "ai-video" ? <Sheet title="AI video" size="wide" onClose={closeSheet}>
-        <AiVideoPanel initialMove={aiMove} photos={libraryList} clips={timeline.clips} selectedClip={selectedClip} reelId={reel.id} beforeGenerate={autosave.flush} onAdd={(asset, shot) => {
+        <AiVideoPanel initialMove={aiMove} photos={libraryList} clips={timeline.clips} selectedClip={selectedClip} reelId={reel.id} beforeGenerate={autosave.flush} onLibraryAsset={asset => setLibrary(current => ({ ...current, [asset.id]: asset }))} onAdd={(asset, shot) => {
           const clip = { ...clipFromAsset(asset), id: `ai-insert-${asset.id}` };
           if (shot && insertAiShot(timeline, clip, shot) === timeline) {
             showToast("The source cut changed or this shot is already placed. Add the saved clip from Media to choose a new position.", 6000);

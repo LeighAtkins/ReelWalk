@@ -1111,7 +1111,7 @@ export function referencedAssetIds(timeline: Timeline): string[] {
   // A board's panels (ADR 0106) play library footage of their own.
   for (const id of boardAssetIds(timeline.board)) ids.add(id);
   for (const card of timeline.shotBoard?.cards ?? []) {
-    for (const id of [card.sourceAssetId, ...(card.frameAssetIds ?? []), card.framePair?.sourceAssetId, card.framePair?.startAssetId, card.framePair?.endAssetId]) if (id) ids.add(id);
+    for (const id of [card.sourceAssetId, ...(card.frameAssetIds ?? []), card.framePair?.sourceAssetId, card.framePair?.startAssetId, card.framePair?.endAssetId, card.framePair?.endRevision?.assetId]) if (id) ids.add(id);
   }
   return [...ids];
 }

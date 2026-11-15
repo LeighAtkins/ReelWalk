@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CAMERA_KEYFRAME_MODEL, cameraKeyframeGenerateSchema, cameraKeyframePrompt, cameraKeyframeVideoPrompt } from "../src/camera-keyframe";
+import { CAMERA_KEYFRAME_MAX_DISTANCE_M, CAMERA_KEYFRAME_MODEL, cameraKeyframeGenerateSchema, cameraKeyframePrompt, cameraKeyframeVideoPrompt } from "../src/camera-keyframe";
 
 const request = { action: "generate", requestId: "4ec2359d-c4af-490b-b5ec-36a88f499605", role: "end", source: { assetId: "alternate-photo", atMs: 0 }, continuity: { assetId: "chosen-start", atMs: 0 }, move: "shift-right", distanceM: 3, durationSeconds: 4 };
 describe("camera keyframe contract", () => {
@@ -11,7 +11,10 @@ describe("camera keyframe contract", () => {
     expect(cameraKeyframeGenerateSchema.safeParse({ ...request, model: "another-model" }).success).toBe(false);
   });
   it("bounds distance and duration and refuses unrecognised movement", () => {
-    for (const patch of [{ distanceM: 0 }, { distanceM: 100 }, { durationSeconds: 6 }, { move: "teleport" }]) expect(cameraKeyframeGenerateSchema.safeParse({ ...request, ...patch }).success).toBe(false);
+    for (const patch of [{ distanceM: 0 }, { distanceM: 100.1 }, { durationSeconds: 6 }, { move: "teleport" }]) expect(cameraKeyframeGenerateSchema.safeParse({ ...request, ...patch }).success).toBe(false);
+    expect(CAMERA_KEYFRAME_MAX_DISTANCE_M).toBe(100);
+    expect(cameraKeyframeGenerateSchema.parse({ ...request, distanceM: 100 }).distanceM).toBe(100);
+    expect(cameraKeyframePrompt(cameraKeyframeGenerateSchema.parse({ ...request, distanceM: 30.5 }))).toContain("not surveyed");
   });
   it("uses the same approximate rightward intent for image and video", () => {
     const input = cameraKeyframeGenerateSchema.parse(request);

@@ -4,7 +4,7 @@ import {
   referencedAssetIds, shotCards, shotFramePairSchema, updateShotCard,
   type CameraKeyframeInput, type ShotFramePair,
 } from "@reelwalk/core";
-import { framePairIntent, framePairMatches, newFramePair, savedFramePairInput } from "./guided-frame-pair";
+import { activeEndRequestId, framePairIntent, framePairMatches, newEndRevision, newFramePair, savedEndRevisionInput, savedFramePairInput } from "./guided-frame-pair";
 import { createDocumentStore } from "./editor/document-store";
 
 const ids = [
@@ -100,6 +100,80 @@ describe("guided frame-pair intent", () => {
   it("does not match absent pair or absent current controls", () => {
     expect(framePairMatches(undefined, input())).toBe(false);
     expect(framePairMatches(pair(), null)).toBe(false);
+  });
+});
+
+describe("End-only refinements", () => {
+  const revisionId = "00000000-0000-4000-8000-000000000004";
+  const nextId = "00000000-0000-4000-8000-000000000005";
+  const retained = (): ShotFramePair => ({ ...pair(), startAssetId: "retained-start", startJobId: "paid-start", endAssetId: "original-end", endJobId: "paid-original-end" });
+
+  it("creates only one new request while preserving the Start and original paid pair", () => {
+    const original = retained(), before = structuredClone(original), intent = { ...input(), distanceM: 30.5 };
+    let calls = 0;
+    const revised = newEndRevision(original, intent, "retained-start", () => { calls++; return revisionId; }, new Date("2026-11-15T08:00:00.000Z"));
+    expect(calls).toBe(1); expect(original).toEqual(before);
+    const { endRevision, ...unchanged } = revised;
+    expect(unchanged).toEqual(before);
+    expect(endRevision).toMatchObject({ requestId: revisionId, requestedAt: "2026-11-15T08:00:00.000Z", previousJobId: "paid-original-end" });
+    expect(savedEndRevisionInput(revised)).toMatchObject({ role: "end", distanceM: 30.5, source: intent.source, continuity: { assetId: "retained-start", atMs: 0 } });
+    expect(savedEndRevisionInput(revised)?.guidedPair).toBeUndefined();
+    expect(activeEndRequestId(revised)).toBe(revisionId);
+    expect(framePairMatches(revised, intent)).toBe(true);
+    expect(framePairMatches(revised, input())).toBe(false);
+    expect(savedFramePairInput(revised)).toEqual(savedFramePairInput(original));
+  });
+
+  it("retains End revision inputs and receipts across save/reopen and Undo/Redo", () => {
+    const revised = newEndRevision(retained(), { ...input(), distanceM: 40 }, "retained-start", () => revisionId);
+    revised.endRevision = { ...revised.endRevision!, jobId: "revised-job", assetId: "revised-asset" };
+    const document = createDocumentStore(cardTimeline());
+    document.dispatch({ type: "apply", update: t => insertShotCard(t, "later") });
+    document.dispatch({ type: "shot-operation", cardId: "exterior", patch: { framePair: revised } });
+    document.dispatch({ type: "undo" });
+    expect(shotCards(parseTimeline(JSON.parse(JSON.stringify(document.snapshot().timeline))))[0].framePair).toEqual(revised);
+    document.dispatch({ type: "redo" });
+    expect(shotCards(document.snapshot().timeline)[0].framePair).toEqual(revised);
+  });
+
+  it("requires the same factual reference and retained Start before creating a revision", () => {
+    const original = retained();
+    expect(() => newEndRevision(original, { ...input(), source: { assetId: "different-house", atMs: 0 } }, "retained-start", () => revisionId)).toThrow();
+    expect(() => newEndRevision(original, input(), "different-start", () => revisionId)).toThrow();
+    expect(() => newEndRevision({ ...original, startAssetId: undefined }, input(), "retained-start", () => revisionId)).toThrow();
+    expect(() => newEndRevision(original, { ...input(), cinematography: undefined }, "retained-start", () => revisionId)).toThrow();
+    for (const usedId of [original.id, original.startRequestId, original.endRequestId]) expect(() => newEndRevision(original, input(), "retained-start", () => usedId)).toThrow();
+  });
+
+  it("clears only the active revision receipt for another explicit End adjustment", () => {
+    const first = newEndRevision(retained(), input(), "retained-start", () => revisionId);
+    first.endRevision = { ...first.endRevision!, jobId: "old-revision-job", assetId: "old-revision-asset" };
+    const next = newEndRevision(first, { ...input(), distanceM: 50 }, "retained-start", () => nextId);
+    expect(next.endRevision).toMatchObject({ requestId: nextId, previousJobId: "old-revision-job" });
+    expect(next.endRevision?.jobId).toBeUndefined(); expect(next.endRevision?.assetId).toBeUndefined();
+    expect(next.startAssetId).toBe(first.startAssetId); expect(next.endAssetId).toBe("original-end");
+    expect(first.endRevision.assetId).toBe("old-revision-asset");
+    expect(() => newEndRevision(first, input(), "retained-start", () => revisionId)).toThrow();
+    expect(shotFramePairSchema.safeParse({ ...next, endRevision: { ...next.endRevision!, previousJobId: "" } }).success).toBe(false);
+  });
+
+  it.each([
+    ["broken input", (p: ShotFramePair) => { p.endRevision!.input = "{"; }],
+    ["wrong role", (p: ShotFramePair) => { p.endRevision!.input = JSON.stringify({ ...JSON.parse(p.endRevision!.input), role: "start" }); }],
+    ["wrong source", (p: ShotFramePair) => { p.endRevision!.input = JSON.stringify({ ...JSON.parse(p.endRevision!.input), source: { assetId: "other", atMs: 0 } }); }],
+    ["wrong continuity", (p: ShotFramePair) => { p.endRevision!.input = JSON.stringify({ ...JSON.parse(p.endRevision!.input), continuity: { assetId: "other", atMs: 0 } }); }],
+    ["recursive guided pair", (p: ShotFramePair) => { p.endRevision!.input = JSON.stringify({ ...JSON.parse(p.endRevision!.input), guidedPair: { version: 1, id: ids[0], endRequestId: ids[2] } }); }],
+    ["missing recipe", (p: ShotFramePair) => { p.endRevision!.input = JSON.stringify({ ...JSON.parse(p.endRevision!.input), cinematography: undefined }); }],
+  ] as const)("rejects %s instead of silently falling back to the original End", (_label, corrupt) => {
+    const revised = newEndRevision(retained(), input(), "retained-start", () => revisionId); corrupt(revised);
+    expect(() => savedEndRevisionInput(revised)).toThrow(); expect(() => activeEndRequestId(revised)).toThrow();
+    expect(framePairMatches(revised, input())).toBe(false);
+  });
+
+  it("leaves legacy pairs on their original End identity and byte-stable frozen Start", () => {
+    const original = pair(), bytes = JSON.stringify(original);
+    expect(savedEndRevisionInput(original)).toBeNull(); expect(activeEndRequestId(original)).toBe(original.endRequestId);
+    expect(framePairMatches(original, input())).toBe(true); expect(JSON.stringify(original)).toBe(bytes);
   });
 });
 

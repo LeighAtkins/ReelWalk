@@ -16,4 +16,9 @@ describe("shot choice recovery", () => {
       expect(shotBuilderDraftSchema.safeParse(invalid).success).toBe(false);
     }
   });
+  it("retains extended approximate camera distances rather than clamping them back to ten", () => {
+    expect(shotBuilderDraftSchema.parse({ ...draft, distanceM: 30.5 }).distanceM).toBe(30.5);
+    expect(shotBuilderDraftSchema.parse({ ...draft, distanceM: 100 }).distanceM).toBe(100);
+    expect(shotBuilderDraftSchema.safeParse({ ...draft, distanceM: 100.1 }).success).toBe(false);
+  });
 });

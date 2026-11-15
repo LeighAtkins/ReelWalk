@@ -15,9 +15,14 @@
   margin-block-end: 1.5rem;
 }
 
-.generationProgress { position: sticky; inset-block-start: 0; z-index: 3; background: var(--ink-deep); padding-block: .5rem; }
+.generationProgress { padding-block: .5rem; }
 .generationProgress:empty { display: none; }
-.singleReference { min-inline-size: 0; max-inline-size: 24rem; }
+.singleReference { min-inline-size: 0; }
+.compactReference { min-inline-size: 0; border:1px solid var(--line); border-radius:var(--radius-m); padding:.75rem; }
+.compactReference > summary { display:flex; align-items:center; gap:.75rem; min-block-size:var(--tap); }
+.compactReference > summary img { inline-size:5rem; block-size:4rem; object-fit:contain; border-radius:var(--radius-s); background:var(--ink-deep); }
+.compactReference > summary span { display:grid; gap:.25rem; }
+.compactReference[open] > summary { margin-block-end:1rem; }
 .fullReferenceFrame { inline-size:100%; aspect-ratio:3/2; overflow:hidden; background:var(--ink-deep); border-radius:var(--radius-m); }
 
 .intro {

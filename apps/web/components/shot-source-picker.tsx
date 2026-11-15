@@ -35,7 +35,7 @@ function SourcePicture({ asset, atMs, thumbnail = false, disabled = false }: { a
 }
 
 export function ShotSourcePicker({ label, value, frame, photos, clips, allowVideos = true, allowNone = false, disabled = false, onChange, onTimeChange, onUpload, onSaveFrame }: ShotSourcePickerProps) {
-  const available = photos.filter(a => !a.isPano && (a.kind === "IMAGE" && /\.(jpe?g|png|webp)$/i.test(a.fileName) || allowVideos && a.kind === "VIDEO"));
+  const available = photos.filter(a => !a.isPano && (a.kind === "IMAGE" && /\.(jpe?g|png)$/i.test(a.fileName) || allowVideos && a.kind === "VIDEO"));
   const selected = available.find(a => a.id === frame?.assetId);
   // The existing panel uses the source clip's last frame for Start, and its first for End.
   const ending = /\b(end|ending|last)\b/i.test(label);
@@ -51,7 +51,7 @@ export function ShotSourcePicker({ label, value, frame, photos, clips, allowVide
   return <section aria-label={`${label} reference`} className={styles.source}>
     <strong className={styles.sourceTitle}>{label}</strong>
     {onUpload ? <label className={`btn btn-quiet ${styles.upload}`} aria-disabled={disabled}>Upload photo
-      <input type="file" accept="image/jpeg,image/png,image/webp" aria-label={`Upload ${label} photo`} disabled={disabled} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", opacity: 0, cursor: "pointer" }}
+      <input type="file" accept="image/jpeg,image/png" aria-label={`Upload ${label} photo`} disabled={disabled} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", opacity: 0, cursor: "pointer" }}
         onChange={e => { const file = e.currentTarget.files?.[0]; e.currentTarget.value = ""; if (file) onUpload(file); }} />
     </label> : null}
     <figure className={styles.sourceFigure}>

@@ -30,6 +30,8 @@ describe("visual shot source picker", () => {
       const onUpload = vi.fn(), input = props({ label, onUpload });
       const field = rendered(input).find(node => node.type === "input" && node.props.type === "file")!;
       expect(field.props["aria-label"]).toBe(`Upload ${label} photo`);
+      // Match video admission, not just Nano preparation, which separately accepts WebP.
+      expect(field.props.accept).toBe("image/jpeg,image/png");
       const file = new File(["photo"], "mine.jpg", { type: "image/jpeg" }), target = { files: [file], value: "mine.jpg" };
       (field.props.onChange as (e: unknown) => void)({ currentTarget: target });
       expect(onUpload).toHaveBeenCalledWith(file); expect(target.value).toBe(""); expect(input.onChange).not.toHaveBeenCalled();
@@ -103,7 +105,7 @@ describe("visual shot source picker", () => {
     const markup = html(input);
     expect(markup).toContain("This reference is unavailable. Choose another below.");
     expect(markup).not.toContain("Tour.mp4");
-    expect(markup).toContain("Room.webp");
+    expect(markup).not.toContain("Room.webp");
     const clear = rendered(input).find(node => node.props.children === "No reference")!;
     (clear.props.onClick as () => void)();
     expect(input.onChange).toHaveBeenCalledWith("");

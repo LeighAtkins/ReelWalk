@@ -182,7 +182,7 @@ export function AiVideoPanel({ photos, clips = [], selectedClip, reelId, beforeG
     mediaLock.current = true; setBusy(true); setError(null); setMediaProgress(file ? "Uploading photo…" : "Saving video frame…");
     try {
       const photoFile = file ?? (frame && sourceAsset?.kind === "VIDEO" ? await shotFramePhoto(sourceAsset.id, sourceAsset.fileName, frame.atMs) : null);
-      if (!photoFile || !/\.(jpe?g|png|webp)$/i.test(photoFile.name) || photoFile.type && !["image/jpeg", "image/png", "image/webp"].includes(photoFile.type) || photoFile.size > 20 * 1024 * 1024) throw Error("Choose a JPEG, PNG or WebP photo under 20 MB.");
+      if (!photoFile || !/\.(jpe?g|png)$/i.test(photoFile.name) || photoFile.type && !["image/jpeg", "image/png"].includes(photoFile.type) || photoFile.size > 20 * 1024 * 1024) throw Error("Choose a JPEG or PNG photo under 20 MB.");
       const asset = await uploadFile(photoFile, fraction => { if (alive.current) setMediaProgress(`Uploading photo… ${Math.round(fraction * 100)}%`); });
       onLibraryAsset?.(asset);
       if (!alive.current || scope.current !== originalScope) return;

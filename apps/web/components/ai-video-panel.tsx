@@ -240,7 +240,7 @@ export function AiVideoPanel({ card, onCardRecovery, onCardDraft, onCardRequest,
   function videoPayload() {
     if (guided && !pairReviewed) throw Error("Review and select both prepared frames before making the video.");
     if (useEndReference && !bridge && !lastFrame) throw Error("Choose an ending reference, or turn off ending guidance.");
-    if (startImageBlocked || endImageBlocked) throw Error("Finish reviewing your prepared image before making the video.");
+    if (!guided && (startImageBlocked || endImageBlocked)) throw Error("Finish reviewing your prepared image before making the video.");
     const shot = aiShotSchema.safeParse({ mode, ...(move && !bridge && !direction ? { move } : {}), first: firstFrame, last: lastFrame, anchor, style, atmosphere, energy, harmonize: Boolean(onAdd) && !card && harmonize, polish: Boolean(onAdd) && !card && polish,
       next: anchor && lastFrame ? next : undefined, ...(!card && draft && anchor && reelId ? { draftReelId: reelId } : {}),
     });
@@ -463,7 +463,7 @@ export function AiVideoPanel({ card, onCardRecovery, onCardDraft, onCardRequest,
       <p className="muted small">New images and videos use credits. Review generated property details before publishing.</p>
       {error ? <p className="error small" role="alert">{error}</p> : null}
       {guided && !pairReviewed ? <p className="muted small">Prepare and select both frames above to unlock video generation.</p> : null}
-      <button className="btn btn-block" type="submit" disabled={busy || !!card?.request || !draftLoaded || guided && !pairReviewed || startImageBlocked || endImageBlocked || !state?.enabled || state.balance.remaining < credits || state.jobs.filter(active).length >= AI_QUEUE_LIMIT || (!firstFrame && direction !== null) || (!!firstFrame && !assetFor(firstFrame)) || (!!lastFrame && !assetFor(lastFrame)) || ((bridge || useEndReference) && !lastFrame) || (mode !== "custom" && !firstFrame)}>
+      <button className="btn btn-block" type="submit" disabled={busy || !!card?.request || !draftLoaded || guided && !pairReviewed || !guided && (startImageBlocked || endImageBlocked) || !state?.enabled || state.balance.remaining < credits || state.jobs.filter(active).length >= AI_QUEUE_LIMIT || (!firstFrame && direction !== null) || (!!firstFrame && !assetFor(firstFrame)) || (!!lastFrame && !assetFor(lastFrame)) || ((bridge || useEndReference) && !lastFrame) || (mode !== "custom" && !firstFrame)}>
         {busy ? "Starting…" : `${draftMode ? "Draft" : "Generate video ·"} ${seconds}-second clip · ${credits} ${credits === 1 ? "credit" : "credits"}`}
       </button>
       <p className="muted small"><Link href="/account">Plans and more credits</Link></p>

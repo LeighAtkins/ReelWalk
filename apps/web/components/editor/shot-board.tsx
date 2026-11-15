@@ -37,7 +37,7 @@ export function ShotBoard({ timeline, library, onChange, onPrepare, onAsset, onU
         const clip = timeline.clips.find(item => item.id === card.clipId), asset = library[clip?.assetId ?? card.sourceAssetId ?? ""];
         return <div className={styles.slot} key={card.id}>
           <button type="button" className={styles.insert} aria-label={`Insert shot before ${index + 1}`} title={`Insert shot before ${index + 1}`} onClick={() => add(card.id)}>+</button>
-          <article className={styles.card} onContextMenu={event => { event.preventDefault(); setMenu(card.id); }}
+          <article className={styles.card} onContextMenu={event => { event.preventDefault(); event.currentTarget.querySelector<HTMLButtonElement>("button[aria-expanded]")?.focus({ preventScroll: true }); setMenu(card.id); }}
             onDragOver={event => event.preventDefault()} onDrop={event => { event.preventDefault(); if (!clip) void upload(card.id, event.dataTransfer.files[0]); }}>
             <h3>Shot {index + 1} - {clip ? "Ready" : card.sourceAssetId ? "Prepare frames" : "Empty"}</h3>
             {asset ? clip?.kind === "VIDEO" ? <video src={asset.url} controls playsInline preload="metadata" aria-label={`Shot ${index + 1} video`} /> : <img src={asset.url} alt={`Shot ${index + 1} source`} /> : <div className={styles.empty}>Drop your property photo here</div>}

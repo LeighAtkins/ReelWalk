@@ -54,8 +54,8 @@ export async function generateKeyframe(actor: Actor, value: CameraKeyframeGenera
     await putKeyframeObject(requestKey, Buffer.from(request), "application/json");
   }));
 }
-export async function listKeyframes(actor: Actor) {
-  const [jobs, balance] = await Promise.all([prisma.aiKeyframe.findMany({ where: { workspaceId: actor.workspaceId }, orderBy: { createdAt: "desc" }, take: 30 }), aiCreditSummary(prisma, actor.workspaceId)]);
+export async function listKeyframes(actor: Actor, saved: { requestId?: string; jobId?: string } = {}) {
+  const [jobs, balance] = await Promise.all([prisma.aiKeyframe.findMany({ where: { workspaceId: actor.workspaceId, ...(saved.requestId || saved.jobId ? { OR: [...(saved.requestId ? [{ requestId: saved.requestId }] : []), ...(saved.jobId ? [{ id: saved.jobId }] : [])] } : {}) }, orderBy: { createdAt: "desc" }, take: 30 }), aiCreditSummary(prisma, actor.workspaceId)]);
   return { enabled: keyframesEnabled(), reason: keyframesEnabled() ? null : "Image generation is paused on this deployment.", balanceRemaining: balance.remaining, jobs: await Promise.all(jobs.map(keyframeView)) };
 }
 export async function keyframeArtifact(actor: Actor, id: string, artifact: "source" | "continuity" | "candidate") {

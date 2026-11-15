@@ -1,0 +1,26 @@
+.board { padding: 16px; min-width: 0; }
+.board h2, .board h3 { margin: 0 0 8px; }
+.board h2 { font-size: 22px; }
+.board p { font-size: 14px; margin: 0 0 12px; }
+.sequence { display: flex; gap: 12px; overflow-x: auto; align-items: stretch; padding-bottom: 12px; }
+.slot { display: flex; gap: 12px; align-items: stretch; flex-shrink: 0; }
+.slot > .insert { width: 44px; padding: 6px; }
+.card { position: relative; flex-shrink: 0; width: min(310px, calc(100vw - 104px)); border: 1px solid #777; border-radius: 16px; padding: 16px; background: #181818; color: #fff; }
+.card img, .card video, .empty { width: 100%; height: clamp(140px, 24dvh, 230px); object-fit: contain; background: #080808; border-radius: 8px; }
+.empty { display: grid; place-items: center; padding: 16px; box-sizing: border-box; text-align: center; }
+.board button, .upload { min-height: 44px; padding: 10px; border: 1px solid #888; border-radius: 8px; cursor: pointer; background: #252525; color: white; font: inherit; }
+.card > button, .upload { display: block; width: 100%; margin-top: 10px; box-sizing: border-box; }
+.upload { position: relative; }
+.upload input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.insert { flex-shrink: 0; align-self: center; }
+.actions { position: absolute; z-index: 2; inset: 44px 12px auto; display: grid; gap: 8px; padding: 8px; border: 1px solid #777; border-radius: 12px; background: #181818; box-shadow: 0 8px 24px #0009; }
+.board button:focus-visible, .upload:focus-within { outline: 3px solid #f5d884; outline-offset: 3px; }
+
+.workspace { min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); }
+.tabs { display: flex; gap: 8px; padding: 8px 16px; }
+.tabs button { min-height: 44px; padding: 8px 16px; border: 1px solid #777; border-radius: 8px; background: #252525; color: white; font: inherit; }
+.tabs button[aria-pressed="true"] { border-color: #f5d884; }
+.boardViewport { min-height: 0; overflow: auto; }
+.previewViewport { min-height: 0; display: grid; }
+
+.upload select { display: block; width: 100%; min-height: 44px; margin-top: 8px; }

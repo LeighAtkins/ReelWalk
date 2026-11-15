@@ -14,7 +14,7 @@ import { uploadFile } from "./editor/upload";
 import { shotFramePhoto } from "./shot-frame-photo";
 import { AI_QUEUE_LIMIT, queueLabel, type QueuePosition, type TakeTrim } from "@reelwalk/core";
 
-type Job = { id: string; prompt: string; status: string; error: string | null; asset: LibraryAsset | null; shot: unknown; draftId: string | null;
+type Job = { id: string; requestId?: string; prompt: string; status: string; error: string | null; asset: LibraryAsset | null; shot: unknown; draftId: string | null;
   /** The take queue and the gate's measurements (ADR 0069). */
   queue?: QueuePosition | null; faceHeightPx?: number | null; framing?: string | null; take?: TakeTrim | null;
   /** Credits this take used, its length, and the final made from it when it is a draft (ADR 0076). */
@@ -24,11 +24,15 @@ const active = (job: Job) => ["QUEUED", "SUBMITTING", "RUNNING"].includes(job.st
 const DEFAULT_PROMPT = "Make the sequence flow naturally and keep the referenced property's identity recognisable.";
 const tierOf = (job: Job): "draft" | "final" | null => { const tier = (job.shot as { tier?: string } | null)?.tier; return tier === "draft" || tier === "final" ? tier : null; };
 
-export function AiVideoPanel({ photos, clips = [], selectedClip, reelId, beforeGenerate, onAdd, onLibraryAsset, initialMove = null }: {
+export function AiVideoPanel({ card, onCardRecovery, onCardDraft, onCardRequest, photos, clips = [], selectedClip, reelId, beforeGenerate, onAdd, onLibraryAsset, initialMove = null }: {
+  card?: import("@reelwalk/core").ShotCard;
+  onCardRecovery?(key: string, value: string): Promise<boolean>;
+  onCardDraft?(draft: string, frameAssetIds: string[]): void;
+  onCardRequest?(request: NonNullable<import("@reelwalk/core").ShotCard["request"]>): Promise<boolean>;
   photos: LibraryAsset[]; clips?: Clip[]; selectedClip?: Clip | null; reelId?: string;
   /** A camera move the Moves sheet chose (ADR 0076): selected, with its words in the prompt. */
   initialMove?: MoveId | null;
-  beforeGenerate?(): Promise<boolean>; onAdd?(asset: LibraryAsset, shot?: AiShot): void;
+  beforeGenerate?(): Promise<boolean>; onAdd?(asset: LibraryAsset, shot?: AiShot, jobId?: string, durationSeconds?: number): void;
   onLibraryAsset?(asset: LibraryAsset): void;
 }) {
   const [state, setState] = useState<State | null>(null);
@@ -66,7 +70,7 @@ export function AiVideoPanel({ photos, clips = [], selectedClip, reelId, beforeG
   }), []);
   const allPhotos = [...photos.filter(asset => !extraPhotos[asset.id]), ...Object.values(extraPhotos)];
   const [draftLoaded, setDraftLoaded] = useState(false), [recoveryError, setRecoveryError] = useState("");
-  const recoveryKey = shotBuilderRecoveryKey(reelId, selectedClip?.id);
+  const recoveryKey = shotBuilderRecoveryKey(reelId, card?.id ?? selectedClip?.id);
   const mediaLock = useRef(false), alive = useRef(true), scope = useRef(recoveryKey);
   scope.current = recoveryKey;
   const [mediaProgress, setMediaProgress] = useState<string | null>(null);
@@ -74,9 +78,9 @@ export function AiVideoPanel({ photos, clips = [], selectedClip, reelId, beforeG
   useEffect(() => {
     setDraftLoaded(false);
     try {
-      const value = localStorage.getItem(recoveryKey);
+      const value = card ? card.draft : localStorage.getItem(recoveryKey);
       if (!value) {
-        const start = selectedClip ? `clip:${selectedClip.id}` : "";
+        const start = card?.sourceAssetId ? `asset:${card.sourceAssetId}` : selectedClip ? `clip:${selectedClip.id}` : "";
         setPhoto(start); setStartBase(start); setLast(""); setEndBase(""); setFirstMs(0); setLastMs(0);
         setGeneratedStart(false); setGeneratedEnd(false); setUseEndReference(false);
         setDirection(initialMove ? null : "push-in"); setDistanceM(1); setChosenSeconds(null); setFrameNotes("");
@@ -97,18 +101,24 @@ export function AiVideoPanel({ photos, clips = [], selectedClip, reelId, beforeG
   useEffect(() => {
     if (!draftLoaded) return;
     try {
-      localStorage.setItem(recoveryKey, JSON.stringify({ version: 1, photo, last, startBase, endBase, firstMs, lastMs, generatedStart, generatedEnd, useEndReference,
-        direction, distanceM, chosenSeconds, frameNotes, prompt, mode, move, quality, style, atmosphere, energy, harmonize, polish, draft }));
+      const serialized = JSON.stringify({ version: 1, photo, last, startBase, endBase, firstMs, lastMs, generatedStart, generatedEnd, useEndReference,
+        direction, distanceM, chosenSeconds, frameNotes, prompt, mode, move, quality, style, atmosphere, energy, harmonize, polish, draft });
+      if (card) onCardDraft?.(serialized, [photo, last, startBase, endBase].filter(value => value.startsWith("asset:")).map(value => value.slice(6)));
+      else localStorage.setItem(recoveryKey, serialized);
     } catch { setRecoveryError("This browser could not save the shot choices. Keep this tab open; generated images are still saved on the server."); }
   }, [draftLoaded, recoveryKey, photo, last, startBase, endBase, firstMs, lastMs, generatedStart, generatedEnd, useEndReference, direction, distanceM, chosenSeconds, frameNotes, prompt, mode, move, quality, style, atmosphere, energy, harmonize, polish, draft]);
-  const requestId = useRef<string | null>(null);
+  const requestId = useRef<string | null>(card?.request?.id ?? null);
   const requestSignature = useRef("");
   const refresh = useCallback(async (signal?: AbortSignal) => {
-    const response = await fetch("/api/ai/generations", { cache: "no-store", signal });
+    const response = await fetch(`/api/ai/generations${card?.request ? `?requestId=${encodeURIComponent(card.request.id)}` : ""}`, { cache: "no-store", signal });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "Could not load AI clips.");
+    if (card?.request && onCardRequest) {
+      const found = data.jobs.find((job: Job) => job.requestId === card.request!.id);
+      if (found && found.id !== card.request.jobId) await onCardRequest({ ...card.request, jobId: found.id });
+    }
     setState(data);
-  }, []);
+  }, [card?.request?.id]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -203,10 +213,11 @@ export function AiVideoPanel({ photos, clips = [], selectedClip, reelId, beforeG
   async function generate(event: React.FormEvent) {
     event.preventDefault();
     setError(null);
+    if (busy || card?.request) return;
     if (useEndReference && !bridge && !lastFrame) { setError("Choose an ending reference, or turn off ending guidance."); return; }
     if (startImageBlocked || endImageBlocked) { setError("Finish reviewing your prepared image before making the video."); return; }
-    const shot = aiShotSchema.safeParse({ mode, ...(move && !bridge && !direction ? { move } : {}), first: firstFrame, last: lastFrame, anchor, style, atmosphere, energy, harmonize: Boolean(onAdd) && harmonize, polish: Boolean(onAdd) && polish,
-      next: anchor && lastFrame ? next : undefined, ...(draft && anchor && reelId ? { draftReelId: reelId } : {}),
+    const shot = aiShotSchema.safeParse({ mode, ...(move && !bridge && !direction ? { move } : {}), first: firstFrame, last: lastFrame, anchor, style, atmosphere, energy, harmonize: Boolean(onAdd) && !card && harmonize, polish: Boolean(onAdd) && !card && polish,
+      next: anchor && lastFrame ? next : undefined, ...(!card && draft && anchor && reelId ? { draftReelId: reelId } : {}),
     });
     if (!shot.success) { setError(shot.error.issues[0]?.message || "Choose source frames."); return; }
     if (bridge && anchor && (!next || clips.indexOf(next) !== clips.indexOf(anchor) + 1)) {
@@ -219,12 +230,14 @@ export function AiVideoPanel({ photos, clips = [], selectedClip, reelId, beforeG
       const signature = JSON.stringify(payload);
       if (signature !== requestSignature.current) { requestSignature.current = signature; requestId.current = null; }
       requestId.current ??= crypto.randomUUID();
+      if (card && (!card.draft || !onCardRequest || !await onCardRequest({ id: requestId.current, draft: card.draft }))) throw Error("Save this card and its request before generating.");
       const response = await fetch("/api/ai/generations", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ requestId: requestId.current, ...payload }),
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Could not start this shot.");
+      if (card && onCardRequest) await onCardRequest({ id: requestId.current!, draft: card.draft!, jobId: result.id });
       requestId.current = null;
       await refresh();
     } catch (e) { setError(e instanceof Error ? e.message : "Connection interrupted. Try again to check this request."); }
@@ -282,12 +295,14 @@ export function AiVideoPanel({ photos, clips = [], selectedClip, reelId, beforeG
       </section>
       <section className={styles.preparation} aria-label="Review prepared images">
       {!imageInput("end") && assetFor(firstFrame)?.kind === "VIDEO" ? <p className="muted small">To make an ending image from this video, choose “Save this frame as photo” under Start, or upload an End photo.</p> : null}
-      <ShotKeyframePanel role="end" input={imageInput("end")} recoveryKey={recoveryKey} selectedAssetId={lastFrame?.assetId} disabled={busy || !draftLoaded}
+      {card ? <ShotKeyframePanel role="start" input={imageInput("start")} recoveryKey={recoveryKey} durableRecovery={card.recovery} onRecovery={onCardRecovery} selectedAssetId={firstFrame?.assetId} disabled={busy || !draftLoaded}
+        onAssets={receiveAssets} onBalance={receiveBalance} onBlocked={setStartImageBlocked} onUse={asset => useImage("start", asset)} onKeepSource={input => chooseSource(false, `asset:${input.source.assetId}`)} /> : null}
+      <ShotKeyframePanel role="end" input={imageInput("end")} recoveryKey={recoveryKey} durableRecovery={card?.recovery} onRecovery={onCardRecovery} selectedAssetId={lastFrame?.assetId} disabled={busy || !draftLoaded}
         onAssets={receiveAssets} onBalance={receiveBalance} onBlocked={setEndImageBlocked} onUse={asset => useImage("end", asset)} onKeepSource={input => chooseSource(true, `asset:${input.source.assetId}`)} />
-      <details className={styles.details}><summary>Prepare a different Start image</summary>
+      {!card ? <details className={styles.details}><summary>Prepare a different Start image</summary>
         <ShotKeyframePanel role="start" input={imageInput("start")} recoveryKey={recoveryKey} selectedAssetId={firstFrame?.assetId} disabled={busy || !draftLoaded}
           onAssets={receiveAssets} onBalance={receiveBalance} onBlocked={setStartImageBlocked} onUse={asset => useImage("start", asset)} onKeepSource={input => chooseSource(false, `asset:${input.source.assetId}`)} />
-      </details>
+      </details> : null}
       </section>
       <details className={`${styles.advanced} ${styles.details}`}><summary>More shot options</summary>
       <label className="field">Make a shot
@@ -344,9 +359,9 @@ export function AiVideoPanel({ photos, clips = [], selectedClip, reelId, beforeG
           <option value="subtle">Controlled and elegant</option><option value="bold">Bold and over the top</option>
         </select>
       </label>
-      {onAdd && style !== "source" ? <label className="field"><span><input type="checkbox" checked={harmonize} disabled={busy} onChange={e => setHarmonize(e.target.checked)} /> Carry a matching colour grade through the real footage</span>
+      {!card && onAdd && style !== "source" ? <label className="field"><span><input type="checkbox" checked={harmonize} disabled={busy} onChange={e => setHarmonize(e.target.checked)} /> Carry a matching colour grade through the real footage</span>
         <span className="muted small">Editable in Look. Weather and relighting apply to the AI shot.</span></label> : null}
-      {onAdd ? <label className="field"><span><input type="checkbox" checked={polish} disabled={busy} onChange={e => setPolish(e.target.checked)} /> Finish the promo with luxury type and camera accents</span>
+      {!card && onAdd ? <label className="field"><span><input type="checkbox" checked={polish} disabled={busy} onChange={e => setPolish(e.target.checked)} /> Finish the promo with luxury type and camera accents</span>
         <span className="muted small">Pairs editorial and clean fonts, soft lens edges and one snap zoom. Your words, footage and timing stay editable.</span></label> : null}
       {style === "auto" ? <p className="muted small">Suggested direction: {AI_SHOT_STYLE_LABELS[aiShotStyle({ mode, anchor, style })]}. AI handles lighting, depth and atmosphere within this look.</p> : null}
       <label className="field">Describe the shot
@@ -354,14 +369,14 @@ export function AiVideoPanel({ photos, clips = [], selectedClip, reelId, beforeG
           placeholder="A slow, smooth camera push into a bright living room, morning light through the windows. Keep the layout and furniture unchanged."
           disabled={busy} onChange={e => { resetGeneratedFrames(); setDirection(null); setPrompt(e.target.value); requestId.current = null; }} />
       </label>
-      {anchor && reelId ? <label className="field"><span><input type="checkbox" checked={draft} disabled={busy} onChange={e => setDraft(e.target.checked)} /> Automatically make a separate promo draft</span>
+      {!card && anchor && reelId ? <label className="field"><span><input type="checkbox" checked={draft} disabled={busy} onChange={e => setDraft(e.target.checked)} /> Automatically make a separate promo draft</span>
         <span className="muted small">Completes while you are away. Keeps your original reel, music and captions. Changed boundaries wait for review.</span></label> : null}
       <p className="muted small">References use the original frame with a centre crop to portrait. Review joins, especially with zoom, colour effects or letterboxing.</p>
       </details>
       <footer className={styles.finish}>
       <p className="muted small">New images and videos use credits. Review generated property details before publishing.</p>
       {error ? <p className="error small" role="alert">{error}</p> : null}
-      <button className="btn btn-block" type="submit" disabled={busy || !draftLoaded || startImageBlocked || endImageBlocked || !state?.enabled || state.balance.remaining < credits || state.jobs.filter(active).length >= AI_QUEUE_LIMIT || (!firstFrame && direction !== null) || (!!firstFrame && !assetFor(firstFrame)) || (!!lastFrame && !assetFor(lastFrame)) || ((bridge || useEndReference) && !lastFrame) || (mode !== "custom" && !firstFrame)}>
+      <button className="btn btn-block" type="submit" disabled={busy || !!card?.request || !draftLoaded || startImageBlocked || endImageBlocked || !state?.enabled || state.balance.remaining < credits || state.jobs.filter(active).length >= AI_QUEUE_LIMIT || (!firstFrame && direction !== null) || (!!firstFrame && !assetFor(firstFrame)) || (!!lastFrame && !assetFor(lastFrame)) || ((bridge || useEndReference) && !lastFrame) || (mode !== "custom" && !firstFrame)}>
         {busy ? "Starting…" : `${draftMode ? "Draft" : "Generate video ·"} ${seconds}-second clip · ${credits} ${credits === 1 ? "credit" : "credits"}`}
       </button>
       <p className="muted small"><Link href="/account">Plans and more credits</Link></p>
@@ -369,7 +384,8 @@ export function AiVideoPanel({ photos, clips = [], selectedClip, reelId, beforeG
       </div>
     </form>
     <div className="ai-video-results" aria-live="polite">
-      {state?.jobs.map(job => <article className="ai-video-result" key={job.id}>
+      {card?.request ? <button type="button" className="btn" onClick={() => void refresh().catch(e => setError(e.message))}>Check saved video request</button> : null}
+      {state?.jobs.filter(job => !card || job.requestId === card.request?.id).map(job => <article className="ai-video-result" key={job.id}>
         <p className="small">{tierOf(job) === "draft" ? "Draft · " : tierOf(job) === "final" && (job.shot as { finalOf?: string }).finalOf ? "Final · " : ""}{aiShotSchema.safeParse(job.shot).success ? `${(job.shot as AiShot).move ? `${moveById((job.shot as AiShot).move!).label} · ` : ""}${AI_SHOT_LABELS[(job.shot as AiShot).mode]} · ${AI_SHOT_STYLE_LABELS[aiShotStyle(job.shot as AiShot)]}` : job.prompt}</p>
         {active(job) ? <p className="muted small" role="status">{job.status === "QUEUED" ? queueLabel(job.queue ?? null, at => at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })) : job.status === "SUBMITTING" ? "Composing her into the frame and checking her face…" : "Generating your shot…"} You can leave and return later.</p> : null}
         {job.status === "FAILED" || job.status === "UNRESOLVED" ? <p className="error small">{job.error}</p> : null}
@@ -378,12 +394,12 @@ export function AiVideoPanel({ photos, clips = [], selectedClip, reelId, beforeG
         {job.asset ? <>
           <video src={job.asset.url} controls playsInline preload="metadata" aria-label="Generated AI clip" />
           <p className="muted small">AI-generated · saved in your media library{tierOf(job) === "draft" ? " · 720p preview, silent" : ""}</p>
-          {tierOf(job) === "draft" && !job.finalId && job.durationSeconds ? <button type="button" className="btn btn-block" data-testid="make-final" disabled={busy || !state?.enabled}
+          {!card && tierOf(job) === "draft" && !job.finalId && job.durationSeconds ? <button type="button" className="btn btn-block" data-testid="make-final" disabled={busy || !state?.enabled}
             onClick={() => makeFinal(job)}>Make it final · {finalCredits(job)} {finalCredits(job) === 1 ? "credit" : "credits"}</button> : null}
           {tierOf(job) === "draft" && job.finalId ? <p className="muted small">Made final.</p> : null}
           {job.draftId ? <Link className="btn btn-block" href={`/reels/${job.draftId}`}>Review blended promo draft</Link> : null}
           {job.asset && (job.shot as AiShot | null)?.draftReelId && !job.draftId ? <p className="muted small">The source boundary changed. Your clip is ready in the media library.</p> : null}
-          {onAdd ? <button type="button" className="btn btn-block" onClick={() => { const recipe = aiShotSchema.safeParse(job.shot); onAdd(job.asset!, recipe.success ? recipe.data : undefined); }}>{(job.shot as AiShot | null)?.anchor ? "Place at source cut / replace still" : "Add to reel"}</button> :
+          {onAdd ? <button type="button" className="btn btn-block" onClick={() => { const recipe = aiShotSchema.safeParse(job.shot); onAdd(job.asset!, recipe.success ? recipe.data : undefined, job.id, job.durationSeconds); }}>{card ? "Use this take in this shot" : (job.shot as AiShot | null)?.anchor ? "Place at source cut / replace still" : "Add to reel"}</button> :
             <Link className="btn btn-quiet btn-block" href="/">Open your reels to use this clip</Link>}
         </> : null}
       </article>)}

@@ -10,15 +10,17 @@ const input: CameraKeyframeInput = { role: "end", source: { assetId: "original",
 const job = { input, id: "paid-candidate" } as CameraKeyframeJob;
 const source = ts.createSourceFile("panel.tsx", readFileSync(new URL("./shot-keyframe-panel.tsx", import.meta.url), "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 let generateSource = "";
+let storageSource = "";
 function find(node: ts.Node) {
   if (ts.isFunctionDeclaration(node) && node.name?.text === "generate") generateSource = node.getText(source);
+  if (ts.isVariableDeclaration(node) && ["write", "clear"].includes(node.name.getText(source))) storageSource += `const ${node.getText(source)};\n`;
   ts.forEachChild(node, find);
 }
 find(source);
 if (!generateSource) throw Error("Keyframe generation handler missing");
-const code = ts.transpileModule(generateSource, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
-function handler(pending: unknown, current: CameraKeyframeInput, fetch: ReturnType<typeof vi.fn>, session: Map<string, string>) {
-  const environment = { input: current, pending, savedKeyframeInput, keyframeInputKey, locked: { current: false }, disabled: false, historyReady: true,
+const code = ts.transpileModule(storageSource + generateSource, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+function handler(pending: unknown, current: CameraKeyframeInput, fetch: ReturnType<typeof vi.fn>, session: Map<string, string>, onRecovery?: (key: string, value: string) => Promise<boolean>) {
+  const environment = { onRecovery, input: current, pending, savedKeyframeInput, keyframeInputKey, locked: { current: false }, disabled: false, historyReady: true,
     state: { enabled: true, balanceRemaining: 2 }, unresolved: !!pending, job: undefined, storageKey: "saved", choiceKey: "choice", crypto: { randomUUID: () => "original-uuid" },
     sessionStorage: { setItem: (key: string, value: string) => session.set(key, value), removeItem: (key: string) => session.delete(key) },
     localStorage: { setItem: vi.fn() }, fetch, mounted: { current: true }, currentScope: { current: "saved" }, refresh: vi.fn(),
@@ -26,6 +28,12 @@ function handler(pending: unknown, current: CameraKeyframeInput, fetch: ReturnTy
   return new Function(...Object.keys(environment), `${code}; return generate;`)(...Object.values(environment)) as (retry?: boolean) => Promise<void>;
 }
 describe("keyframe review identity", () => {
+  it("refuses image submission when the card cannot durably save its request", async () => {
+    const fetch = vi.fn(), save = vi.fn().mockResolvedValue(false), session = new Map<string, string>();
+    await handler(undefined, input, fetch, session, save)();
+    expect(save).toHaveBeenCalledWith("saved", JSON.stringify({ requestId: "original-uuid", inputKey: keyframeInputKey(input), input }));
+    expect(fetch).not.toHaveBeenCalled(); expect(session.size).toBe(0);
+  });
   it.each(["network", "500"])("recovers a request lost before reservation (%s) using its original identity and frozen choices", async failure => {
     const session = new Map<string, string>();
     const fetch = vi.fn().mockImplementationOnce(async () => {
@@ -70,4 +78,30 @@ describe("keyframe review identity", () => {
     expect(html).not.toContain("Use this End");
     expect(html).not.toContain("<video");
   });
+});
+
+it("refuses image approval after a failed comparison preview, without generating a replacement", async () => {
+  let imageSource = "", readySource = "", useSource = "";
+  const scan = (node: ts.Node) => {
+    if (ts.isVariableDeclaration(node) && node.name.getText(source) === "image") imageSource = node.initializer!.getText(source);
+    if (ts.isVariableDeclaration(node) && node.name.getText(source) === "ready") readySource = node.initializer!.getText(source);
+    if (ts.isFunctionDeclaration(node) && node.name?.text === "use") useSource = node.getText(source);
+    ts.forEachChild(node, scan);
+  }; scan(source);
+  const loaded: Record<string, boolean> = {};
+  let failed: string | null = null;
+  const key = "comparison", fetch = vi.fn();
+  const env = { React: { createElement }, candidateKey: key, visibleKey: { current: key }, styles: { keyframeImage: "image" }, role: "end",
+    setLoaded: (value: Record<string, boolean> | ((old: Record<string, boolean>) => Record<string, boolean>)) => { const next = typeof value === "function" ? value(loaded) : value; for (const k of Object.keys(loaded)) delete loaded[k]; Object.assign(loaded, next); },
+    setFailed: (value: string) => { failed = value; } };
+  const imageCode = ts.transpileModule(`const image = ${imageSource};`, { compilerOptions: { target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React } }).outputText;
+  const image = new Function(...Object.keys(env), `${imageCode};return image;`)(...Object.values(env));
+  const candidate = image("candidate", "/saved.jpg");
+  image("source", "/source.jpg").props.onLoad(); candidate.props.onLoad();
+  const ready = () => new Function("candidateKey", "loaded", "failed", `return ${readySource};`)(key, loaded, failed);
+  expect(ready()).toBe(true);
+  candidate.props.onError(); expect(ready()).toBe(false);
+  const useCode = ts.transpileModule(useSource, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+  await new Function("job", "input", "ready", "fetch", `${useCode};return use;`)(job, input, ready(), fetch)();
+  expect(fetch).not.toHaveBeenCalled();
 });

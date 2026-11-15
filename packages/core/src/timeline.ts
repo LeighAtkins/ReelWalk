@@ -1,3 +1,4 @@
+import { shotBoardSchema } from "./shot-board";
 import { walkInto } from "./walk";
 import { NAMED_EFFECTS } from "./title-effects";
 import { z } from "zod";
@@ -659,6 +660,7 @@ export const timelineSchema = z.object({
   voiceover: voiceoverSchema.optional(),
   /** A board of video panels over part of the reel (ADR 0106). Absent on every saved reel: none. */
   board: boardSchema.optional(),
+  shotBoard: shotBoardSchema.optional(),
 });
 
 export type Clip = z.infer<typeof clipSchema>;
@@ -1108,5 +1110,8 @@ export function referencedAssetIds(timeline: Timeline): string[] {
   for (const text of timeline.texts) if (text.fill?.kind === "image") ids.add(text.fill.assetId);
   // A board's panels (ADR 0106) play library footage of their own.
   for (const id of boardAssetIds(timeline.board)) ids.add(id);
+  for (const card of timeline.shotBoard?.cards ?? []) {
+    for (const id of [card.sourceAssetId, ...(card.frameAssetIds ?? [])]) if (id) ids.add(id);
+  }
   return [...ids];
 }

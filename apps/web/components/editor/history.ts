@@ -1,4 +1,4 @@
-import type { Timeline } from "@reelwalk/core";
+import { updateShotCard, type ShotCard, type Timeline } from "@reelwalk/core";
 
 /**
  * Undo/redo over timeline snapshots. Timelines are small immutable values, so
@@ -22,6 +22,7 @@ export const COALESCE_MS = 800;
 
 export type HistoryAction =
   | { type: "apply"; update: (timeline: Timeline) => Timeline; key?: string }
+  | { type: "shot-operation"; cardId: string; patch: Pick<ShotCard, "request" | "recovery"> }
   | { type: "undo" }
   | { type: "redo" }
   | { type: "reset"; timeline: Timeline };
@@ -32,6 +33,17 @@ export function initHistory(timeline: Timeline): History {
 
 export function historyReducer(state: History, action: HistoryAction): History {
   switch (action.type) {
+    case "shot-operation": {
+      const card = state.present.shotBoard?.cards.find(item => item.id === action.cardId);
+      if (!card) return state;
+      // Undo changes the edit, never the provider operation. Patch compatible older
+      // snapshots too, so undo/redo cannot lose an ambiguous submitted request.
+      const retain = (timeline: Timeline) => updateShotCard(timeline, card.id, previous =>
+        previous.sourceAssetId === card.sourceAssetId ? { ...previous, ...action.patch } : previous);
+      const present = retain(state.present);
+      if (present === state.present) return state;
+      return { ...state, past: state.past.map(retain), present, future: state.future.map(retain), lastKey: null, lastAt: 0 };
+    }
     case "apply": {
       let next: Timeline;
       try {

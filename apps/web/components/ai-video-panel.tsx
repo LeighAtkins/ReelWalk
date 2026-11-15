@@ -9,6 +9,7 @@ import { CAMERA_KEYFRAME_MOVES, cameraKeyframeVideoPrompt, type CameraKeyframeMo
 import { ShotSourcePicker } from "./shot-source-picker";
 import { ShotKeyframePanel } from "./shot-keyframe-panel";
 import { shotBuilderDraftSchema, shotBuilderRecoveryKey } from "./shot-builder-draft";
+import { shotCardPayloadSchema } from "./shot-card-request";
 import styles from "./shot-workspace.module.css";
 import { uploadFile } from "./editor/upload";
 import { shotFramePhoto } from "./shot-frame-photo";
@@ -118,6 +119,7 @@ export function AiVideoPanel({ card, onCardRecovery, onCardDraft, onCardRequest,
       if (found && found.id !== card.request.jobId) await onCardRequest({ ...card.request, jobId: found.id });
     }
     setState(data);
+    return data as State;
   }, [card?.request?.id]);
 
   useEffect(() => {
@@ -210,37 +212,63 @@ export function AiVideoPanel({ card, onCardRecovery, onCardDraft, onCardRequest,
       onUpload={file => void addReference(ending, file)} onSaveFrame={() => void addReference(ending)} />;
   }
 
+  function videoPayload() {
+    if (useEndReference && !bridge && !lastFrame) throw Error("Choose an ending reference, or turn off ending guidance.");
+    if (startImageBlocked || endImageBlocked) throw Error("Finish reviewing your prepared image before making the video.");
+    const shot = aiShotSchema.safeParse({ mode, ...(move && !bridge && !direction ? { move } : {}), first: firstFrame, last: lastFrame, anchor, style, atmosphere, energy, harmonize: Boolean(onAdd) && !card && harmonize, polish: Boolean(onAdd) && !card && polish,
+      next: anchor && lastFrame ? next : undefined, ...(!card && draft && anchor && reelId ? { draftReelId: reelId } : {}),
+    });
+    if (!shot.success) throw Error(shot.error.issues[0]?.message || "Choose source frames.");
+    if (bridge && anchor && (!next || clips.indexOf(next) !== clips.indexOf(anchor) + 1)) {
+      throw Error("Choose the shot immediately after the starting clip for a timeline bridge.");
+    }
+    const payload = shotCardPayloadSchema.safeParse({ prompt: currentPrompt, shot: shot.data, durationSeconds: seconds, ...(draftMode ? { quality: "draft" as const } : {}) });
+    if (!payload.success) throw Error(payload.error.issues[0]?.message || "Check this shot's settings.");
+    return payload.data;
+  }
+
+  async function submitVideo(payload: ReturnType<typeof videoPayload>, id: string) {
+    const saved = { id, draft: card?.draft ?? "", payload: JSON.stringify(payload) };
+    if (card && (!card.draft || !onCardRequest || !await onCardRequest(saved))) throw Error("Save this card and its request before generating.");
+    const response = await fetch("/api/ai/generations", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ requestId: id, ...payload }),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "Could not start this shot.");
+    if (card && onCardRequest && !await onCardRequest({ ...saved, jobId: result.id })) throw Error("The shot was submitted. Check the saved video request to recover it.");
+    requestId.current = null;
+    await refresh();
+  }
+
   async function generate(event: React.FormEvent) {
     event.preventDefault();
     setError(null);
     if (busy || card?.request) return;
-    if (useEndReference && !bridge && !lastFrame) { setError("Choose an ending reference, or turn off ending guidance."); return; }
-    if (startImageBlocked || endImageBlocked) { setError("Finish reviewing your prepared image before making the video."); return; }
-    const shot = aiShotSchema.safeParse({ mode, ...(move && !bridge && !direction ? { move } : {}), first: firstFrame, last: lastFrame, anchor, style, atmosphere, energy, harmonize: Boolean(onAdd) && !card && harmonize, polish: Boolean(onAdd) && !card && polish,
-      next: anchor && lastFrame ? next : undefined, ...(!card && draft && anchor && reelId ? { draftReelId: reelId } : {}),
-    });
-    if (!shot.success) { setError(shot.error.issues[0]?.message || "Choose source frames."); return; }
-    if (bridge && anchor && (!next || clips.indexOf(next) !== clips.indexOf(anchor) + 1)) {
-      setError("Choose the shot immediately after the starting clip for a timeline bridge."); return;
-    }
     setBusy(true);
     try {
+      const payload = videoPayload();
       if (beforeGenerate && !await beforeGenerate()) throw new Error("Save your reel before generating this shot.");
-      const payload = { prompt: currentPrompt, shot: shot.data, durationSeconds: seconds, ...(draftMode ? { quality: "draft" as const } : {}) };
       const signature = JSON.stringify(payload);
       if (signature !== requestSignature.current) { requestSignature.current = signature; requestId.current = null; }
       requestId.current ??= crypto.randomUUID();
-      if (card && (!card.draft || !onCardRequest || !await onCardRequest({ id: requestId.current, draft: card.draft }))) throw Error("Save this card and its request before generating.");
-      const response = await fetch("/api/ai/generations", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ requestId: requestId.current, ...payload }),
-      });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "Could not start this shot.");
-      if (card && onCardRequest) await onCardRequest({ id: requestId.current!, draft: card.draft!, jobId: result.id });
-      requestId.current = null;
-      await refresh();
+      await submitVideo(payload, requestId.current);
     } catch (e) { setError(e instanceof Error ? e.message : "Connection interrupted. Try again to check this request."); }
+    finally { setBusy(false); }
+  }
+
+  async function retrySavedRequest() {
+    if (busy || !card?.request) return;
+    setError(null); setBusy(true);
+    try {
+      const saved = card.request;
+      const current = await refresh();
+      if (current.jobs.some(job => job.requestId === saved.id)) return;
+      if (saved.jobId || !saved.payload) throw Error("Keep this saved request and check its status again. Its original inputs cannot be safely retried.");
+      const payload = shotCardPayloadSchema.parse(JSON.parse(saved.payload));
+      if (saved.draft !== card.draft || JSON.stringify(payload) !== JSON.stringify(videoPayload())) throw Error("Restore the saved shot's frames and settings before retrying its request.");
+      if (beforeGenerate && !await beforeGenerate()) throw Error("Save your reel before generating this shot.");
+      await submitVideo(payload, saved.id);
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not recover this request. Its identity has been retained."); }
     finally { setBusy(false); }
   }
 
@@ -384,7 +412,8 @@ export function AiVideoPanel({ card, onCardRecovery, onCardDraft, onCardRequest,
       </div>
     </form>
     <div className="ai-video-results" aria-live="polite">
-      {card?.request ? <button type="button" className="btn" onClick={() => void refresh().catch(e => setError(e.message))}>Check saved video request</button> : null}
+      {card?.request ? <button type="button" className="btn" disabled={busy} onClick={() => void refresh().catch(e => setError(e.message))}>Check saved video request</button> : null}
+      {card?.request?.payload && !card.request.jobId && !state?.jobs.some(job => job.requestId === card.request!.id) ? <button type="button" className="btn" disabled={busy} onClick={() => void retrySavedRequest()}>Retry saved video request</button> : null}
       {state?.jobs.filter(job => !card || job.requestId === card.request?.id).map(job => <article className="ai-video-result" key={job.id}>
         <p className="small">{tierOf(job) === "draft" ? "Draft · " : tierOf(job) === "final" && (job.shot as { finalOf?: string }).finalOf ? "Final · " : ""}{aiShotSchema.safeParse(job.shot).success ? `${(job.shot as AiShot).move ? `${moveById((job.shot as AiShot).move!).label} · ` : ""}${AI_SHOT_LABELS[(job.shot as AiShot).mode]} · ${AI_SHOT_STYLE_LABELS[aiShotStyle(job.shot as AiShot)]}` : job.prompt}</p>
         {active(job) ? <p className="muted small" role="status">{job.status === "QUEUED" ? queueLabel(job.queue ?? null, at => at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })) : job.status === "SUBMITTING" ? "Composing her into the frame and checking her face…" : "Generating your shot…"} You can leave and return later.</p> : null}

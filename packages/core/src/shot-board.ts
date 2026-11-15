@@ -9,7 +9,7 @@ export const shotCardSchema = z.object({
   draft: z.string().max(16000).optional(),
   frameAssetIds: z.array(z.string().min(1)).max(4).optional(),
   recovery: z.record(z.string().max(300), z.string().max(16000)).refine(value => Object.keys(value).length <= 4).optional(),
-  request: z.object({ id: z.string().min(1).max(128), draft: z.string().max(16000), jobId: z.string().max(128).optional() }).optional(),
+  request: z.object({ id: z.string().min(1).max(128), draft: z.string().max(16000), payload: z.string().max(16000).optional(), jobId: z.string().max(128).optional() }).optional(),
 });
 export const shotBoardSchema = z.object({ version: z.literal(1), cards: z.array(shotCardSchema).max(100) })
   .refine(board => new Set(board.cards.map(card => card.id)).size === board.cards.length, "Shot IDs must be unique")

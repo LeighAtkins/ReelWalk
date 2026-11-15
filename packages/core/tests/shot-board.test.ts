@@ -21,6 +21,11 @@ describe("durable shot reservations", () => {
     const board = reserved(), restored = parseTimeline(JSON.parse(JSON.stringify(board)));
     expect(restored).toEqual(board); expect(restored.clips).toEqual([]); expect(timelineDurationMs(restored)).toBe(0);
   });
+  it("retains frozen submission inputs across timeline save and reload", () => {
+    const payload = JSON.stringify({ prompt: "The original requested camera move", shot: { mode: "custom" }, durationSeconds: 4 });
+    const board = updateShotCard(reserved(), "middle", card => ({ ...card, request: { ...card.request!, payload } }));
+    expect(shotCards(parseTimeline(JSON.parse(JSON.stringify(board))))[1].request?.payload).toBe(payload);
+  });
   it("lands exactly once in its current slot after a neighbouring move and reload, preserving four seconds", () => {
     let t = reserved();
     const left = { ...take, id: "left-clip" }, right = { ...take, id: "right-clip" };

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { AI_SHOT_MODES, AI_SHOT_STYLES, AI_SHOT_ATMOSPHERES, MOVE_IDS } from "@reelwalk/core";
+import { shotCinematographySchema } from "@reelwalk/core";
 
 const selection = z.string().max(160).refine(value => !value || /^(asset|clip):[\w-]+$/.test(value));
 /** Only editable choices are stored here; image bytes, signed URLs and approvals remain server-owned. */
@@ -13,6 +14,9 @@ export const shotBuilderDraftSchema = z.object({
   move: z.union([z.enum(MOVE_IDS), z.literal("")]), quality: z.enum(["draft", "final"]),
   style: z.enum(AI_SHOT_STYLES), atmosphere: z.enum(AI_SHOT_ATMOSPHERES), energy: z.enum(["subtle", "bold"]),
   harmonize: z.boolean(), polish: z.boolean(), draft: z.boolean(),
+  workflow: z.enum(["guided", "manual"]).optional(),
+  cinematography: shotCinematographySchema.optional(),
+  reviewedPair: z.object({ pairId: z.string().uuid(), inputKey: z.string().max(6000), startAssetId: z.string().max(128), endAssetId: z.string().max(128) }).strict().optional(),
 }).strict();
 
 export function shotBuilderRecoveryKey(reelId?: string, clipId?: string): string {

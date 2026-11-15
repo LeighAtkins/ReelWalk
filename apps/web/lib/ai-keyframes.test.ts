@@ -42,6 +42,14 @@ describe("owned keyframe candidates", () => {
     expect(mocks.db.mediaAsset.findFirst.mock.calls[0][0].where).toMatchObject({ id: "photo", OR: [{ workspaceId: "w" }, { shared: true }] });
     expect(mocks.reserve).not.toHaveBeenCalled(); expect(mocks.put).not.toHaveBeenCalled();
   });
+  it("rejects changed parent or retained Start pixels before End admission", async () => {
+    const png = await sharp({ create: { width: 30, height: 20, channels: 3, background: "white" } }).png().toBuffer();
+    mocks.db.mediaAsset.findFirst.mockResolvedValue({ objectKey: "photo.png", contentType: "image/png", sizeBytes: 100n }); mocks.read.mockResolvedValue(png);
+    const cinematic = { ...input, continuity: { assetId: "prepared-start", atMs: 0 as const }, cinematography: { version: 1 as const, lensMm: "source" as const, whiteBalanceKelvin: "source" as const } };
+    await expect(generateKeyframe(actor, cinematic, { expectedSource: { objectKey: "photo.png", originalHash: "changed" } })).rejects.toThrow("original pair reference changed");
+    await expect(generateKeyframe(actor, cinematic, { expectedSource: { objectKey: "photo.png", originalHash: keyframeHash(png) }, expectedContinuity: { objectKey: "saved-start.jpg", originalHash: keyframeHash(png) } })).rejects.toThrow("retained Start reference changed");
+    expect(mocks.reserve).not.toHaveBeenCalled(); expect(mocks.put).not.toHaveBeenCalled();
+  });
   it("serves only workspace-owned frozen comparison pixels and rejects stale hashes", async () => {
     mocks.db.aiKeyframe.findFirst.mockResolvedValue({ snapshot: { source: { canonicalKey: "source", canonicalHash: keyframeHash("frozen") } } });
     mocks.read.mockResolvedValue(Buffer.from("frozen"));

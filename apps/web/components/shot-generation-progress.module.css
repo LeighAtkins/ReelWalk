@@ -1,0 +1,69 @@
+.progress {
+  display: grid;
+  gap: .5rem;
+  min-inline-size: 0;
+  padding: 1rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-m);
+  background: var(--ink-deep);
+  color: var(--paper);
+}
+
+.heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .5rem .75rem;
+  min-inline-size: 0;
+}
+
+.heading strong {
+  min-inline-size: 0;
+  font-size: 1rem;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.elapsed {
+  margin-inline-start: auto;
+  color: var(--paper);
+  font-size: .875rem;
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.detail,
+.checked {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font-size: .875rem;
+  line-height: 1.5;
+}
+
+.attention {
+  border-color: var(--warn);
+}
+
+.attention .heading strong {
+  color: var(--warn);
+}
+
+.spinner {
+  flex: 0 0 auto;
+  inline-size: 1rem;
+  block-size: 1rem;
+  border: 2px solid var(--line-strong);
+  border-block-start-color: var(--paper);
+  border-radius: 50%;
+  animation: turn 1s linear infinite;
+}
+
+@keyframes turn {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner { animation: none; }
+}

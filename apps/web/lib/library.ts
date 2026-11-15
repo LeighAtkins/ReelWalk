@@ -10,7 +10,7 @@ export type LibraryAsset = {
   fileName: string;
   /** Confirmed by a completed generation record, independent of filename. */
   isAiGenerated?: boolean;
-  /** An explicitly accepted concept frame, with immutable output provenance. */
+  /** A retained concept frame with immutable output provenance; owner review is separate. */
   aiKeyframe?: { jobId: string; sourceAssetId: string; outputHash: string; model: string };
   /** A generated take with the presenter in it (composed from her kit, or a script's take), not AI b-roll (ADR 0064). */
   isPresenterTake?: boolean;

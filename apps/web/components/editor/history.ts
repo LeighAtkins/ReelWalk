@@ -22,7 +22,7 @@ export const COALESCE_MS = 800;
 
 export type HistoryAction =
   | { type: "apply"; update: (timeline: Timeline) => Timeline; key?: string }
-  | { type: "shot-operation"; cardId: string; patch: Pick<ShotCard, "request" | "recovery"> }
+  | { type: "shot-operation"; cardId: string; patch: Pick<ShotCard, "request" | "recovery" | "framePair"> }
   | { type: "undo" }
   | { type: "redo" }
   | { type: "reset"; timeline: Timeline };

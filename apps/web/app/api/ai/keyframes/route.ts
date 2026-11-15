@@ -2,12 +2,13 @@ import { z } from "zod";
 import { cameraKeyframeGenerateSchema } from "@reelwalk/core";
 import { AiCreditError, KeyframeError } from "@reelwalk/db";
 import { getSessionUser } from "@/lib/auth";
-import { generateKeyframe, keyframeArtifact, listKeyframes, useKeyframe } from "@/lib/ai-keyframes";
+import { continueKeyframePair, generateKeyframe, keyframeArtifact, listKeyframes, useKeyframe } from "@/lib/ai-keyframes";
 import { ensureWorkerRunning } from "@/lib/render-capacity";
 
 export const runtime = "nodejs";
 const headers = { "Cache-Control": "private, no-store" };
 const useSchema = z.object({ action: z.literal("use"), jobId: z.string().min(1).max(128) }).strict();
+const continueSchema = z.object({ action: z.literal("continue-pair"), jobId: z.string().min(1).max(128) }).strict();
 function failure(error: unknown) {
   const status = error instanceof KeyframeError ? error.status : error instanceof AiCreditError || error instanceof z.ZodError || error instanceof SyntaxError ? 400 : 500;
   return Response.json({ error: error instanceof KeyframeError || error instanceof AiCreditError ? error.message : "Image operation unavailable. Refresh to check the existing request before trying again." }, { status, headers });
@@ -38,6 +39,11 @@ export async function POST(request: Request) {
     while (true) { const part = await reader.read(); if (part.done) break; length += part.value.length; if (length > 16000) { await reader.cancel(); throw new KeyframeError("Body too large", 400); } chunks.push(part.value); }
     const value = JSON.parse(Buffer.concat(chunks).toString("utf8"));
     if (value.action === "use") return Response.json(await useKeyframe(actor, useSchema.parse(value).jobId), { headers });
+    if (value.action === "continue-pair") {
+      const result = await continueKeyframePair(actor, continueSchema.parse(value).jobId);
+      if (result.endJob && ["QUEUED", "SUBMITTING"].includes(result.endJob.status)) await ensureWorkerRunning();
+      return Response.json(result, { status: 202, headers });
+    }
     const job = await generateKeyframe(actor, cameraKeyframeGenerateSchema.parse(value));
     await ensureWorkerRunning();
     return Response.json({ job }, { status: 202, headers });

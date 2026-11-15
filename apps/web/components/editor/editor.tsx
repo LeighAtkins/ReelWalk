@@ -1768,6 +1768,13 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
           onCardRecovery={shotCardId ? async (key, value) => { const card = shotCards(snapshot().timeline).find(card => card.id === shotCardId); if (!card) return false; dispatch({ type: "shot-operation", cardId: shotCardId, patch: { recovery: { ...card.recovery, [key]: value } } }); return autosave.flush(snapshot().timeline); } : undefined}
           onCardDraft={shotCardId ? (draft, frameAssetIds) => apply(current => updateShotCard(current, shotCardId, card => ({ ...card, draft, frameAssetIds }))) : undefined}
           onCardRequest={shotCardId ? async request => { if (!shotCards(snapshot().timeline).some(card => card.id === shotCardId && card.draft === request.draft)) return false; dispatch({ type: "shot-operation", cardId: shotCardId, patch: { request } }); return autosave.flush(snapshot().timeline); } : undefined}
+          onCardPair={shotCardId ? async (pair, expectedId) => {
+            const card = shotCards(snapshot().timeline).find(card => card.id === shotCardId);
+            if (!card || card.framePair?.id !== expectedId || card.sourceAssetId !== pair.sourceAssetId && !card.frameAssetIds?.includes(pair.sourceAssetId)) return false;
+            if (card.framePair?.id === pair.id && ["input", "sourceAssetId", "startRequestId", "endRequestId", "requestedAt"].some(key => card.framePair![key as keyof typeof pair] !== pair[key as keyof typeof pair])) return false;
+            dispatch({ type: "shot-operation", cardId: shotCardId, patch: { framePair: pair } });
+            return autosave.flush(snapshot().timeline);
+          } : undefined}
           initialMove={aiMove} photos={libraryList} clips={timeline.clips} selectedClip={shotCardId ? null : selectedClip} reelId={reel.id} beforeGenerate={autosave.flush} onLibraryAsset={asset => setLibrary(current => ({ ...current, [asset.id]: asset }))} onAdd={(asset, shot, jobId, durationSeconds) => {
           const clip = { ...clipFromAsset(asset), ...(!asset.durationMs && durationSeconds ? { sourceEndMs: durationSeconds * 1000 } : {}), id: `ai-insert-${asset.id}` };
           if (shotCardId) {

@@ -104,5 +104,6 @@ export * from "./style-recipe";
 export * from "./title-effects";
 export * from "./shot-plan";
 export * from "./camera-keyframe";
+export * from "./shot-cinematography";
 
 export * from "./shot-board";

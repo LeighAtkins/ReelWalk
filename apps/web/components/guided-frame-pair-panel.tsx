@@ -119,13 +119,19 @@ export function GuidedFramePairPanel({ pair, input, disabled, reviewed, onSave, 
   }
   const stage = bothReady ? "review" : finished(jobs.start) ? "end" : "start";
   const currentJob = stage === "end" ? jobs.end : jobs.start;
-  const status = bothReady ? "CANDIDATE" : currentJob?.status ?? (busy ? "PREPARING" : pair ? "CHECKING" : undefined);
+  const waitingForEnd = historyReady && finished(jobs.start) && !jobs.end;
+  const status = bothReady ? "CANDIDATE" : currentJob?.status ?? (waitingForEnd ? "WAITING_END" : busy ? "PREPARING" : pair ? "CHECKING" : undefined);
+  const progress = pair || connectionError ? <ShotGenerationProgress stage={stage} status={status} requestedAt={waitingForEnd ? undefined : currentJob?.createdAt ?? pair?.requestedAt} lastCheckedAt={lastCheckedAt} connectionError={connectionError} /> : null;
   const controls = <div className={styles.controls}>
-      <ShotGenerationProgress stage={stage} status={status} requestedAt={currentJob?.createdAt ?? pair?.requestedAt} lastCheckedAt={lastCheckedAt} connectionError={connectionError} />
       {!pair ? <button className="btn btn-block" type="button" disabled={disabled || busy || !input || !admission?.enabled || admission.balanceRemaining < 2} onClick={() => void prepare()}>Prepare Start and End · 2 credits</button> : null}
     </div>;
   return <section className={styles.pair} aria-label="Prepare both frames">
-    {controlsTarget ? createPortal(controls, controlsTarget) : controls}
+    {controlsTarget ? createPortal(progress, controlsTarget) : progress}
+    {!pair && connectionError ? <button className="btn btn-quiet" type="button" onClick={() => void refresh(false).catch(() => setConnectionError("Could not check preparation. Check your connection and retry status."))}>Retry status check</button> : null}
+    {controls}
+    {jobs.start?.error || jobs.end?.error || jobs.start?.continuationError ? <p className="error" role="alert">{jobs.end?.error || jobs.start?.continuationError || jobs.start?.error}</p> : null}
+    {pair && !bothReady ? <button className="btn btn-quiet" type="button" disabled={busy} onClick={() => void refresh(true).catch(() => setConnectionError("Could not check the saved pair."))}>Check saved preparation</button> : null}
+    {pair && matches && !jobs.end && !active(jobs.start) && jobs.start?.status !== "FAILED" ? <button className="btn btn-quiet" type="button" disabled={disabled || busy || !historyReady} onClick={() => void prepare(true)}>Continue saved preparation</button> : null}
     <p className={styles.hint}>We prepare both images from your reference, then use Start to keep End consistent. Review the pair before making your video.</p>
     <div className={styles.images}>
       {(["start", "end"] as const).map(role => <figure key={role}>
@@ -137,10 +143,7 @@ export function GuidedFramePairPanel({ pair, input, disabled, reviewed, onSave, 
     {previewError ? <p role="alert">A preview could not load. The result is saved. <button type="button" onClick={() => { setPreviewFailure(undefined); setLoaded({}); setImageAttempt(value => value + 1); void refresh(true).catch(() => setConnectionError("Could not refresh previews.")); }}>Reload previews</button></p> : null}
     {pair && !matches ? <p role="status">The reference or camera settings changed. This pair is saved; prepare a new pair for the new settings.</p> : null}
     {bothReady && matches ? <button className="btn btn-block" type="button" disabled={disabled || busy || !previewsReady || reviewed} onClick={() => void review()}>{reviewed ? "Frames selected for video" : "Use these frames"}</button> : null}
-    {pair && !bothReady ? <button className="btn btn-quiet" type="button" disabled={busy} onClick={() => void refresh(true).catch(() => setConnectionError("Could not check the saved pair."))}>Check saved preparation</button> : null}
-    {pair && matches && !jobs.end && !active(jobs.start) && jobs.start?.status !== "FAILED" ? <button className="btn btn-quiet" type="button" disabled={disabled || busy || !historyReady} onClick={() => void prepare(true)}>Continue saved preparation</button> : null}
     {pair && historyReady && (bothReady || jobs.start?.status === "FAILED" || jobs.end?.status === "FAILED" || !matches && finished(jobs.start) && !jobs.end && !!jobs.start?.continuationError) ? <button className="btn btn-quiet" type="button" disabled={disabled || busy || !input || !admission?.enabled || admission.balanceRemaining < 2} onClick={() => void prepare()}>Prepare another pair · 2 credits</button> : null}
-    {jobs.start?.error || jobs.end?.error || jobs.start?.continuationError ? <p className="error" role="alert">{jobs.end?.error || jobs.start?.continuationError || jobs.start?.error}</p> : null}
     {error ? <p className="error" role="alert">{error}</p> : null}
     {admission && !admission.enabled ? <p role="status">{admission.reason || "Image preparation is paused."}</p> : null}
     {enlarged && jobs[enlarged]?.candidateUrl ? <ModalDialog className={styles.inspection} aria-label={`Inspect prepared ${enlarged} frame`} onRequestClose={() => setEnlarged(null)}>

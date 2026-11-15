@@ -33,6 +33,15 @@ describe("honest generation progress", () => {
     expect(shotProgressSummary({ stage: "ready" })).toMatchObject({ title: "Your video is ready", terminal: true });
   });
 
+  it("does not describe a missing End job as generation or invent its elapsed time", () => {
+    const state = shotProgressSummary({ stage: "end", status: "WAITING_END" });
+    expect(state).toMatchObject({ title: "Start saved · End has not started", active: false, attention: true });
+    const html = renderToStaticMarkup(createElement(ShotGenerationProgress, { stage: "end", status: "WAITING_END" }));
+    expect(html).toContain("Your Start image is retained");
+    expect(html).not.toContain('role="timer"');
+    expect(html).not.toContain("Checking saved End");
+  });
+
   it("separates phase announcements from a non-announcing elapsed timer and makes no network request", () => {
     vi.useFakeTimers(); vi.setSystemTime(timestamp + 65_000);
     const fetch = vi.fn(); vi.stubGlobal("fetch", fetch);

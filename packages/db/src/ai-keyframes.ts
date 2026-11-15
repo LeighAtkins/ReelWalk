@@ -17,7 +17,8 @@ export function makeKeyframeRequest(input: CameraKeyframeInput, source: Buffer, 
   if (Buffer.byteLength(request) > 24 * 1024 * 1024) throw new KeyframeError("Image references are too large.");
   return request;
 }
-export type KeyframeSource = { assetId: string; objectKey: string; originalHash: string; canonicalKey: string; canonicalHash: string };
+export type KeyframeSource = { assetId: string; objectKey: string; originalHash: string; canonicalKey: string; canonicalHash: string;
+  normalization?: { version: 2; fit: "inside"; width: number; height: number } };
 export type KeyframeSnapshot = {
   model: typeof CAMERA_KEYFRAME_MODEL; source: KeyframeSource; continuity?: KeyframeSource;
   requestKey: string; price: { inputPerMillion: 2; outputPerMillion: 120; inputTokenBound: 8192; outputTokenBound: 8192; maximumUsdMicros: 999424; evidence: string };

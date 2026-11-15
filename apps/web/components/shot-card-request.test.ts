@@ -9,6 +9,7 @@ let body = "";
 const find = (node: ts.Node) => { if (ts.isFunctionDeclaration(node) && ["videoPayload", "submitVideo", "generate", "retrySavedRequest"].includes(node.name?.text ?? "")) body += node.getText(source) + "\n"; ts.forEachChild(node, find); }; find(source);
 const code = ts.transpileModule(body, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
 const fixture = () => ({ busy: false, card: { id: "reserved", draft: "approved", request: undefined as unknown }, setError: vi.fn(), setBusy: vi.fn(),
+  guided: false, pairReviewed: false,
   useEndReference: false, bridge: false, startImageBlocked: false, endImageBlocked: false, aiShotSchema, shotCardPayloadSchema, mode: "custom", move: "", direction: "push-in",
   firstFrame: { assetId: "start", atMs: 0 }, lastFrame: { assetId: "end", atMs: 0 }, anchor: undefined, style: "source", atmosphere: "source", energy: "subtle",
   onAdd: vi.fn(), harmonize: false, polish: false, next: undefined, draft: false, reelId: "reel", clips: [], beforeGenerate: vi.fn().mockResolvedValue(true),
@@ -19,6 +20,11 @@ it("does not submit video when its durable request cannot save", async () => {
   const env = fixture(); await run(env);
   expect(env.onCardRequest).toHaveBeenCalledWith({ id: "saved-request", draft: "approved", payload: expect.any(String) });
   expect(env.fetch).not.toHaveBeenCalled(); expect(env.setError).toHaveBeenCalledWith("Save this card and its request before generating.");
+});
+it("does not submit guided video until the current pair is reviewed", async () => {
+  const env = fixture(); env.guided = true; await run(env);
+  expect(env.fetch).not.toHaveBeenCalled(); expect(env.onCardRequest).not.toHaveBeenCalled();
+  expect(env.setError).toHaveBeenCalledWith("Review and select both prepared frames before making the video.");
 });
 it("does not resubmit a retained failed or unknown request on generate", async () => {
   const env = fixture(); env.card.request = { id: "unknown" }; await run(env);

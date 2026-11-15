@@ -25,12 +25,35 @@ function fixture() {
   const read = vi.fn(async (key: string) => { const value = objects.get(key); if (!value) throw new Error("Missing"); return value; });
   const put = vi.fn(async (key: string, bytes: Buffer) => { objects.set(key, bytes); });
   const submit = vi.fn();
-  const services = { db, storageTransaction: (_db: unknown, _ids: string[], callback: (db: typeof tx) => unknown) => db.$transaction(callback), read, put, transport: vi.fn(async () => ({ submit })), enabled: () => true, failUnsubmitted: vi.fn(), refundRefused: vi.fn(refundRefusedKeyframe) } as unknown as typeof keyframeWorkerServices;
-  return { row, objects, read, put, submit, services, tx, creditUpdate };
+  const continuePair = vi.fn();
+  const services = { db, storageTransaction: (_db: unknown, _ids: string[], callback: (db: typeof tx) => unknown) => db.$transaction(callback), read, put, transport: vi.fn(async () => ({ submit })), enabled: () => true, failUnsubmitted: vi.fn(), refundRefused: vi.fn(refundRefusedKeyframe), continuePair } as unknown as typeof keyframeWorkerServices;
+  return { row, objects, read, put, submit, services, tx, creditUpdate, continuePair };
 }
 const s3 = { config: {} } as Pick<S3Client, "config">;
 beforeEach(() => { vi.clearAllMocks(); });
 describe("one-dispatch image worker", () => {
+  it.each([false, true])("continues only a retained guided Start and never downgrades it if End continuation fails (%s)", async fails => {
+    const f = fixture();
+    const guided = { ...input, role: "start" as const, cinematography: { version: 1 as const, lensMm: "source" as const, whiteBalanceKelvin: "source" as const }, guidedPair: { version: 1 as const, id: job.requestId, endRequestId: "8238259d-c4af-490b-b5ec-36a88f499605" } };
+    const frozen = makeKeyframeRequest(guided, png);
+    Object.assign(f.row, { input: guided, inputHash: keyframeHash(JSON.stringify(guided)), requestHash: keyframeHash(frozen) });
+    f.objects.set("request.json", Buffer.from(frozen));
+    const raw = await sharp({ create: { width: 12, height: 18, channels: 3, background: "white" } }).png().toBuffer();
+    f.submit.mockResolvedValue({ version: 1, status: 200, incomplete: false, bodyBase64: Buffer.from(JSON.stringify({ candidates: [{ content: { parts: [{ inlineData: { mimeType: "image/png", data: raw.toString("base64") } }] } }] })).toString("base64") });
+    f.continuePair.mockImplementation(async () => { expect(f.row.status).toBe("CANDIDATE"); expect(f.objects.has(f.row.candidateKey!)).toBe(true); if (fails) throw new Error("End admission interrupted"); });
+    await processKeyframes(s3, f.services); await processKeyframes(s3, f.services);
+    expect(f.submit).toHaveBeenCalledOnce(); expect(f.continuePair).toHaveBeenCalledExactlyOnceWith({ id: "u", workspaceId: "w" }, "job");
+    expect(f.row.status).toBe("CANDIDATE"); expect(f.row.heldCostCents).toBe(100);
+  });
+  it("does not continue an unknown guided Start or re-submit its lost response", async () => {
+    const f = fixture();
+    const guided = { ...input, role: "start" as const, cinematography: { version: 1 as const, lensMm: "source" as const, whiteBalanceKelvin: "source" as const }, guidedPair: { version: 1 as const, id: job.requestId, endRequestId: "8238259d-c4af-490b-b5ec-36a88f499605" } };
+    const frozen = makeKeyframeRequest(guided, png);
+    Object.assign(f.row, { input: guided, inputHash: keyframeHash(JSON.stringify(guided)), requestHash: keyframeHash(frozen) }); f.objects.set("request.json", Buffer.from(frozen));
+    f.submit.mockRejectedValue(new Error("lost response"));
+    await processKeyframes(s3, f.services); await processKeyframes(s3, f.services);
+    expect(f.row.status).toBe("UNKNOWN"); expect(f.submit).toHaveBeenCalledOnce(); expect(f.continuePair).not.toHaveBeenCalled();
+  });
   it("does not recreate private files when the account is deleted while a paid response is in flight", async () => {
     const f = fixture();
     f.submit.mockImplementation(async () => {

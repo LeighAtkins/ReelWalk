@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { KeyframeError } from "@reelwalk/db";
-const mocks = vi.hoisted(() => ({ generate: vi.fn(), list: vi.fn(), wake: vi.fn() }));
+const mocks = vi.hoisted(() => ({ generate: vi.fn(), list: vi.fn(), wake: vi.fn(), continuePair: vi.fn() }));
 vi.mock("@/lib/auth", () => ({ getSessionUser: async () => ({ id: "u", workspaceId: "w" }) }));
-vi.mock("@/lib/ai-keyframes", () => ({ generateKeyframe: mocks.generate, listKeyframes: mocks.list, keyframeArtifact: vi.fn(), useKeyframe: vi.fn() }));
+vi.mock("@/lib/ai-keyframes", () => ({ generateKeyframe: mocks.generate, listKeyframes: mocks.list, keyframeArtifact: vi.fn(), useKeyframe: vi.fn(), continueKeyframePair: mocks.continuePair }));
 vi.mock("@/lib/render-capacity", () => ({ ensureWorkerRunning: mocks.wake }));
 import { GET, POST } from "../app/api/ai/keyframes/route";
 const input = { action: "generate", requestId: "4ec2359d-c4af-490b-b5ec-36a88f499605", role: "end", source: { assetId: "photo", atMs: 0 }, move: "shift-right", distanceM: 3, durationSeconds: 4 };
@@ -45,5 +45,16 @@ describe("keyframe HTTP recovery", () => {
     mocks.list.mockResolvedValue({ jobs: [{ status: "CANDIDATE" }] });
     await GET(new Request("http://fixture.invalid/api/ai/keyframes?recover=1"));
     expect(mocks.wake).not.toHaveBeenCalled();
+  });
+  it("continues a pair only through explicit POST and returns the retained Start separately", async () => {
+    const result = { job: { id: "start", status: "USED" }, endJob: { id: "end", status: "QUEUED" }, continuationError: null };
+    mocks.continuePair.mockResolvedValue(result);
+    const response = await POST(new Request("http://fixture.invalid/api/ai/keyframes", { method: "POST", headers: { origin: "http://fixture.invalid" }, body: JSON.stringify({ action: "continue-pair", jobId: "start" }) }));
+    expect(response.status).toBe(202); expect(await response.json()).toEqual(result);
+    expect(mocks.continuePair).toHaveBeenCalledWith({ id: "u", workspaceId: "w" }, "start");
+    expect(mocks.generate).not.toHaveBeenCalled(); expect(mocks.wake).toHaveBeenCalledOnce();
+    mocks.list.mockResolvedValue({ jobs: [{ id: "start", status: "USED" }] });
+    await GET(new Request("http://fixture.invalid/api/ai/keyframes?jobId=start"));
+    expect(mocks.continuePair).toHaveBeenCalledOnce();
   });
 });

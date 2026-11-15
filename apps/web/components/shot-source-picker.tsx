@@ -10,12 +10,13 @@ export type ShotSourcePickerProps = {
   photos: LibraryAsset[]; clips: Clip[]; allowVideos?: boolean; allowNone?: boolean; disabled?: boolean;
   onChange(value: string): void; onTimeChange(atMs: number): void;
   onUpload?(file: File): void; onSaveFrame?(): void;
+  fullReference?: boolean;
 };
 
 const picture: CSSProperties = { display: "block", width: "100%", height: "100%", objectFit: "cover", objectPosition: "center" };
 
 /** The selected preview uses the same centred portrait framing as the video input. */
-function SourcePicture({ asset, atMs, thumbnail = false, disabled = false }: { asset: LibraryAsset; atMs: number; thumbnail?: boolean; disabled?: boolean }) {
+function SourcePicture({ asset, atMs, thumbnail = false, disabled = false, fullReference = false }: { asset: LibraryAsset; atMs: number; thumbnail?: boolean; disabled?: boolean; fullReference?: boolean }) {
   const [original, setOriginal] = useState(!thumbnail || !asset.thumbUrl);
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
@@ -24,7 +25,7 @@ function SourcePicture({ asset, atMs, thumbnail = false, disabled = false }: { a
       <span> If it still fails, reload the page to refresh the media link.</span></> : <span>Tap to preview.</span>}
   </span>;
   const image = asset.kind === "IMAGE" || !original;
-  return image ? <img key={attempt} src={original ? asset.url : asset.thumbUrl!} alt="" style={picture} loading={thumbnail ? "lazy" : "eager"}
+  return image ? <img key={attempt} src={original ? asset.url : asset.thumbUrl!} alt="" style={fullReference ? { ...picture, objectFit: "contain" } : picture} loading={thumbnail ? "lazy" : "eager"}
     onError={() => { if (!original) setOriginal(true); else setFailed(true); }} /> :
     <video key={attempt} src={asset.url} muted playsInline preload="metadata" style={picture} aria-label={`Source frame at ${(atMs / 1000).toFixed(3)} seconds`}
       onLoadedMetadata={e => {
@@ -34,7 +35,7 @@ function SourcePicture({ asset, atMs, thumbnail = false, disabled = false }: { a
       }} onError={() => setFailed(true)} />;
 }
 
-export function ShotSourcePicker({ label, value, frame, photos, clips, allowVideos = true, allowNone = false, disabled = false, onChange, onTimeChange, onUpload, onSaveFrame }: ShotSourcePickerProps) {
+export function ShotSourcePicker({ label, value, frame, photos, clips, allowVideos = true, allowNone = false, disabled = false, fullReference = false, onChange, onTimeChange, onUpload, onSaveFrame }: ShotSourcePickerProps) {
   const available = photos.filter(a => !a.isPano && (a.kind === "IMAGE" && /\.(jpe?g|png)$/i.test(a.fileName) || allowVideos && a.kind === "VIDEO"));
   const selected = available.find(a => a.id === frame?.assetId);
   // The existing panel uses the source clip's last frame for Start, and its first for End.
@@ -55,13 +56,13 @@ export function ShotSourcePicker({ label, value, frame, photos, clips, allowVide
         onChange={e => { const file = e.currentTarget.files?.[0]; e.currentTarget.value = ""; if (file) onUpload(file); }} />
     </label> : null}
     <figure className={styles.sourceFigure}>
-      <div className={styles.previewFrame}>
-        {selected && frame ? <SourcePicture key={`${selected.id}:${selected.url}:${frame.atMs}`} asset={selected} atMs={frame.atMs} disabled={disabled} /> :
+      <div className={fullReference ? styles.fullReferenceFrame : styles.previewFrame}>
+        {selected && frame ? <SourcePicture key={`${selected.id}:${selected.url}:${frame.atMs}`} asset={selected} atMs={frame.atMs} disabled={disabled} fullReference={fullReference} /> :
           <p role="status" className={styles.emptyPreview}>{value ? "This reference is unavailable. Choose another below." : "Choose a reference below."}</p>}
       </div>
-      {selected ? <figcaption className={styles.caption}>{selected.fileName}{selected.kind === "VIDEO" && frame ? ` · ${(frame.atMs / 1000).toFixed(3)}s` : ""}</figcaption> : null}
+      {selected ? <figcaption className={styles.caption} title={selected.fileName}>{fullReference ? "Original reference" : selected.fileName}{selected.kind === "VIDEO" && frame ? ` · ${(frame.atMs / 1000).toFixed(3)}s` : ""}</figcaption> : null}
     </figure>
-    {selected ? <p className={styles.sourceHint}>Portrait framing · centre crop · outside edges are excluded.</p> : null}
+    {selected ? <p className={styles.sourceHint}>{fullReference ? "Whole reference · Nano Banana prepares the portrait composition." : "Portrait framing · centre crop · outside edges are excluded."}</p> : null}
     {selected?.kind === "VIDEO" && onSaveFrame ? <button type="button" className="btn btn-quiet" disabled={disabled} onClick={onSaveFrame}>Save this frame as photo</button> : null}
     {videoTime ? <label className="field">Frame time (seconds)
       <input className="text-input" type="number" min={0} max={maxMs / 1000} step="0.001" value={(frame?.atMs ?? 0) / 1000} disabled={disabled}

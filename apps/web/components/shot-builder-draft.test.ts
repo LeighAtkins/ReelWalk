@@ -9,6 +9,7 @@ describe("shot choice recovery", () => {
     expect(shotBuilderDraftSchema.parse(JSON.parse(JSON.stringify(draft)))).toEqual(draft);
     expect(shotBuilderRecoveryKey("reel-a", "shot-a")).not.toBe(shotBuilderRecoveryKey("reel-a", "shot-b"));
     expect(shotBuilderRecoveryKey("reel-a")).not.toBe(shotBuilderRecoveryKey("reel-b"));
+    expect(JSON.stringify(shotBuilderDraftSchema.parse(draft))).toBe(JSON.stringify(draft));
   });
   it("does not restore URLs, invented approvals or unsupported camera inputs", () => {
     for (const invalid of [{ ...draft, photo: "https://foreign.example/image.jpg" }, { ...draft, approved: true }, { ...draft, chosenSeconds: 30 }, { ...draft, distanceM: 300 }, { ...draft, firstMs: -1 }]) {

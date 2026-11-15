@@ -2,12 +2,23 @@ import { retimeTexts } from "./text-timing";
 import { z } from "zod";
 import { removeClip, type Clip, type Timeline } from "./timeline";
 
+/** A saved two-frame operation is independent of editable choices and playable clips. */
+export const shotFramePairSchema = z.object({
+  version: z.literal(1), id: z.string().uuid(), sourceAssetId: z.string().min(1).max(128),
+  startRequestId: z.string().uuid(), endRequestId: z.string().uuid(),
+  input: z.string().min(1).max(6000), requestedAt: z.string().datetime(),
+  startJobId: z.string().max(128).optional(), endJobId: z.string().max(128).optional(),
+  startAssetId: z.string().max(128).optional(), endAssetId: z.string().max(128).optional(),
+}).refine(pair => pair.startRequestId !== pair.endRequestId, "Start and End requests must be distinct");
+export type ShotFramePair = z.infer<typeof shotFramePairSchema>;
+
 export const shotCardSchema = z.object({
   id: z.string().min(1).max(128),
   sourceAssetId: z.string().min(1).optional(),
   clipId: z.string().min(1).optional(),
   draft: z.string().max(16000).optional(),
   frameAssetIds: z.array(z.string().min(1)).max(4).optional(),
+  framePair: shotFramePairSchema.optional(),
   recovery: z.record(z.string().max(300), z.string().max(16000)).refine(value => Object.keys(value).length <= 4).optional(),
   request: z.object({ id: z.string().min(1).max(128), draft: z.string().max(16000), payload: z.string().max(16000).optional(), jobId: z.string().max(128).optional() }).optional(),
 });

@@ -1,0 +1,11 @@
+.pair { min-width:0; display:grid; gap:1rem; }
+.controls { display:grid; gap:.5rem; }
+.hint { margin:0; color:var(--muted); line-height:1.45; }
+.images { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.75rem; min-width:0; }
+.images figure { margin:0; min-width:0; }
+.images img,.placeholder { display:block; width:100%; aspect-ratio:9/16; object-fit:contain; border-radius:var(--radius-m); background:var(--ink-deep); }
+.placeholder { display:grid; place-items:center; padding:.5rem; text-align:center; color:var(--muted); border:1px solid var(--line); }
+.images figcaption { padding-block:.5rem; text-align:center; font-size:.875rem; }
+.inspection { width:min(96vw,70rem); max-height:96dvh; padding:1rem; background:var(--ink-deep); color:var(--paper); border:1px solid var(--line); border-radius:var(--radius-m); }
+.inspection img { display:block; width:100%; max-height:calc(96dvh - 6rem); object-fit:contain; }
+@media (min-width:800px) { .images { max-width:44rem; margin-inline:auto; width:100%; } }

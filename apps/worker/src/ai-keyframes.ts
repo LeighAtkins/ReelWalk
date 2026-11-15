@@ -1,11 +1,12 @@
 import sharp from "sharp";
 import type { S3Client } from "@aws-sdk/client-s3";
-import { CAMERA_KEYFRAME_MODEL, cameraKeyframeGenerateSchema } from "@reelwalk/core";
+import { CAMERA_KEYFRAME_MODEL, cameraKeyframeGenerateSchema, guidedKeyframeError, type CameraKeyframeInput } from "@reelwalk/core";
 import { prisma, keyframeHash, keyframesEnabled, makeKeyframeRequest, failUnsubmittedKeyframe, refundRefusedKeyframe, keyframeStorageTransaction, type AiKeyframe, type KeyframeSnapshot, type Prisma } from "@reelwalk/db";
 import { readKeyframeObject, putKeyframeObject } from "../../web/lib/storage";
 import { keyframeTransport, type KeyframeReceipt } from "./vertex-keyframes";
 
-export const keyframeWorkerServices = { db: prisma, storageTransaction: keyframeStorageTransaction, read: readKeyframeObject, put: putKeyframeObject, transport: keyframeTransport, enabled: keyframesEnabled, failUnsubmitted: failUnsubmittedKeyframe, refundRefused: refundRefusedKeyframe };
+export const keyframeWorkerServices = { db: prisma, storageTransaction: keyframeStorageTransaction, read: readKeyframeObject, put: putKeyframeObject, transport: keyframeTransport, enabled: keyframesEnabled, failUnsubmitted: failUnsubmittedKeyframe, refundRefused: refundRefusedKeyframe,
+  continuePair: async (actor: { id: string; workspaceId: string }, id: string) => (await import("../../web/lib/ai-keyframes")).continueKeyframePair(actor, id) };
 export const keyframeReceiptKey = (job: Pick<AiKeyframe, "id" | "workspaceId" | "requestHash">) => `private/keyframes/${job.workspaceId}/receipts/${job.id}-${job.requestHash}.json`;
 
 /** Serialize private writes with account deletion, including a provider response that arrives late. */
@@ -23,6 +24,7 @@ export async function checkedKeyframeRequest(job: AiKeyframe, read = readKeyfram
   const snapshot = job.snapshot as unknown as KeyframeSnapshot;
   if (snapshot.model !== CAMERA_KEYFRAME_MODEL || snapshot.price?.inputTokenBound !== 8192 || snapshot.price.outputTokenBound !== 8192 || snapshot.price.maximumUsdMicros !== 999424 || snapshot.price.inputPerMillion !== 2 || snapshot.price.outputPerMillion !== 120 || job.heldCostCents !== 100) throw new Error("Bounded exact image model and reservation required.");
   const parsed = cameraKeyframeGenerateSchema.parse({ ...(job.input as object), action: "generate", requestId: job.requestId });
+  const guidedError = guidedKeyframeError(parsed, job.requestId); if (guidedError) throw new Error(guidedError);
   const input = cameraKeyframeGenerateSchema.omit({ action: true, requestId: true }).strip().parse(parsed);
   for (const source of [snapshot.source, ...(snapshot.continuity ? [snapshot.continuity] : [])]) {
     if (keyframeHash(await read(source.objectKey, 20 * 1024 * 1024)) !== source.originalHash) throw new Error("Original source pixels changed.");
@@ -66,7 +68,11 @@ async function importReceipt(job: AiKeyframe, receipt: KeyframeReceipt, services
     return;
   }
   // Storage/DB outages remain recoverable from the paid receipt without another model call.
-  await retainArtifact(job, services, candidate.key, candidate.jpeg, "image/jpeg", { status: "CANDIDATE", candidateKey: candidate.key, candidateHash: candidate.hash, error: null });
+  const retained = await retainArtifact(job, services, candidate.key, candidate.jpeg, "image/jpeg", { status: "CANDIDATE", candidateKey: candidate.key, candidateHash: candidate.hash, error: null });
+  if (retained && (job.input as unknown as CameraKeyframeInput).guidedPair) {
+    // Continuation failure must never turn this successfully retained paid Start into UNKNOWN.
+    try { await services.continuePair({ id: job.userId, workspaceId: job.workspaceId }, job.id); } catch { /* Explicit Continue can reconcile the fixed End ID. */ }
+  }
 }
 async function recoverReceipt(job: AiKeyframe, services: typeof keyframeWorkerServices) {
   const key = keyframeReceiptKey(job);
@@ -80,7 +86,7 @@ async function recoverReceipt(job: AiKeyframe, services: typeof keyframeWorkerSe
     await services.db.aiKeyframe.updateMany({ where: { id: job.id, status: { in: ["SUBMITTING", "UNKNOWN"] } }, data: { status: "UNKNOWN", error: "Image outcome is unknown. No automatic retry; its cost remains reserved." } });
   }
 }
-/** Durable one-dispatch boundary. Recovery never invokes a model. */
+/** Durable one-dispatch boundary. Receipt recovery never repeats a model call; guided Start may admit its fixed End. */
 export async function processKeyframes(s3: Pick<S3Client, "config">, services = keyframeWorkerServices): Promise<boolean> {
   const stale = await services.db.aiKeyframe.findMany({ where: { OR: [{ status: "SUBMITTING", submittedAt: { lt: new Date(Date.now() - 180_000) } }, { status: "UNKNOWN", updatedAt: { lt: new Date(Date.now() - 60_000) } }] }, orderBy: { updatedAt: "asc" }, take: 5 });
   for (const job of stale) await recoverReceipt(job, services);

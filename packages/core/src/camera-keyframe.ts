@@ -4,6 +4,8 @@ import { nanoCinematographyPrompt, shotCinematographySchema, videoCinematography
 export const CAMERA_KEYFRAME_MODEL = "gemini-3-pro-image";
 export const CAMERA_KEYFRAME_HOLD_CENTS = 100;
 export const CAMERA_KEYFRAME_CREDITS = 1;
+/** Bounded creative camera guidance, not surveyed or reconstructed travel. */
+export const CAMERA_KEYFRAME_MAX_DISTANCE_M = 100;
 export const CAMERA_KEYFRAME_MOVES = [
   { id: "shift-right", label: "Move right" }, { id: "shift-left", label: "Move left" },
   { id: "push-in", label: "Move forward" }, { id: "pull-back", label: "Move backward" },
@@ -14,7 +16,7 @@ const frame = z.object({ assetId: z.string().min(1).max(128), atMs: z.literal(0)
 export const cameraKeyframeGenerateSchema = z.object({
   action: z.literal("generate"), requestId: z.string().uuid(), role: z.enum(["start", "end"]), source: frame,
   continuity: frame.optional(), move: z.enum(["shift-right", "shift-left", "push-in", "pull-back", "rise", "orbit"]),
-  distanceM: z.number().min(0.5).max(10), durationSeconds: z.union([z.literal(4), z.literal(8)]),
+  distanceM: z.number().min(0.5).max(CAMERA_KEYFRAME_MAX_DISTANCE_M), durationSeconds: z.union([z.literal(4), z.literal(8)]),
   prompt: z.string().trim().max(600).optional(),
   cinematography: shotCinematographySchema.optional(),
   guidedPair: z.object({ version: z.literal(1), id: z.string().uuid(), endRequestId: z.string().uuid() }).strict().optional(),

@@ -1,5 +1,6 @@
 "use client";
-import { shotCards, updateShotCard, placeShotTake, placeShotAsset } from "@reelwalk/core";
+import { shotCards, updateShotCard, placeShotTake, placeShotAsset, type ShotCard, type ShotFramePair } from "@reelwalk/core";
+import { activeEndRequestId } from "../guided-frame-pair";
 import { ShotBoard } from "./shot-board";
 import shotBoardStyles from "./shot-board.module.css";
 
@@ -245,6 +246,23 @@ const newId = () => crypto.randomUUID();
 type AutopilotCutResult = { ok: true; timeline: unknown; note: string; assets?: LibraryAsset[]; instagramPick?: InstagramAudioTrack } | { ok: false; message: string };
 
 /** A reel nobody has cut yet: clips as they were picked, no text, no music. */
+/** Operational receipts may update only the pair and End revision the caller actually read. */
+export function canSaveCardFramePair(card: ShotCard | undefined, pair: ShotFramePair, expectedId?: string, expectedEndRequestId?: string): boolean {
+  if (!card || card.framePair?.id !== expectedId || card.sourceAssetId !== pair.sourceAssetId && !card.frameAssetIds?.includes(pair.sourceAssetId)) return false;
+  try {
+    if (expectedEndRequestId !== undefined && (!card.framePair || activeEndRequestId(card.framePair) !== expectedEndRequestId)) return false;
+    if (card.framePair?.endRevision && expectedEndRequestId === undefined) return false;
+    activeEndRequestId(pair);
+  } catch { return false; }
+  if (card.framePair?.id === pair.id) {
+    if (["input", "sourceAssetId", "startRequestId", "endRequestId", "requestedAt"].some(key => card.framePair![key as keyof ShotFramePair] !== pair[key as keyof ShotFramePair])) return false;
+    const previous = card.framePair.endRevision;
+    if (previous && (!pair.endRevision || card.framePair.startAssetId !== pair.startAssetId)) return false;
+    if (previous && previous.requestId === pair.endRevision?.requestId && ["input", "requestedAt", "previousJobId"].some(key => previous[key as keyof typeof previous] !== pair.endRevision![key as keyof typeof previous])) return false;
+  }
+  return true;
+}
+
 function isFresh(timeline: Timeline): boolean {
   return timeline.texts.length === 0 && timeline.music === null && timeline.clips.every((clip) => clip.filter === "none" && clip.transitionIn === "cut" && clip.speed === 1);
 }
@@ -1768,10 +1786,9 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
           onCardRecovery={shotCardId ? async (key, value) => { const card = shotCards(snapshot().timeline).find(card => card.id === shotCardId); if (!card) return false; dispatch({ type: "shot-operation", cardId: shotCardId, patch: { recovery: { ...card.recovery, [key]: value } } }); return autosave.flush(snapshot().timeline); } : undefined}
           onCardDraft={shotCardId ? (draft, frameAssetIds) => apply(current => updateShotCard(current, shotCardId, card => ({ ...card, draft, frameAssetIds }))) : undefined}
           onCardRequest={shotCardId ? async request => { if (!shotCards(snapshot().timeline).some(card => card.id === shotCardId && card.draft === request.draft)) return false; dispatch({ type: "shot-operation", cardId: shotCardId, patch: { request } }); return autosave.flush(snapshot().timeline); } : undefined}
-          onCardPair={shotCardId ? async (pair, expectedId) => {
+          onCardPair={shotCardId ? async (pair, expectedId, expectedEndRequestId) => {
             const card = shotCards(snapshot().timeline).find(card => card.id === shotCardId);
-            if (!card || card.framePair?.id !== expectedId || card.sourceAssetId !== pair.sourceAssetId && !card.frameAssetIds?.includes(pair.sourceAssetId)) return false;
-            if (card.framePair?.id === pair.id && ["input", "sourceAssetId", "startRequestId", "endRequestId", "requestedAt"].some(key => card.framePair![key as keyof typeof pair] !== pair[key as keyof typeof pair])) return false;
+            if (!canSaveCardFramePair(card, pair, expectedId, expectedEndRequestId)) return false;
             dispatch({ type: "shot-operation", cardId: shotCardId, patch: { framePair: pair } });
             return autosave.flush(snapshot().timeline);
           } : undefined}

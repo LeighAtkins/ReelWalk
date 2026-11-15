@@ -9,6 +9,7 @@ import { CAMERA_KEYFRAME_MOVES, cameraKeyframeVideoPrompt, DEFAULT_SHOT_CINEMATO
 import { GuidedFramePairPanel } from "./guided-frame-pair-panel";
 import { framePairIntent, framePairMatches } from "./guided-frame-pair";
 import { ShotGenerationProgress } from "./shot-generation-progress";
+import { CameraDistanceInput } from "./camera-distance-input";
 import { ShotSourcePicker } from "./shot-source-picker";
 import { ShotKeyframePanel } from "./shot-keyframe-panel";
 import { shotBuilderDraftSchema, shotBuilderRecoveryKey } from "./shot-builder-draft";
@@ -33,7 +34,7 @@ export function AiVideoPanel({ card, onCardRecovery, onCardDraft, onCardRequest,
   onCardRecovery?(key: string, value: string): Promise<boolean>;
   onCardDraft?(draft: string, frameAssetIds: string[]): void;
   onCardRequest?(request: NonNullable<import("@reelwalk/core").ShotCard["request"]>): Promise<boolean>;
-  onCardPair?(pair: ShotFramePair, expectedId?: string): Promise<boolean>;
+  onCardPair?(pair: ShotFramePair, expectedId?: string, expectedEndRequestId?: string): Promise<boolean>;
   photos: LibraryAsset[]; clips?: Clip[]; selectedClip?: Clip | null; reelId?: string;
   /** A camera move the Moves sheet chose (ADR 0076): selected, with its words in the prompt. */
   initialMove?: MoveId | null;
@@ -63,6 +64,7 @@ export function AiVideoPanel({ card, onCardRecovery, onCardDraft, onCardRequest,
   const [extraPhotos, setExtraPhotos] = useState<Record<string, LibraryAsset>>({});
   const [direction, setDirection] = useState<CameraKeyframeMove | null>(initialMove ? null : "push-in");
   const [distanceM, setDistanceM] = useState(1);
+  const [distanceValid, setDistanceValid] = useState(true);
   const [frameNotes, setFrameNotes] = useState("");
   const [startBase, setStartBase] = useState(selectedClip ? `clip:${selectedClip.id}` : "");
   const [endBase, setEndBase] = useState("");
@@ -72,7 +74,6 @@ export function AiVideoPanel({ card, onCardRecovery, onCardDraft, onCardRequest,
   const [reviewedPair, setReviewedPair] = useState<import("zod").infer<typeof shotBuilderDraftSchema>["reviewedPair"]>();
   const [lastCheckedAt, setLastCheckedAt] = useState<string>();
   const [connectionError, setConnectionError] = useState<string | null>(null);
-  const [pairControls, setPairControls] = useState<HTMLDivElement | null>(null);
   const [startImageBlocked, setStartImageBlocked] = useState(false), [endImageBlocked, setEndImageBlocked] = useState(false);
   const receiveBalance = useCallback((remaining: number) => setState(old => old && old.balance.remaining !== remaining ? { ...old, balance: { ...old.balance, remaining } } : old), []);
   const receiveAssets = useCallback((assets: LibraryAsset[]) => setExtraPhotos(old => {
@@ -187,13 +188,15 @@ export function AiVideoPanel({ card, onCardRecovery, onCardDraft, onCardRequest,
   } : null;
   const pairReviewed = !!reviewedPair && !!card?.framePair && reviewedPair.pairId === card.framePair.id
     && framePairMatches(card.framePair, guidedInput) && reviewedPair.inputKey === framePairIntent(guidedInput!)
-    && reviewedPair.startAssetId === firstFrame?.assetId && reviewedPair.endAssetId === lastFrame?.assetId;
+    && reviewedPair.startAssetId === firstFrame?.assetId && reviewedPair.endAssetId === lastFrame?.assetId
+    && reviewedPair.startAssetId === card.framePair.startAssetId
+    && reviewedPair.endAssetId === (card.framePair.endRevision ? card.framePair.endRevision.assetId : card.framePair.endAssetId);
   // The submitted prompt is derived synchronously from the controls being shown.
   const currentPrompt = direction && !bridge ? cameraKeyframeVideoPrompt({ role: "end", source: { assetId: "selected-source", atMs: 0 },
     move: direction, distanceM, durationSeconds: seconds, prompt: frameNotes.trim(), ...(guided || reviewedPair ? { cinematography: cinematography ?? DEFAULT_SHOT_CINEMATOGRAPHY } : {}) }, !!lastFrame) : prompt;
   function resetGeneratedFrames() {
     setReviewedPair(undefined);
-    if (generatedStart) { setPhoto(startBase); setFirstMs(0); setGeneratedStart(false); }
+    if (generatedStart && !(guided && card?.framePair)) { setPhoto(startBase); setFirstMs(0); setGeneratedStart(false); }
     if (generatedEnd) { setLast(endBase); setLastMs(0); setGeneratedEnd(false); }
   }
   function chooseSource(ending: boolean, value: string) {
@@ -238,6 +241,7 @@ export function AiVideoPanel({ card, onCardRecovery, onCardDraft, onCardRequest,
   }
 
   function videoPayload() {
+    if (direction !== null && !distanceValid) throw Error("Enter a valid camera distance before making the video.");
     if (guided && !pairReviewed) throw Error("Review and select both prepared frames before making the video.");
     if (useEndReference && !bridge && !lastFrame) throw Error("Choose an ending reference, or turn off ending guidance.");
     if (!guided && (startImageBlocked || endImageBlocked)) throw Error("Finish reviewing your prepared image before making the video.");
@@ -316,6 +320,25 @@ export function AiVideoPanel({ card, onCardRecovery, onCardDraft, onCardRequest,
     finally { setBusy(false); }
   }
 
+  const directionControls = <section className={styles.direction} aria-label="Shot direction">
+    <h3 className={styles.sectionTitle}>{guided && card?.framePair ? "Adjust End" : "Describe your shot first"}</h3>
+    <label className="field">Camera move
+      <select className="text-input" value={direction ?? "custom"} disabled={busy || bridge} onChange={e => { resetGeneratedFrames(); setDirection(e.target.value === "custom" ? null : e.target.value as CameraKeyframeMove); if (e.target.value === "custom") setWorkflow("manual"); else setMove(""); setMode("custom"); requestId.current = null; }}>
+        {CAMERA_KEYFRAME_MOVES.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}<option value="custom">Custom direction</option>
+      </select>
+    </label>
+    <CameraDistanceInput key={recoveryKey} value={distanceM} disabled={busy || !direction || bridge}
+      onChange={value => { resetGeneratedFrames(); setDistanceM(value); }} onValidityChange={setDistanceValid} />
+    <label className="field">Length<select className="text-input" value={seconds} disabled={busy} onChange={e => { resetGeneratedFrames(); setChosenSeconds(Number(e.target.value) as 4 | 8); }}>
+      <option value={4}>4 seconds</option><option value={8}>8 seconds</option>
+    </select></label>
+    <label className="field">{guided && card?.framePair ? "How should End change?" : "What should happen?"}
+      <span className="muted small">{guided && card?.framePair ? "Optional · Start stays unchanged" : "Optional · guides both frames"}</span>
+      <textarea className="text-input" rows={3} maxLength={600} value={frameNotes} disabled={busy} placeholder="For example: rise further above the pool and finish at dusk. Keep the house unchanged."
+        onChange={e => { resetGeneratedFrames(); setFrameNotes(e.target.value); }} />
+    </label>
+  </section>;
+
   return <div className={`ai-video-panel ${styles.workspace}`}>
     <header className={styles.header}>
       <p className={styles.intro}>{guided ? "One reference. Two prepared frames. Review them, then make your video." : "Choose the pictures, review your frames, then make the video."}</p>
@@ -324,39 +347,20 @@ export function AiVideoPanel({ card, onCardRecovery, onCardDraft, onCardRequest,
     {state && !state.enabled ? <p className="toast" role="status">AI video is being connected. Your credits are ready for when it opens.</p> : null}
     {recoveryError ? <p className="error small" role="status">{recoveryError}</p> : null}
     {mediaProgress ? <p role="status">{mediaProgress}</p> : null}
-    {guided ? <div ref={setPairControls} className={styles.generationProgress} /> : null}
-    {videoJob || card?.request ? <div className={styles.generationProgress}><ShotGenerationProgress stage={videoJob?.status === "SUCCEEDED" ? "ready" : "video"}
-      status={videoJob?.status ?? "CHECKING"} requestedAt={videoJob?.createdAt} lastCheckedAt={lastCheckedAt} connectionError={connectionError}
-      queueLabel={videoJob?.queue ? queueLabel(videoJob.queue, at => at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })) : null} /></div> : null}
     <form onSubmit={generate} className={`ai-video-form ${styles.form}`}>
       <div className={styles.layout}>
       <section className={styles.references} aria-label="Shot references">
-        <h3 className={styles.sectionTitle}>{guided ? "Your reference" : "Choose your frames"}</h3>
-        <div className={guided ? styles.singleReference : styles.referencePair}>{guided ? picker(false, true) : <>{picker(false)}{picker(true)}</>}</div>
-        {guided ? <p className={styles.hint}>Nano Banana uses the whole reference to prepare a matched Start and End. You choose whether the result is right.</p> : null}
+        {!guided ? <h3 className={styles.sectionTitle}>Choose your frames</h3> : null}
+        <div className={guided ? styles.singleReference : styles.referencePair}>{guided ? <details className={styles.compactReference} open={!startBase}>
+          <summary>{assetFor(source(startBase, true, firstMs))?.kind === "IMAGE" ? <img src={assetFor(source(startBase, true, firstMs))!.thumbUrl ?? assetFor(source(startBase, true, firstMs))!.url} alt="Reference thumbnail" /> : null}
+            <span>Reference photo<span className="muted small">{startBase ? "Change photo" : "Choose or upload a photo"}</span></span>
+          </summary>{picker(false, true)}</details> : <>{picker(false)}{picker(true)}</>}</div>
         {guided && assetFor(source(startBase, true, 0))?.kind === "VIDEO" ? <p className={styles.hint}>Save this frame as a photo to prepare Start and End from your video’s original detail.</p> : null}
       </section>
-      <section className={styles.direction} aria-label="Shot direction">
-        <h3 className={styles.sectionTitle}>Describe your shot first</h3>
-        <label className="field">Camera move
-          <select className="text-input" value={direction ?? "custom"} disabled={busy || bridge} onChange={e => { resetGeneratedFrames(); setDirection(e.target.value === "custom" ? null : e.target.value as CameraKeyframeMove); if (e.target.value === "custom") setWorkflow("manual"); else setMove(""); setMode("custom"); requestId.current = null; }}>
-            {CAMERA_KEYFRAME_MOVES.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}<option value="custom">Custom direction</option>
-          </select>
-        </label>
-        <label className="field">Distance (about)
-          <span className={styles.distance}><input className="text-input" aria-label="Approximate camera distance in metres" type="number" min={0.5} max={10} step={0.5} value={distanceM} disabled={busy || !direction || bridge}
-            onChange={e => { const value = e.currentTarget.valueAsNumber; if (Number.isFinite(value)) { resetGeneratedFrames(); setDistanceM(Math.min(10, Math.max(0.5, value))); } }} />m</span>
-        </label>
-      <p className={styles.hint}>An approximate camera direction. Review unseen details in the image before video.</p>
-      <label className="field">Length<select className="text-input" value={seconds} disabled={busy} onChange={e => { resetGeneratedFrames(); setChosenSeconds(Number(e.target.value) as 4 | 8); }}>
-        <option value={4}>4 seconds</option><option value={8}>8 seconds</option>
-      </select></label>
-      <label className="field">What should happen? <span className="muted small">Optional · guides both frames</span><textarea className="text-input" rows={3} maxLength={600} value={frameNotes} disabled={busy} placeholder="For example: start in daylight, rise above the pool and finish at dusk. Keep the house unchanged."
-        onChange={e => { resetGeneratedFrames(); setFrameNotes(e.target.value); }} /></label>
-      </section>
+      {!(guided && card?.framePair) ? directionControls : null}
       <section className={styles.preparation} aria-label="Review prepared images">
       {guided && onCardPair ? <GuidedFramePairPanel pair={card?.framePair} input={guidedInput} reviewed={pairReviewed} disabled={busy || !draftLoaded}
-        controlsTarget={pairControls}
+        endControls={card?.framePair ? directionControls : undefined} inputValid={distanceValid}
         onSave={onCardPair} onAssets={receiveAssets} onBalance={receiveBalance} beforePrepare={beforeGenerate}
         onReview={(start, end, pair) => {
           receiveAssets([start, end]); setPhoto(`asset:${start.id}`); setLast(`asset:${end.id}`); setFirstMs(0); setLastMs(0);
@@ -365,12 +369,12 @@ export function AiVideoPanel({ card, onCardRecovery, onCardDraft, onCardRequest,
           requestId.current = null;
         }} /> : <>
       {!imageInput("end") && assetFor(firstFrame)?.kind === "VIDEO" ? <p className="muted small">To make an ending image from this video, choose “Save this frame as photo” under Start, or upload an End photo.</p> : null}
-      {card ? <ShotKeyframePanel role="start" input={imageInput("start")} recoveryKey={recoveryKey} durableRecovery={card.recovery} onRecovery={onCardRecovery} selectedAssetId={firstFrame?.assetId} disabled={busy || !draftLoaded}
+      {card ? <ShotKeyframePanel role="start" input={imageInput("start")} recoveryKey={recoveryKey} durableRecovery={card.recovery} onRecovery={onCardRecovery} selectedAssetId={firstFrame?.assetId} disabled={busy || !draftLoaded || !distanceValid}
         onAssets={receiveAssets} onBalance={receiveBalance} onBlocked={setStartImageBlocked} onUse={asset => useImage("start", asset)} onKeepSource={input => chooseSource(false, `asset:${input.source.assetId}`)} /> : null}
-      <ShotKeyframePanel role="end" input={imageInput("end")} recoveryKey={recoveryKey} durableRecovery={card?.recovery} onRecovery={onCardRecovery} selectedAssetId={lastFrame?.assetId} disabled={busy || !draftLoaded}
+      <ShotKeyframePanel role="end" input={imageInput("end")} recoveryKey={recoveryKey} durableRecovery={card?.recovery} onRecovery={onCardRecovery} selectedAssetId={lastFrame?.assetId} disabled={busy || !draftLoaded || !distanceValid}
         onAssets={receiveAssets} onBalance={receiveBalance} onBlocked={setEndImageBlocked} onUse={asset => useImage("end", asset)} onKeepSource={input => chooseSource(true, `asset:${input.source.assetId}`)} />
       {!card ? <details className={styles.details}><summary>Prepare a different Start image</summary>
-        <ShotKeyframePanel role="start" input={imageInput("start")} recoveryKey={recoveryKey} selectedAssetId={firstFrame?.assetId} disabled={busy || !draftLoaded}
+        <ShotKeyframePanel role="start" input={imageInput("start")} recoveryKey={recoveryKey} selectedAssetId={firstFrame?.assetId} disabled={busy || !draftLoaded || !distanceValid}
           onAssets={receiveAssets} onBalance={receiveBalance} onBlocked={setStartImageBlocked} onUse={asset => useImage("start", asset)} onKeepSource={input => chooseSource(false, `asset:${input.source.assetId}`)} />
       </details> : null}
       </>}
@@ -460,10 +464,14 @@ export function AiVideoPanel({ card, onCardRecovery, onCardDraft, onCardRequest,
       <p className="muted small">{guided ? "The whole reference informs the prepared portrait images. Review interpreted details and framing before video." : "References use the original frame with a centre crop to portrait. Review joins, especially with zoom, colour effects or letterboxing."}</p>
       </details>
       <footer className={styles.finish}>
+      <h3 className={styles.sectionTitle}>Video</h3>
+      {videoJob || card?.request ? <div className={styles.generationProgress}><ShotGenerationProgress stage={videoJob?.status === "SUCCEEDED" ? "ready" : "video"}
+        status={videoJob?.status ?? "CHECKING"} requestedAt={videoJob?.createdAt} lastCheckedAt={lastCheckedAt} connectionError={connectionError}
+        queueLabel={videoJob?.queue ? queueLabel(videoJob.queue, at => at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })) : null} /></div> : null}
       <p className="muted small">New images and videos use credits. Review generated property details before publishing.</p>
       {error ? <p className="error small" role="alert">{error}</p> : null}
       {guided && !pairReviewed ? <p className="muted small">Prepare and select both frames above to unlock video generation.</p> : null}
-      <button className="btn btn-block" type="submit" disabled={busy || !!card?.request || !draftLoaded || guided && !pairReviewed || !guided && (startImageBlocked || endImageBlocked) || !state?.enabled || state.balance.remaining < credits || state.jobs.filter(active).length >= AI_QUEUE_LIMIT || (!firstFrame && direction !== null) || (!!firstFrame && !assetFor(firstFrame)) || (!!lastFrame && !assetFor(lastFrame)) || ((bridge || useEndReference) && !lastFrame) || (mode !== "custom" && !firstFrame)}>
+      <button className="btn btn-block" type="submit" disabled={busy || !!card?.request || !draftLoaded || direction !== null && !distanceValid || guided && !pairReviewed || !guided && (startImageBlocked || endImageBlocked) || !state?.enabled || state.balance.remaining < credits || state.jobs.filter(active).length >= AI_QUEUE_LIMIT || (!firstFrame && direction !== null) || (!!firstFrame && !assetFor(firstFrame)) || (!!lastFrame && !assetFor(lastFrame)) || ((bridge || useEndReference) && !lastFrame) || (mode !== "custom" && !firstFrame)}>
         {busy ? "Starting…" : `${draftMode ? "Draft" : "Generate video ·"} ${seconds}-second clip · ${credits} ${credits === 1 ? "credit" : "credits"}`}
       </button>
       <p className="muted small"><Link href="/account">Plans and more credits</Link></p>

@@ -9,7 +9,14 @@ export const shotFramePairSchema = z.object({
   input: z.string().min(1).max(6000), requestedAt: z.string().datetime(),
   startJobId: z.string().max(128).optional(), endJobId: z.string().max(128).optional(),
   startAssetId: z.string().max(128).optional(), endAssetId: z.string().max(128).optional(),
-}).refine(pair => pair.startRequestId !== pair.endRequestId, "Start and End requests must be distinct");
+  /** A new End operation retains the original pair and its paid results. */
+  endRevision: z.object({
+    requestId: z.string().uuid(), input: z.string().min(1).max(6000), requestedAt: z.string().datetime(),
+    jobId: z.string().max(128).optional(), assetId: z.string().max(128).optional(),
+    previousJobId: z.string().min(1).max(128).optional(),
+  }).strict().optional(),
+}).refine(pair => pair.startRequestId !== pair.endRequestId, "Start and End requests must be distinct")
+  .refine(pair => !pair.endRevision || !!pair.startAssetId && ![pair.id, pair.startRequestId, pair.endRequestId].includes(pair.endRevision.requestId), "An End revision needs a retained Start and a new request identity");
 export type ShotFramePair = z.infer<typeof shotFramePairSchema>;
 
 export const shotCardSchema = z.object({

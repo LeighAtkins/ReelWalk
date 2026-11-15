@@ -244,6 +244,16 @@ describe("elegant text", () => {
 });
 
 describe("parsing", () => {
+  it("includes a refined End image in ownership and URL loading references", () => {
+    const timeline = emptyTimeline();
+    timeline.shotBoard = { version: 1, cards: [{ id: "property", sourceAssetId: "reference", framePair: {
+      version: 1, id: "00000000-0000-4000-8000-000000000001", sourceAssetId: "reference",
+      startRequestId: "00000000-0000-4000-8000-000000000002", endRequestId: "00000000-0000-4000-8000-000000000003",
+      input: "{}", requestedAt: "2026-11-15T00:00:00.000Z", startAssetId: "start", endAssetId: "old-end",
+      endRevision: { requestId: "00000000-0000-4000-8000-000000000004", input: "{}", requestedAt: "2026-11-15T00:00:01.000Z", assetId: "new-end" },
+    } }] };
+    expect(referencedAssetIds(timeline).sort()).toEqual(["new-end", "old-end", "reference", "start"]);
+  });
   it("round-trips a full timeline and fills defaults", () => {
     const timeline = setMusic(addText(reel(video("a", 0, 5000), photo("b", 3000)), text), {
       assetId: "song",

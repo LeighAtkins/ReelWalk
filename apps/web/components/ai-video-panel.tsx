@@ -337,7 +337,7 @@ export function AiVideoPanel({ card, onCardRecovery, onCardDraft, onCardRequest,
         {guided && assetFor(source(startBase, true, 0))?.kind === "VIDEO" ? <p className={styles.hint}>Save this frame as a photo to prepare Start and End from your video’s original detail.</p> : null}
       </section>
       <section className={styles.direction} aria-label="Shot direction">
-        <h3 className={styles.sectionTitle}>Shape the move</h3>
+        <h3 className={styles.sectionTitle}>Describe your shot first</h3>
         <label className="field">Camera move
           <select className="text-input" value={direction ?? "custom"} disabled={busy || bridge} onChange={e => { resetGeneratedFrames(); setDirection(e.target.value === "custom" ? null : e.target.value as CameraKeyframeMove); if (e.target.value === "custom") setWorkflow("manual"); else setMove(""); setMode("custom"); requestId.current = null; }}>
             {CAMERA_KEYFRAME_MOVES.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}<option value="custom">Custom direction</option>
@@ -351,7 +351,7 @@ export function AiVideoPanel({ card, onCardRecovery, onCardDraft, onCardRequest,
       <label className="field">Length<select className="text-input" value={seconds} disabled={busy} onChange={e => { resetGeneratedFrames(); setChosenSeconds(Number(e.target.value) as 4 | 8); }}>
         <option value={4}>4 seconds</option><option value={8}>8 seconds</option>
       </select></label>
-      <label className="field">Anything else? <span className="muted small">Optional</span><input className="text-input" maxLength={600} value={frameNotes} disabled={busy} placeholder="For example: dusk, with the same furniture"
+      <label className="field">What should happen? <span className="muted small">Optional · guides both frames</span><textarea className="text-input" rows={3} maxLength={600} value={frameNotes} disabled={busy} placeholder="For example: start in daylight, rise above the pool and finish at dusk. Keep the house unchanged."
         onChange={e => { resetGeneratedFrames(); setFrameNotes(e.target.value); }} /></label>
       </section>
       <section className={styles.preparation} aria-label="Review prepared images">

@@ -31,6 +31,7 @@ export function shotProgressSummary({ stage, status, connectionError, queueLabel
   if (state === "FAILED" || state === "CANCELLED") return { title: `${subject === "video" ? "Video" : subject} ${state === "FAILED" ? "could not finish" : "cancelled"}`, detail: "Check the saved request before trying again.", active: false, attention: true, terminal: true };
   if (state === "UNKNOWN" || state === "UNRESOLVED") return { title: `Checking ${subject}`, detail: "The outcome is not confirmed. Your saved request will not be submitted again automatically.", active: false, attention: true, terminal: false };
   if (connectionError) return { title: "Connection interrupted", detail: connectionError, active: false, attention: true, terminal: false };
+  if (state === "WAITING_END") return { title: "Start saved · End has not started", detail: "No End request was found. Check saved preparation, then continue it below. Your Start image is retained.", active: false, attention: true, terminal: false };
   if (state === "CHECKING") return { title: `Checking saved ${subject}`, detail: "Checking the saved request. No new generation is being submitted.", active: false, attention: false, terminal: false };
   if (stage === "review") return { title: "Review Start and End", detail: "Check both images before making your video.", active: false, attention: false, terminal: true };
   if (stage === "ready") return { title: "Your video is ready", detail: "Review the result before using it in your shot.", active: false, attention: false, terminal: true };

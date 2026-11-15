@@ -16,6 +16,7 @@
 }
 
 .generationProgress { position: sticky; inset-block-start: 0; z-index: 3; background: var(--ink-deep); padding-block: .5rem; }
+.generationProgress:empty { display: none; }
 .singleReference { min-inline-size: 0; max-inline-size: 24rem; }
 .fullReferenceFrame { inline-size:100%; aspect-ratio:3/2; overflow:hidden; background:var(--ink-deep); border-radius:var(--radius-m); }
 

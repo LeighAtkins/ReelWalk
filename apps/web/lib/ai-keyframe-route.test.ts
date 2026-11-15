@@ -10,6 +10,12 @@ const post = () => POST(new Request("http://fixture.invalid/api/ai/keyframes", {
 beforeEach(() => { vi.clearAllMocks(); vi.stubEnv("APP_URL", "http://fixture.invalid"); });
 
 describe("keyframe HTTP recovery", () => {
+  it("retrieves exact retained card associations without submitting a generation", async () => {
+    mocks.list.mockResolvedValue({ jobs: [] });
+    await GET(new Request("http://fixture.invalid/api/ai/keyframes?requestId=saved-request&jobId=approved-frame"));
+    expect(mocks.list).toHaveBeenCalledWith({ id: "u", workspaceId: "w" }, { requestId: "saved-request", jobId: "approved-frame" });
+    expect(mocks.generate).not.toHaveBeenCalled();
+  });
   it("reports an ambiguous commit as 500 and exposes the original request during reconciliation", async () => {
     const committed = { id: "original", requestId: input.requestId, status: "QUEUED" };
     mocks.generate.mockImplementation(async () => { mocks.list.mockResolvedValue({ jobs: [committed] }); throw new Error("Connection lost after commit"); });

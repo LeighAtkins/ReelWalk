@@ -1,4 +1,7 @@
 "use client";
+import { shotCards, updateShotCard, placeShotTake, placeShotAsset } from "@reelwalk/core";
+import { ShotBoard } from "./shot-board";
+import shotBoardStyles from "./shot-board.module.css";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
@@ -354,7 +357,12 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
   const [selection, setSelection] = useState<Selection>(null);
   // The camera move the Moves sheet asked the AI sheet for (ADR 0076); cleared when that sheet closes.
   const [aiMove, setAiMove] = useState<MoveId | null>(null);
+  const [showShots, setShowShots] = useState(Boolean(initialTimeline.shotBoard) || initialTimeline.clips.length === 0);
+  const [shotCardId, setShotCardId] = useState<string | null>(null);
   const [sheet, setSheet] = useState<SheetName | null>(autoStart ? "autopilot" : openLibrary && initialTimeline.clips.length === 0 ? "media" : null);
+  useEffect(() => {
+    if (sheet && sheet !== "ai-video" && sheet !== "media") setShowShots(false);
+  }, [sheet]);
   const [uploads, setUploads] = useState<PendingUpload[]>([]);
   const [musicUploading, setMusicUploading] = useState(false);
   // Editing to the beat (ADR 0059): measured clip motion and song bars, gathered when the Music sheet opens.
@@ -622,7 +630,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
     if (pendingTaken.current) return;
     pendingTaken.current = true;
     const files = takePendingFiles(reel.id);
-    if (files.length > 0) void addFiles(files);
+    if (files.length > 0) { setShowShots(false); void addFiles(files); }
     // Batched with addFiles' first state update: the next render already counts the uploads.
     setUploadsArmed(true);
   }, [reel.id, addFiles]);
@@ -1015,6 +1023,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
 
   const selectAndShow = useCallback(
     (next: Selection) => {
+      if (next) setShowShots(false);
       setSelection(next);
       if (next?.kind === "text") {
         const text = timeline.texts.find((item) => item.id === next.id);
@@ -1507,7 +1516,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         : { placeholder: "Change anything…", prefix: "" };
   const activeExtension = sheet?.startsWith("ext:") ? EXTENSION_CONTROLS.find((extension) => `ext:${extension.id}` === sheet) : undefined;
 
-  const closeSheet = () => setSheet(null);
+  const closeSheet = () => { setSheet(null); setShotCardId(null); };
 
   // When the tools run past the edge, a fade on that side says there are more.
   const toolbarRef = useRef<HTMLDivElement>(null);
@@ -1565,6 +1574,15 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         </div>
       ) : null}
 
+      <div className={shotBoardStyles.workspace}>
+        <nav className={shotBoardStyles.tabs} aria-label="Editor view">
+          <button type="button" aria-pressed={showShots} onClick={() => setShowShots(true)}>Shot board</button>
+          <button type="button" aria-pressed={!showShots} onClick={() => setShowShots(false)}>Reel preview</button>
+        </nav>
+        <div className={shotBoardStyles.boardViewport} style={{ display: showShots ? undefined : "none" }}>
+      <ShotBoard onUseTake={(id, asset) => apply(current => placeShotAsset(current, id, clipFromAsset(asset)))} timeline={timeline} library={library} onChange={apply} onAsset={asset => setLibrary(current => ({ ...current, [asset.id]: asset }))} onPrepare={id => { setShotCardId(id); setSheet("ai-video"); }} />
+        </div>
+        <div className={shotBoardStyles.previewViewport} style={{ display: showShots && !theater ? "none" : undefined }}>
       <Preview
         timeline={timeline}
         assets={assets}
@@ -1620,10 +1638,11 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         }
       />
 
+      </div></div>
       <>
       <div>
       <div className="transport">
-        <button type="button" className="icon-btn" aria-label={playing ? "Pause" : "Play"} onClick={togglePlay} disabled={!hasClips}>
+        <button type="button" className="icon-btn" aria-label={playing ? "Pause" : "Play"} onClick={() => { setShowShots(false); togglePlay(); }} disabled={!hasClips}>
           {playing ? <PauseIcon /> : <PlayIcon />}
         </button>
         <Timecode clock={clock} totalMs={totalMs} />
@@ -1648,6 +1667,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
 
       {selectedClip ? <ClipSourceInfo clip={selectedClip} asset={library[selectedClip.assetId]} onTrim={() => setSheet("trim")} /> : null}
       </div>
+      <div hidden={showShots}>
       <Filmstrip
         timeline={timeline}
         library={library}
@@ -1675,6 +1695,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         onPresenter={aiOff ? undefined : () => setSheet("presenter")}
         presenterReady={scriptRun.toPlace.length > 0}
       />
+      </div>
 
       <div className="editor-bottom">
         {askAvailable && hasClips ? (
@@ -1743,8 +1764,18 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
       ) : null}
 
       {sheet === "ai-video" ? <Sheet title="AI video" size="wide" onClose={closeSheet}>
-        <AiVideoPanel initialMove={aiMove} photos={libraryList} clips={timeline.clips} selectedClip={selectedClip} reelId={reel.id} beforeGenerate={autosave.flush} onLibraryAsset={asset => setLibrary(current => ({ ...current, [asset.id]: asset }))} onAdd={(asset, shot) => {
-          const clip = { ...clipFromAsset(asset), id: `ai-insert-${asset.id}` };
+        <AiVideoPanel key={shotCardId ?? "legacy"} card={shotCardId ? shotCards(timeline).find(card => card.id === shotCardId) : undefined}
+          onCardRecovery={shotCardId ? async (key, value) => { const card = shotCards(snapshot().timeline).find(card => card.id === shotCardId); if (!card) return false; dispatch({ type: "shot-operation", cardId: shotCardId, patch: { recovery: { ...card.recovery, [key]: value } } }); return autosave.flush(snapshot().timeline); } : undefined}
+          onCardDraft={shotCardId ? (draft, frameAssetIds) => apply(current => updateShotCard(current, shotCardId, card => ({ ...card, draft, frameAssetIds }))) : undefined}
+          onCardRequest={shotCardId ? async request => { if (!shotCards(snapshot().timeline).some(card => card.id === shotCardId && card.draft === request.draft)) return false; dispatch({ type: "shot-operation", cardId: shotCardId, patch: { request } }); return autosave.flush(snapshot().timeline); } : undefined}
+          initialMove={aiMove} photos={libraryList} clips={timeline.clips} selectedClip={shotCardId ? null : selectedClip} reelId={reel.id} beforeGenerate={autosave.flush} onLibraryAsset={asset => setLibrary(current => ({ ...current, [asset.id]: asset }))} onAdd={(asset, shot, jobId, durationSeconds) => {
+          const clip = { ...clipFromAsset(asset), ...(!asset.durationMs && durationSeconds ? { sourceEndMs: durationSeconds * 1000 } : {}), id: `ai-insert-${asset.id}` };
+          if (shotCardId) {
+            setLibrary(current => ({ ...current, [asset.id]: asset }));
+            const current = snapshot().timeline;
+            if (!jobId || placeShotTake(current, shotCardId, jobId, clip) === current) { showToast("This card changed or was removed. Your take remains in Media.", 6000); return; }
+            apply(current => placeShotTake(current, shotCardId, jobId, clip)); closeSheet(); return;
+          }
           if (shot && insertAiShot(timeline, clip, shot) === timeline) {
             showToast("The source cut changed or this shot is already placed. Add the saved clip from Media to choose a new position.", 6000);
             return;

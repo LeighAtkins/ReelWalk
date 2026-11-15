@@ -97,6 +97,8 @@ async function openPlacing(page: Page) {
   await page.getByTestId("new-reel-input").setInputFiles([path.join(fixtures, "walkthrough.mp4")]);
   await expect(page).toHaveURL(/\/reels\/[^/]+$/, { timeout: 30_000 });
   await expect(page.getByTestId("clip")).toHaveCount(1, { timeout: 60_000 });
+  await expect(page.getByTestId("clip")).toBeVisible();
+  await expect(page.getByTestId("preview")).toBeVisible();
   // A one-letter title: it sits in the middle of its surface, leaving the corners' surroundings bare footage.
   await page.getByRole("button", { name: "Text", exact: true }).click();
   await page.getByLabel("Text to show").fill("I");
@@ -181,14 +183,29 @@ test("corner placing at phone size: a true loupe and a clear centre", async ({ p
   // And in the editor, paused: the play badge stays out of the centre.
   await page.getByTestId("corners-done").click();
   await expect(page.locator(".stage.is-placing")).toHaveCount(0);
-  // A settled, paused stage: a decoded frame and a paused player, so the badge's state is not a race.
-  await page.waitForFunction(() => Array.from(document.querySelectorAll<HTMLVideoElement>("[data-testid=preview] video")).some((v) => v.readyState >= 2 && v.paused), undefined, { timeout: 30_000 });
   await expect(page.getByTestId("preview").getByRole("button", { name: "Play" })).toBeVisible();
-  await page.waitForTimeout(300);
-  const editorStage = (await page.getByTestId("preview").boundingBox())!;
-  const whole = { x: editorStage.x, y: editorStage.y, width: editorStage.width, height: editorStage.height };
-  const withBadge = await shot(page, browser, whole);
-  const noBadge = await without(page, ".play-badge", () => shot(page, browser, whole));
+  // Prefetch can replace the streaming URL with a blob while paused. Compare
+  // only the same decoded frame and stage geometry; never retry a badge failure.
+  const mediaState = () => page.getByTestId("preview").evaluate(element => {
+    const box = element.getBoundingClientRect();
+    const videos = Array.from(element.querySelectorAll("video")).filter(video => video.getClientRects().length > 0);
+    if (!videos.length || videos.some(video => video.readyState < 2 || !video.paused || video.seeking)) return null;
+    return { box: { x: box.x, y: box.y, width: box.width, height: box.height }, videos: videos.map(video => ({
+      source: video.currentSrc, time: video.currentTime, frames: video.getVideoPlaybackQuality().totalVideoFrames,
+    })) };
+  });
+  let capture: { box: Box; withBadge: Pixels; noBadge: Pixels } | undefined;
+  await expect.poll(async () => {
+    const before = await mediaState();
+    if (!before) return false;
+    const withBadge = await shot(page, browser, before.box);
+    const noBadge = await without(page, ".play-badge", () => shot(page, browser, before.box));
+    const after = await mediaState();
+    if (JSON.stringify(before) !== JSON.stringify(after)) return false;
+    capture = { box: before.box, withBadge, noBadge };
+    return true;
+  }, { timeout: 30_000, message: "the paused stage must retain the same decoded frame across the badge comparison" }).toBe(true);
+  const { box: editorStage, withBadge, noBadge } = capture!;
   const badge = changed(withBadge, noBadge);
   // The badge sits in the stage's bottom-left corner, where the Pin sheet (still open after placing) can cover it
   // on main's CI; that is not a defect. What matters is that, where it is drawn, it is not over the centre.

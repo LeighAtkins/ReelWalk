@@ -22,7 +22,8 @@ export async function GET(request: Request) {
       const result = await keyframeArtifact(actor, id, artifact);
       return new Response(new Uint8Array(result.bytes), { headers: { ...headers, "Content-Type": result.contentType, "X-Content-Type-Options": "nosniff" } });
     }
-    const result = await listKeyframes(actor);
+    const saved = z.object({ requestId: z.string().min(1).max(128).optional(), jobId: z.string().min(1).max(128).optional() }).parse({ requestId: query.get("requestId") ?? undefined, jobId: query.get("jobId") ?? undefined });
+    const result = await listKeyframes(actor, saved);
     // UNKNOWN is not standing capacity demand. Only an explicit recovery action wakes a receipt-only pass.
     if (result.jobs.some(job => job.status === "QUEUED" || job.status === "SUBMITTING" || query.get("recover") === "1" && job.status === "UNKNOWN")) await ensureWorkerRunning();
     return Response.json(result, { headers });

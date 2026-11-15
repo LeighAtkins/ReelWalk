@@ -131,6 +131,11 @@ export function NewReelPicker({ librarySize = 0, tours = [] }: { librarySize?: n
       </label>
 
       <div className="start-more">
+        <button type="button" className="start-tile" disabled={busy} onClick={() => void start([])} data-testid="start-blank-board">
+          <PlusIcon size={20} />
+          <span className="start-tile-title">Blank shot board</span>
+          <span className="start-tile-sub">Add photos and prepare AI shots</span>
+        </button>
         {/* Create (ADR 0098): an idea in words, footage optional, short options out. */}
         <Link href="/create" className="start-tile" prefetch={false} data-testid="create-from-idea">
           <SparkIcon size={20} />

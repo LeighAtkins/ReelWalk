@@ -25,7 +25,8 @@ export function savedKeyframeInput(saved: SavedRequest, current: CameraKeyframeI
   return frozen && keyframeInputKey(frozen) === saved.inputKey ? frozen : null;
 }
 
-export function ShotKeyframePanel({ role, input, recoveryKey, selectedAssetId, disabled = false, onUse, onKeepSource, onAssets, onBalance, onBlocked }: {
+export function ShotKeyframePanel({ role, input, recoveryKey, durableRecovery, onRecovery, selectedAssetId, disabled = false, onUse, onKeepSource, onAssets, onBalance, onBlocked }: {
+  durableRecovery?: Record<string, string>; onRecovery?(key: string, value: string): Promise<boolean>;
   role: "start" | "end"; input: CameraKeyframeInput | null; recoveryKey: string; disabled?: boolean;
   selectedAssetId?: string;
   onUse(asset: LibraryAsset, input: CameraKeyframeInput): void;
@@ -42,6 +43,16 @@ export function ShotKeyframePanel({ role, input, recoveryKey, selectedAssetId, d
   const key = input ? keyframeInputKey(input) : "";
   const storageKey = `shot-keyframe-request:${recoveryKey}:${role}`;
   const choiceKey = `shot-keyframe-choice:${recoveryKey}:${role}`;
+  const recoveryRef = useRef(durableRecovery); recoveryRef.current = durableRecovery;
+  const read = (key: string, storage: Storage) => onRecovery ? recoveryRef.current?.[key] || null : storage.getItem(key);
+  const write = async (key: string, value: string, storage: Storage) => {
+    if (onRecovery) { if (!await onRecovery(key, value)) throw Error("Save the card before preparing an image."); }
+    else storage.setItem(key, value);
+  };
+  const clear = async (key: string, storage: Storage) => {
+    if (onRecovery) { if (!await onRecovery(key, "")) throw Error("Could not save recovered image status."); }
+    else storage.removeItem(key);
+  };
   const currentScope = useRef(storageKey); currentScope.current = storageKey;
   const matching = state?.jobs.filter(job => keyframeMatches(job, input)) ?? [];
   const job = matching.find(item => item.id === selected);
@@ -53,25 +64,29 @@ export function ShotKeyframePanel({ role, input, recoveryKey, selectedAssetId, d
   const blocked = busy || unresolved || !!job && (running(job) || job.status === "CANDIDATE" && dismissed !== job.id);
 
   async function refresh(signal?: AbortSignal, recover = false) {
-    const response = await fetch(`/api/ai/keyframes${recover ? "?recover=1" : ""}`, { cache: "no-store", signal });
+    const query = new URLSearchParams(recover ? { recover: "1" } : {});
+    const savedPending = read(storageKey, sessionStorage), savedChoice = read(choiceKey, localStorage);
+    if (savedPending) query.set("requestId", (JSON.parse(savedPending) as SavedRequest).requestId);
+    if (savedChoice) query.set("jobId", (JSON.parse(savedChoice) as { id: string }).id);
+    const response = await fetch(`/api/ai/keyframes?${query}`, { cache: "no-store", signal });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "Could not load your saved frames.");
     if (!mounted.current || signal?.aborted || currentScope.current !== storageKey) return;
     try {
-      const choice = localStorage.getItem(choiceKey);
+      const choice = read(choiceKey, localStorage);
       if (choice) {
         const parsed = JSON.parse(choice) as { id?: unknown; keepSource?: unknown };
         if (typeof parsed?.id !== "string") throw new Error("The saved frame choice could not be read.");
         setSelected(parsed.id); setDismissed(parsed.keepSource === true ? parsed.id : undefined);
       }
-      const saved = sessionStorage.getItem(storageKey);
+      const saved = read(storageKey, sessionStorage);
       if (saved) {
         const recovered = JSON.parse(saved) as SavedRequest;
         if (typeof recovered?.requestId !== "string" || typeof recovered?.inputKey !== "string") throw new Error("The saved image request could not be read. Keep this page open and check status.");
         const found = data.jobs.find((item: Job) => item.requestId === recovered.requestId);
         if (found) {
-          localStorage.setItem(choiceKey, JSON.stringify({ id: found.id }));
-          sessionStorage.removeItem(storageKey); setPending(undefined); setSelected(found.id); setDismissed(undefined);
+          await write(choiceKey, JSON.stringify({ id: found.id }), localStorage);
+          await clear(storageKey, sessionStorage); setPending(undefined); setSelected(found.id); setDismissed(undefined);
         }
         else setPending(recovered);
       }
@@ -104,18 +119,18 @@ export function ShotKeyframePanel({ role, input, recoveryKey, selectedAssetId, d
     let sent = false;
     try {
       // A failed storage write stops before a paid request, rather than losing its recovery identity.
-      sessionStorage.setItem(storageKey, JSON.stringify({ requestId, inputKey, input: frozen }));
+      await write(storageKey, JSON.stringify({ requestId, inputKey, input: frozen }), sessionStorage);
       setPending({ requestId, inputKey, input: frozen });
       sent = true;
       const response = await fetch("/api/ai/keyframes", { method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "generate", requestId, ...frozen }) });
-      if (response.status >= 400 && response.status < 500) { sessionStorage.removeItem(storageKey); setPending(undefined); }
+      if (response.status >= 400 && response.status < 500) { await clear(storageKey, sessionStorage); setPending(undefined); }
       const result = await response.json();
       if (!response.ok) {
         throw new Error(result.error || "Could not prepare this frame. Check status before trying again.");
       }
-      localStorage.setItem(choiceKey, JSON.stringify({ id: result.job.id }));
-      sessionStorage.removeItem(storageKey);
+      await write(choiceKey, JSON.stringify({ id: result.job.id }), localStorage);
+      await clear(storageKey, sessionStorage);
       if (mounted.current && currentScope.current === storageKey) { setPending(undefined); setSelected(result.job.id); setState(old => old ? { ...old, balanceRemaining: Math.max(0, old.balanceRemaining - 1), jobs: [result.job, ...old.jobs.filter(j => j.id !== result.job.id)] } : old); }
       await refresh();
     } catch (e) {
@@ -157,8 +172,8 @@ export function ShotKeyframePanel({ role, input, recoveryKey, selectedAssetId, d
       </div>
       {failed === candidateKey ? <p className="error small" role="alert">The image preview could not load. Your image is saved. <button type="button" disabled={busy} onClick={retryPreview}>Retry preview</button></p> : null}
       <button className="btn btn-block" type="button" disabled={disabled || busy || !ready} onClick={use}>Use this {role === "start" ? "Start" : "End"}</button>
-      {job.status === "CANDIDATE" ? <button className="btn btn-quiet" type="button" disabled={disabled || busy} onClick={() => { if (input) {
-        try { localStorage.setItem(choiceKey, JSON.stringify({ id: job.id, keepSource: true })); setDismissed(job.id); onKeepSource(input); }
+      {job.status === "CANDIDATE" ? <button className="btn btn-quiet" type="button" disabled={disabled || busy} onClick={async () => { if (input) {
+        try { await write(choiceKey, JSON.stringify({ id: job.id, keepSource: true }), localStorage); setDismissed(job.id); onKeepSource(input); }
         catch { setError("This browser could not save the choice. Your generated image is still saved."); }
       } }}>Use original photo instead</button> : null}
     </> : null}
@@ -172,8 +187,8 @@ export function ShotKeyframePanel({ role, input, recoveryKey, selectedAssetId, d
       {busy ? "Working…" : `${job?.candidateUrl ? "Try another" : `Generate ${role === "start" ? "Start" : "End"} image`} · 1 credit`}
     </button>
     {job || error || unresolved ? <button type="button" className="btn btn-quiet" disabled={busy} onClick={() => refresh(undefined, true).then(() => setError("")).catch(e => setError(e.message))}>Refresh status</button> : null}
-    {matching.length ? <details className={styles.details}><summary>Saved images</summary>{matching.map(item => <button key={item.id} type="button" disabled={busy} onClick={() => {
-      try { localStorage.setItem(choiceKey, JSON.stringify({ id: item.id })); setSelected(item.id); setDismissed(undefined); setLoaded({}); setFailed(null); }
+    {matching.length ? <details className={styles.details}><summary>Saved images</summary>{matching.map(item => <button key={item.id} type="button" disabled={busy} onClick={async () => {
+      try { await write(choiceKey, JSON.stringify({ id: item.id }), localStorage); setSelected(item.id); setDismissed(undefined); setLoaded({}); setFailed(null); }
       catch { setError("This browser could not save the frame choice."); }
     }}>Image {matching.length - matching.indexOf(item)} · {item.status.toLowerCase()}</button>)}</details> : null}
     {error ? <p className="error small" role="alert">{error}</p> : null}

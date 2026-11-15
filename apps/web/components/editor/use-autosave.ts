@@ -20,7 +20,9 @@ export function useAutosave(reelId: string, initialRevision: number, timeline: T
   const blocked = useRef(false);
   const flushRef = useRef<() => Promise<boolean>>(async () => false);
 
-  const flush = useCallback(async (): Promise<boolean> => {
+  const flush = useCallback(async (pendingTimeline?: Timeline): Promise<boolean> => {
+    // Durable request identities are dispatched synchronously, before React effects run.
+    if (pendingTimeline) latest.current = { ...latest.current, timeline: pendingTimeline };
     clearTimeout(timer.current);
     while (inFlight.current) await inFlight.current;
     if (blocked.current) return false;

@@ -8,13 +8,15 @@ import { AI_DRAFT_NO_END_FRAME, CHAINED_REFERENCE_MESSAGE, queuePosition, type P
 
 export const runtime = "nodejs";
 
-export async function GET() {
+export async function GET(request?: Request) {
   const user = await getSessionUser();
   if (!user) return Response.json({ error: "Sign in to use AI video." }, { status: 401 });
+  const requestId = request ? new URL(request.url).searchParams.get("requestId") : null;
+  if (requestId && requestId.length > 128) return Response.json({ error: "Invalid request ID." }, { status: 400 });
   const now = new Date();
   const [balance, jobs, queue] = await Promise.all([
     getAiBalance(user.workspaceId),
-    prisma.aiGeneration.findMany({ where: { workspaceId: user.workspaceId }, orderBy: { createdAt: "desc" }, take: 20 }),
+    prisma.aiGeneration.findMany({ where: { workspaceId: user.workspaceId, ...(requestId ? { requestId } : {}) }, orderBy: { createdAt: "desc" }, take: 20 }),
     // The take queue (ADR 0069): every waiting or composing take and the hour's Veo submissions, for each take's place in line.
     prisma.aiGeneration.findMany({ where: { workspaceId: user.workspaceId, OR: [{ status: { in: ["QUEUED", "SUBMITTING"] } }, { submitStartedAt: { gt: new Date(now.getTime() - 3600_000) } }] },
       select: { id: true, status: true, createdAt: true, submitStartedAt: true, leaseUntil: true } }),
@@ -33,7 +35,7 @@ export async function GET() {
     const asset = j.assetId ? library.get(j.assetId) ?? null : null;
     const gate = gateSummary(j.identityChecks);
     return {
-      id: j.id, prompt: j.prompt, status: j.status, error: j.error, shot: j.shot,
+      id: j.id, requestId: j.requestId, prompt: j.prompt, status: j.status, error: j.error, shot: j.shot,
       referenceDepth: j.referenceDepth, identityScore: j.identityScore, failureCode: j.failureCode,
       // The identity gate's measured face and the framing it was composed at (ADR 0069), from the accepted still.
       faceHeightPx: gate.faceHeightPx, framing: gate.framing,

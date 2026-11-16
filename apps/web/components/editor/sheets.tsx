@@ -1012,7 +1012,7 @@ export function TextSheet({
       <div className="text-style-preview" aria-hidden="true">
         <span style={{ ...previewCss, zoom: 0.32 }}>{draft.text || "Your text"}</span>
       </div>
-      <PhysicalTextPanel draft={draft} onChange={physical3d => setDraft({ ...draft, physical3d, ...(physical3d ? { animation: "none", font: "sans", brand: undefined, lockup: undefined, path: undefined, behind: undefined, depth: undefined, blend: undefined, callout: undefined, kinetic: undefined, shine: undefined, particles: undefined } : {}) })}/>
+      <PhysicalTextPanel draft={draft} onChange={physical3d => setDraft({ ...draft, physical3d, ...(physical3d ? { style: "plain", animation: "none", font: "sans", brand: undefined, lockup: undefined, path: undefined, behind: undefined, depth: undefined, blend: undefined, callout: undefined, kinetic: undefined, shine: undefined, particles: undefined } : {}) })}/>
       {!draft.physical3d ? <>
       <Segmented
         label="Style"

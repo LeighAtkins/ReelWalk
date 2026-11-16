@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs";
 import ts from "typescript";
 import { expect, it, vi } from "vitest";
-import { emptyTimeline, insertShotCard, shotCards, updateShotCard } from "@reelwalk/core";
+import { emptyTimeline, insertShotCard, shotCards, updateShotCard, keepSavedTextFields, parseTimeline, physicalTextSchema, textSchema, clipSchema } from "@reelwalk/core";
+import { physicalTextEdit } from "./physical-text-edit";
 import { createDocumentStore } from "./document-store";
 const source = ts.createSourceFile("autosave.ts", readFileSync(new URL("./use-autosave.ts", import.meta.url), "utf8"), ts.ScriptTarget.Latest, true);
 let body = "";
@@ -17,6 +18,39 @@ it.each([true, false])("flushes the dispatched request snapshot before React eff
   expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({ revision: 5, timeline: current, title: "Property" });
   expect(env.blocked.current).toBe(!ok);
   expect(env.setTimeout).not.toHaveBeenCalled();
+});
+
+it("autosave explicitly clears saved bindings across JSON, merge and reload when converting to solid text", async () => {
+  const clip = clipSchema.parse({ id: "clip", assetId: "house", kind: "IMAGE", sourceStartMs: 0, sourceEndMs: 8000 });
+  const oldText = textSchema.parse({ id: "text", text: "Pool", startMs: 0, endMs: 4000,
+    pin: { assetId: "house", fromMs: 0, toMs: 4000 }, surface: [0,0,1,0,1,1,0,1], shine: { preset: "golden" } });
+  const old = { timeline: { ...emptyTimeline(), clips: [clip], texts: [oldText] }, title: "Property" };
+  // Omitted keys and explicit undefined both disappear during normal JSON storage.
+  const current = JSON.parse(JSON.stringify(parseTimeline({ ...old.timeline, texts: [{ ...oldText, physical3d: physicalTextSchema.parse({}), ...physicalTextEdit(old.timeline, 0, oldText) }] })));
+  let reopened = old.timeline;
+  const fetch = vi.fn(async (_url: string, init: RequestInit) => {
+    const body = JSON.parse(String(init.body));
+    expect(body.timeline.texts[0]).toMatchObject({ pin: null, surface: null, shine: null });
+    reopened = parseTimeline(keepSavedTextFields(body.timeline, reopened));
+    return Response.json({ ok: true, revision: 6 });
+  });
+  const env = { latest: { current: old }, saved: { current: old }, inFlight: { current: null }, blocked: { current: false }, revision: { current: 5 }, timer: { current: undefined },
+    setStatus: vi.fn(), setMessage: vi.fn(), fetch, reelId: "reel", clearTimeout: vi.fn(), setTimeout: vi.fn(), flushRef: { current: vi.fn() } };
+  const flush = new Function(...Object.keys(env), `${code};return flush;`)(...Object.values(env));
+  expect(await flush(current)).toBe(true);
+  expect(reopened.texts[0].physical3d).toEqual(physicalTextSchema.parse({}));
+  expect(reopened.texts[0].pin).toBeUndefined();
+  expect(reopened.texts[0].surface).toBeUndefined();
+  expect(reopened.texts[0].shine).toBeUndefined();
+  const flat = parseTimeline({ ...reopened, texts: [{ ...reopened.texts[0], physical3d: undefined }] });
+  fetch.mockImplementationOnce(async (_url, init) => {
+    const body = JSON.parse(String(init.body));
+    expect(body.timeline.texts[0].physical3d).toBeNull();
+    reopened = parseTimeline(keepSavedTextFields(body.timeline, reopened));
+    return Response.json({ ok: true, revision: 7 });
+  });
+  expect(await flush(flat)).toBe(true);
+  expect(reopened.texts[0].physical3d).toBeUndefined();
 });
 
 it("keeps cards in the existing document undo/redo history", async () => {

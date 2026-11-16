@@ -17,6 +17,8 @@ const PUBLIC_PATHS = [
   /^\/forgot$/,
   /^\/reset\/[^/]+$/,
   /^\/r\/[^/]+$/,
+  // Client reviews authorize the exact version using the bearer token, not an owner session.
+  /^\/campaign-review\/[^/]+$/,
   /^\/(privacy|terms|data-deletion|guide|connect)$/,
   // The MCP connector (ADR 0077): bearer-token endpoints and discovery documents, which are not browser pages.
   // /oauth/authorize is not listed: it is a page and sends a signed-out person to the login.

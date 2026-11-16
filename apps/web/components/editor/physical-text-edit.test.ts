@@ -20,3 +20,10 @@ it("conversion removes incompatible bindings but subsequent edits preserve inten
 it("refuses a title without a containing shot", () => {
   expect(() => physicalTextEdit(timelineSchema.parse({ version: 1, music: null, clips: [], texts: [] }), 0)).toThrow("Add a shot");
 });
+
+it("converts a location title to ordinary style so the solid renderer receives it", () => {
+  const old = textSchema.parse({ id: "place", text: "By the pool", style: "location", startMs: 0, endMs: 4000 });
+  const converted = textSchema.parse({ ...old, physical3d: physicalTextSchema.parse({}), ...physicalTextEdit(timeline, 0, old) });
+  expect(converted.style).toBe("plain");
+  expect(converted.physical3d).toBeDefined();
+});

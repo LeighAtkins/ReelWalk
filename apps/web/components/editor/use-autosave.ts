@@ -33,10 +33,18 @@ export function useAutosave(reelId: string, initialRevision: number, timeline: T
     let ok = false;
     inFlight.current = (async () => {
       try {
+        // The save API preserves omitted text fields for partial agent edits.
+        // This editor sends full snapshots: removals need explicit nulls on the wire.
+        const previousTexts = new Map(saved.current.timeline.texts.map(text => [text.id, text]));
+        const texts = next.timeline.texts.map(text => {
+          const removed = Object.keys(previousTexts.get(text.id) ?? {})
+            .filter(key => text[key as keyof typeof text] === undefined).map(key => [key, null]);
+          return { ...text, ...Object.fromEntries(removed) };
+        });
         const response = await fetch(`/api/reels/${encodeURIComponent(reelId)}/save`, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ revision: revision.current, timeline: next.timeline, title: next.title }),
+          body: JSON.stringify({ revision: revision.current, timeline: { ...next.timeline, texts }, title: next.title }),
         });
         if (response.status === 401) {
           blocked.current = true;

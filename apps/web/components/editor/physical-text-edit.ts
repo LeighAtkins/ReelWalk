@@ -9,7 +9,7 @@ export function physicalTextEdit(timeline: Timeline, atMs: number, previous?: Te
     pin: undefined, surface: undefined, bars: undefined, cutouts: undefined, occluders: undefined,
     path: undefined, fill: undefined, behind: undefined, callout: undefined, kinetic: undefined,
     shine: undefined, particles: undefined, brand: undefined, lockup: undefined,
-    animation: "none",
+    animation: "none", style: "plain",
     ...(!previous?.physical3d ? { startMs, endMs: startMs + clipDurationMs(timeline.clips[location.index]) } : {}),
   };
 }

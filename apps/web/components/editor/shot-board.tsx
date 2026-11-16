@@ -40,7 +40,7 @@ export function ShotBoard({ timeline, library, onChange, onPrepare, onAsset, onU
           <article className={styles.card} onContextMenu={event => { event.preventDefault(); event.currentTarget.querySelector<HTMLButtonElement>("button[aria-expanded]")?.focus({ preventScroll: true }); setMenu(card.id); }}
             onDragOver={event => event.preventDefault()} onDrop={event => { event.preventDefault(); if (!clip) void upload(card.id, event.dataTransfer.files[0]); }}>
             <h3>Shot {index + 1} - {clip ? "Ready" : card.sourceAssetId ? "Prepare frames" : "Empty"}</h3>
-            {asset ? clip?.kind === "VIDEO" ? <video src={asset.url} controls playsInline preload="metadata" aria-label={`Shot ${index + 1} video`} /> : <img src={asset.url} alt={`Shot ${index + 1} source`} /> : <div className={styles.empty}>Drop your property photo here</div>}
+            {asset ? clip?.kind === "VIDEO" ? <video src={asset.url} poster={asset.thumbUrl ?? undefined} controls playsInline preload="metadata" aria-label={`Shot ${index + 1} video`} /> : <img src={asset.url} alt={`Shot ${index + 1} source`} /> : <div className={styles.empty}>Drop your property photo here</div>}
             {!clip ? <><label className={styles.upload}>Upload / replace photo<input type="file" accept="image/jpeg,image/png" disabled={!!uploading} onChange={event => { void upload(card.id, event.target.files?.[0]); event.target.value = ""; }} /></label>
               <button type="button" disabled={uploading === card.id} onClick={() => onPrepare(card.id)}>Prepare Start / End, then Video</button>
               </> : null}

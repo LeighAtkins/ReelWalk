@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { nanoCinematographyPrompt, shotCinematographySchema, videoCinematographyPrompt } from "./shot-cinematography";
+import { furnitureStagePrompt, furnitureStageSchema } from "./furniture-stage";
 
 export const CAMERA_KEYFRAME_MODEL = "gemini-3-pro-image";
 export const CAMERA_KEYFRAME_HOLD_CENTS = 100;
@@ -19,12 +20,14 @@ export const cameraKeyframeGenerateSchema = z.object({
   distanceM: z.number().min(0.5).max(CAMERA_KEYFRAME_MAX_DISTANCE_M), durationSeconds: z.union([z.literal(4), z.literal(8)]),
   prompt: z.string().trim().max(600).optional(),
   cinematography: shotCinematographySchema.optional(),
+  furnitureStage: furnitureStageSchema.optional(),
   guidedPair: z.object({ version: z.literal(1), id: z.string().uuid(), endRequestId: z.string().uuid() }).strict().optional(),
 }).strict();
 export type CameraKeyframeGenerateInput = z.infer<typeof cameraKeyframeGenerateSchema>;
 export type CameraKeyframeInput = Omit<CameraKeyframeGenerateInput, "action" | "requestId">;
 /** Cross-field checks stay separate so legacy callers can still omit/strip the object schema. */
 export function guidedKeyframeError(input: CameraKeyframeInput, requestId: string): string | null {
+  if (input.furnitureStage && (input.guidedPair || input.continuity || input.role !== "end")) return "A furniture concept uses one original photo and one image request, without a camera pair.";
   if (!input.guidedPair) return null;
   if (input.role !== "start") return "A guided pair must begin with a Start image.";
   if (input.guidedPair.endRequestId === requestId) return "Start and End must use distinct saved request identifiers.";
@@ -51,9 +54,10 @@ const direction: Record<CameraKeyframeMove, string> = {
 };
 export function cameraKeyframeVideoPrompt(input: CameraKeyframeInput, hasEnd = true): string {
   const legacy = `One continuous smooth camera move from the supplied Start frame${hasEnd ? " to the supplied End frame" : ""}: ${direction[input.move]}, approximately ${input.distanceM} metres over ${input.durationSeconds} seconds. Distance is approximate creative intent, not surveyed geometry. Preserve the source property's architecture, proportions, materials and objects. Preserve lighting unless explicitly requested otherwise below. Natural photographic finish; no extra edge enhancement. No morphing, teleporting, cuts or invented buildings. ${input.prompt ?? ""}`.trim();
-  return input.cinematography ? `${legacy} ${videoCinematographyPrompt(input.cinematography)}` : legacy;
+  return input.cinematography ? `${legacy} ${videoCinematographyPrompt(input.cinematography, hasEnd)}` : legacy;
 }
 export function cameraKeyframePrompt(input: CameraKeyframeInput): string {
+  if (input.furnitureStage) return furnitureStagePrompt(input.furnitureStage);
   return [
     input.cinematography ? "Create one photorealistic portrait 9:16 architectural video keyframe from image 1, the full reference photograph. Compose the portrait view from its visible architecture rather than assuming the reference was already cropped." : "Create one photorealistic portrait 9:16 architectural video keyframe from image 1, the source view.",
     input.role === "start" ? input.cinematography ? "This is the starting view: retain the source camera position and property identity. Prepare a coherent portrait composition for the planned camera move below." : "This is the starting view: retain the source camera position and framing. Prepare the image for the planned camera move below." : "This is the ending view after the planned camera move below.",

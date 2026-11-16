@@ -4,7 +4,7 @@ import { KINETIC_PRESET, nearestBeatMs, beatPeriodMs, REEL_FORMAT, SHINE_PRESET,
  * The text sheet's motion choices (ADR 0061) on a draft: one Motion row (none, shine or kinetic), a preset under it,
  * and when it starts. Pure, so the sheet's rules are tested without a DOM.
  */
-type Draft = Pick<TextOverlay, "shine" | "kinetic" | "callout" | "style" | "size" | "animation" | "blend">;
+type Draft = Pick<TextOverlay, "shine" | "kinetic" | "callout" | "style" | "size" | "animation" | "blend" | "physical3d">;
 
 export type MotionMode = "none" | "shine" | "kinetic";
 
@@ -48,5 +48,5 @@ export function beatForMotion(draft: Pick<Draft, "shine" | "kinetic">, title: { 
 /** A callout's starting look: a small white label (the box style), arriving with its own line. The point is placed by the editor. */
 export function asCallout<T extends Draft>(draft: T): T {
   // Not painted on a surface: a label is read on top of the picture (and the surface blend would override its fade).
-  return { ...draft, callout: draft.callout ?? { x: 0.4, y: 0.64 }, style: "box", size: 0.6, animation: "auto", blend: undefined };
+  return { ...draft, callout: draft.callout ?? { x: 0.4, y: 0.64 }, style: "box", size: 0.6, animation: "auto", blend: undefined, physical3d: undefined };
 }

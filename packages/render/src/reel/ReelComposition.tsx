@@ -1,3 +1,4 @@
+import { PhysicalTitle } from "./PhysicalTitle";
 import React from "react";
 import {
   AbsoluteFill,
@@ -457,7 +458,12 @@ function useFillImage(src: string | undefined): void {
   }, [src, handle]);
 }
 
-const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline: Timeline; from: number; assets: Record<string, ReelAsset> }> = ({ text, durationInFrames, timeline, from, assets }) => {
+const TextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline: Timeline; from: number; assets: Record<string, ReelAsset> }> = (props) => {
+  const frame = useCurrentFrame(); const {fps,width,height} = useVideoConfig();
+  return props.text.physical3d ? <PhysicalTitle text={props.text} elapsedMs={frame*1000/fps} width={width} height={height}/> : <LegacyTextView {...props}/>;
+};
+
+const LegacyTextView: React.FC<{ text: TextOverlay; durationInFrames: number; timeline: Timeline; from: number; assets: Record<string, ReelAsset> }> = ({ text, durationInFrames, timeline, from, assets }) => {
   const frame = useCurrentFrame();
   const { fps, width, height } = useVideoConfig();
   const css = textTreatmentCss(text);

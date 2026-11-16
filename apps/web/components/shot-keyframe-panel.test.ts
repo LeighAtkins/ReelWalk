@@ -21,7 +21,7 @@ if (!generateSource) throw Error("Keyframe generation handler missing");
 const code = ts.transpileModule(storageSource + generateSource, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
 function handler(pending: unknown, current: CameraKeyframeInput, fetch: ReturnType<typeof vi.fn>, session: Map<string, string>, onRecovery?: (key: string, value: string) => Promise<boolean>) {
   const environment = { onRecovery, input: current, pending, savedKeyframeInput, keyframeInputKey, locked: { current: false }, disabled: false, historyReady: true,
-    state: { enabled: true, balanceRemaining: 2 }, unresolved: !!pending, job: undefined, storageKey: "saved", choiceKey: "choice", crypto: { randomUUID: () => "original-uuid" },
+    state: { enabled: true, balanceRemaining: 2 }, unresolved: !!pending, job: undefined, blockingJob: undefined, storageKey: "saved", choiceKey: "choice", crypto: { randomUUID: () => "original-uuid" },
     sessionStorage: { setItem: (key: string, value: string) => session.set(key, value), removeItem: (key: string) => session.delete(key) },
     localStorage: { setItem: vi.fn() }, fetch, mounted: { current: true }, currentScope: { current: "saved" }, refresh: vi.fn(),
     setBusy: vi.fn(), setError: vi.fn(), setDismissed: vi.fn(), setFailed: vi.fn(), setLoaded: vi.fn(), setPending: vi.fn(), setSelected: vi.fn(), setState: vi.fn() };
@@ -91,7 +91,7 @@ it("refuses image approval after a failed comparison preview, without generating
   const loaded: Record<string, boolean> = {};
   let failed: string | null = null;
   const key = "comparison", fetch = vi.fn();
-  const env = { React: { createElement }, candidateKey: key, visibleKey: { current: key }, styles: { keyframeImage: "image" }, role: "end",
+  const env = { React: { createElement }, candidateKey: key, visibleKey: { current: key }, styles: { keyframeImage: "image" }, role: "end", title: "End",
     setLoaded: (value: Record<string, boolean> | ((old: Record<string, boolean>) => Record<string, boolean>)) => { const next = typeof value === "function" ? value(loaded) : value; for (const k of Object.keys(loaded)) delete loaded[k]; Object.assign(loaded, next); },
     setFailed: (value: string) => { failed = value; } };
   const imageCode = ts.transpileModule(`const image = ${imageSource};`, { compilerOptions: { target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React } }).outputText;
@@ -103,5 +103,26 @@ it("refuses image approval after a failed comparison preview, without generating
   candidate.props.onError(); expect(ready()).toBe(false);
   const useCode = ts.transpileModule(useSource, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
   await new Function("job", "input", "ready", "fetch", `${useCode};return use;`)(job, input, ready(), fetch)();
+  expect(fetch).not.toHaveBeenCalled();
+});
+
+it("keeps legacy input recovery keys stable when optional recipe/staging fields are absent", () => {
+  expect(keyframeInputKey(input)).toBe(JSON.stringify(["end", "original", 0, "start", 0, "shift-right", 3, 4, null]));
+  expect(keyframeMatches({ input: { ...input, cinematography: { version: 1, lensMm: "source", whiteBalanceKelvin: "source" } } }, input)).toBe(false);
+});
+it("refuses a new concept request while its saved slot still has an unknown provider outcome", async () => {
+  const fetch = vi.fn(), session = new Map<string, string>();
+  const environment = { input, pending: undefined, savedKeyframeInput, keyframeInputKey, locked: { current: false }, disabled: false, historyReady: true,
+    state: { enabled: true, balanceRemaining: 2 }, unresolved: false, job: undefined, blockingJob: { status: "UNKNOWN" }, running: (job: { status: string }) => job.status === "UNKNOWN" };
+  const handlerCode = ts.transpileModule(generateSource, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+  await new Function(...Object.keys(environment), "fetch", `${handlerCode};return generate();`)(...Object.values(environment), fetch);
+  expect(fetch).not.toHaveBeenCalled(); expect(session.size).toBe(0);
+});
+it("requires the furniture architecture acknowledgment before importing a candidate as Start", async () => {
+  let useSource = "";
+  const find = (node: ts.Node) => { if (ts.isFunctionDeclaration(node) && node.name?.text === "use") useSource = node.getText(source); ts.forEachChild(node, find); }; find(source);
+  const fetch = vi.fn();
+  const handlerCode = ts.transpileModule(useSource, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+  await new Function("job", "input", "ready", "manualApproved", "fetch", `${handlerCode};return use();`)(job, input, true, false, fetch);
   expect(fetch).not.toHaveBeenCalled();
 });

@@ -61,7 +61,7 @@ export async function generateKeyframe(actor: Actor, value: CameraKeyframeGenera
   const storageError = await storageBlockedReason(actor.workspaceId, 40 * 1024 * 1024, "A generated image");
   if (storageError) throw new KeyframeError(storageError);
   const prefix = `private/keyframes/${actor.workspaceId}/${requestId}`;
-  const source = await prepareSource(actor, input.source.assetId, prefix, !!input.cinematography);
+  const source = await prepareSource(actor, input.source.assetId, prefix, !!input.cinematography && !input.furnitureStage);
   if (options.expectedSource && (source.snapshot.objectKey !== options.expectedSource.objectKey || source.snapshot.originalHash !== options.expectedSource.originalHash)) throw new KeyframeError("The original pair reference changed.");
   const continuity = input.continuity ? await prepareSource(actor, input.continuity.assetId, prefix, !!input.cinematography) : null;
   if (options.expectedContinuity && (continuity?.snapshot.objectKey !== options.expectedContinuity.objectKey || continuity?.snapshot.originalHash !== options.expectedContinuity.originalHash)) throw new KeyframeError("The retained Start reference changed.");
@@ -101,8 +101,8 @@ export async function useKeyframe(actor: Actor, id: string) {
     if (keyframeHash(bytes) !== row.candidateHash) throw new KeyframeError("Candidate pixels changed. The image cannot be used.");
     const input = row.input as unknown as CameraKeyframeInput;
     const asset = await tx.mediaAsset.create({ data: { workspaceId: actor.workspaceId, kind: "IMAGE", objectKey: row.candidateKey, thumbKey: row.candidateKey, previewKey: row.candidateKey,
-      contentType: "image/jpeg", fileName: `AI ${input.role} frame ${row.id}.jpg`, sizeBytes: BigInt(bytes.length), width: 1080, height: 1920,
-      attribution: `AI-generated concept keyframe; ${CAMERA_KEYFRAME_MODEL}; source ${input.source.assetId}; job ${row.id}; SHA256 ${row.candidateHash}; approximate camera intent, not surveyed geometry`, shared: false } });
+      contentType: "image/jpeg", fileName: input.furnitureStage ? `AI furniture concept ${row.id}.jpg` : `AI ${input.role} frame ${row.id}.jpg`, sizeBytes: BigInt(bytes.length), width: 1080, height: 1920,
+      attribution: `${input.furnitureStage ? "AI-generated virtual furnishing concept, not the current property's furnishings; protected source outside selected edit area" : "AI-generated concept keyframe"}; ${CAMERA_KEYFRAME_MODEL}; source ${input.source.assetId}; job ${row.id}; SHA256 ${row.candidateHash}; approximate camera intent, not surveyed geometry`, shared: false } });
     return tx.aiKeyframe.update({ where: { id }, data: { status: "USED", assetId: asset.id } });
   }, { timeout: 30_000 });
   const view = await keyframeView(job);

@@ -7,6 +7,7 @@ import { calloutAnchorAt, compositionScale, emptyTimeline, INSTAGRAM, mapPoints,
 import { ReelComposition, reelDurationInFrames, textTreatmentCss, type ReelAsset } from "@reelwalk/render/reel";
 import { timelineFrames } from "./frame-service";
 import { pinnedLineFit } from "./title-metrics";
+import { physicalTextPlacement } from "@reelwalk/core";
 import { PlayIcon } from "../icons";
 import { useClock, type Clock } from "./clock";
 import { InspectMode, type InspectSource } from "./inspect";
@@ -425,7 +426,16 @@ function CheckStrip({ clock, marks, onSeek }: { clock: Clock; marks: { label: st
 }
 
 /** An invisible copy of the text at preview scale, which gives a box the text's exact size. */
-function Ghost({ text, scale }: { text: TextOverlay; scale: number }) {
+function previewTextPosition(text: TextOverlay, now: number) {
+  if (!text.physical3d) return textPositionAt(text, (now - text.startMs) / (text.endMs - text.startMs));
+  const { bounds } = physicalTextPlacement(text.size, text.physical3d, text.x, text.y, now - text.startMs);
+  return { x: (bounds.left + bounds.right) / 2 / REEL_FORMAT.width, y: (bounds.top + bounds.bottom) / 2 / REEL_FORMAT.height };
+}
+function Ghost({ text, scale, now = text.startMs }: { text: TextOverlay; scale: number; now?: number }) {
+  if (text.physical3d) {
+    const { bounds } = physicalTextPlacement(text.size, text.physical3d, text.x, text.y, now - text.startMs);
+    return <span style={{ display: "block", width: (bounds.right - bounds.left) * scale, height: (bounds.bottom - bounds.top) * scale, pointerEvents: "none" }} />;
+  }
   const css = textTreatmentCss(text);
   return (
     // As wide as the words, up to the width the reel wraps text at, so the box hugs the text.
@@ -461,7 +471,9 @@ function TextHandle({
 }) {
   const grab = useRef<{ dx: number; dy: number; gesture: string } | null>(null);
   const now = useClock(clock);
-  const position = textPositionAt(text, (now - text.startMs) / (text.endMs - text.startMs));
+  const position = previewTextPosition(text, now);
+  const physical = text.physical3d ? physicalTextPlacement(text.size, text.physical3d, text.x, text.y, now - text.startMs) : null;
+  const origin = physical ? { x: .5 + physical.x / REEL_FORMAT.width, y: .5 - physical.y / REEL_FORMAT.height } : { x: text.x, y: text.y };
   return (
     <button
       type="button"
@@ -473,8 +485,8 @@ function TextHandle({
         if (event.button !== 0 || !frame.current) return;
         const [x, y] = pointerToComposition(frame.current, event.clientX, event.clientY);
         grab.current = {
-          dx: x - text.x,
-          dy: y - text.y,
+          dx: x - origin.x,
+          dy: y - origin.y,
           gesture: `drag:move-${text.id}:${Date.now()}`,
         };
         event.currentTarget.setPointerCapture(event.pointerId);
@@ -503,10 +515,10 @@ function TextHandle({
         const move = moves[event.key];
         if (!move) return;
         event.preventDefault();
-        onMove(clamp(text.x + move[0], 0.05, 0.95), clamp(text.y + move[1], 0.05, 0.95), `move-${text.id}`);
+        onMove(clamp(origin.x + move[0], 0.05, 0.95), clamp(origin.y + move[1], 0.05, 0.95), `move-${text.id}`);
       }}
     >
-      <Ghost text={text} scale={scale} />
+      <Ghost text={text} scale={scale} now={now} />
       <span
         className="text-resize"
         aria-hidden="true"
@@ -581,11 +593,11 @@ function TextTargets({
             className="text-hit"
             aria-label={`Select text "${text.text}"`}
             data-testid="text-target"
-            style={{ left: `${textPositionAt(text, (now - text.startMs) / (text.endMs - text.startMs)).x * 100}%`, top: `${textPositionAt(text, (now - text.startMs) / (text.endMs - text.startMs)).y * 100}%` }}
+            style={{ left: `${previewTextPosition(text, now).x * 100}%`, top: `${previewTextPosition(text, now).y * 100}%` }}
             onClick={() => onSelect(text.id)}
             onDoubleClick={() => onEdit(text.id)}
           >
-            <Ghost text={text} scale={scale} />
+            <Ghost text={text} scale={scale} now={now} />
           </button>
         ))}
     </>

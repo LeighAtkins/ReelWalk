@@ -2,6 +2,7 @@
 import { shotCards, updateShotCard, placeShotTake, placeShotAsset, type ShotCard, type ShotFramePair } from "@reelwalk/core";
 import { activeEndRequestId } from "../guided-frame-pair";
 import { ShotBoard } from "./shot-board";
+import { physicalTextEdit } from "./physical-text-edit";
 import shotBoardStyles from "./shot-board.module.css";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -1012,8 +1013,19 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
 
   const saveText = useCallback(
     (draft: TextDraft) => {
+      if (draft.physical3d) {
+        if (!locate(timeline, sheet === "text-edit" && selectedText ? selectedText.startMs : clock.get())) {
+          showToast("Add a shot before placing physical text.", 4000);
+          return;
+        }
+        const otherPhysical = timeline.texts.filter(text => text.physical3d && !(sheet === "text-edit" && text.id === selectedText?.id)).length;
+        if (otherPhysical >= 4) {
+          showToast("A reel can have up to four physical 3D titles. Edit an existing one or use flat text.", 4000);
+          return;
+        }
+      }
       if (sheet === "text-edit" && selectedText) {
-        apply((current) => updateText(current, selectedText.id, draft));
+        apply((current) => updateText(current, selectedText.id, { ...draft, ...(draft.physical3d ? physicalTextEdit(current, clock.get(), selectedText) : {}) }));
       } else {
         // The direct edit path may not take a reel past the most texts it can have (it would then refuse every command).
         if (timeline.texts.length >= MAX_TEXTS) {
@@ -1028,7 +1040,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         const y = Math.min(elegant ? 0.7 : 0.62, (elegant ? 0.5 : 0.42) +textsAt(timeline, clock.get()).length * 0.1);
         const startMs = clock.get();
         // A callout's label sits right of centre with its point below-left of it (ADR 0061); the dot is then dragged onto the feature.
-        apply((current) => addText(current, draft.callout ? { ...draft, id, startMs, x: 0.62, y: 0.5, callout: { x: 0.4, y: 0.64 } } : { ...draft, id, startMs, x: 0.5, y }));
+        apply((current) => addText(current, draft.callout ? { ...draft, id, startMs, x: 0.62, y: 0.5, callout: { x: 0.4, y: 0.64 } } : { ...draft, id, startMs, x: 0.5, y, ...(draft.physical3d ? physicalTextEdit(current, startMs) : {}) }));
         setSelection({ kind: "text", id });
         if (draft.callout) showToast("Drag the blue dot onto the feature, then Pin it to follow it.", 4000);
         // Park just past the entry animation (pop or slow fade), so the paused preview shows the text fully.
@@ -1424,6 +1436,10 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
     hook: { icon: <SparkIcon />, onClick: () => setSheet("hook"), disabled: !hasClips, pressed: timeline.hook !== null || timeline.texts.some((t) => t.id.startsWith("hook-word-")) },
     details: { icon: <DetailsIcon />, onClick: () => setSheet("details") },
     caption: { icon: <CaptionIcon />, onClick: () => setSheet("caption") },
+    campaign: { icon: <DetailsIcon />, disabled: !hasClips, onClick: async () => {
+      if (!(await autosave.flush())) { showToast("Save this reel before making a campaign.", 4000); return; }
+      router.push(`/campaigns?source=${encodeURIComponent(reel.id)}`);
+    } },
     logo: { icon: <LogoIcon />, onClick: () => setSheet("logo"), disabled: !hasClips, pressed: timeline.logo !== null },
     board: { icon: <LogoIcon />, onClick: () => setSheet("board"), disabled: !hasClips, pressed: Boolean(timeline.board) },
     plan: { icon: <PlanIcon />, onClick: () => setSheet("plan") },

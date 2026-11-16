@@ -22,3 +22,16 @@ describe("shot choice recovery", () => {
     expect(shotBuilderDraftSchema.safeParse({ ...draft, distanceM: 100.1 }).success).toBe(false);
   });
 });
+
+it("round trips bounded camera sketch and Start-only review without changing legacy draft bytes", () => {
+  const choices = { ...draft, startOnly: true, reviewedStart: "exact-visible-choice", cameraSketch: { start: { x: -20, y: 20 }, end: { x: 20, y: 20 } } };
+  expect(shotBuilderDraftSchema.parse(JSON.parse(JSON.stringify(choices)))).toEqual(choices);
+  expect(shotBuilderDraftSchema.safeParse({ ...choices, cameraSketch: { start: { x: 51, y: 0 }, end: { x: 0, y: 0 } } }).success).toBe(false);
+});
+
+it("persists furniture source, bounded edit recipe and accepted concept provenance independently of camera movement", () => {
+  const furnitureStage = { version: 1, style: "warm-minimal", region: { x: .1, y: .4, width: .8, height: .5 }, instructions: "Cream sofa" };
+  const choices = { ...draft, furnitureSource: "asset:original", furnitureStage, furnitureSelection: { sourceAssetId: "original", assetId: "concept", inputKey: "exact-frozen-recipe" } };
+  expect(shotBuilderDraftSchema.parse(JSON.parse(JSON.stringify(choices)))).toEqual(choices);
+  expect(shotBuilderDraftSchema.safeParse({ ...choices, furnitureStage: { ...furnitureStage, region: { x: .9, y: 0, width: .3, height: 1 } } }).success).toBe(false);
+});

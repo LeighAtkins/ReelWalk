@@ -75,6 +75,14 @@ describe("what a tap reaches", () => {
     expect(callout).not.toContain("walk-through");
   });
 
+  it("physical titles expose placement controls without incompatible tracking or masking", () => {
+    const text = { ...reel().texts[0], physical3d: { depth: .14, tilt: -12, light: "left" as const, motion: true, shadow: .3 } };
+    const available = ids(["text"], context({ text }));
+    expect(available).toContain("text-edit");
+    expect(available).toContain("timing");
+    for (const id of ["pin", "particles", "walk-through"]) expect(available).not.toContain(id);
+  });
+
   it("an extension mounts on the thing it affects, only when it applies", () => {
     const motion: ControlSpec = { id: "motion-graphics", label: "Motion", targets: ["text"], order: 25, when: (c) => c.text?.id === "kitchen", owner: "W16" };
     const timeline = reel();

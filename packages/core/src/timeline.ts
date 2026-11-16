@@ -1,3 +1,4 @@
+import { physicalTextSchema, physicalTextProblem } from "./physical-text";
 import { shotBoardSchema } from "./shot-board";
 import { walkInto } from "./walk";
 import { NAMED_EFFECTS } from "./title-effects";
@@ -363,6 +364,8 @@ export const textSchema = z
      * is followed with the surface tracker (a small square around it) and the label travels with it.
      */
     callout: z.object({ x: z.number().min(-0.5).max(1.5), y: z.number().min(-0.5).max(1.5) }).optional(),
+    /** Opt-in actual letter meshes with an authored bounded shadow receiver. */
+    physical3d: physicalTextSchema.optional(),
     /** An extruded, 3D-looking title. */
     depth: z.enum(["flat", "extruded"]).optional(),
     /**
@@ -393,6 +396,8 @@ export const textSchema = z
     }))
       .min(2).max(64).refine(points => points[0].t === 0 && points.at(-1)!.t === 1 && points.every((p, i) => i === 0 || p.t > points[i - 1].t), "Motion path must run in order from 0 to 1").optional(),
   })
+  .refine((text) => !text.physical3d || !physicalTextProblem(text.text, text.size), { message: "Physical 3D needs short readable ASCII lines at this size (up to 80 characters and three lines)", path: ["text"] })
+  .refine((text) => !text.physical3d || !(text.pin || text.surface || text.path || text.behind || text.callout || text.kinetic || text.shine || text.particles || text.fill || text.brand || text.lockup), { message: "Physical 3D uses authored placement; remove pin, surface, motion effects, brand, fill or people masking first", path: ["physical3d"] })
   .refine((text) => text.endMs > text.startMs, { message: "Text must be on screen for a positive time" })
   .refine((text) => text.size >= minTextSize(text.style), { message: "Text is too small for this style", path: ["size"] })
   .refine((text) => text.size <= maxTextSize(text), { message: `Text is too large: only a lockup's keyword may pass size ${TEXT_SIZE_MAX}`, path: ["size"] });
@@ -636,7 +641,7 @@ export const MAX_TEXTS = 50;
 export const timelineSchema = z.object({
   version: z.literal(1),
   clips: z.array(clipSchema).max(100),
-  texts: z.array(textSchema).max(MAX_TEXTS),
+  texts: z.array(textSchema).max(MAX_TEXTS).refine(texts => texts.filter(text => text.physical3d).length <= 4, "Use at most four physical 3D titles per reel"),
   music: musicSchema.nullable(),
   /** Floor plan with a marker that follows the clips. Null when the reel has none. */
   plan: planOverlaySchema.nullable().default(null),

@@ -70,6 +70,7 @@ export const BUILT_IN_CONTROLS: readonly ControlSpec[] = [
   { id: "hook", label: "Hook", targets: ["reel"], order: 40, place: "more" },
   { id: "details", label: "Details", targets: ["reel"], order: 50, place: "more" },
   { id: "caption", label: "Caption", targets: ["reel"], order: 60, place: "more" },
+  { id: "campaign", label: "Listing campaign", targets: ["reel"], order: 65, place: "more" },
   { id: "logo", label: "Logo", targets: ["reel"], order: 70, place: "more" },
   // A board of panels side by side (ADR 0106).
   { id: "board", label: "Board", targets: ["reel"], order: 75, place: "more" },
@@ -106,9 +107,9 @@ export const BUILT_IN_CONTROLS: readonly ControlSpec[] = [
   // ── A title ──
   { id: "text-edit", label: "Edit", targets: ["text"], order: 10 },
   // A callout (ADR 0061) has neither: its label and leader line come in by themselves.
-  { id: "particles", label: "Particles", targets: ["text"], order: 20, when: (c) => !c.text?.callout },
-  { id: "walk-through", label: "Walk-through", targets: ["text"], order: 30, when: (c) => !c.text?.callout },
-  { id: "pin", label: "Pin", targets: ["text"], order: 40 },
+  { id: "particles", label: "Particles", targets: ["text"], order: 20, when: (c) => !c.text?.callout && !c.text?.physical3d },
+  { id: "walk-through", label: "Walk-through", targets: ["text"], order: 30, when: (c) => !c.text?.callout && !c.text?.physical3d },
+  { id: "pin", label: "Pin", targets: ["text"], order: 40, when: (c) => !c.text?.physical3d },
   { id: "timing", label: "Timing", targets: ["text"], order: 50 },
   { id: "hook", label: "Hook", targets: ["text"], order: 60, when: carriesHook },
   { id: "guides", label: "Guides", targets: ["text"], order: 70 },

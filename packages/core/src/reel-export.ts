@@ -43,7 +43,19 @@ export type ReelExportPayload = z.infer<typeof reelExportPayloadSchema>;
  * one that is current instead of failing it, which a retry on the same worker would only repeat.
  */
 export function reelExportPayloadReadable(value: unknown): boolean {
-  return reelExportPayloadSchema.safeParse(value).success;
+  const parsed = reelExportPayloadSchema.safeParse(value);
+  if (!parsed.success) return false;
+  // Object schemas strip unknown fields. A successful parse must not silently
+  // discard newer rendering instructions (for example solid text geometry).
+  function retained(input: unknown, output: unknown): boolean {
+    if (Array.isArray(input)) return Array.isArray(output) && input.length === output.length && input.every((item, index) => retained(item, output[index]));
+    if (input && typeof input === "object") {
+      if (!output || typeof output !== "object") return false;
+      return Object.entries(input).every(([key, item]) => item === undefined || Object.hasOwn(output, key) && retained(item, (output as Record<string, unknown>)[key]));
+    }
+    return true;
+  }
+  return retained(value, parsed.data);
 }
 
 export function parseReelExportPayload(value: unknown): ReelExportPayload {

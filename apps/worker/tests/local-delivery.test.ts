@@ -113,6 +113,21 @@ describe("a local worker older than the export (stale PC build)", () => {
 });
 
 describe("whether a build can read an export payload", () => {
+  it("hands off newer rendering fields that a successful schema parse would silently strip", async () => {
+    const { reelExportPayloadReadable } = await import("@reelwalk/core");
+    const payload = { timeline: { version: 1, clips: [], texts: [{ id: "t", text: "LIVE", startMs: 0, endMs: 1000, x: .5, y: .5, futureSolidGeometry: { depth: .18 } }], music: null }, assets: {} };
+    expect(reelExportPayloadReadable(payload)).toBe(false);
+    const d = deps({ readable: async () => reelExportPayloadReadable(payload) });
+    expect(await handleLocalDelivery(d, delivery())).toBe("handed-off");
+    expect(d.handle).not.toHaveBeenCalled(); expect(d.handOff).toHaveBeenCalled();
+  });
+  it("accepts understood physical text, legacy defaults and JSON key reordering", async () => {
+    const { reelExportPayloadReadable } = await import("@reelwalk/core");
+    const payload = { assets: {}, timeline: { music: null, texts: [{ text: "LIVE", id: "t", startMs: 0, endMs: 8000, x: .5, y: .5,
+      physical3d: { depth: .18, tilt: -10, light: "left", shadow: .3, motion: true } }], clips: [], version: 1 } };
+    expect(reelExportPayloadReadable(payload)).toBe(true);
+    expect(reelExportPayloadReadable({ ...payload, timeline: { ...payload.timeline, futureCameraPath: { x: 1 } } })).toBe(false);
+  });
   it("is false for a title effect this build does not know, true for one it does", async () => {
     const { reelExportPayloadReadable } = await import("@reelwalk/core");
     const payload = (animation: string) => ({

@@ -48,7 +48,7 @@ export function ModalPanel({ labelledBy, onClose, children }: { labelledBy: stri
  * picker. Escape, the backdrop, the close button or a drag down closes it;
  * a drag up opens it to full height.
  */
-export function Sheet({ title, onClose, children, size = "standard" }: { title: string; onClose(): void; children: ReactNode; size?: "standard" | "wide" }) {
+export function Sheet({ title, onClose, children, size = "standard" }: { title: string; onClose(): void; children: ReactNode; size?: "standard" | "wide" | "workspace" }) {
   const titleId = useId();
   const [expanded, setExpanded] = useState(false);
   const [pull, setPull] = useState<number | null>(null);

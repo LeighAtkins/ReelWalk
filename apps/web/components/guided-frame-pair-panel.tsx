@@ -32,13 +32,13 @@ export function framePairReceipt(pair: ShotFramePair, start?: Job, end?: Job): S
       : { ...(end ? { endJobId: end.id } : {}), ...(end?.asset ? { endAssetId: end.asset.id } : {}) }) };
 }
 
-export function GuidedFramePairPanel({ pair, input, disabled, reviewed, onSave, onReview, onAssets, onBalance, beforePrepare, onUseStart, endControls, inputValid = true }: {
+export function GuidedFramePairPanel({ pair, input, disabled, reviewed, onSave, onReview, onAssets, onBalance, beforePrepare, onUseStart, endControls, inputValid = true, compact = false }: {
   pair?: ShotFramePair; input: CameraKeyframeInput | null; disabled: boolean; reviewed: boolean;
   onSave(pair: ShotFramePair, expectedId?: string, expectedEndRequestId?: string): Promise<boolean>;
   onReview(start: LibraryAsset, end: LibraryAsset, pair: ShotFramePair): void;
   onAssets(assets: LibraryAsset[]): void; onBalance(remaining: number): void; beforePrepare?(): Promise<boolean>;
   onUseStart?(start: LibraryAsset): void;
-  endControls?: ReactNode; inputValid?: boolean;
+  endControls?: ReactNode; inputValid?: boolean; compact?: boolean;
 }) {
   const [jobs, setJobs] = useState<{ start?: Job; end?: Job }>({});
   const [admission, setAdmission] = useState<History>();
@@ -185,7 +185,7 @@ export function GuidedFramePairPanel({ pair, input, disabled, reviewed, onSave, 
   const sameSource = !!pair && input?.source.assetId === pair.sourceAssetId;
   const revisable = sameSource && canReviseEnd(pair, historyReady, jobs.start, jobs.end);
   const checkStatus = () => void refresh(true).catch(() => setConnectionError("Could not reconnect. Your images and requests are saved."));
-  return <section className={styles.pair} aria-label="Prepare both frames">
+  return <section className={`${styles.pair} ${compact ? styles.compact : ""}`} aria-label="Prepare both frames">
     <ol className={styles.steps} aria-label="Shot progress">
       <li data-ready={finished(jobs.start)}><span>1</span>Start {finished(jobs.start) ? "✓" : ""}</li>
       <li data-ready={finished(jobs.end)}><span>2</span>End {finished(jobs.end) ? "✓" : ""}</li>
@@ -193,8 +193,8 @@ export function GuidedFramePairPanel({ pair, input, disabled, reviewed, onSave, 
     </ol>
     {!pair ? <button className="btn btn-block" type="button" disabled={disabled || busy || !inputValid || !input || !admission?.enabled || admission.balanceRemaining < 2} onClick={() => void prepare()}>Prepare Start and End · 2 credits</button> : null}
     {connectionError ? <div className={styles.notice} role="alert"><p>{connectionError}</p><button className="btn" type="button" onClick={() => void refresh(false).catch(() => setConnectionError("Could not reconnect. Your requests are saved."))}>Retry status check</button></div> : null}
-    {jobs.start?.sourceUrl ? <figure><figcaption>Original reference ? compare architecture with both prepared frames</figcaption><img style={{ width: "100%", maxHeight: "24rem", objectFit: "contain" }} src={jobs.start.sourceUrl} alt="Original reference photograph" onLoad={() => setLoaded(old => ({ ...old, [sourceKey]: true }))} onError={() => { setLoaded(old => ({ ...old, [sourceKey]: false })); setManualReview(undefined); }} /></figure> : null}
-    <p className={styles.hint}>Manual property review: compare rooflines and supports, openings, tile grids, furniture and materials. Prepared images and AI video can change geometry. Check these anchors through the finished clip too.</p>
+    {jobs.start?.sourceUrl ? <details className={styles.original} open={!compact}><summary>Compare original photo</summary><img style={{ width: "100%", maxHeight: "24rem", objectFit: "contain" }} src={jobs.start.sourceUrl} alt="Original reference photograph" onLoad={() => setLoaded(old => ({ ...old, [sourceKey]: true }))} onError={() => { setLoaded(old => ({ ...old, [sourceKey]: false })); setManualReview(undefined); }} /><p className={styles.hint}>Compare rooflines, supports, openings, tile grids, furniture and materials. Check these through the finished clip too.</p></details> : null}
+    {pair ? <><p className={styles.hint}>Check the property stays the same in both frames.</p>
     <div className={styles.images}>
       {(["start", "end"] as const).map(role => {
         const job = jobs[role], title = role === "start" ? "Start" : "End", key = imageKeys[role];
@@ -221,16 +221,17 @@ export function GuidedFramePairPanel({ pair, input, disabled, reviewed, onSave, 
         </figure>;
       })}
     </div>
-    {pair && endControls ? <details ref={editor} className={styles.endEditor} open={endEditing} onToggle={event => setEndEditing(event.currentTarget.open)}>
+    </> : null}
+    {pair && endControls && (!compact || endEditing) ? <details ref={editor} className={styles.endEditor} open={endEditing} onToggle={event => setEndEditing(event.currentTarget.open)}>
       <summary>Adjust End · Start stays unchanged</summary>
       {endControls}
       <button className="btn btn-block" type="button" disabled={disabled || busy || !inputValid || !input || !admission?.enabled || admission.balanceRemaining < 1 || !revisable} onClick={() => void refineEnd()}>{busy ? "Saving request…" : "Generate End only · 1 credit"}</button>
     </details> : null}
     {previewError ? <p role="alert">A preview could not load. The result is saved. <button type="button" onClick={() => { setPreviewFailure(undefined); setLoaded({}); setImageAttempt(value => value + 1); void refresh(true).catch(() => setConnectionError("Could not refresh previews.")); }}>Reload previews</button></p> : null}
     {pair && !matches ? <p className={styles.hint} role="status">{sameSource ? "End settings changed. Start is kept; generate End only to apply them." : "Reference changed. Prepare new Start and End images for this photo."}</p> : null}
-    {onUseStart && sameSource && finished(jobs.start) ? <button className="btn btn-block" type="button" disabled={disabled || busy || !loaded[imageKeys.start] || !loaded[sourceKey]} onClick={() => void keepStart()}>Keep this Start only ? review before video</button> : null}
-    {bothReady && matches ? <label><input type="checkbox" checked={manualReview === reviewKey} disabled={disabled || busy || !previewsReady} onChange={event => setManualReview(event.target.checked ? reviewKey : undefined)} /> I compared the original, Start and End against these property anchors. This is my manual review.</label> : null}
+    {bothReady && matches ? <label><input type="checkbox" checked={manualReview === reviewKey} disabled={disabled || busy || !previewsReady} onChange={event => setManualReview(event.target.checked ? reviewKey : undefined)} /> I compared both frames with the original property.</label> : null}
     {bothReady && matches && !endEditing ? <button className="btn btn-block" type="button" disabled={disabled || busy || !inputValid || !previewsReady || manualReview !== reviewKey || reviewed} onClick={() => void review()}>{reviewed ? "Frames selected for video" : "Use these frames"}</button> : null}
+    {onUseStart && sameSource && finished(jobs.start) ? <details className={styles.reset}><summary>Use Start without an End frame</summary><p>Review Start before video. Any submitted End request keeps its existing cost.</p><button className="btn btn-quiet" type="button" disabled={disabled || busy || !loaded[imageKeys.start] || !loaded[sourceKey]} onClick={() => void keepStart()}>Keep this Start only</button></details> : null}
     {pair && historyReady && (!pair.endRevision || !!jobs.end) && (bothReady || jobs.start?.status === "FAILED" || jobs.end?.status === "FAILED" || !matches && finished(jobs.start) && !jobs.end && !!jobs.start?.continuationError) ? <details className={styles.reset}><summary>Replace Start and End</summary><p>Creates two new images. Your previous results stay saved.</p><button className="btn btn-quiet" type="button" disabled={disabled || busy || !inputValid || !input || !admission?.enabled || admission.balanceRemaining < 2 || active(jobs.start) || active(jobs.end)} onClick={() => void prepare()}>Prepare another pair · 2 credits</button></details> : null}
     {error ? <p className="error" role="alert">{error}</p> : null}
     {admission && !admission.enabled ? <p className={styles.hint} role="status">{admission.reason || "Image preparation is paused."}</p> : null}

@@ -39,13 +39,13 @@ export function ShotBoard({ timeline, library, onChange, onPrepare, onAsset, onU
           <button type="button" className={styles.insert} aria-label={`Insert shot before ${index + 1}`} title={`Insert shot before ${index + 1}`} onClick={() => add(card.id)}>+</button>
           <article className={styles.card} onContextMenu={event => { event.preventDefault(); event.currentTarget.querySelector<HTMLButtonElement>("button[aria-expanded]")?.focus({ preventScroll: true }); setMenu(card.id); }}
             onDragOver={event => event.preventDefault()} onDrop={event => { event.preventDefault(); if (!clip) void upload(card.id, event.dataTransfer.files[0]); }}>
-            <h3>Shot {index + 1} - {clip ? "Ready" : card.sourceAssetId ? "Prepare frames" : "Empty"}</h3>
+            <h3>Shot {index + 1} - {clip ? "Ready" : card.request ? "Checking status" : card.framePair ? (card.framePair.startAssetId && (card.framePair.endRevision ? card.framePair.endRevision.assetId : card.framePair.endAssetId) ? "Review frames" : "Checking status") : card.recovery && Object.keys(card.recovery).length ? "Checking status" : card.draft ? "Saved draft" : card.sourceAssetId ? "Prepare frames" : "Empty"}</h3>
             {asset ? clip?.kind === "VIDEO" ? <video src={asset.url} poster={asset.thumbUrl ?? undefined} controls playsInline preload="metadata" aria-label={`Shot ${index + 1} video`} /> : <img src={asset.url} alt={`Shot ${index + 1} source`} /> : <div className={styles.empty}>Drop your property photo here</div>}
             {!clip ? <><label className={styles.upload}>Upload / replace photo<input type="file" accept="image/jpeg,image/png" disabled={!!uploading} onChange={event => { void upload(card.id, event.target.files?.[0]); event.target.value = ""; }} /></label>
-              <button type="button" disabled={uploading === card.id} onClick={() => onPrepare(card.id)}>Prepare Start / End, then Video</button>
+              <button type="button" disabled={uploading === card.id} onClick={() => onPrepare(card.id)}>{card.request || card.framePair || card.recovery && Object.keys(card.recovery).length ? "Open saved shot" : card.draft ? "Continue shot" : "Prepare Start / End"}</button>
               </> : null}
             {uploading === card.id ? <p role="status">Uploading photo...</p> : null}
-            {card.request && !clip ? <p role="status">Saved video request. Open Prepare to check status; no automatic submission.</p> : null}
+            {card.request && !clip ? <p role="status">Saved video request. Open saved shot to check status.</p> : null}
             <button type="button" aria-expanded={menu === card.id} onClick={() => setMenu(menu === card.id ? undefined : card.id)}>Shot actions ...</button>
             {menu === card.id ? <div className={styles.actions}>
               <button type="button" onClick={() => setMenu(undefined)}>Close shot actions</button>

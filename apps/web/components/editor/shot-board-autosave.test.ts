@@ -8,6 +8,29 @@ const source = ts.createSourceFile("autosave.ts", readFileSync(new URL("./use-au
 let body = "";
 const find = (node: ts.Node) => { if (ts.isVariableDeclaration(node) && node.name.getText(source) === "flush" && node.initializer && ts.isCallExpression(node.initializer)) body = node.initializer.arguments[0].getText(source); ts.forEachChild(node, find); }; find(source);
 const code = ts.transpileModule(`const flush = ${body};`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+it.each(["wrapper", "timeline", "title"])("reports real pending changes when React replaces the %s during a request save", async change => {
+  const old = { timeline: emptyTimeline(), title: "Property" };
+  const next = { ...old, timeline: insertShotCard(old.timeline, "request-card") };
+  let finish!: (response: Response) => void;
+  const fetch = vi.fn().mockImplementationOnce(() => new Promise<Response>(resolve => { finish = resolve; }))
+    .mockResolvedValue(Response.json({ ok: true, revision: 7 }));
+  const env = { latest: { current: old }, saved: { current: old }, inFlight: { current: null }, blocked: { current: false }, revision: { current: 5 }, timer: { current: undefined },
+    setStatus: vi.fn(), setMessage: vi.fn(), fetch, reelId: "reel", clearTimeout: vi.fn(), setTimeout: vi.fn(), flushRef: { current: vi.fn() } };
+  const flush = new Function(...Object.keys(env), `${code};return flush;`)(...Object.values(env));
+  const pending = flush(next.timeline);
+  env.latest.current = { timeline: change === "timeline" ? insertShotCard(next.timeline, "later-card") : next.timeline,
+    title: change === "title" ? "Renamed property" : next.title };
+  finish(Response.json({ ok: true, revision: 6 }));
+  expect(await pending).toBe(true);
+  expect(fetch).toHaveBeenCalledTimes(change === "wrapper" ? 1 : 2);
+  expect(env.setStatus).toHaveBeenLastCalledWith("saved");
+  expect(env.setStatus.mock.calls.some(([status]) => status === "unsaved")).toBe(change !== "wrapper");
+  expect(env.saved.current).toEqual(env.latest.current);
+  env.setStatus.mockClear();
+  expect(await flush()).toBe(true);
+  expect(env.setStatus).toHaveBeenLastCalledWith("saved");
+  expect(fetch).toHaveBeenCalledTimes(change === "wrapper" ? 1 : 2);
+});
 it.each([true, false])("flushes the dispatched request snapshot before React effects, respecting save success=%s", async ok => {
   const old = { timeline: emptyTimeline(), title: "Property" }, current = insertShotCard(old.timeline, "request-card");
   const fetch = vi.fn().mockResolvedValue(Response.json(ok ? { ok: true, revision: 6 } : { ok: false, reason: "conflict", message: "Reload" }));

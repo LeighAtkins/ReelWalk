@@ -26,6 +26,22 @@
   width: min(100%, 72rem);
 }
 
+.bottomSheet[data-size="workspace"] {
+  width: min(100%, 72rem);
+  height: 100dvh;
+  max-height: 100dvh;
+  border-radius: 0;
+  align-content: start;
+}
+
+.bottomSheet[data-size="workspace"] :global(.sheet-handle) {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--ink-deep);
+  box-shadow: 0 -12px 0 var(--ink-deep);
+}
+
 .fullScreen {
   height: 100dvh;
   max-height: 100dvh;

@@ -51,3 +51,16 @@ it("can produce isolated before/after markup fixtures without provider or applic
   const globals = readFileSync(new URL("../../app/globals.css", import.meta.url), "utf8");
   for (const [name, markup] of [["before", legacy], ["after", board + legacy]]) writeFileSync(`${dir}/${name}.html`, `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${globals}\n${css}</style></head><body style="margin:0;background:#111;color:white;font-family:Arial"><h1>Isolated ${name} fixture</h1>${markup}</body></html>`);
 });
+
+it.each([
+  [{ draft: "{}" }, "Saved draft", "Continue shot"],
+  [{ request: { id: "saved", draft: "{}" } }, "Checking status", "Open saved shot"],
+  [{ recovery: { saved: "{}" } }, "Checking status", "Open saved shot"],
+])("shows saved context without pretending a pending request is empty", async (patch, label, action) => {
+  const { updateShotCard } = await import("@reelwalk/core");
+  const timeline = updateShotCard(insertShotCard(emptyTimeline(), "saved"), "saved", card => ({ ...card, ...patch }));
+  const html = renderToStaticMarkup(createElement(ShotBoard, { timeline, library: {}, onChange: vi.fn(), onPrepare: vi.fn(), onAsset: vi.fn() }));
+  expect(html).toContain(`Shot 1 - ${label}`);
+  expect(html).toContain(action);
+  expect(html).not.toContain("Shot 1 - Empty");
+});

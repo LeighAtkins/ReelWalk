@@ -351,6 +351,7 @@ export function AiVideoPanel({ card, onCardRecovery, onCardDraft, onCardRequest,
     finally { setBusy(false); }
   }
 
+  const FrameGuidance = card ? "details" : "section";
   const directionControls = <section className={styles.direction} aria-label="Shot direction">
     <h3 className={styles.sectionTitle}>{guided && card?.framePair ? "Adjust End" : "Describe your shot first"}</h3>
     <CameraSketchControl value={cameraSketch} disabled={busy || bridge || !!card?.request} onChange={sketch => {
@@ -375,26 +376,32 @@ export function AiVideoPanel({ card, onCardRecovery, onCardDraft, onCardRequest,
     </label>
   </section>;
 
-  return <div className={`ai-video-panel ${styles.workspace}`}>
+  return <div className={`ai-video-panel ${styles.workspace} ${card ? styles.shotWorkspace : ""}`}>
     <header className={styles.header}>
-      <p className={styles.intro}>{guided ? "One reference. Two prepared frames. Review them, then make your video." : "Choose the pictures, review your frames, then make the video."}</p>
+      {!card ? <p className={styles.intro}>{guided ? "One reference. Two prepared frames. Review them, then make your video." : "Choose the pictures, review your frames, then make the video."}</p> : null}
       <p className="ai-credit-count" role="status">{state ? `${state.balance.remaining} AI ${state.balance.remaining === 1 ? "credit" : "credits"} available` : "Loading your credits…"}</p>
     </header>
     {state && !state.enabled ? <p className="toast" role="status">AI video is being connected. Your credits are ready for when it opens.</p> : null}
     {recoveryError ? <p className="error small" role="status">{recoveryError}</p> : null}
+    {card && error ? <div role="alert"><p className="error small">{error}</p>{connectionError ? <button type="button" className="btn" onClick={() => void refresh().then(() => setError("")).catch(e => setError(e.message))}>Retry video status</button> : null}</div> : null}
     {mediaProgress ? <p role="status">{mediaProgress}</p> : null}
     <form onSubmit={generate} className={`ai-video-form ${styles.form}`}>
       <div className={styles.layout}>
-      <section className={styles.references} aria-label="Shot references">
-        {!guided ? <h3 className={styles.sectionTitle}>Choose your frames</h3> : null}
-        <div className={guided ? styles.singleReference : styles.referencePair}>{guided ? <details className={styles.compactReference} open={!startBase}>
-          <summary>{assetFor(source(startBase, true, firstMs))?.kind === "IMAGE" ? <img src={assetFor(source(startBase, true, firstMs))!.thumbUrl ?? assetFor(source(startBase, true, firstMs))!.url} alt="Reference thumbnail" /> : null}
+      <section className={styles.references} aria-label="Shot references" data-prepared={guided && !!card?.framePair || !!card?.request}>
+        {!guided && !card?.request ? <h3 className={styles.sectionTitle}>Choose your frames</h3> : null}
+        <div className={guided || card?.request ? styles.singleReference : styles.referencePair}>{guided || card?.request ? <details className={styles.compactReference} open={!startBase}>
+          <summary>{assetFor(source(startBase, true, firstMs))?.kind === "IMAGE" ? <img src={assetFor(source(startBase, true, firstMs))!.url} alt="Reference thumbnail" /> : null}
             <span>Reference photo<span className="muted small">{startBase ? "Change photo" : "Choose or upload a photo"}</span></span>
           </summary>{picker(false, true)}</details> : <>{picker(false)}{picker(true)}</>}</div>
         {guided && assetFor(source(startBase, true, 0))?.kind === "VIDEO" ? <p className={styles.hint}>Save this frame as a photo to prepare Start and End from your video’s original detail.</p> : null}
       </section>
-      {!(guided && card?.framePair) ? directionControls : null}
-      {!bridge && !card?.request ? <details className={styles.details} onToggle={event => {
+      {!card?.request && !(guided && card?.framePair) ? card ? <section className={styles.movement} aria-label="Movement">
+        <label className="field">Movement<select className="text-input" value={direction ?? "custom"} disabled={busy || bridge || !!card.request} onChange={e => { resetGeneratedFrames(); setCameraSketch(undefined); setDirection(e.target.value === "custom" ? null : e.target.value as CameraKeyframeMove); if (e.target.value === "custom") setWorkflow("manual"); else setMove(""); setMode("custom"); requestId.current = null; }}>
+          {CAMERA_KEYFRAME_MOVES.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}<option value="custom">Custom direction</option>
+        </select></label>
+        <details className={styles.details}><summary>Adjust movement {"\u00b7"} {seconds}s</summary>{directionControls}</details>
+      </section> : directionControls : null}
+      {!bridge && !card?.request ? <details className={`${styles.details} ${styles.secondary}`} onToggle={event => {
         if (event.currentTarget.open && !furnitureStage) { setFurnitureStage(DEFAULT_FURNITURE_STAGE); setFurnitureSource(startBase.startsWith("asset:") ? startBase : ""); }
       }}><summary>Furniture concept: edit an area before camera movement</summary>
         {furnitureStage ? <FurnitureStagePanel photos={allPhotos} source={furnitureSource} stage={furnitureStage} disabled={busy || !draftLoaded}
@@ -410,15 +417,15 @@ export function AiVideoPanel({ card, onCardRecovery, onCardDraft, onCardRequest,
           }} /> : null}
       </details> : null}
       {stagedStart ? <p className={styles.hint} role="status">Start uses an accepted AI furniture concept. The original photo is preserved. {stagingMatches ? "Camera direction below remains your own setting." : "Furnishing choices changed; restore the accepted settings or review a new concept before making video."}</p> : null}
-      {!bridge && !card?.request ? <section className={styles.preparation} aria-label="Frame guidance choice">
+      {!bridge && !card?.request ? <FrameGuidance className={`${styles.preparation} ${styles.secondary}`} aria-label="Frame guidance choice">{card ? <summary>Frame guidance</summary> : null}
         <label className="field">Frame guidance<select className="text-input" disabled={busy} value={startOnly ? "start" : "pair"} onChange={event => {
           setStartOnly(event.target.value === "start"); if (event.target.value === "pair" && card?.framePair) setWorkflow("guided"); setReviewedStart(undefined); setReviewedPair(undefined); requestId.current = null;
           if (event.target.value === "start") { setUseEndReference(false); setQuality("final"); }
         }}><option value="pair">Start and End</option><option value="start">Start only (no End generation)</option></select></label>
         <p className={styles.hint}>If End changes the roof, openings or materials, use a reviewed Start with a small move. Start-only does not prepare or retry an End. An already submitted pair keeps its existing requests and costs.</p>
-      </section> : null}
-      <section className={styles.preparation} aria-label="Review prepared images">
-      {guided && onCardPair ? <GuidedFramePairPanel pair={card?.framePair} input={guidedInput} reviewed={pairReviewed} disabled={busy || furnitureBlocked || !draftLoaded}
+      </FrameGuidance> : null}
+      <section className={styles.preparation} aria-label="Review prepared images" hidden={!!card?.request}>
+      {guided && onCardPair ? <GuidedFramePairPanel compact={!!card} pair={card?.framePair} input={guidedInput} reviewed={pairReviewed} disabled={busy || furnitureBlocked || !draftLoaded}
         onUseStart={asset => {
           receiveAssets([asset]); setPhoto(`asset:${asset.id}`); setFirstMs(0); setGeneratedStart(true);
           setStartOnly(true); setUseEndReference(false); setReviewedPair(undefined); setReviewedStart(undefined); setQuality("final"); requestId.current = null;
@@ -450,7 +457,7 @@ export function AiVideoPanel({ card, onCardRecovery, onCardDraft, onCardRequest,
         <p className={styles.hint}>Video quote: {credits} credits for {seconds} seconds. No End image is required. Inspect these anchors throughout the finished video before using it.</p>
       </section> : null}
       </section>
-      <details className={`${styles.advanced} ${styles.details}`}><summary>More shot options</summary>
+      <details className={`${styles.advanced} ${styles.details}`} hidden={!!card?.request}><summary>More shot options</summary>
       {card && onCardPair && !card.request && !startOnly ? <label className="field">Frame preparation
         <select className="text-input" value={guided ? "guided" : "manual"} disabled={busy} onChange={e => { setWorkflow(e.target.value as "guided" | "manual"); setReviewedPair(undefined); }}>
           <option value="guided">Prepare Start and End together</option><option value="manual">Choose and prepare frames individually</option>
@@ -534,23 +541,23 @@ export function AiVideoPanel({ card, onCardRecovery, onCardDraft, onCardRequest,
       </> : null}
       <p className="muted small">{guided ? "The whole reference informs the prepared portrait images. Review interpreted details and framing before video." : "References use the original frame with a centre crop to portrait. Review joins, especially with zoom, colour effects or letterboxing."}</p>
       </details>
-      <footer className={styles.finish}>
+      <footer className={styles.finish} hidden={!!card && (guided && !pairReviewed || !!card.request && !!videoJob?.asset)}>
       <h3 className={styles.sectionTitle}>Video</h3>
       {videoJob || card?.request ? <div className={styles.generationProgress}><ShotGenerationProgress stage={videoJob?.status === "SUCCEEDED" ? "ready" : "video"}
         status={videoJob?.status ?? "CHECKING"} requestedAt={videoJob?.createdAt} lastCheckedAt={lastCheckedAt} connectionError={connectionError}
         queueLabel={videoJob?.queue ? queueLabel(videoJob.queue, at => at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })) : null} /></div> : null}
-      <p className="muted small">New images and videos use credits. Review generated property details before publishing.</p>
-      {error ? <p className="error small" role="alert">{error}</p> : null}
+      {!card?.request ? <p className="muted small">New images and videos use credits. Review generated property details before publishing.</p> : null}
+      {!card && error ? <p className="error small" role="alert">{error}</p> : null}
       {guided && !pairReviewed ? <p className="muted small">Prepare and select both frames above to unlock video generation.</p> : null}
-      <button className="btn btn-block" type="submit" disabled={busy || !!card?.request || furnitureBlocked || !stagingMatches || !draftLoaded || !sketchValid || !startReviewed || startOnly && !startPreviewsReady || direction !== null && !distanceValid || guided && !pairReviewed || !guided && (startImageBlocked || !startOnly && endImageBlocked) || !state?.enabled || state.balance.remaining < credits || state.jobs.filter(active).length >= AI_QUEUE_LIMIT || (!firstFrame && direction !== null) || (!!firstFrame && !assetFor(firstFrame)) || (!!lastFrame && !assetFor(lastFrame)) || ((bridge || !startOnly && useEndReference) && !lastFrame) || (mode !== "custom" && !firstFrame)}>
+      <button className="btn btn-block" type="submit" hidden={!!card?.request} disabled={busy || !!card?.request || furnitureBlocked || !stagingMatches || !draftLoaded || !sketchValid || !startReviewed || startOnly && !startPreviewsReady || direction !== null && !distanceValid || guided && !pairReviewed || !guided && (startImageBlocked || !startOnly && endImageBlocked) || !state?.enabled || state.balance.remaining < credits || state.jobs.filter(active).length >= AI_QUEUE_LIMIT || (!firstFrame && direction !== null) || (!!firstFrame && !assetFor(firstFrame)) || (!!lastFrame && !assetFor(lastFrame)) || ((bridge || !startOnly && useEndReference) && !lastFrame) || (mode !== "custom" && !firstFrame)}>
         {busy ? "Starting…" : `${draftMode ? "Draft" : "Generate video ·"} ${seconds}-second clip · ${credits} ${credits === 1 ? "credit" : "credits"}`}
       </button>
-      <p className="muted small"><Link href="/account">Plans and more credits</Link></p>
+      {!card?.request ? <p className="muted small"><Link href="/account">Plans and more credits</Link></p> : null}
       </footer>
       </div>
     </form>
     <div className="ai-video-results" aria-live="polite">
-      {card?.request ? <button type="button" className="btn" disabled={busy} onClick={() => void refresh().catch(e => setError(e.message))}>Check saved video request</button> : null}
+      {card?.request && !videoJob?.asset ? <button type="button" className="btn btn-quiet" disabled={busy} onClick={() => void refresh().catch(e => setError(e.message))}>Check saved video request</button> : null}
       {card?.request?.payload && !card.request.jobId && !state?.jobs.some(job => job.requestId === card.request!.id) ? <button type="button" className="btn" disabled={busy} onClick={() => void retrySavedRequest()}>Retry saved video request</button> : null}
       {state?.jobs.filter(job => !card || job.requestId === card.request?.id).map(job => <article className="ai-video-result" key={job.id}>
         <p className="small">{tierOf(job) === "draft" ? "Draft · " : tierOf(job) === "final" && (job.shot as { finalOf?: string }).finalOf ? "Final · " : ""}{aiShotSchema.safeParse(job.shot).success ? `${(job.shot as AiShot).move ? `${moveById((job.shot as AiShot).move!).label} · ` : ""}${AI_SHOT_LABELS[(job.shot as AiShot).mode]} · ${AI_SHOT_STYLE_LABELS[aiShotStyle(job.shot as AiShot)]}` : job.prompt}</p>
@@ -560,13 +567,13 @@ export function AiVideoPanel({ card, onCardRecovery, onCardDraft, onCardRequest,
         {job.asset && job.take && !job.take.wrongWords ? <p className="muted small">Trimmed to her line: {(job.take.startMs / 1000).toFixed(2)}–{(job.take.endMs / 1000).toFixed(2)} s{job.faceHeightPx ? ` · face ${job.faceHeightPx} px (${job.framing ?? "medium"})` : ""}</p> : null}
         {job.asset ? <>
           <video src={job.asset.url} controls playsInline preload="metadata" aria-label="Generated AI clip" />
-          <p className="muted small">AI-generated · saved in your media library{tierOf(job) === "draft" ? " · 720p preview, silent" : ""}</p>
+          <p className="muted small">{card ? "Review your AI shot before using it." : "AI-generated · saved in your media library"}{tierOf(job) === "draft" ? " · 720p preview, silent" : ""}</p>
           {!card && tierOf(job) === "draft" && !job.finalId && job.durationSeconds ? <button type="button" className="btn btn-block" data-testid="make-final" disabled={busy || !state?.enabled}
             onClick={() => makeFinal(job)}>Make it final · {finalCredits(job)} {finalCredits(job) === 1 ? "credit" : "credits"}</button> : null}
           {tierOf(job) === "draft" && job.finalId ? <p className="muted small">Made final.</p> : null}
           {job.draftId ? <Link className="btn btn-block" href={`/reels/${job.draftId}`}>Review blended promo draft</Link> : null}
           {job.asset && (job.shot as AiShot | null)?.draftReelId && !job.draftId ? <p className="muted small">The source boundary changed. Your clip is ready in the media library.</p> : null}
-          {onAdd ? <button type="button" className="btn btn-block" onClick={() => { const recipe = aiShotSchema.safeParse(job.shot); onAdd(job.asset!, recipe.success ? recipe.data : undefined, job.id, job.durationSeconds); }}>{card ? "Use this take in this shot" : (job.shot as AiShot | null)?.anchor ? "Place at source cut / replace still" : "Add to reel"}</button> :
+          {onAdd ? <button type="button" className="btn btn-block" onClick={() => { const recipe = aiShotSchema.safeParse(job.shot); onAdd(job.asset!, recipe.success ? recipe.data : undefined, job.id, job.durationSeconds); }}>{card ? "Use shot" : (job.shot as AiShot | null)?.anchor ? "Place at source cut / replace still" : "Add to reel"}</button> :
             <Link className="btn btn-quiet btn-block" href="/">Open your reels to use this clip</Link>}
         </> : null}
       </article>)}

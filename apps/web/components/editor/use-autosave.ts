@@ -27,7 +27,10 @@ export function useAutosave(reelId: string, initialRevision: number, timeline: T
     while (inFlight.current) await inFlight.current;
     if (blocked.current) return false;
     const next = latest.current;
-    if (next.timeline === saved.current.timeline && next.title === saved.current.title) return true;
+    if (next.timeline === saved.current.timeline && next.title === saved.current.title) {
+      setStatus("saved"); setMessage(null);
+      return true;
+    }
 
     setStatus("saving");
     let ok = false;
@@ -58,7 +61,7 @@ export function useAutosave(reelId: string, initialRevision: number, timeline: T
           revision.current = result.revision;
           saved.current = next;
           ok = true;
-          const pending = latest.current !== next;
+          const pending = latest.current.timeline !== next.timeline || latest.current.title !== next.title;
           setStatus(pending ? "unsaved" : "saved");
           setMessage(null);
         } else {

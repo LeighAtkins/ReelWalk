@@ -1797,7 +1797,7 @@ export function Editor({ reel, timeline: initialTimeline, library: initialLibrar
         </p>
       ) : null}
 
-      {sheet === "ai-video" ? <Sheet title="AI video" size="wide" onClose={closeSheet}>
+      {sheet === "ai-video" ? <Sheet title={shotCardId ? `Shot ${shotCards(timeline).findIndex(card => card.id === shotCardId) + 1}` : "AI video"} size={shotCardId ? "workspace" : "wide"} onClose={closeSheet}>
         <AiVideoPanel key={shotCardId ?? "legacy"} card={shotCardId ? shotCards(timeline).find(card => card.id === shotCardId) : undefined}
           onCardRecovery={shotCardId ? async (key, value) => { const card = shotCards(snapshot().timeline).find(card => card.id === shotCardId); if (!card) return false; dispatch({ type: "shot-operation", cardId: shotCardId, patch: { recovery: { ...card.recovery, [key]: value } } }); return autosave.flush(snapshot().timeline); } : undefined}
           onCardDraft={shotCardId ? (draft, frameAssetIds) => apply(current => updateShotCard(current, shotCardId, card => ({ ...card, draft, frameAssetIds }))) : undefined}

@@ -1,5 +1,10 @@
 .pair { min-width:0; display:grid; gap:1rem; }
 .hint { margin:0; color:var(--muted); line-height:1.45; }
+.original > summary { min-height:var(--tap); cursor:pointer; }
+.compact { gap:.75rem; }
+.compact .picture { aspect-ratio:auto; height:clamp(9rem, 28dvh, 22rem); }
+.compact > label { font-size:.875rem; line-height:1.5; }
+.compact .original { font-size:.875rem; }
 .steps { display:flex; gap:.5rem; list-style:none; margin:0; padding:0; }
 .steps li { flex:1; display:flex; align-items:center; gap:.4rem; min-width:0; color:var(--muted); font-size:.875rem; }
 .steps li span { display:grid; place-items:center; width:1.5rem; height:1.5rem; flex-shrink:0; border:1px solid var(--line-strong); border-radius:50%; }

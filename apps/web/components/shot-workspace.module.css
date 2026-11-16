@@ -352,3 +352,20 @@
 .furnitureCanvas > img { width:100%; height:100%; object-fit:cover; object-position:center; pointer-events:none; user-select:none; }
 .furnitureRegion { position:absolute; border:2px solid var(--signal); background:color-mix(in srgb,var(--signal) 15%,transparent); pointer-events:none; }
 .furnitureRegion span { display:block; width:max-content; max-width:100%; background:var(--ink-deep); color:var(--paper); font-size:.75rem; padding:.25rem; }
+
+/* Shot-board entry only. Legacy AI retains its existing composition. */
+.shotWorkspace .header { margin-block-end: .5rem; }
+.shotWorkspace .layout { display:flex; flex-direction:column; gap:.75rem; }
+.shotWorkspace .layout > * { inline-size:100%; }
+.shotWorkspace .compactReference > summary { display:grid; }
+.shotWorkspace .compactReference > summary img { inline-size:100%; block-size:clamp(10rem, 28dvh, 18rem); object-fit:contain; }
+.shotWorkspace .references[data-prepared="true"] .compactReference > summary { display:flex; }
+.shotWorkspace .references[data-prepared="true"] .compactReference > summary img { inline-size:3rem; block-size:3rem; }
+.shotWorkspace .secondary, .shotWorkspace .advanced { order:3; }
+.shotWorkspace .finish { padding-block:.75rem; }
+.shotWorkspace .preparation[hidden], .shotWorkspace .finish[hidden], .shotWorkspace button[hidden] { display:none; }
+.shotWorkspace .movement { display:grid; gap:.5rem; }
+.shotWorkspace .details { padding-block-start:.25rem; }
+.shotWorkspace summary { min-block-size:var(--tap); cursor:pointer; }
+.shotWorkspace input, .shotWorkspace textarea, .shotWorkspace select { scroll-margin-block:5rem; }
+.shotWorkspace { padding-block-end:env(safe-area-inset-bottom); }

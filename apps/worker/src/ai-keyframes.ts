@@ -4,6 +4,7 @@ import { CAMERA_KEYFRAME_MODEL, cameraKeyframeGenerateSchema, guidedKeyframeErro
 import { prisma, keyframeHash, keyframesEnabled, makeKeyframeRequest, failUnsubmittedKeyframe, refundRefusedKeyframe, keyframeStorageTransaction, type AiKeyframe, type KeyframeSnapshot, type Prisma } from "@reelwalk/db";
 import { readKeyframeObject, putKeyframeObject } from "../../web/lib/storage";
 import { keyframeTransport, type KeyframeReceipt } from "./vertex-keyframes";
+import { compositeFurnitureStage } from "./furniture-stage";
 
 export const keyframeWorkerServices = { db: prisma, storageTransaction: keyframeStorageTransaction, read: readKeyframeObject, put: putKeyframeObject, transport: keyframeTransport, enabled: keyframesEnabled, failUnsubmitted: failUnsubmittedKeyframe, refundRefused: refundRefusedKeyframe,
   continuePair: async (actor: { id: string; workspaceId: string }, id: string) => (await import("../../web/lib/ai-keyframes")).continueKeyframePair(actor, id) };
@@ -48,6 +49,10 @@ async function importReceipt(job: AiKeyframe, receipt: KeyframeReceipt, services
     await services.refundRefused(services.db, job.id, receipt.status);
     return;
   }
+  const stageInput = job.input as unknown as CameraKeyframeInput;
+  const stageSnapshot = job.snapshot as unknown as KeyframeSnapshot;
+  // A temporary read failure remains receipt-recoverable, not a terminal image failure.
+  const stageSource = stageInput.furnitureStage ? await services.read(stageSnapshot.source.canonicalKey, 16 * 1024 * 1024) : undefined;
   let candidate: { jpeg: Buffer; hash: string; key: string };
   try {
     if (receipt.status < 200 || receipt.status >= 300) throw new Error(`Image service returned HTTP ${receipt.status}. Its response was retained; no automatic retry.`);
@@ -60,7 +65,14 @@ async function importReceipt(job: AiKeyframe, receipt: KeyframeReceipt, services
     const metadata = await image.metadata();
     if ((metadata.pages ?? 1) !== 1) throw new Error("Generated output is not a still image.");
     // This is the canonical frame shown in comparison and later delivered unchanged to Veo.
-    const jpeg = await image.rotate().resize(1080, 1920, { fit: "cover", position: "centre" }).jpeg({ quality: 95, chromaSubsampling: "4:4:4" }).toBuffer();
+    const input = job.input as unknown as CameraKeyframeInput;
+    let jpeg: Buffer;
+    if (input.furnitureStage) {
+      if (!stageSource || keyframeHash(stageSource) !== stageSnapshot.source.canonicalHash) throw new Error("The protected furniture reference changed. Paid response retained.");
+      jpeg = await sharp(await compositeFurnitureStage(stageSource, raw, input.furnitureStage)).jpeg({ quality: 95, chromaSubsampling: "4:4:4" }).toBuffer();
+    } else {
+      jpeg = await image.rotate().resize(1080, 1920, { fit: "cover", position: "centre" }).jpeg({ quality: 95, chromaSubsampling: "4:4:4" }).toBuffer();
+    }
     const hash = keyframeHash(jpeg);
     candidate = { jpeg, hash, key: `private/keyframes/${job.workspaceId}/candidates/${job.id}-${hash}.jpg` };
   } catch (error) {

@@ -32,11 +32,12 @@ export function framePairReceipt(pair: ShotFramePair, start?: Job, end?: Job): S
       : { ...(end ? { endJobId: end.id } : {}), ...(end?.asset ? { endAssetId: end.asset.id } : {}) }) };
 }
 
-export function GuidedFramePairPanel({ pair, input, disabled, reviewed, onSave, onReview, onAssets, onBalance, beforePrepare, endControls, inputValid = true }: {
+export function GuidedFramePairPanel({ pair, input, disabled, reviewed, onSave, onReview, onAssets, onBalance, beforePrepare, onUseStart, endControls, inputValid = true }: {
   pair?: ShotFramePair; input: CameraKeyframeInput | null; disabled: boolean; reviewed: boolean;
   onSave(pair: ShotFramePair, expectedId?: string, expectedEndRequestId?: string): Promise<boolean>;
   onReview(start: LibraryAsset, end: LibraryAsset, pair: ShotFramePair): void;
   onAssets(assets: LibraryAsset[]): void; onBalance(remaining: number): void; beforePrepare?(): Promise<boolean>;
+  onUseStart?(start: LibraryAsset): void;
   endControls?: ReactNode; inputValid?: boolean;
 }) {
   const [jobs, setJobs] = useState<{ start?: Job; end?: Job }>({});
@@ -46,6 +47,7 @@ export function GuidedFramePairPanel({ pair, input, disabled, reviewed, onSave, 
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState<Record<string, boolean>>({}), [previewFailure, setPreviewFailure] = useState<string>();
   const [enlarged, setEnlarged] = useState<"start" | "end" | null>(null);
+  const [manualReview, setManualReview] = useState<string>();
   const [endEditing, setEndEditing] = useState(false);
   const editor = useRef<HTMLDetailsElement>(null), historyScope = useRef(pair?.id);
   const live = useRef(true), lock = useRef(false), current = useRef({ pair, input, onSave, onAssets, onBalance });
@@ -58,7 +60,9 @@ export function GuidedFramePairPanel({ pair, input, disabled, reviewed, onSave, 
   const imageKeys = { start: `${pair?.id}:${jobs.start?.candidateUrl}:${imageAttempt}`, end: `${pair?.id}:${endRequest}:${jobs.end?.candidateUrl}:${imageAttempt}` };
   const previewError = Object.values(imageKeys).includes(previewFailure ?? "");
   const visibleKeys = useRef(imageKeys); visibleKeys.current = imageKeys;
-  const previewsReady = !previewError && loaded[imageKeys.start] && loaded[imageKeys.end];
+  const sourceKey = `${pair?.id}:${jobs.start?.sourceUrl}:${imageAttempt}`;
+  const reviewKey = JSON.stringify([imageKeys.start, imageKeys.end, sourceKey, input ? framePairIntent(input) : null]);
+  const previewsReady = !previewError && loaded[imageKeys.start] && loaded[imageKeys.end] && loaded[sourceKey];
 
   async function history(requestId?: string, recover = false, signal?: AbortSignal): Promise<History> {
     const query = new URLSearchParams({ ...(requestId ? { requestId } : {}), ...(recover ? { recover: "1" } : {}) });
@@ -150,7 +154,7 @@ export function GuidedFramePairPanel({ pair, input, disabled, reviewed, onSave, 
     finally { lock.current = false; if (live.current) setBusy(false); }
   }
   async function review() {
-    if (!pair || !inputValid || !matches || !bothReady || !previewsReady || lock.current || disabled) return;
+    if (!pair || !inputValid || !matches || !bothReady || !previewsReady || manualReview !== reviewKey || lock.current || disabled) return;
     lock.current = true; setBusy(true); setError("");
     const original = pair;
     try {
@@ -162,6 +166,19 @@ export function GuidedFramePairPanel({ pair, input, disabled, reviewed, onSave, 
       onAssets([start.asset, end.asset]); onReview(start.asset, end.asset, selected);
       await refresh();
     } catch (e) { if (live.current) setError(e instanceof Error ? e.message : "The prepared frames are still saved. Check status to recover them."); }
+    finally { lock.current = false; if (live.current) setBusy(false); }
+  }
+  async function keepStart() {
+    if (disabled || lock.current || !pair || pair.sourceAssetId !== input?.source.assetId || !onUseStart || !finished(jobs.start) || !loaded[imageKeys.start] || !loaded[sourceKey]) return;
+    lock.current = true; setBusy(true); setError("");
+    const original = pair;
+    try {
+      const result = await post({ action: "use", jobId: jobs.start!.id });
+      if (!live.current || !sameFrameOperation(original, current.current.pair)) return;
+      const latest = current.current.pair!;
+      if (!await onSave({ ...latest, startAssetId: result.asset.id }, latest.id, activeEndRequestId(latest))) throw Error("Save this Start selection before continuing.");
+      onAssets([result.asset]); onUseStart(result.asset);
+    } catch (error) { if (live.current) setError(error instanceof Error ? error.message : "Could not select the retained Start."); }
     finally { lock.current = false; if (live.current) setBusy(false); }
   }
   if (pairError) return <p role="alert" className={styles.notice}>{pairError}</p>;
@@ -176,6 +193,8 @@ export function GuidedFramePairPanel({ pair, input, disabled, reviewed, onSave, 
     </ol>
     {!pair ? <button className="btn btn-block" type="button" disabled={disabled || busy || !inputValid || !input || !admission?.enabled || admission.balanceRemaining < 2} onClick={() => void prepare()}>Prepare Start and End · 2 credits</button> : null}
     {connectionError ? <div className={styles.notice} role="alert"><p>{connectionError}</p><button className="btn" type="button" onClick={() => void refresh(false).catch(() => setConnectionError("Could not reconnect. Your requests are saved."))}>Retry status check</button></div> : null}
+    {jobs.start?.sourceUrl ? <figure><figcaption>Original reference ? compare architecture with both prepared frames</figcaption><img style={{ width: "100%", maxHeight: "24rem", objectFit: "contain" }} src={jobs.start.sourceUrl} alt="Original reference photograph" onLoad={() => setLoaded(old => ({ ...old, [sourceKey]: true }))} onError={() => { setLoaded(old => ({ ...old, [sourceKey]: false })); setManualReview(undefined); }} /></figure> : null}
+    <p className={styles.hint}>Manual property review: compare rooflines and supports, openings, tile grids, furniture and materials. Prepared images and AI video can change geometry. Check these anchors through the finished clip too.</p>
     <div className={styles.images}>
       {(["start", "end"] as const).map(role => {
         const job = jobs[role], title = role === "start" ? "Start" : "End", key = imageKeys[role];
@@ -209,7 +228,9 @@ export function GuidedFramePairPanel({ pair, input, disabled, reviewed, onSave, 
     </details> : null}
     {previewError ? <p role="alert">A preview could not load. The result is saved. <button type="button" onClick={() => { setPreviewFailure(undefined); setLoaded({}); setImageAttempt(value => value + 1); void refresh(true).catch(() => setConnectionError("Could not refresh previews.")); }}>Reload previews</button></p> : null}
     {pair && !matches ? <p className={styles.hint} role="status">{sameSource ? "End settings changed. Start is kept; generate End only to apply them." : "Reference changed. Prepare new Start and End images for this photo."}</p> : null}
-    {bothReady && matches && !endEditing ? <button className="btn btn-block" type="button" disabled={disabled || busy || !inputValid || !previewsReady || reviewed} onClick={() => void review()}>{reviewed ? "Frames selected for video" : "Use these frames"}</button> : null}
+    {onUseStart && sameSource && finished(jobs.start) ? <button className="btn btn-block" type="button" disabled={disabled || busy || !loaded[imageKeys.start] || !loaded[sourceKey]} onClick={() => void keepStart()}>Keep this Start only ? review before video</button> : null}
+    {bothReady && matches ? <label><input type="checkbox" checked={manualReview === reviewKey} disabled={disabled || busy || !previewsReady} onChange={event => setManualReview(event.target.checked ? reviewKey : undefined)} /> I compared the original, Start and End against these property anchors. This is my manual review.</label> : null}
+    {bothReady && matches && !endEditing ? <button className="btn btn-block" type="button" disabled={disabled || busy || !inputValid || !previewsReady || manualReview !== reviewKey || reviewed} onClick={() => void review()}>{reviewed ? "Frames selected for video" : "Use these frames"}</button> : null}
     {pair && historyReady && (!pair.endRevision || !!jobs.end) && (bothReady || jobs.start?.status === "FAILED" || jobs.end?.status === "FAILED" || !matches && finished(jobs.start) && !jobs.end && !!jobs.start?.continuationError) ? <details className={styles.reset}><summary>Replace Start and End</summary><p>Creates two new images. Your previous results stay saved.</p><button className="btn btn-quiet" type="button" disabled={disabled || busy || !inputValid || !input || !admission?.enabled || admission.balanceRemaining < 2 || active(jobs.start) || active(jobs.end)} onClick={() => void prepare()}>Prepare another pair · 2 credits</button></details> : null}
     {error ? <p className="error" role="alert">{error}</p> : null}
     {admission && !admission.enabled ? <p className={styles.hint} role="status">{admission.reason || "Image preparation is paused."}</p> : null}

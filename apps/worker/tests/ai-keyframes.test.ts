@@ -134,6 +134,45 @@ describe("one-dispatch image worker", () => {
     // A restarted worker only needs the retained receipt; it must not keep the idle task alive.
     expect(await processKeyframes(s3, f.services)).toBe(false); expect(f.row.status).toBe("CANDIDATE"); expect(f.submit).toHaveBeenCalledTimes(1);
   });
+  it("recovers a paid furniture concept after a temporary protected-source read failure without resubmitting", async () => {
+    const f = fixture();
+    const source = await sharp({ create: { width: 18, height: 32, channels: 3, background: "#806040" } }).png().toBuffer();
+    const generated = await sharp({ create: { width: 18, height: 32, channels: 3, background: "#e0d0c0" } }).png().toBuffer();
+    const stageInput = { ...input, move: "push-in" as const, distanceM: .5, furnitureStage: {
+      version: 1 as const, style: "warm-minimal" as const, region: { x: .1, y: .4, width: .8, height: .5 }, instructions: "Cream sofa",
+    } };
+    const frozen = makeKeyframeRequest(stageInput, source);
+    const stageSnapshot = { ...snapshot, source: { ...snapshot.source, originalHash: keyframeHash(source), canonicalHash: keyframeHash(source) } };
+    Object.assign(f.row, { input: stageInput, inputHash: keyframeHash(JSON.stringify(stageInput)), requestHash: keyframeHash(frozen), snapshot: stageSnapshot });
+    f.objects.set("photo.png", source); f.objects.set("source.png", source); f.objects.set("request.json", Buffer.from(frozen));
+    const receipt = { version: 1, status: 200, incomplete: false, bodyBase64: Buffer.from(JSON.stringify({ candidates: [{ content: { parts: [{ inlineData: { mimeType: "image/png", data: generated.toString("base64") } }] } }] })).toString("base64") };
+    f.submit.mockResolvedValue(receipt);
+    let interrupted = false;
+    f.read.mockImplementation(async key => {
+      // Validation reads succeed. Interrupt only the source read after the paid receipt was durably retained.
+      if (key === "source.png" && f.row.responseKey && !interrupted) { interrupted = true; throw Error("temporary source storage outage"); }
+      const value = f.objects.get(key); if (!value) throw Error("Missing"); return value;
+    });
+
+    await processKeyframes(s3, f.services);
+    const receiptKey = keyframeReceiptKey(f.row), retainedReceipt = f.objects.get(receiptKey)!;
+    expect(interrupted).toBe(true); expect(f.row.status).toBe("UNKNOWN"); expect(f.row.candidateKey).toBeUndefined();
+    expect(JSON.parse(retainedReceipt.toString())).toEqual(receipt); expect(f.row.responseHash).toBe(keyframeHash(retainedReceipt));
+    expect(f.row.heldCostCents).toBe(100); expect(f.row.creditRefunded).toBe(false);
+    expect(f.services.failUnsubmitted).not.toHaveBeenCalled(); expect(f.services.refundRefused).not.toHaveBeenCalled();
+
+    // A later worker run imports the already-paid bytes after storage recovers; it has no queue demand to dispatch.
+    expect(await processKeyframes(s3, f.services)).toBe(false);
+    expect(f.row.status).toBe("CANDIDATE"); expect(f.row.assetId).toBeUndefined();
+    expect(f.row.candidateKey).toBeTruthy();
+    const candidate = f.objects.get(f.row.candidateKey!)!;
+    expect(keyframeHash(candidate)).toBe(f.row.candidateHash);
+    expect(await sharp(candidate).metadata()).toMatchObject({ width: 1080, height: 1920, format: "jpeg" });
+    expect(f.objects.get(receiptKey)).toEqual(retainedReceipt); expect(f.row.responseHash).toBe(keyframeHash(retainedReceipt));
+    expect(f.submit).toHaveBeenCalledExactlyOnceWith(frozen); expect(f.services.transport).toHaveBeenCalledTimes(1);
+    expect(f.continuePair).not.toHaveBeenCalled(); expect(f.row.heldCostCents).toBe(100); expect(f.row.creditRefunded).toBe(false);
+    expect(f.services.refundRefused).not.toHaveBeenCalled();
+  });
   it("does not keep workers alive for a permanently unknown response or retry the model", async () => {
     const f = fixture(); f.row.status = "UNKNOWN"; f.row.submittedAt = new Date("2026-01-01");
     expect(await processKeyframes(s3, f.services)).toBe(false);

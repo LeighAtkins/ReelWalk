@@ -77,7 +77,7 @@ export async function commitReelExport(input: { user: { id: string; workspaceId:
  * queued (a note exports exactly the cut it made, ADR 0095). Answers with the
  * id of the job it created.
  */
-export async function queueReelExport(user: { id: string; workspaceId: string }, reelId: string, options: ExportOptions = {}): Promise<{ ok: true; jobId: string } | ExportResult> {
+export async function queueReelExport(user: { id: string; workspaceId: string }, reelId: string, options: ExportOptions & { captionSource?: "listing" } = {}): Promise<{ ok: true; jobId: string } | ExportResult> {
   const reel = await prisma.reel.findFirst({ where: { id: reelId, workspaceId: user.workspaceId } });
   if (!reel) return { ok: false, issues: [], message: "This reel was deleted." };
   if (options.revision !== undefined && reel.revision !== options.revision) return { ok: false, issues: [], conflict: true, message: "The reel was changed after that edit, so it was not exported." };
@@ -103,7 +103,9 @@ export async function queueReelExport(user: { id: string; workspaceId: string },
 
   // Routed outside the transaction (ADR 0094): our own workspaces render on the PC.
   const route = renderRouteFor(user.workspaceId);
-  const committed = await commitReelExport({ user, reelId: reel.id, payload, caption: reel.title, route, ...options });
+  // Campaign review binds the listing caption to this same revision-fenced export.
+  // Other callers retain the existing title label on their render jobs.
+  const committed = await commitReelExport({ user, reelId: reel.id, payload, caption: options.captionSource === "listing" ? reel.caption : reel.title, route, ...options });
   if (!committed.ok) return committed;
   const { jobId } = committed;
   // Once per studio, the key makes later exports a no-op (ADR 0080).

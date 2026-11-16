@@ -74,6 +74,7 @@ model Workspace {
   styleReferences StyleReference[]
   shotPlans    ShotPlan[]
   aiKeyframes AiKeyframe[]
+  listingCampaigns ListingCampaign[]
 
   // Set by the Stripe webhook from the subscription (plans in @reelwalk/core).
   plan                 Plan      @default(FREE)
@@ -717,6 +718,8 @@ model Reel {
   variant     ReelVariant?
   // Sets of variants made from this reel.
   variantSets VariantGroup[] @relation("VariantSource")
+  campaignSources ListingCampaign[]
+  campaignOutput CampaignOutput?
 
   @@index([workspaceId, updatedAt])
 }
@@ -759,6 +762,76 @@ model ReelVariant {
   insightsCheckedAt DateTime?
 
   @@index([groupId])
+}
+
+// A listing's verified facts and its three editable, media-reusing campaign cuts.
+model ListingCampaign {
+  id            String   @id @default(cuid())
+  workspaceId   String
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  sourceReelId  String?
+  sourceReel    Reel? @relation(fields: [sourceReelId], references: [id], onDelete: SetNull)
+  requestKey    String
+  creationHash  String
+  title         String
+  facts         Json
+  revision      Int      @default(0)
+  lastRequestKey String?
+  lastRequestHash String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  outputs       CampaignOutput[]
+
+  @@unique([workspaceId, requestKey])
+  @@index([workspaceId, updatedAt])
+}
+
+model CampaignOutput {
+  id              String @id @default(cuid())
+  campaignId      String
+  campaign        ListingCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  reelId          String @unique
+  reel            Reel @relation(fields: [reelId], references: [id], onDelete: Cascade)
+  role            String
+  appliedRevision Int @default(0)
+  // Last generated caption, used to refuse overwriting a separately edited caption.
+  boundCaption    String
+  reviews         CampaignReview[]
+
+  @@unique([campaignId, role])
+}
+
+// A bearer link is scoped to one exact export, fact revision and caption snapshot.
+model CampaignReview {
+  id              String @id @default(cuid())
+  outputId        String
+  output          CampaignOutput @relation(fields: [outputId], references: [id], onDelete: Cascade)
+  exportId        String
+  export          RenderJob @relation(fields: [exportId], references: [id], onDelete: Cascade)
+  reelRevision    Int
+  factRevision    Int
+  tokenHash       String @unique
+  caption         String
+  createdAt       DateTime @default(now())
+  expiresAt       DateTime
+  revokedAt       DateTime?
+  approvedAt      DateTime?
+  reviewerName    String?
+  comments        CampaignReviewComment[]
+
+  @@index([outputId, createdAt])
+}
+
+model CampaignReviewComment {
+  id         String @id @default(cuid())
+  reviewId   String
+  review     CampaignReview @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  requestKey String
+  name       String
+  message    String
+  createdAt  DateTime @default(now())
+
+  @@unique([reviewId, requestKey])
 }
 
 // A change asked for in words (ADR 0020): the request, the model's answer
@@ -933,6 +1006,7 @@ model Template {
 }
 
 model RenderJob {
+  campaignReviews CampaignReview[]
   id           String          @id @default(cuid())
   workspaceId  String
   workspace    Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)

@@ -30,7 +30,7 @@ export function nanoCinematographyPrompt(look: ShotCinematography): string {
 }
 
 /** The supplied frames establish the look; Veo should animate it, not reinterpret it. */
-export function videoCinematographyPrompt(look: ShotCinematography): string {
+export function videoCinematographyPrompt(look: ShotCinematography, hasEnd = true): string {
   shotCinematographySchema.parse(look);
-  return "Preserve the supplied Start and End frames' optical perspective, white balance, exposure and natural photographic finish throughout the camera move. Do not introduce a new lens, relight the scene, add sharpening, pump focus or shift exposure beyond any scene change already shown in the frames.";
+  return `Preserve the supplied ${hasEnd ? "Start and End frames'" : "Start frame's"} optical perspective, white balance, exposure and natural photographic finish throughout the camera move. Do not introduce a new lens, relight the scene, add sharpening, pump focus or shift exposure beyond any scene change already shown in the ${hasEnd ? "frames" : "frame"}.`;
 }

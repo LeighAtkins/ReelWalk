@@ -37,7 +37,8 @@ describe("the text sheet's Motion row (ADR 0061)", () => {
   });
 
   it("a callout starts as a small white label", () => {
-    const draft = asCallout({ style: "headline" as const, size: 1.4, animation: "pop" as const, blend: "surface" as const });
+    const draft = asCallout({ style: "headline" as const, size: 1.4, animation: "pop" as const, blend: "surface" as const, physical3d: { depth: .14, tilt: -12, light: "left" as const, motion: true, shadow: .3 } });
+    expect(draft.physical3d).toBeUndefined();
     expect(draft).toMatchObject({ style: "box", size: 0.6, animation: "auto", callout: { x: 0.4, y: 0.64 } });
     // Not painted on a surface: the surface blend's own opacity would override the label's reveal.
     expect(draft.blend).toBeUndefined();

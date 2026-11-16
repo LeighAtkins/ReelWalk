@@ -1,5 +1,8 @@
 "use client";
 
+import { PhysicalTextPanel } from "./physical-text-panel";
+import { physicalTextProblem } from "@reelwalk/core";
+
 import { useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { HOOK_DESCRIPTIONS, HOOK_FONTS, HOOK_LABELS, type Hook, type HookKind,
   acceptFor,
@@ -940,7 +943,7 @@ export function PlanSheet({
 
 // ── Text ────────────────────────────────────────────────────────
 
-export type TextDraft = Pick<TextOverlay, "text" | "style" | "color" | "size" | "animation" | "font" | "tracking" | "path" | "shadow" | "behind" | "depth" | "blend" | "passMs" | "passFadeMs" | "particles" | "shine" | "kinetic" | "callout" | "brand" | "lockup">;
+export type TextDraft = Pick<TextOverlay, "text" | "style" | "color" | "size" | "animation" | "font" | "tracking" | "path" | "shadow" | "behind" | "depth" | "blend" | "passMs" | "passFadeMs" | "particles" | "shine" | "kinetic" | "callout" | "brand" | "lockup" | "physical3d">;
 
 /** Particle density in three thumb-sized steps (ADR 0055). */
 const PARTICLE_DENSITIES = [0.5, 1, 1.8] as const;
@@ -1009,6 +1012,8 @@ export function TextSheet({
       <div className="text-style-preview" aria-hidden="true">
         <span style={{ ...previewCss, zoom: 0.32 }}>{draft.text || "Your text"}</span>
       </div>
+      <PhysicalTextPanel draft={draft} onChange={physical3d => setDraft({ ...draft, physical3d, ...(physical3d ? { animation: "none", font: "sans", brand: undefined, lockup: undefined, path: undefined, behind: undefined, depth: undefined, blend: undefined, callout: undefined, kinetic: undefined, shine: undefined, particles: undefined } : {}) })}/>
+      {!draft.physical3d ? <>
       <Segmented
         label="Style"
         options={TEXT_STYLES}
@@ -1076,7 +1081,7 @@ export function TextSheet({
           const move = event.target.value;
           setDraft({ ...draft, path: move === "still" ? undefined : move === "path" ? draft.path : [{ t: 0, x: 0, y: 0 }, { t: 1, x: move === "left" ? -0.04 : 0.04, y: 0 }] });
         }}><option value="still">Still</option>{draft.path ? <option value="path">Keep current motion path</option> : null}<option value="left">Drift left</option><option value="right">Drift right</option></select></label>
-        <Segmented label="Depth" options={["flat", "extruded"] as const} value={draft.depth ?? "flat"} onChange={depth => setDraft({ ...draft, depth })} format={depth => ({ flat: "Flat", extruded: "Extruded 3D" })[depth]} />
+        <Segmented label="Depth" options={["flat", "extruded"] as const} value={draft.depth ?? "flat"} onChange={depth => setDraft({ ...draft, depth })} format={depth => ({ flat: "Flat", extruded: "Extruded look" })[depth]} />
         <Segmented label="Meets the picture" options={["plain", "surface", "invert"] as const} value={draft.blend ?? "plain"} onChange={blend => setDraft({ ...draft, blend: blend === "plain" ? undefined : blend })} format={blend => ({ plain: "On top", surface: "Painted on the surface", invert: "Inverts the picture" })[blend]} />
         <div ref={focus === "walk-through" ? focusRef : undefined} className={focus === "walk-through" ? "sheet-focus" : undefined} data-testid="text-walk-through">
         <label className="field small"><input type="checkbox" checked={Boolean(draft.behind)} onChange={event => setDraft({ ...draft, behind: event.target.checked || undefined, ...(event.target.checked ? {} : { passMs: undefined, passFadeMs: undefined }) })} /> People in the shot pass in front of this text</label>
@@ -1120,7 +1125,8 @@ export function TextSheet({
           </label>
         </>
       )}
-      <button type="button" className="btn btn-block" disabled={!draft.text.trim()} onClick={() => onSave({ ...draft, text: draft.text.trim() })}>
+      </> : <Range label="Size" value={draft.size} min={0.6} max={2} step={0.1} display={`${Math.round(draft.size*100)}%`} onChange={size=>setDraft({...draft,size})}/>}
+      <button type="button" className="btn btn-block" disabled={!draft.text.trim() || !!draft.physical3d && !!physicalTextProblem(draft.text,draft.size)} onClick={() => onSave({ ...draft, text: draft.text.trim() })}>
         {initial ? "Save text" : draft.callout ? "Add callout" : "Add text"}
       </button>
     </Sheet>

@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { AI_SHOT_MODES, AI_SHOT_STYLES, AI_SHOT_ATMOSPHERES, MOVE_IDS } from "@reelwalk/core";
-import { CAMERA_KEYFRAME_MAX_DISTANCE_M, shotCinematographySchema } from "@reelwalk/core";
+import { CAMERA_KEYFRAME_MAX_DISTANCE_M, shotCinematographySchema, furnitureStageSchema } from "@reelwalk/core";
+
+import { cameraSketchSchema } from "./camera-sketch";
 
 const selection = z.string().max(160).refine(value => !value || /^(asset|clip):[\w-]+$/.test(value));
 /** Only editable choices are stored here; image bytes, signed URLs and approvals remain server-owned. */
@@ -15,6 +17,12 @@ export const shotBuilderDraftSchema = z.object({
   style: z.enum(AI_SHOT_STYLES), atmosphere: z.enum(AI_SHOT_ATMOSPHERES), energy: z.enum(["subtle", "bold"]),
   harmonize: z.boolean(), polish: z.boolean(), draft: z.boolean(),
   workflow: z.enum(["guided", "manual"]).optional(),
+  furnitureStage: furnitureStageSchema.optional(),
+  furnitureSource: selection.optional(),
+  furnitureSelection: z.object({ sourceAssetId: z.string().min(1).max(128), assetId: z.string().min(1).max(128), inputKey: z.string().max(6000) }).strict().optional(),
+  cameraSketch: cameraSketchSchema.optional(),
+  startOnly: z.boolean().optional(),
+  reviewedStart: z.string().max(6000).optional(),
   cinematography: shotCinematographySchema.optional(),
   reviewedPair: z.object({ pairId: z.string().uuid(), inputKey: z.string().max(6000), startAssetId: z.string().max(128), endAssetId: z.string().max(128) }).strict().optional(),
 }).strict();

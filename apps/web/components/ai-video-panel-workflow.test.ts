@@ -15,7 +15,7 @@ const visit = (node: ts.Node) => {
 }; visit(file);
 const code = ts.transpileModule(payloadCode, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
 function fixture(guided: boolean, pairReviewed: boolean, startImageBlocked: boolean, endImageBlocked: boolean) {
-  return { guided, pairReviewed, startImageBlocked, endImageBlocked, useEndReference: false, bridge: false,
+  return { furnitureBlocked: false, stagingMatches: true, sketchValid: true, startOnly: false, startReviewed: true, startPreviewsReady: true, guided, pairReviewed, startImageBlocked, endImageBlocked, useEndReference: false, bridge: false,
     firstFrame: { assetId: "start", atMs: 0 }, lastFrame: { assetId: "end", atMs: 0 }, move: "", direction: null as string | null,
     mode: "custom", anchor: undefined, style: "source", atmosphere: "source", energy: "subtle", onAdd: undefined,
     card: {}, harmonize: false, polish: false, draft: false, reelId: "own-reel", next: undefined, clips: [],
@@ -61,12 +61,12 @@ it.each(["", "101", "30", "100"])("manual frame callers respect the visible dist
   const find = (node: ts.Node) => { if (ts.isFunctionDeclaration(node) && node.name?.text === "generate") generate = node.getText(panel); ts.forEachChild(node, find); }; find(panel);
   const parsed = parseCameraDistance(text), noop = () => {};
   for (const caller of callers) {
-    const controls = { busy: false, draftLoaded: true, distanceValid: parsed !== null, distanceM: parsed ?? 30,
+    const controls = { furnitureBlocked: false, startOnly: false, sketchValid: true, busy: false, draftLoaded: true, distanceValid: parsed !== null, distanceM: parsed ?? 30,
       direction: "rise", bridge: false, startImageSource: { assetId: "source", atMs: 0 }, endImageSource: { assetId: "source", atMs: 0 }, continuity: undefined, seconds: 4, frameNotes: "" };
     const source = ts.transpileModule(`${imageInput};return {input:${caller.input},disabled:${caller.disabled}};`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
     const props = new Function(...Object.keys(controls), source)(...Object.values(controls));
     const fetch = vi.fn().mockRejectedValue(Error("mock transport stops after recording the POST"));
-    const env = { ...props, pending: undefined, locked: { current: false }, historyReady: true, state: { enabled: true, balanceRemaining: 2 }, unresolved: false, job: undefined,
+    const env = { ...props, pending: undefined, locked: { current: false }, historyReady: true, state: { enabled: true, balanceRemaining: 2 }, unresolved: false, job: undefined, blockingJob: undefined,
       setBusy: noop, setError: noop, setDismissed: noop, setFailed: noop, setLoaded: noop, setPending: noop, keyframeInputKey: JSON.stringify,
       crypto: { randomUUID: () => "fixed-request" }, write: async () => {}, storageKey: "fixture", sessionStorage: {}, fetch, mounted: { current: true } };
     const handler = ts.transpileModule(generate, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
@@ -80,7 +80,7 @@ it("keeps the selected Start when guided End settings change, while clearing End
   const find = (node: ts.Node) => { if (ts.isFunctionDeclaration(node) && node.name?.text === "resetGeneratedFrames") reset = node.getText(file); ts.forEachChild(node, find); }; find(file);
   const code = ts.transpileModule(reset, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
   const calls: string[] = [];
-  const env = { guided: true, card: { framePair: {} }, generatedStart: true, generatedEnd: true, startBase: "original", endBase: "", setReviewedPair: () => calls.push("review"),
+  const env = { startOnly: false, setReviewedStart: () => {}, guided: true, card: { framePair: {} }, generatedStart: true, generatedEnd: true, startBase: "original", endBase: "", setReviewedPair: () => calls.push("review"),
     setPhoto: () => calls.push("start"), setFirstMs: () => {}, setGeneratedStart: () => {}, setLast: () => calls.push("end"), setLastMs: () => {}, setGeneratedEnd: () => {} };
   new Function(...Object.keys(env), `${code};resetGeneratedFrames();`)(...Object.values(env));
   expect(calls).toEqual(["review", "end"]);
@@ -96,4 +96,52 @@ it("invalidates old pair approval while a same-intent End replacement is still p
   expect(evaluate()).toBe(false);
   env.card.framePair.endRevision.assetId = "old-end";
   expect(evaluate()).toBe(true);
+});
+
+it("requires manual Start-only review and loaded original/Start before video admission", () => {
+  for (const ready of [{ startReviewed: false, startPreviewsReady: true }, { startReviewed: true, startPreviewsReady: false }]) {
+    const env = { ...fixture(false, false, false, true), startOnly: true, ...ready };
+    expect(actions(env).disabled()).toBe(true);
+    expect(() => actions(env).payload()).toThrow("manual property review");
+  }
+  const reviewed = { ...fixture(false, false, false, true), startOnly: true };
+  expect(actions(reviewed).disabled()).toBe(false);
+  expect(() => actions(reviewed).payload()).not.toThrow();
+});
+it("a collapsed camera sketch blocks video before request admission", () => {
+  const panel = actions({ ...fixture(false, false, false, false), sketchValid: false });
+  expect(panel.disabled()).toBe(true); expect(() => panel.payload()).toThrow("sketch positions");
+});
+it("Start-only excludes a retained End even if an older draft kept ending guidance enabled", () => {
+  let declaration = "";
+  const find = (node: ts.Node) => { if (ts.isVariableDeclaration(node) && node.name.getText(file) === "lastFrame") declaration = node.getText(file); ts.forEachChild(node, find); }; find(file);
+  const source = vi.fn().mockReturnValue({ assetId: "rejected-end", atMs: 0 });
+  const compile = ts.transpileModule(`const ${declaration};return lastFrame;`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+  const last = new Function("bridge", "startOnly", "useEndReference", "source", "last", "lastMs", compile)(false, true, true, source, "asset:rejected-end", 0);
+  expect(last).toBeUndefined(); expect(source).not.toHaveBeenCalled();
+});
+
+it("blocks video while a furnishing result is unresolved or its accepted recipe no longer matches", () => {
+  for (const changes of [{ furnitureBlocked: true }, { stagingMatches: false }]) {
+    const panel = actions({ ...fixture(false, false, false, false), ...changes });
+    expect(panel.disabled()).toBe(true); expect(() => panel.payload()).toThrow("furniture concept");
+  }
+});
+
+it("accepting a furniture concept selects Start-only without overwriting camera guidance or submitting more images", () => {
+  let callback = "";
+  const scan = (node: ts.Node) => {
+    if (ts.isJsxSelfClosingElement(node) && node.tagName.getText(file) === "FurnitureStagePanel") {
+      const property = node.attributes.properties.find(p => ts.isJsxAttribute(p) && p.name.getText(file) === "onUse") as ts.JsxAttribute;
+      callback = (property.initializer as ts.JsxExpression).expression!.getText(file);
+    }
+    ts.forEachChild(node, scan);
+  }; scan(file);
+  const env = { receiveAssets: vi.fn(), setFurnitureSelection: vi.fn(), keyframeInputKey: () => "frozen-concept", setStartBase: vi.fn(), setPhoto: vi.fn(), setFirstMs: vi.fn(), setGeneratedStart: vi.fn(), setStartOnly: vi.fn(), setUseEndReference: vi.fn(), setWorkflow: vi.fn(), setReviewedStart: vi.fn(), setReviewedPair: vi.fn(), setQuality: vi.fn(), requestId: { current: "old-video" }, setDirection: vi.fn(), setDistanceM: vi.fn(), fetch: vi.fn() };
+  const compiled = ts.transpileModule(`const accept = ${callback};return accept;`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+  new Function(...Object.keys(env), compiled)(...Object.values(env))({ id: "concept" }, { source: { assetId: "original" }, distanceM: .5, durationSeconds: 4 });
+  expect(env.setPhoto).toHaveBeenCalledWith("asset:concept"); expect(env.setStartBase).toHaveBeenCalledWith("asset:original");
+  expect(env.setStartOnly).toHaveBeenCalledWith(true); expect(env.setUseEndReference).toHaveBeenCalledWith(false);
+  expect(env.setDirection).not.toHaveBeenCalled(); expect(env.setDistanceM).not.toHaveBeenCalled(); expect(env.fetch).not.toHaveBeenCalled();
+  expect(env.setFurnitureSelection).toHaveBeenCalledWith({ sourceAssetId: "original", assetId: "concept", inputKey: "frozen-concept" });
 });

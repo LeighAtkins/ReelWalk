@@ -10,6 +10,7 @@ const find = (node: ts.Node) => { if (ts.isFunctionDeclaration(node) && ["videoP
 const code = ts.transpileModule(body, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
 const fixture = () => ({ busy: false, card: { id: "reserved", draft: "approved", request: undefined as unknown }, setError: vi.fn(), setBusy: vi.fn(),
   guided: false, pairReviewed: false, distanceValid: true,
+  furnitureBlocked: false, stagingMatches: true, sketchValid: true, startOnly: false, startReviewed: true, startPreviewsReady: true,
   useEndReference: false, bridge: false, startImageBlocked: false, endImageBlocked: false, aiShotSchema, shotCardPayloadSchema, mode: "custom", move: "", direction: "push-in",
   firstFrame: { assetId: "start", atMs: 0 }, lastFrame: { assetId: "end", atMs: 0 }, anchor: undefined, style: "source", atmosphere: "source", energy: "subtle",
   onAdd: vi.fn(), harmonize: false, polish: false, next: undefined, draft: false, reelId: "reel", clips: [], beforeGenerate: vi.fn().mockResolvedValue(true),
@@ -20,6 +21,12 @@ it("does not submit video when its durable request cannot save", async () => {
   const env = fixture(); await run(env);
   expect(env.onCardRequest).toHaveBeenCalledWith({ id: "saved-request", draft: "approved", payload: expect.any(String) });
   expect(env.fetch).not.toHaveBeenCalled(); expect(env.setError).toHaveBeenCalledWith("Save this card and its request before generating.");
+});
+it("does not dispatch while the furniture revision or Start review is unresolved", async () => {
+  for (const patch of [{ furnitureBlocked: true }, { stagingMatches: false }, { sketchValid: false }, { startOnly: true, startReviewed: false }, { startOnly: true, startPreviewsReady: false }]) {
+    const env = fixture(); Object.assign(env, patch); await run(env);
+    expect(env.fetch).not.toHaveBeenCalled(); expect(env.onCardRequest).not.toHaveBeenCalled(); expect(env.setError).toHaveBeenCalledWith(expect.any(String));
+  }
 });
 it("does not submit guided video until the current pair is reviewed", async () => {
   const env = fixture(); env.guided = true; await run(env);

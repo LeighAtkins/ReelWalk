@@ -24,9 +24,9 @@ export const shotCardSchema = z.object({
   sourceAssetId: z.string().min(1).optional(),
   clipId: z.string().min(1).optional(),
   draft: z.string().max(16000).optional(),
-  frameAssetIds: z.array(z.string().min(1)).max(4).optional(),
+  frameAssetIds: z.array(z.string().min(1)).max(6).optional(),
   framePair: shotFramePairSchema.optional(),
-  recovery: z.record(z.string().max(300), z.string().max(16000)).refine(value => Object.keys(value).length <= 4).optional(),
+  recovery: z.record(z.string().max(300), z.string().max(16000)).refine(value => Object.keys(value).length <= 6).optional(),
   request: z.object({ id: z.string().min(1).max(128), draft: z.string().max(16000), payload: z.string().max(16000).optional(), jobId: z.string().max(128).optional() }).optional(),
 });
 export const shotBoardSchema = z.object({ version: z.literal(1), cards: z.array(shotCardSchema).max(100) })

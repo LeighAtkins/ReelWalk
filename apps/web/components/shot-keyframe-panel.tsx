@@ -13,7 +13,7 @@ const running = (job: Job) => ["QUEUED", "SUBMITTING", "UNKNOWN"].includes(job.s
 /** Both the pending request and candidate approval belong to these exact visible choices. */
 export function keyframeInputKey(input: CameraKeyframeInput): string {
   return JSON.stringify([input.role, input.source.assetId, input.source.atMs, input.continuity?.assetId ?? null,
-    input.continuity?.atMs ?? null, input.move, input.distanceM, input.durationSeconds, input.prompt?.trim() || null]);
+    input.continuity?.atMs ?? null, input.move, input.distanceM, input.durationSeconds, input.prompt?.trim() || null, ...(input.cinematography ? [input.cinematography] : []), ...(input.furnitureStage ? [input.furnitureStage] : [])]);
 }
 
 export function keyframeMatches(job: Pick<CameraKeyframeJob, "input">, input: CameraKeyframeInput | null): boolean {
@@ -25,14 +25,17 @@ export function savedKeyframeInput(saved: SavedRequest, current: CameraKeyframeI
   return frozen && keyframeInputKey(frozen) === saved.inputKey ? frozen : null;
 }
 
-export function ShotKeyframePanel({ role, input, recoveryKey, durableRecovery, onRecovery, selectedAssetId, disabled = false, onUse, onKeepSource, onAssets, onBalance, onBlocked }: {
+export function ShotKeyframePanel({ role, input, recoveryKey, durableRecovery, onRecovery, selectedAssetId, variant, disabled = false, onUse, onKeepSource, onAssets, onBalance, onBlocked }: {
   durableRecovery?: Record<string, string>; onRecovery?(key: string, value: string): Promise<boolean>;
   role: "start" | "end"; input: CameraKeyframeInput | null; recoveryKey: string; disabled?: boolean;
-  selectedAssetId?: string;
+  selectedAssetId?: string; variant?: "furniture";
   onUse(asset: LibraryAsset, input: CameraKeyframeInput): void;
   onKeepSource(input: CameraKeyframeInput): void;
   onAssets(assets: LibraryAsset[]): void; onBalance(remaining: number): void; onBlocked(blocked: boolean): void;
 }) {
+  const concept = variant === "furniture";
+  const title = concept ? "Furniture concept" : role === "start" ? "Start" : "End";
+  const [manualReview, setManualReview] = useState<string>();
   const [state, setState] = useState<State>(), [busy, setBusy] = useState(false), [error, setError] = useState("");
   const [historyReady, setHistoryReady] = useState(false), [selected, setSelected] = useState<string>();
   const [dismissed, setDismissed] = useState<string>();
@@ -56,12 +59,14 @@ export function ShotKeyframePanel({ role, input, recoveryKey, durableRecovery, o
   const currentScope = useRef(storageKey); currentScope.current = storageKey;
   const matching = state?.jobs.filter(job => keyframeMatches(job, input)) ?? [];
   const job = matching.find(item => item.id === selected);
+  const blockingJob = concept ? state?.jobs.find(item => !!item.input.furnitureStage && running(item)) ?? job : job;
   const isSelected = job?.status === "USED" && !!job.asset && job.asset.id === selectedAssetId;
   const candidateKey = job?.candidateUrl ? `${job.id}:${job.candidateUrl}:${job.sourceUrl}:${imageAttempt}` : "";
   const visibleKey = useRef(candidateKey); visibleKey.current = candidateKey;
+  const manualApproved = !concept || manualReview === candidateKey;
   const ready = !!candidateKey && !!loaded[`${candidateKey}:source`] && !!loaded[`${candidateKey}:candidate`] && failed !== candidateKey;
   const unresolved = !!pending;
-  const blocked = busy || unresolved || !!job && (running(job) || job.status === "CANDIDATE" && dismissed !== job.id);
+  const blocked = busy || unresolved || !!blockingJob && running(blockingJob) || !!job && (running(job) || job.status === "CANDIDATE" && dismissed !== job.id);
 
   async function refresh(signal?: AbortSignal, recover = false) {
     const query = new URLSearchParams(recover ? { recover: "1" } : {});
@@ -113,7 +118,7 @@ export function ShotKeyframePanel({ role, input, recoveryKey, durableRecovery, o
 
   async function generate(retry = false) {
     const frozen = retry && pending ? savedKeyframeInput(pending, input) : input;
-    if (!frozen || locked.current || disabled || !historyReady || (!retry && (!state?.enabled || state.balanceRemaining < 1 || unresolved || job && running(job)))) return;
+    if (!frozen || locked.current || disabled || !historyReady || (!retry && (!state?.enabled || state.balanceRemaining < 1 || unresolved || blockingJob && running(blockingJob)))) return;
     locked.current = true; setBusy(true); setError(""); setDismissed(undefined); setFailed(null); setLoaded({});
     const inputKey = keyframeInputKey(frozen), requestId = retry && pending ? pending.requestId : crypto.randomUUID();
     let sent = false;
@@ -140,7 +145,7 @@ export function ShotKeyframePanel({ role, input, recoveryKey, durableRecovery, o
   }
 
   async function use() {
-    if (!job || !input || !ready || !keyframeMatches(job, input) || locked.current || disabled) return;
+    if (!job || !input || !ready || !manualApproved || !keyframeMatches(job, input) || locked.current || disabled) return;
     const originalKey = keyframeInputKey(input), candidateId = job.id;
     locked.current = true; setBusy(true); setError("");
     try {
@@ -157,21 +162,22 @@ export function ShotKeyframePanel({ role, input, recoveryKey, durableRecovery, o
     setFailed(null); setLoaded({}); setImageAttempt(n => n + 1);
     try { await refresh(); } catch { setError("Could not refresh the saved image links. No new image was generated."); }
   }
-  const image = (kind: "source" | "candidate", url: string) => <img key={`${candidateKey}:${kind}`} src={url} alt={kind === "source" ? "Original portrait source" : `Generated ${role} frame`}
+  const image = (kind: "source" | "candidate", url: string) => <img key={`${candidateKey}:${kind}`} src={url} alt={kind === "source" ? "Original portrait source" : `Generated ${title}`}
     className={styles.keyframeImage}
     onLoad={() => { if (visibleKey.current === candidateKey) setLoaded(old => ({ ...old, [`${candidateKey}:${kind}`]: true })); }}
     onError={() => { if (visibleKey.current === candidateKey) { setFailed(candidateKey); setLoaded({}); } }} />;
 
-  return <section aria-label={`Prepare ${role} image`} className={styles.keyframe}>
-    <p className="muted small">{role === "end" ? "Make the ending image first. Review it before spending video credits." : "Optionally prepare a new starting view from this photo."}</p>
+  return <section aria-label={concept ? "Prepare furniture concept" : `Prepare ${role} image`} className={styles.keyframe}>
+    <p className="muted small">{concept ? "Generate one disclosed furniture concept. Review architectural details inside the edit area before using it. The original outside the rectangle is restored; this is not a current-property photograph." : role === "end" ? "Make the ending image first. Review it before spending video credits." : "Optionally prepare a new starting view from this photo."}</p>
     {!input ? <p className="muted small">Choose a photo to prepare this frame.</p> : null}
-    {isSelected ? <p role="status" className={styles.selectedStatus}>Selected as {role === "start" ? "Start" : "End"}.</p> : job?.candidateUrl && job.sourceUrl ? <>
+    {isSelected && !concept ? <p role="status" className={styles.selectedStatus}>Selected as {role === "start" ? "Start" : "End"}.</p> : job?.candidateUrl && job.sourceUrl ? <>
       <div className={styles.comparison}>
         <figure>{image("source", job.sourceUrl)}<figcaption className={styles.caption}>Original</figcaption></figure>
-        <figure>{image("candidate", job.candidateUrl)}<figcaption className={styles.caption}>{role === "start" ? "New Start" : "New End"}</figcaption></figure>
+        <figure>{image("candidate", job.candidateUrl)}<figcaption className={styles.caption}>{concept ? "Furniture concept ? AI furnished" : role === "start" ? "New Start" : "New End"}</figcaption></figure>
       </div>
       {failed === candidateKey ? <p className="error small" role="alert">The image preview could not load. Your image is saved. <button type="button" disabled={busy} onClick={retryPreview}>Retry preview</button></p> : null}
-      <button className="btn btn-block" type="button" disabled={disabled || busy || !ready} onClick={use}>Use this {role === "start" ? "Start" : "End"}</button>
+      {concept ? <label><input type="checkbox" checked={manualReview === candidateKey} disabled={disabled || busy || !ready} onChange={event => setManualReview(event.target.checked ? candidateKey : undefined)} /> I compared walls, openings, flooring, built-ins and lighting inside the furnishing area. This is my manual concept review.</label> : null}
+      <button className="btn btn-block" type="button" disabled={disabled || busy || !ready || !manualApproved} onClick={use}>Use this {concept ? "concept as Start" : role === "start" ? "Start" : "End"}</button>
       {job.status === "CANDIDATE" ? <button className="btn btn-quiet" type="button" disabled={disabled || busy} onClick={async () => { if (input) {
         try { await write(choiceKey, JSON.stringify({ id: job.id, keepSource: true }), localStorage); setDismissed(job.id); onKeepSource(input); }
         catch { setError("This browser could not save the choice. Your generated image is still saved."); }
@@ -183,8 +189,8 @@ export function ShotKeyframePanel({ role, input, recoveryKey, durableRecovery, o
       <button type="button" className="btn btn-quiet" disabled={disabled || busy || !historyReady || !savedKeyframeInput(pending, input)} onClick={() => generate(true)}>Retry saved request</button>
     </p> : null}
     {state && !state.enabled ? <p className="muted small">{state.reason || "Image preparation is not enabled on this installation yet."}</p> : null}
-    <button className="btn btn-quiet" type="button" disabled={disabled || busy || !input || !historyReady || !state?.enabled || state.balanceRemaining < 1 || unresolved || !!job && running(job)} onClick={() => generate()}>
-      {busy ? "Working…" : `${job?.candidateUrl ? "Try another" : `Generate ${role === "start" ? "Start" : "End"} image`} · 1 credit`}
+    <button className="btn btn-quiet" type="button" disabled={disabled || busy || !input || !historyReady || !state?.enabled || state.balanceRemaining < 1 || unresolved || !!blockingJob && running(blockingJob)} onClick={() => generate()}>
+      {busy ? "Working…" : `${job?.candidateUrl ? "Try another" : `Generate ${concept ? "furniture concept" : role === "start" ? "Start" : "End"}${concept ? "" : " image"}`} · 1 credit`}
     </button>
     {job || error || unresolved ? <button type="button" className="btn btn-quiet" disabled={busy} onClick={() => refresh(undefined, true).then(() => setError("")).catch(e => setError(e.message))}>Refresh status</button> : null}
     {matching.length ? <details className={styles.details}><summary>Saved images</summary>{matching.map(item => <button key={item.id} type="button" disabled={busy} onClick={async () => {

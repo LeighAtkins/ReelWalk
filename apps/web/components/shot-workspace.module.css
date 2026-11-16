@@ -336,3 +336,19 @@
 }
 .upload { position: relative; }
 .upload:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.sketch { margin:0; padding:1rem; border:1px solid var(--line); border-radius:var(--radius-m); min-inline-size:0; }
+.sketch legend { font-weight:600; }
+.sketchStage { position:relative; aspect-ratio:1; margin:1.75rem; touch-action:none; color:var(--signal); background:repeating-linear-gradient(0deg,transparent,transparent 19%,var(--line) 20%),repeating-linear-gradient(90deg,transparent,transparent 19%,var(--line) 20%); }
+.sketchStage svg { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
+.sketchHandle { position:absolute; transform:translate(-50%,-50%); min-width:3.5rem; min-height:2.75rem; padding:.25rem; background:var(--ink-deep); color:var(--paper); border:2px solid var(--signal); border-radius:var(--radius-s); touch-action:none; cursor:grab; }
+.sketchHandle:focus-visible { outline:3px solid var(--paper); outline-offset:3px; }
+.sketchPositions { display:grid; gap:.5rem; margin-block:1rem; }
+.sketchPositions label { display:grid; gap:.25rem; }
+.propertyReview { display:grid; gap:.75rem; padding:1rem; border:1px solid var(--line-strong); border-radius:var(--radius-m); }
+.reviewImages { display:flex; gap:1rem; flex-wrap:wrap; }
+.reviewImages figure { margin:0; flex:1 1 8rem; }
+.reviewImages img { width:100%; max-height:22rem; object-fit:contain; background:var(--ink-deep); }
+.furnitureCanvas { position:relative; width:min(100%,18rem); aspect-ratio:9/16; margin-inline:auto; overflow:hidden; touch-action:none; cursor:crosshair; background:var(--ink-deep); }
+.furnitureCanvas > img { width:100%; height:100%; object-fit:cover; object-position:center; pointer-events:none; user-select:none; }
+.furnitureRegion { position:absolute; border:2px solid var(--signal); background:color-mix(in srgb,var(--signal) 15%,transparent); pointer-events:none; }
+.furnitureRegion span { display:block; width:max-content; max-width:100%; background:var(--ink-deep); color:var(--paper); font-size:.75rem; padding:.25rem; }

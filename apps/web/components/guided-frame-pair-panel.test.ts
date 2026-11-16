@@ -40,7 +40,7 @@ it("shows first-load history failure and retries GET only while paid preparation
 const file = ts.createSourceFile("panel.tsx", readFileSync(new URL("./guided-frame-pair-panel.tsx", import.meta.url), "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 let body = "";
 let anotherPairCondition = "";
-const visit = (node: ts.Node) => { if (ts.isFunctionDeclaration(node) && ["prepare", "review", "post", "refineEnd"].includes(node.name?.text ?? "")) body += node.getText(file) + "\n"; ts.forEachChild(node, visit); }; visit(file);
+const visit = (node: ts.Node) => { if (ts.isFunctionDeclaration(node) && ["prepare", "review", "post", "refineEnd", "keepStart"].includes(node.name?.text ?? "")) body += node.getText(file) + "\n"; ts.forEachChild(node, visit); }; visit(file);
 const findAnotherPair = (node: ts.Node) => { if (ts.isConditionalExpression(node) && node.whenTrue.getText(file).includes(">Prepare another pair")) anotherPairCondition = node.condition.getText(file); ts.forEachChild(node, findAnotherPair); }; findAnotherPair(file);
 const code = ts.transpileModule(body, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
 const input: CameraKeyframeInput = { role: "start", source: { assetId: "original-house", atMs: 0 }, move: "rise", distanceM: 3, durationSeconds: 4, cinematography: DEFAULT_SHOT_CINEMATOGRAPHY };
@@ -48,7 +48,7 @@ function fixture(pair?: ShotFramePair) {
   const current = { current: { pair, input } };
   return { pair, input, current, disabled: false, inputValid: true, historyReady: true, admission: { enabled: true, balanceRemaining: 10 },
     jobs: {} as Record<string, { id: string; status: string; continuationError?: string; asset?: { id: string }; candidateUrl?: string }>, lock: { current: false }, live: { current: true }, busy: false,
-    matches: true, bothReady: true, previewsReady: true, setBusy: vi.fn(), setError: vi.fn(), beforePrepare: vi.fn().mockResolvedValue(true),
+    matches: true, bothReady: true, previewsReady: true, manualReview: "reviewed", reviewKey: "reviewed", loaded: { start: true, source: true }, imageKeys: { start: "start" }, sourceKey: "source", onUseStart: vi.fn(), setBusy: vi.fn(), setError: vi.fn(), beforePrepare: vi.fn().mockResolvedValue(true),
     onSave: vi.fn(async (saved: ShotFramePair) => { current.current.pair = saved; return true; }),
     fetch: vi.fn().mockResolvedValue({ ok: true, json: async () => ({ job: { id: "retained-start" } }) }),
     refresh: vi.fn().mockResolvedValue({}), onAssets: vi.fn(), onReview: vi.fn(), setEndEditing: vi.fn(), framePairMatches, newFramePair, savedFramePairInput,
@@ -229,4 +229,25 @@ it("a malformed saved End revision shows a recoverable message instead of crashi
   hookState.index = 0; hookState.values = [{}, undefined, false, 0, false, "", null, {}, undefined, null, false];
   const html = renderToStaticMarkup(GuidedFramePairPanel({ pair, input, disabled: false, reviewed: false, onSave: vi.fn(), onReview: vi.fn(), onAssets: vi.fn(), onBalance: vi.fn() }));
   expect(html).toContain("could not be read"); expect(html).toContain("saved in Media"); expect(html).not.toContain("Prepare another pair");
+});
+
+it("cannot approve a pair before the customer confirms the manual property comparison", async () => {
+  const env = fixture(newFramePair(input)); env.manualReview = "";
+  await run(env, "review"); expect(env.fetch).not.toHaveBeenCalled(); expect(env.onReview).not.toHaveBeenCalled();
+});
+
+it("selects a retained Start with only a use request, preserving the original pair identities", async () => {
+  const pair = newFramePair(input), env = fixture(pair);
+  env.jobs.start = { id: "existing-start", status: "CANDIDATE", asset: { id: "accepted-start" } };
+  env.fetch.mockResolvedValue({ ok: true, json: async () => ({ asset: { id: "accepted-start" } }) });
+  await run(env, "keepStart");
+  expect(env.fetch).toHaveBeenCalledTimes(1);
+  expect(JSON.parse(env.fetch.mock.calls[0][1].body)).toEqual({ action: "use", jobId: "existing-start" });
+  expect(env.onSave.mock.calls[0][0]).toMatchObject({ id: pair.id, startRequestId: pair.startRequestId, endRequestId: pair.endRequestId, startAssetId: "accepted-start" });
+  expect(env.onUseStart).toHaveBeenCalledWith({ id: "accepted-start" });
+});
+it("does not attach an old pair Start to a newly chosen property's reference", async () => {
+  const env = fixture(newFramePair(input)); env.input = { ...input, source: { assetId: "different-house", atMs: 0 } };
+  env.jobs.start = { id: "existing-start", status: "CANDIDATE" };
+  await run(env, "keepStart"); expect(env.fetch).not.toHaveBeenCalled();
 });

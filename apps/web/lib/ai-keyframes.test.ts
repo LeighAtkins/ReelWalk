@@ -6,12 +6,31 @@ vi.mock("@reelwalk/db", async importOriginal => ({ ...await importOriginal<typeo
 vi.mock("./storage", () => ({ readKeyframeObject: mocks.read, putKeyframeObject: mocks.put }));
 vi.mock("./quotas", () => ({ storageBlockedReason: async () => null }));
 vi.mock("./library", () => ({ toLibraryAsset: async (asset: object) => asset }));
-import { generateKeyframe, keyframeArtifact, useKeyframe } from "./ai-keyframes";
-import { keyframeHash } from "@reelwalk/db";
+import { generateKeyframe, keyframeArtifact, keyframeView, useKeyframe } from "./ai-keyframes";
+import { keyframeHash, type AiKeyframe } from "@reelwalk/db";
+import { keyframeMatches, keyframeInputKey, savedKeyframeInput } from "../components/shot-keyframe-panel";
 const actor = { id: "u", workspaceId: "w", email: "owner@fixture.invalid" };
 const input = { action: "generate" as const, requestId: "4ec2359d-c4af-490b-b5ec-36a88f499605", role: "end" as const, source: { assetId: "photo", atMs: 0 as const }, move: "shift-right" as const, distanceM: 3, durationSeconds: 4 as const };
 beforeEach(() => { vi.resetAllMocks(); vi.stubEnv("AI_KEYFRAMES_ENABLED", "true"); vi.stubEnv("GOOGLE_CLOUD_PROJECT", "fixture"); });
 describe("owned keyframe candidates", () => {
+  it.each(["QUEUED", "CANDIDATE", "USED"])("keeps a %s furniture request visible after JSONB reorders nested fields", async status => {
+    const frozen = cameraKeyframeGenerateSchema.omit({ action: true, requestId: true }).strip().parse({ ...input,
+      furnitureStage: { version: 1, style: "warm-minimal", region: { x: .18, y: .53, width: .34, height: .14 }, instructions: "Ivory chairs" },
+      cinematography: { version: 1, lensMm: "source", whiteBalanceKelvin: "source" },
+    });
+    const stored = { ...frozen,
+      furnitureStage: { instructions: "Ivory chairs", region: { height: .14, width: .34, x: .18, y: .53 }, style: "warm-minimal", version: 1 },
+      cinematography: { lensMm: "source", version: 1, whiteBalanceKelvin: "source" },
+    };
+    const row = { id: "saved", requestId: input.requestId, workspaceId: "w", input: stored, snapshot: { source: {} }, status, createdAt: new Date() } as unknown as AiKeyframe;
+    const viewed = await keyframeView(row);
+    expect(keyframeMatches(viewed, frozen)).toBe(true);
+    expect(savedKeyframeInput({ requestId: input.requestId, inputKey: keyframeInputKey(frozen), input: viewed.input }, frozen)).toEqual(frozen);
+    expect(keyframeMatches(viewed, { ...frozen, furnitureStage: { ...frozen.furnitureStage!, instructions: "Different furniture" } })).toBe(false);
+    expect(keyframeMatches(viewed, { ...frozen, furnitureStage: { ...frozen.furnitureStage!, region: { ...frozen.furnitureStage!.region, width: .3 } } })).toBe(false);
+    expect(row.input).toEqual(stored);
+    expect(mocks.read).not.toHaveBeenCalled(); expect(mocks.put).not.toHaveBeenCalled(); expect(mocks.reserve).not.toHaveBeenCalled();
+  });
   it("returns an existing saved request without re-reading changed sources, retaining objects or admitting it again", async () => {
     const frozen = cameraKeyframeGenerateSchema.omit({ action: true, requestId: true }).strip().parse(input);
     const row = { id: "saved", requestId: input.requestId, workspaceId: "w", input: frozen, inputHash: keyframeHash(JSON.stringify(frozen)), snapshot: { source: {} }, status: "QUEUED", createdAt: new Date() };

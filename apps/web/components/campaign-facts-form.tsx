@@ -1,6 +1,7 @@
 ﻿"use client";
 
 import { useState } from "react";
+import { unstable_rethrow } from "next/navigation";
 import type { CampaignFacts } from "@reelwalk/core";
 
 const fields = [
@@ -27,7 +28,7 @@ export function CampaignFactsForm({ initial, action, campaign, sources, selected
   const [error, setError] = useState("");
   return <form action={async form => {
     try { const result = await action(form); if (result?.error) setError(result.error); }
-    catch { setError("The connection failed. Your details are kept here; retry the same request."); }
+    catch (error) { unstable_rethrow(error); setError("The connection failed. Your details are kept here; retry the same request."); }
     finally { setBusy(false); }
   }} onSubmit={(event) => {
     if (!reviewing) { event.preventDefault(); setReviewing(true); return; }

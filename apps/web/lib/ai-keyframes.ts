@@ -11,9 +11,11 @@ const url = (id: string, artifact: string) => `/api/ai/keyframes?job=${encodeURI
 const continuationPrefix = "End preparation paused: ";
 export async function keyframeView(job: AiKeyframe): Promise<CameraKeyframeJob<LibraryAsset>> {
   const snapshot = job.snapshot as unknown as KeyframeSnapshot;
+  // PostgreSQL JSONB reorders nested keys; restore the same schema order used by saved review identities.
+  const input = cameraKeyframeGenerateSchema.omit({ action: true, requestId: true }).strip().parse(job.input);
   const asset = job.assetId ? await prisma.mediaAsset.findFirst({ where: { id: job.assetId, workspaceId: job.workspaceId } }) : null;
   const continuationError = (job.input as unknown as CameraKeyframeInput).guidedPair && ["CANDIDATE", "USED"].includes(job.status) && job.error?.startsWith(continuationPrefix) ? job.error : null;
-  return { id: job.id, requestId: job.requestId, status: job.status as CameraKeyframeStatus, requestHash: job.requestHash, input: job.input as unknown as CameraKeyframeInput,
+  return { id: job.id, requestId: job.requestId, status: job.status as CameraKeyframeStatus, requestHash: job.requestHash, input,
     sourceUrl: snapshot.source?.canonicalKey ? url(job.id, "source") : null, continuityUrl: snapshot.continuity ? url(job.id, "continuity") : null,
     candidateUrl: job.candidateKey ? url(job.id, "candidate") : null, asset: asset ? await toLibraryAsset(asset) : null,
     error: continuationError ? null : job.error, continuationError, sourceFraming: snapshot.source?.normalization?.version === 2 ? "full-reference" : "portrait-crop",

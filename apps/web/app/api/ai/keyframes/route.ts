@@ -1,3 +1,5 @@
+import { adjustFurnitureArea } from "@/lib/furniture-adjustment";
+import { furnitureStageSchema } from "@reelwalk/core";
 import { z } from "zod";
 import { cameraKeyframeGenerateSchema } from "@reelwalk/core";
 import { AiCreditError, KeyframeError } from "@reelwalk/db";
@@ -38,6 +40,13 @@ export async function POST(request: Request) {
     const chunks: Uint8Array[] = []; let length = 0;
     while (true) { const part = await reader.read(); if (part.done) break; length += part.value.length; if (length > 16000) { await reader.cancel(); throw new KeyframeError("Body too large", 400); } chunks.push(part.value); }
     const value = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    if (["preview-furniture-area", "save-furniture-area"].includes(value.action)) {
+      const parsed = z.object({ action: z.enum(["preview-furniture-area", "save-furniture-area"]), jobId: z.string().min(1).max(128), region: furnitureStageSchema.shape.region, previewHash: z.string().regex(/^[a-f0-9]{64}$/).optional() }).strict().parse(value);
+      if (parsed.action === "save-furniture-area" && !parsed.previewHash) throw new KeyframeError("Preview the area first.", 400);
+      const result = await adjustFurnitureArea(actor, parsed.jobId, parsed.region, parsed.action === "save-furniture-area" ? parsed.previewHash : undefined);
+      if ("asset" in result) return Response.json({ asset: result.asset, input: result.input, lineage: result.lineage }, { headers });
+      return new Response(new Uint8Array(result.bytes), { headers: { ...headers, "Content-Type": "image/jpeg", "X-Content-Type-Options": "nosniff", "X-Preview-Hash": result.hash } });
+    }
     if (value.action === "use") return Response.json(await useKeyframe(actor, useSchema.parse(value).jobId), { headers });
     if (value.action === "continue-pair") {
       const result = await continueKeyframePair(actor, continueSchema.parse(value).jobId);

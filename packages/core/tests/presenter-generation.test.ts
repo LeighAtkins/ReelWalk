@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({
 }));
 // The workspace AI switch has its own tests (apps/web/lib/ai-off.test.ts); here every workspace has AI on.
 vi.mock("@/lib/ai-gate", () => ({ aiOffResponse: async () => null, aiIsOff: async () => false, assertAiOn: async () => undefined, AI_OFF_MESSAGE: "off" }));
-vi.mock("@reelwalk/db", () => ({ prisma: { presenter: mocks.presenter, mediaAsset: mocks.mediaAsset, aiGeneration: mocks.aiGeneration, aiKeyframe: mocks.aiKeyframe, reel: mocks.reel }, reserveAiGeneration: mocks.reserve, aiCreditSummary: vi.fn() }));
+vi.mock("@reelwalk/db", async importOriginal => ({ ...await importOriginal<Record<string, unknown>>(), prisma: { presenter: mocks.presenter, mediaAsset: mocks.mediaAsset, aiGeneration: mocks.aiGeneration, aiKeyframe: mocks.aiKeyframe, reel: mocks.reel }, reserveAiGeneration: mocks.reserve, aiCreditSummary: vi.fn() }));
 vi.mock("@/lib/quotas", () => ({ storageBlockedReason: async () => null }));
 vi.mock("@/lib/workspace", () => ({ mediaScope: (workspaceId: string) => ({ OR: [{ workspaceId }, { shared: true }] }) }));
 const aiVideoModule = "@/lib/ai-video";

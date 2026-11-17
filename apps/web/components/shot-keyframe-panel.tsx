@@ -25,9 +25,11 @@ export function savedKeyframeInput(saved: SavedRequest, current: CameraKeyframeI
   return frozen && keyframeInputKey(frozen) === saved.inputKey ? frozen : null;
 }
 
-export function ShotKeyframePanel({ role, input, recoveryKey, durableRecovery, onRecovery, selectedAssetId, variant, disabled = false, onUse, onKeepSource, onAssets, onBalance, onBlocked }: {
+export function ShotKeyframePanel({ role, input, recoveryKey, durableRecovery, onRecovery, selectedAssetId, variant, disabled = false, onUse, onKeepSource, onAssets, onBalance, onBlocked, onAdjust, selectedDerivative }: {
   durableRecovery?: Record<string, string>; onRecovery?(key: string, value: string): Promise<boolean>;
   role: "start" | "end"; input: CameraKeyframeInput | null; recoveryKey: string; disabled?: boolean;
+  selectedDerivative?: boolean;
+  onAdjust?(job: Job): void;
   selectedAssetId?: string; variant?: "furniture";
   onUse(asset: LibraryAsset, input: CameraKeyframeInput): void;
   onKeepSource(input: CameraKeyframeInput): void;
@@ -66,7 +68,7 @@ export function ShotKeyframePanel({ role, input, recoveryKey, durableRecovery, o
   const manualApproved = !concept || manualReview === candidateKey;
   const ready = !!candidateKey && !!loaded[`${candidateKey}:source`] && !!loaded[`${candidateKey}:candidate`] && failed !== candidateKey;
   const unresolved = !!pending;
-  const blocked = busy || unresolved || !!blockingJob && running(blockingJob) || !!job && (running(job) || job.status === "CANDIDATE" && dismissed !== job.id);
+  const blocked = busy || unresolved || !!blockingJob && running(blockingJob) || !!job && (running(job) || job.status === "CANDIDATE" && dismissed !== job.id && !selectedDerivative);
 
   async function refresh(signal?: AbortSignal, recover = false) {
     const query = new URLSearchParams(recover ? { recover: "1" } : {});
@@ -170,6 +172,7 @@ export function ShotKeyframePanel({ role, input, recoveryKey, durableRecovery, o
   return <section aria-label={concept ? "Prepare furniture concept" : `Prepare ${role} image`} className={styles.keyframe}>
     <p className="muted small">{concept ? "Generate one disclosed furniture concept. Review architectural details inside the edit area before using it. The original outside the rectangle is restored; this is not a current-property photograph." : role === "end" ? "Make the ending image first. Review it before spending video credits." : "Optionally prepare a new starting view from this photo."}</p>
     {!input ? <p className="muted small">Choose a photo to prepare this frame.</p> : null}
+    {concept && job?.candidateUrl && onAdjust ? <button type="button" disabled={disabled || busy} onClick={() => onAdjust(job)}>Adjust area using saved result</button> : null}
     {isSelected && !concept ? <p role="status" className={styles.selectedStatus}>Selected as {role === "start" ? "Start" : "End"}.</p> : job?.candidateUrl && job.sourceUrl ? <>
       <div className={styles.comparison}>
         <figure>{image("source", job.sourceUrl)}<figcaption className={styles.caption}>Original</figcaption></figure>

@@ -14,7 +14,8 @@ const m = vi.hoisted(() => ({
   structured: vi.fn<(...args: any[]) => any>(),
 }));
 
-vi.mock("@reelwalk/db", () => ({
+vi.mock("@reelwalk/db", async importOriginal => ({
+  ...await importOriginal<Record<string, unknown>>(),
   prisma: { workspace: m.workspace, reel: { findFirst: vi.fn() }, mediaAsset: { findFirst: vi.fn() }, aiGeneration: { findFirst: vi.fn() } },
   reserveAiGeneration: m.reserve,
   aiCreditSummary: vi.fn(),
@@ -22,7 +23,7 @@ vi.mock("@reelwalk/db", () => ({
 vi.mock("./workspace", () => ({ mediaScope: () => ({}) }));
 vi.mock("./quotas", () => ({ storageBlockedReason: async () => null, isUnlimited: async () => false }));
 vi.mock("./google-federation", () => ({ federatedGoogleAuth: () => ({}), defaultGoogleAuth: async () => ({}) }));
-vi.mock("./storage", () => ({ awsCredentials: () => async () => ({}) }));
+vi.mock("./storage", async importOriginal => ({ ...await importOriginal<Record<string, unknown>>(), awsCredentials: () => async () => ({}) }));
 
 import { AI_OFF_CODE, AI_OFF_MESSAGE, AiOffError, aiIsOff, aiOffResponse, aiSwitchOf, assertAiOn } from "./ai-gate";
 import { structuredAnswer } from "./openai";

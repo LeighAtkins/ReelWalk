@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("@reelwalk/db", () => ({ prisma: {} }));
+vi.mock("@reelwalk/db", async importOriginal => ({ ...await importOriginal<Record<string, unknown>>(), prisma: {} }));
 vi.mock("./openai", () => ({ structuredAnswer: vi.fn() }));
-vi.mock("./library", () => ({ toLibraryAssets: vi.fn() }));
+vi.mock("./library", async importOriginal => ({ ...await importOriginal<Record<string, unknown>>(), toLibraryAssets: vi.fn() }));
 
 const { planShots, planRequest, takeRequestId, uuidFrom, SHOT_PLAN_INSTRUCTIONS } = await import("./shot-plans");
 

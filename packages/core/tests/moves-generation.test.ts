@@ -5,7 +5,7 @@ import { AI_DRAFT_MODEL, AI_VIDEO_MODEL, MOVES, aiClipCostCents, aiDraftCostCent
 const mocks = vi.hoisted(() => ({ mediaAsset: { findFirst: vi.fn() }, aiKeyframe: { findFirst: vi.fn().mockResolvedValue(null) }, aiGeneration: { findFirst: vi.fn() }, reel: { findFirst: vi.fn() }, reserve: vi.fn() }));
 // The workspace AI switch has its own tests (apps/web/lib/ai-off.test.ts); here every workspace has AI on.
 vi.mock("@/lib/ai-gate", () => ({ aiOffResponse: async () => null, aiIsOff: async () => false, assertAiOn: async () => undefined, AI_OFF_MESSAGE: "off" }));
-vi.mock("@reelwalk/db", () => ({ prisma: { mediaAsset: mocks.mediaAsset, aiKeyframe: mocks.aiKeyframe, aiGeneration: mocks.aiGeneration, reel: mocks.reel, presenter: { findFirst: vi.fn() } }, reserveAiGeneration: mocks.reserve, aiCreditSummary: vi.fn() }));
+vi.mock("@reelwalk/db", async importOriginal => ({ ...await importOriginal<Record<string, unknown>>(), prisma: { mediaAsset: mocks.mediaAsset, aiKeyframe: mocks.aiKeyframe, aiGeneration: mocks.aiGeneration, reel: mocks.reel, presenter: { findFirst: vi.fn() } }, reserveAiGeneration: mocks.reserve, aiCreditSummary: vi.fn() }));
 vi.mock("@/lib/quotas", () => ({ storageBlockedReason: async () => null }));
 vi.mock("@/lib/workspace", () => ({ mediaScope: (workspaceId: string) => ({ OR: [{ workspaceId }, { shared: true }] }) }));
 const aiVideoModule = "@/lib/ai-video";

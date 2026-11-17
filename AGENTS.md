@@ -19,3 +19,7 @@ This block is written and re-added by `turbo` before repository-scoped commands 
 - Serialize heavy local jobs on this shared PC. Honour `C:\dev\lm\.heavy.lock` using the ownership, stale-check and refresh protocol in `C:\Users\Memory is RAM\Documents\projects\ReelWalk-rw\COMMON.md`; acquire per heavy command and release immediately afterward, including on failure. Never hold it while editing, using git or researching; do not overlap full checks/builds/renders.
 
 Evidence and limits: [push/CI failure notes](docs/ci-push-failures.md).
+
+# Verify sound before publishing
+
+- Before posting or scheduling a reel on the user's account, verify the selected audio throughout the reel's full duration. A song title, catalogue metadata, waveform or successful preview download is not a listening check. If you cannot verify its contents, leave the reel as a draft and say so. Distinguish Instagram's supplied preview from the final server mix; never imply an unsupported music start offset will be honoured by auto-posting.

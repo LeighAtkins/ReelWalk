@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { instagramAudioLabel, STORY_LIMITS, type InstagramAudioChoice } from "@reelwalk/core";
-import { PlayWithSound } from "./export-sound";
+import { PlayWithSound, useStageSound } from "./export-sound";
 import { InstagramSoundPicker } from "./instagram-sound-picker";
 import { PostStoryNow, type StoryOptions } from "./post-story-now";
 import { PostToInstagram } from "./post-to-instagram";
@@ -46,6 +46,7 @@ export function InstagramPublishing({
   blocked?: string[] | null;
 }) {
   const [audio, setAudio] = useState<InstagramAudioChoice | null>(scheduledSound === undefined ? reelSound : scheduledSound);
+  useStageSound(live ? audio : null);
   const [aiGenerated, setAiGenerated] = useState(aiContent);
   const [withStory, setWithStory] = useState(true);
   return (
@@ -74,13 +75,13 @@ export function InstagramPublishing({
           <InstagramSoundPicker value={audio} onChange={setAudio} />
           {scheduledSound !== undefined ? (
             <p className="muted small" data-testid="scheduled-sound-note">
-              {scheduledSound ? `Scheduled music: ${instagramAudioLabel(scheduledSound)}. Use Play with sound to hear the Instagram mix; the video controls and download play the original export.` : "This post is scheduled with its original export audio."}
+              {scheduledSound ? `Saved scheduled music: ${instagramAudioLabel(scheduledSound)}. The video previews the choice above; the download keeps the original export audio.` : "This post is scheduled with its original export audio."}
               {" "}<a href="/scheduled">Change and save scheduled music</a>. Choices here do not update an existing scheduled post.
             </p>
           ) : reelSound ? (
             <p className="muted small" data-testid="reel-sound-note">
               {audio?.audioId === reelSound.audioId
-                ? `You edited this reel to “${instagramAudioLabel(reelSound)}”. The video file has only your clips' own sound; Instagram adds this one when it posts.`
+                ? `You edited this reel to “${instagramAudioLabel(reelSound)}”. The video controls preview this mix. The download keeps your original audio; Instagram adds this sound when it posts.`
                 : audio
                   ? `You edited this reel to “${instagramAudioLabel(reelSound)}”; the post will use the sound chosen above instead.`
                   : `You edited this reel to “${instagramAudioLabel(reelSound)}”. Without a sound the post goes out with only your clips' own sound.`}

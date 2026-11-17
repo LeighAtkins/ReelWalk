@@ -2,6 +2,7 @@ import { isEquirect, parseSongMap, spotSchema, stockSource, transcriptSchema, ty
 import { prisma } from "@reelwalk/db";
 import { mediaUrl } from "./storage";
 import { faceHintFromChecks, type FaceHint } from "./face-hint";
+import { furnitureDerivativeProvenance } from "./furniture-provenance";
 
 /** A media asset as the editor sees it: what it is and where the browser can load it. */
 export type LibraryAsset = {
@@ -49,6 +50,7 @@ export type LibraryAsset = {
 
 type LibraryAssetInput = {
   id: string;
+  workspaceId?: string;
   kind: MediaKind;
   fileName: string;
   objectKey: string;
@@ -127,6 +129,10 @@ export async function toLibraryAssets(assets: LibraryAssetInput[]): Promise<Libr
   const imageIds = assets.filter(asset => asset.kind === "IMAGE").map(asset => asset.id);
   const keyframes = imageIds.length ? await prisma.aiKeyframe.findMany({ where: { status: "USED", assetId: { in: imageIds } }, select: { id: true, assetId: true, input: true, candidateHash: true } }) : [];
   for (const job of keyframes) if (job.assetId && job.candidateHash) generated.set(job.assetId, { checks: null, presenter: false, keyframe: { jobId: job.id, sourceAssetId: (job.input as { source: { assetId: string } }).source.assetId, outputHash: job.candidateHash, model: "gemini-3-pro-image" } });
+  for (const asset of assets) if (asset.kind === "IMAGE") {
+    const keyframe = await furnitureDerivativeProvenance(asset);
+    if (keyframe) generated.set(asset.id, { checks: null, presenter: false, keyframe });
+  }
   return Promise.all(assets.map(asset => serializeLibraryAsset(asset, generated.get(asset.id))));
 }
 

@@ -6,6 +6,7 @@ import { readKeyframeObject, putKeyframeObject } from "./storage";
 import { compositeFurnitureStage } from "./furniture-compositor";
 import { storageBlockedReason } from "./quotas";
 import { toLibraryAsset } from "./library";
+import { furnitureDerivativeProvenance } from "./furniture-provenance";
 
 type Actor = { id: string; workspaceId: string };
 export const furnitureAdjustmentServices = { db: prisma, read: readKeyframeObject, put: putKeyframeObject, transaction: keyframeStorageTransaction, quota: storageBlockedReason, view: toLibraryAsset };
@@ -52,13 +53,6 @@ export async function adjustFurnitureArea(actor: Actor, jobId: string, region: u
 
 /** Private immutable sidecar, written only by save; never accept browser draft hashes. */
 export async function furnitureDerivativeKeyframe(asset: { id: string; workspaceId: string; objectKey: string }, services = furnitureAdjustmentServices) {
-  const prefix = `private/keyframes/${asset.workspaceId}/adjustments/`;
-  if (!asset.objectKey.startsWith(prefix)) return null;
-  const metadata = JSON.parse((await services.read(`${asset.objectKey}.json`, 8192)).toString("utf8"));
-  const lineage = metadata.lineage;
-  if (metadata.version !== 1 || metadata.assetId !== asset.id || metadata.workspaceId !== asset.workspaceId || metadata.objectKey !== asset.objectKey || lineage?.version !== 1 || lineage.compositor !== "furniture-v1" || !/^[a-f0-9]{64}$/.test(lineage.hash) || asset.objectKey !== `${prefix}${lineage.jobId}-${keyframeHash(JSON.stringify(lineage))}.jpg`) throw new KeyframeError("Adjusted keyframe identity changed.");
-  const job = await services.db.aiKeyframe.findFirst({ where: { id: lineage.jobId, workspaceId: asset.workspaceId, status: { in: ["CANDIDATE", "USED"] } } });
-  const snapshot = job?.snapshot as unknown as KeyframeSnapshot | undefined;
-  if (!job || job.responseHash !== lineage.responseHash || snapshot?.source.canonicalHash !== lineage.sourceHash) throw new KeyframeError("Adjusted keyframe lineage changed.");
-  return { id: lineage.jobId as string, candidateKey: asset.objectKey, candidateHash: lineage.hash as string };
+  const provenance = await furnitureDerivativeProvenance(asset, services);
+  return provenance ? { id: provenance.jobId, candidateKey: asset.objectKey, candidateHash: provenance.outputHash } : null;
 }

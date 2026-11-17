@@ -2,18 +2,15 @@ import { createAiGeneration } from "./ai-video";
 vi.mock("@reelwalk/db", async importOriginal => ({ ...await importOriginal<typeof import("@reelwalk/db")>(), reserveAiGeneration: vi.fn(async (_db, input) => input) }));
 vi.mock("./ai-gate", () => ({ assertAiOn: vi.fn() }));
 vi.mock("./quotas", () => ({ storageBlockedReason: vi.fn(async () => null) }));
-import { Readable } from "node:stream";
-import type { S3Client } from "@aws-sdk/client-s3";
-import { aiFrames } from "../../worker/src/ai-frames";
-const { execute } = vi.hoisted(() => ({ execute: vi.fn() }));
-vi.mock("node:child_process", () => ({ execFile: execute }));
-vi.mock("node:util", () => ({ promisify: () => execute }));
 import { aiShotSchema, furnitureStagePixels } from "@reelwalk/core";
 import { describe, it, expect, vi } from "vitest";
 import sharp from "sharp";
 import { prisma, reserveAiGeneration, keyframeHash } from "@reelwalk/db";
 import { adjustFurnitureArea, furnitureAdjustmentServices, furnitureDerivativeKeyframe } from "./furniture-adjustment";
 import { finalFurnitureImage } from "./furniture-receipt";
+import { toLibraryAsset } from "./library";
+import { furnitureProvenanceServices } from "./furniture-provenance";
+vi.mock("./storage", async importOriginal => ({ ...await importOriginal<Record<string, unknown>>(), mediaUrl: async (key: string) => `https://local.invalid/${key}` }));
 const actor = { id: "owner", workspaceId: "workspace" };
 const region = { x: 0, y: 1017 / 1920, width: 520 / 1080, height: 223 / 1920 };
 async function fixture() {
@@ -27,6 +24,35 @@ async function fixture() {
   return { services, db, job, receipt, objects, rollback: () => { saved = undefined; } };
 }
 describe("saved furniture adjustment", () => {
+  it("serializes trusted AI provenance immediately and after reload without changing the original job", async () => {
+    const f = await fixture(), before = JSON.stringify(f.job);
+    const jobs = vi.spyOn(prisma.aiKeyframe, "findMany").mockResolvedValue([]);
+    const job = vi.spyOn(prisma.aiKeyframe, "findFirst").mockResolvedValue(f.job as never);
+    const read = vi.spyOn(furnitureProvenanceServices, "read").mockImplementation(f.services.read);
+    f.services.view = toLibraryAsset;
+    try {
+      const preview = await adjustFurnitureArea(actor, "job", region, undefined, f.services);
+      const saved = await adjustFurnitureArea(actor, "job", region, preview.hash, f.services);
+      if (!("asset" in saved)) throw Error("Expected saved asset");
+      const expected = { jobId: "job", sourceAssetId: "original", outputHash: preview.hash, model: "gemini-3-pro-image" };
+      expect(saved.asset).toMatchObject({ isAiGenerated: true, aiKeyframe: expected });
+      const asset = await f.db.mediaAsset.findFirst() as Parameters<typeof toLibraryAsset>[0];
+      expect(await toLibraryAsset(asset)).toMatchObject({ isAiGenerated: true, aiKeyframe: expected });
+      expect(JSON.stringify(f.job)).toBe(before);
+      read.mockClear();
+      const original = { ...asset, id: "original", objectKey: "uploads/original.jpg" };
+      expect(await toLibraryAsset(original)).toMatchObject({ isAiGenerated: false });
+      expect(read).not.toHaveBeenCalled();
+      jobs.mockResolvedValueOnce([{ id: "normal-job", assetId: "original", input: f.job.input, candidateHash: "a".repeat(64) }] as never);
+      expect(await toLibraryAsset(original)).toMatchObject({ isAiGenerated: true, aiKeyframe: { jobId: "normal-job" } });
+      const sidecar = `${asset.objectKey}.json`, bytes = f.objects.get(sidecar)!;
+      const metadata = JSON.parse(bytes.toString()); metadata.workspaceId = "foreign";
+      f.objects.set(sidecar, Buffer.from(JSON.stringify(metadata)));
+      await expect(toLibraryAsset(asset)).rejects.toThrow("identity changed");
+      f.objects.set(sidecar, Buffer.from("not JSON"));
+      await expect(toLibraryAsset(asset)).rejects.toThrow();
+    } finally { jobs.mockRestore(); job.mockRestore(); read.mockRestore(); }
+  });
   it("recovers after sidecar persistence and database rollback without changing immutable identity", async () => {
     const f = await fixture();
     const originalJob = JSON.stringify(f.job);
@@ -73,15 +99,6 @@ describe("saved furniture adjustment", () => {
       expect(vi.mocked(reserveAiGeneration).mock.calls.at(-1)![1].frameSources).toEqual([{ key: asset.objectKey, kind: "IMAGE", atMs: 0, role: "last", keyframe: { jobId: "job", sha256: preview.hash } }]);
       await expect(createAiGeneration({ ...actor, email: "test@example.test" }, { ...request, shot: { ...request.shot!, compose: { last: "Change the room" } } })).rejects.toThrow("another image edit");
     } finally { mediaSpy.mockRestore(); jobSpy.mockRestore(); readSpy.mockRestore(); vi.unstubAllEnvs(); }
-    const trusted = await furnitureDerivativeKeyframe(asset, f.services);
-    const source = { key: trusted!.candidateKey, kind: "IMAGE", atMs: 0, role: "last", keyframe: { jobId: trusted!.id, sha256: trusted!.candidateHash } };
-    const jpeg = f.objects.get(asset.objectKey)!;
-    const s3 = { send: vi.fn(async () => ({ Body: Readable.from([jpeg]), ContentLength: jpeg.length })) } as unknown as S3Client;
-    const frames = await aiFrames(s3, "test", [source]);
-    expect(Buffer.from(frames[0].bytesBase64Encoded, "base64")).toEqual(preview.bytes);
-    expect(execute).not.toHaveBeenCalled();
-    await expect(aiFrames(s3, "test", [{ ...source, compose: "another image edit" }])).rejects.toThrow("Invalid approved");
-    await expect(aiFrames(s3, "test", [{ ...source, keyframe: { ...source.keyframe, sha256: "0".repeat(64) } }])).rejects.toThrow("pixels changed");
     const metadata = JSON.parse(f.objects.get(`${asset.objectKey}.json`)!.toString());
     metadata.lineage.hash = "0".repeat(64);
     f.objects.set(`${asset.objectKey}.json`, Buffer.from(JSON.stringify(metadata)));

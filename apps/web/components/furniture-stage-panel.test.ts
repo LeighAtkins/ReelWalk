@@ -48,3 +48,33 @@ it("ignores a pending save after a card change", async () => {
   resolve({ ok: true, json: async () => ({ asset: {}, input: { furnitureStage: stage }, lineage: { hash: "hash" } }) }); await settle();
   expect(props.onUse).not.toHaveBeenCalled(); expect(props.onAssets).not.toHaveBeenCalled();
 });
+
+it("keeps the saved job and adjusted region available after save and reopening", async () => {
+  props = { ...props, photos: [{ id: "A", kind: "IMAGE", url: "original", isPano: false }] as typeof props.photos,
+    onChange: vi.fn(value => { props = { ...props, stage: value }; }),
+    onAssets: vi.fn(assets => { props = { ...props, photos: [...props.photos, ...assets] }; }),
+    onUse: vi.fn((asset, _input, hash) => { props = { ...props, selectedAssetId: asset.id, derivativeHash: hash }; }) };
+  begin();
+  const adjusted = { ...props.stage, region: { x: 0, y: 0.5, width: 0.48, height: 0.2 } };
+  props = { ...props, stage: adjusted }; render();
+  click("Preview adjusted area"); await settle();
+  (find("alt", "Adjusted concept preview").onLoad as () => void)();
+  const hash = "a".repeat(64);
+  vi.mocked(fetch).mockResolvedValueOnce({ ok: true, json: async () => ({
+    asset: { id: "derivative", kind: "IMAGE", aiKeyframe: { jobId: "job", sourceAssetId: "A", outputHash: hash } },
+    input: { source: { assetId: "A" }, furnitureStage: adjusted }, lineage: { hash },
+  }) } as Response);
+  click("Use adjusted concept"); await settle();
+  expect(props.onUse).toHaveBeenCalledTimes(1);
+  let panel = render().find(n => typeof n.props?.onAdjust === "function")!.props!;
+  expect(panel.selectedDerivativeJobId).toBe("job");
+  hooks.values = []; hooks.deps = []; hooks.effects = [];
+  panel = render().find(n => typeof n.props?.onAdjust === "function")!.props!;
+  expect(panel.selectedDerivativeJobId).toBe("job");
+  (panel.onAdjust as (job: unknown) => void)({ id: "job", input: { source: { assetId: "A" }, furnitureStage: stage } });
+  expect(props.stage.region).toEqual(adjusted.region);
+  expect(render().some(n => n.props?.children === "Preview adjusted area")).toBe(true);
+  props = { ...props, source: "asset:B" }; render();
+  panel = render().find(n => typeof n.props?.onAdjust === "function")!.props!;
+  expect(panel.selectedDerivativeJobId).toBeUndefined();
+});

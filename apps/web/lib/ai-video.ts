@@ -1,3 +1,4 @@
+import { furnitureDerivativeKeyframe } from "./furniture-adjustment";
 import { randomInt } from "node:crypto";
 import { AI_DRAFT_MODEL, AI_OMNI_MODEL, AI_VIDEO_MODEL, aiOmniCostCents, CHAINED_REFERENCE_MESSAGE, MOVE_IDS, aiClipCostCents, aiDefaultClipSeconds, aiDraftCostCents, aiShotSchema, aiShotPrompt, composeFraming, directionStill, hasDirection, isEquirect, isGeneratedAssetId, parseStoredAiShot, referenceDepthOf, type AiShot } from "@reelwalk/core";
 import { aiCreditSummary, prisma, reserveAiGeneration } from "@reelwalk/db";
@@ -141,7 +142,8 @@ export async function createAiGeneration(user: AiUser, request: z.infer<typeof g
     // The direction's expression and pose go into the still (ADR 0069): the first frame is what Veo continues from.
     const acting = written && role !== "presenter" && hasDirection(input.shot?.direction) ? directionStill(input.shot!.direction, role) : "";
     const described = written ? [written, acting].filter(Boolean).join(" ").slice(0, 1000) : undefined;
-    const keyframe = role !== "presenter" && asset.kind === "IMAGE" ? await prisma.aiKeyframe.findFirst({ where: { assetId: asset.id, workspaceId: user.workspaceId, status: "USED" }, select: { id: true, candidateHash: true, candidateKey: true } }) : null;
+    const derivative = role !== "presenter" && asset.kind === "IMAGE" ? await furnitureDerivativeKeyframe(asset) : null;
+    const keyframe = derivative ?? (role !== "presenter" && asset.kind === "IMAGE" ? await prisma.aiKeyframe.findFirst({ where: { assetId: asset.id, workspaceId: user.workspaceId, status: "USED" }, select: { id: true, candidateHash: true, candidateKey: true } }) : null);
     if (keyframe && (keyframe.candidateKey !== asset.objectKey || !keyframe.candidateHash || described)) throw new Error("This approved keyframe changed or was given another image edit. Choose the reviewed frame again.");
     frames.push({ key: asset.objectKey, kind: asset.kind, atMs: asset.kind === "IMAGE" ? 0 : frame.atMs, role,
       ...(keyframe ? { keyframe: { jobId: keyframe.id, sha256: keyframe.candidateHash } } : {}),

@@ -19,7 +19,7 @@ export const shotBuilderDraftSchema = z.object({
   workflow: z.enum(["guided", "manual"]).optional(),
   furnitureStage: furnitureStageSchema.optional(),
   furnitureSource: selection.optional(),
-  furnitureSelection: z.object({ sourceAssetId: z.string().min(1).max(128), assetId: z.string().min(1).max(128), inputKey: z.string().max(6000) }).strict().optional(),
+  furnitureSelection: z.object({ sourceAssetId: z.string().min(1).max(128), assetId: z.string().min(1).max(128), inputKey: z.string().max(6000), derivativeHash: z.string().regex(/^[a-f0-9]{64}$/).optional() }).strict().optional(),
   cameraSketch: cameraSketchSchema.optional(),
   startOnly: z.boolean().optional(),
   reviewedStart: z.string().max(6000).optional(),

@@ -10,6 +10,17 @@ import { createHash } from "node:crypto";
 import sharp from "sharp";
 
 describe("AI reference frames", () => {
+  it("preserves a reviewed furniture derivative and refuses recomposition or changed bytes", async () => {
+    execute.mockReset();
+    const jpeg = await sharp({ create: { width: 1080, height: 1920, channels: 3, background: "#d0c0a0" } }).jpeg({ quality: 95, chromaSubsampling: "4:4:4" }).toBuffer();
+    const source = { key: "private/keyframes/workspace/adjustments/job-lineage.jpg", kind: "IMAGE", atMs: 0, role: "last", keyframe: { jobId: "job", sha256: createHash("sha256").update(jpeg).digest("hex") } };
+    const s3 = { send: vi.fn(async () => ({ Body: Readable.from([jpeg]), ContentLength: jpeg.length })) } as unknown as S3Client;
+    const frames = await aiFrames(s3, "media", [source]);
+    expect(Buffer.from(frames[0].bytesBase64Encoded, "base64")).toEqual(jpeg);
+    expect(execute).not.toHaveBeenCalled();
+    await expect(aiFrames(s3, "media", [{ ...source, compose: "another image edit" }])).rejects.toThrow("Invalid approved");
+    await expect(aiFrames(s3, "media", [{ ...source, keyframe: { ...source.keyframe, sha256: "0".repeat(64) } }])).rejects.toThrow("pixels changed");
+  });
   it("delivers the exact approved portrait JPEG to Veo without another crop or encode", async () => {
     execute.mockReset();
     const jpeg = await sharp({ create: { width: 1080, height: 1920, channels: 3, background: "#d0c0a0" } }).jpeg().toBuffer();

@@ -405,10 +405,10 @@ export function AiVideoPanel({ card, onCardRecovery, onCardDraft, onCardRequest,
         if (event.currentTarget.open && !furnitureStage) { setFurnitureStage(DEFAULT_FURNITURE_STAGE); setFurnitureSource(startBase.startsWith("asset:") ? startBase : ""); }
       }}><summary>Furniture concept: edit an area before camera movement</summary>
         {furnitureStage ? <FurnitureStagePanel photos={allPhotos} source={furnitureSource} stage={furnitureStage} disabled={busy || !draftLoaded}
-          recoveryKey={recoveryKey} durableRecovery={card?.recovery} onRecovery={onCardRecovery} selectedAssetId={furnitureSelection?.assetId}
+          recoveryKey={recoveryKey} durableRecovery={card?.recovery} onRecovery={onCardRecovery} selectedAssetId={furnitureSelection?.assetId} derivativeHash={furnitureSelection?.derivativeHash}
           onSource={setFurnitureSource} onChange={setFurnitureStage} onAssets={receiveAssets} onBalance={receiveBalance} onBlocked={setFurnitureBlocked}
-          onUse={(asset, input) => {
-            receiveAssets([asset]); setFurnitureSelection({ sourceAssetId: input.source.assetId, assetId: asset.id, inputKey: keyframeInputKey(input) });
+          onUse={(asset, input, derivativeHash) => {
+            receiveAssets([asset]); setFurnitureSelection({ sourceAssetId: input.source.assetId, assetId: asset.id, inputKey: keyframeInputKey(input), ...(derivativeHash ? { derivativeHash } : {}) });
             setStartBase(`asset:${input.source.assetId}`); setPhoto(`asset:${asset.id}`); setFirstMs(0); setGeneratedStart(true);
             setStartOnly(true); setUseEndReference(false); setWorkflow("manual"); setReviewedStart(undefined); setReviewedPair(undefined); setQuality("final"); requestId.current = null;
           }} onOriginal={input => {

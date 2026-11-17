@@ -25,9 +25,19 @@ export function savedKeyframeInput(saved: SavedRequest, current: CameraKeyframeI
   return frozen && keyframeInputKey(frozen) === saved.inputKey ? frozen : null;
 }
 
-export function ShotKeyframePanel({ role, input, recoveryKey, durableRecovery, onRecovery, selectedAssetId, variant, disabled = false, onUse, onKeepSource, onAssets, onBalance, onBlocked }: {
+/** A derivative keeps access to its original saved result even after its rectangle changes. */
+export function retainedFurnitureJob(jobs: Job[], input: CameraKeyframeInput | null, jobId?: string): Job | undefined {
+  return input?.furnitureStage && jobId ? jobs.find(job => job.id === jobId && !!job.input.furnitureStage &&
+    job.input.source.assetId === input.source.assetId && job.input.source.atMs === input.source.atMs &&
+    (job.status === "CANDIDATE" || job.status === "USED")) : undefined;
+}
+
+export function ShotKeyframePanel({ role, input, recoveryKey, durableRecovery, onRecovery, selectedAssetId, variant, disabled = false, onUse, onKeepSource, onAssets, onBalance, onBlocked, onAdjust, selectedDerivative, selectedDerivativeJobId }: {
   durableRecovery?: Record<string, string>; onRecovery?(key: string, value: string): Promise<boolean>;
   role: "start" | "end"; input: CameraKeyframeInput | null; recoveryKey: string; disabled?: boolean;
+  selectedDerivative?: boolean;
+  selectedDerivativeJobId?: string;
+  onAdjust?(job: Job): void;
   selectedAssetId?: string; variant?: "furniture";
   onUse(asset: LibraryAsset, input: CameraKeyframeInput): void;
   onKeepSource(input: CameraKeyframeInput): void;
@@ -57,8 +67,9 @@ export function ShotKeyframePanel({ role, input, recoveryKey, durableRecovery, o
     else storage.removeItem(key);
   };
   const currentScope = useRef(storageKey); currentScope.current = storageKey;
-  const matching = state?.jobs.filter(job => keyframeMatches(job, input)) ?? [];
-  const job = matching.find(item => item.id === selected);
+  const retained = concept && selectedDerivative ? retainedFurnitureJob(state?.jobs ?? [], input, selectedDerivativeJobId) : undefined;
+  const matching = state?.jobs.filter(job => keyframeMatches(job, input) || job.id === retained?.id) ?? [];
+  const job = matching.find(item => item.id === selected) ?? retained;
   const blockingJob = concept ? state?.jobs.find(item => !!item.input.furnitureStage && running(item)) ?? job : job;
   const isSelected = job?.status === "USED" && !!job.asset && job.asset.id === selectedAssetId;
   const candidateKey = job?.candidateUrl ? `${job.id}:${job.candidateUrl}:${job.sourceUrl}:${imageAttempt}` : "";
@@ -66,13 +77,14 @@ export function ShotKeyframePanel({ role, input, recoveryKey, durableRecovery, o
   const manualApproved = !concept || manualReview === candidateKey;
   const ready = !!candidateKey && !!loaded[`${candidateKey}:source`] && !!loaded[`${candidateKey}:candidate`] && failed !== candidateKey;
   const unresolved = !!pending;
-  const blocked = busy || unresolved || !!blockingJob && running(blockingJob) || !!job && (running(job) || job.status === "CANDIDATE" && dismissed !== job.id);
+  const blocked = busy || unresolved || !!blockingJob && running(blockingJob) || !!job && (running(job) || job.status === "CANDIDATE" && dismissed !== job.id && !selectedDerivative);
 
   async function refresh(signal?: AbortSignal, recover = false) {
     const query = new URLSearchParams(recover ? { recover: "1" } : {});
     const savedPending = read(storageKey, sessionStorage), savedChoice = read(choiceKey, localStorage);
     if (savedPending) query.set("requestId", (JSON.parse(savedPending) as SavedRequest).requestId);
     if (savedChoice) query.set("jobId", (JSON.parse(savedChoice) as { id: string }).id);
+    if (!savedChoice && concept && selectedDerivativeJobId) query.set("jobId", selectedDerivativeJobId);
     const response = await fetch(`/api/ai/keyframes?${query}`, { cache: "no-store", signal });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "Could not load your saved frames.");
@@ -106,7 +118,7 @@ export function ShotKeyframePanel({ role, input, recoveryKey, durableRecovery, o
     setHistoryReady(false); setState(undefined); setSelected(undefined); setPending(undefined); setDismissed(undefined);
     void refresh(abort.signal).catch(e => { if (!abort.signal.aborted) setError(e.message); });
     return () => { mounted.current = false; abort.abort(); };
-  }, [storageKey]);
+  }, [storageKey, selectedDerivativeJobId]);
   useEffect(() => { setFailed(null); setLoaded({}); }, [key]);
   useEffect(() => { onBlocked(blocked); }, [blocked, onBlocked]);
   useEffect(() => {
@@ -170,6 +182,7 @@ export function ShotKeyframePanel({ role, input, recoveryKey, durableRecovery, o
   return <section aria-label={concept ? "Prepare furniture concept" : `Prepare ${role} image`} className={styles.keyframe}>
     <p className="muted small">{concept ? "Generate one disclosed furniture concept. Review architectural details inside the edit area before using it. The original outside the rectangle is restored; this is not a current-property photograph." : role === "end" ? "Make the ending image first. Review it before spending video credits." : "Optionally prepare a new starting view from this photo."}</p>
     {!input ? <p className="muted small">Choose a photo to prepare this frame.</p> : null}
+    {concept && job?.candidateUrl && onAdjust ? <button type="button" disabled={disabled || busy} onClick={() => onAdjust(job)}>Adjust area using saved result</button> : null}
     {isSelected && !concept ? <p role="status" className={styles.selectedStatus}>Selected as {role === "start" ? "Start" : "End"}.</p> : job?.candidateUrl && job.sourceUrl ? <>
       <div className={styles.comparison}>
         <figure>{image("source", job.sourceUrl)}<figcaption className={styles.caption}>Original</figcaption></figure>
@@ -177,7 +190,7 @@ export function ShotKeyframePanel({ role, input, recoveryKey, durableRecovery, o
       </div>
       {failed === candidateKey ? <p className="error small" role="alert">The image preview could not load. Your image is saved. <button type="button" disabled={busy} onClick={retryPreview}>Retry preview</button></p> : null}
       {concept ? <label><input type="checkbox" checked={manualReview === candidateKey} disabled={disabled || busy || !ready} onChange={event => setManualReview(event.target.checked ? candidateKey : undefined)} /> I compared walls, openings, flooring, built-ins and lighting inside the furnishing area. This is my manual concept review.</label> : null}
-      <button className="btn btn-block" type="button" disabled={disabled || busy || !ready || !manualApproved} onClick={use}>Use this {concept ? "concept as Start" : role === "start" ? "Start" : "End"}</button>
+      <button className="btn btn-block" type="button" disabled={disabled || busy || !ready || !manualApproved || !keyframeMatches(job, input)} onClick={use}>Use this {concept ? "concept as Start" : role === "start" ? "Start" : "End"}</button>
       {job.status === "CANDIDATE" ? <button className="btn btn-quiet" type="button" disabled={disabled || busy} onClick={async () => { if (input) {
         try { await write(choiceKey, JSON.stringify({ id: job.id, keepSource: true }), localStorage); setDismissed(job.id); onKeepSource(input); }
         catch { setError("This browser could not save the choice. Your generated image is still saved."); }

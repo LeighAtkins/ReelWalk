@@ -4,7 +4,7 @@ import ts from "typescript";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { CameraKeyframeInput, CameraKeyframeJob } from "@reelwalk/core";
-import { keyframeInputKey, keyframeMatches, savedKeyframeInput, ShotKeyframePanel } from "./shot-keyframe-panel";
+import { keyframeInputKey, keyframeMatches, retainedFurnitureJob, savedKeyframeInput, ShotKeyframePanel } from "./shot-keyframe-panel";
 
 const input: CameraKeyframeInput = { role: "end", source: { assetId: "original", atMs: 0 }, continuity: { assetId: "start", atMs: 0 }, move: "shift-right", distanceM: 3, durationSeconds: 4 };
 const job = { input, id: "paid-candidate" } as CameraKeyframeJob;
@@ -28,6 +28,18 @@ function handler(pending: unknown, current: CameraKeyframeInput, fetch: ReturnTy
   return new Function(...Object.keys(environment), `${code}; return generate;`)(...Object.values(environment)) as (retry?: boolean) => Promise<void>;
 }
 describe("keyframe review identity", () => {
+  it("retains only the originating furniture job across an adjusted recipe and reload", () => {
+    const furnitureStage = { version: 1, style: "warm-minimal", instructions: "", region: { x: 0, y: 0.5, width: 0.4, height: 0.2 } } as const;
+    const original = { ...job, status: "CANDIDATE", input: { ...input, furnitureStage } } as CameraKeyframeJob<import("@/lib/library").LibraryAsset>;
+    const adjusted = { ...original.input, furnitureStage: { ...furnitureStage, region: { ...furnitureStage.region, width: 0.48 } } };
+    expect(keyframeMatches(original, adjusted)).toBe(false);
+    expect(retainedFurnitureJob([original], adjusted, original.id)).toBe(original);
+    const reloaded = JSON.parse(JSON.stringify(original));
+    expect(retainedFurnitureJob([reloaded], adjusted, original.id)).toEqual(original);
+    expect(retainedFurnitureJob([original], { ...adjusted, source: { assetId: "other", atMs: 0 } }, original.id)).toBeUndefined();
+    expect(retainedFurnitureJob([original], adjusted, "unrelated")).toBeUndefined();
+    expect(retainedFurnitureJob([original], adjusted)).toBeUndefined();
+  });
   it("refuses image submission when the card cannot durably save its request", async () => {
     const fetch = vi.fn(), save = vi.fn().mockResolvedValue(false), session = new Map<string, string>();
     await handler(undefined, input, fetch, session, save)();

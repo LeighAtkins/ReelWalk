@@ -1,3 +1,4 @@
+import { finalFurnitureImage } from "../../web/lib/furniture-receipt";
 import sharp from "sharp";
 import type { S3Client } from "@aws-sdk/client-s3";
 import { CAMERA_KEYFRAME_MODEL, cameraKeyframeGenerateSchema, guidedKeyframeError, type CameraKeyframeInput } from "@reelwalk/core";
@@ -56,11 +57,7 @@ async function importReceipt(job: AiKeyframe, receipt: KeyframeReceipt, services
   let candidate: { jpeg: Buffer; hash: string; key: string };
   try {
     if (receipt.status < 200 || receipt.status >= 300) throw new Error(`Image service returned HTTP ${receipt.status}. Its response was retained; no automatic retry.`);
-    const result = JSON.parse(Buffer.from(receipt.bodyBase64, "base64").toString("utf8")) as { candidates?: { content?: { parts?: { thought?: boolean; inlineData?: { mimeType?: string; data?: string } }[] } }[] };
-    const images = (result.candidates ?? []).flatMap(candidate => candidate.content?.parts ?? []).flatMap(part => part.thought !== true && part.inlineData?.mimeType && ["image/png", "image/jpeg", "image/webp"].includes(part.inlineData.mimeType) && part.inlineData.data ? [part.inlineData] : []);
-    if (images.length !== 1) throw new Error("Google did not return exactly one image. The raw response was retained; no automatic retry.");
-    const raw = Buffer.from(images[0].data!, "base64");
-    if (raw.length > 16 * 1024 * 1024) throw new Error("Generated image exceeds its size bound.");
+    const raw = finalFurnitureImage(Buffer.from(JSON.stringify(receipt)));
     const image = sharp(raw, { limitInputPixels: 20_000_000, failOn: "warning" });
     const metadata = await image.metadata();
     if ((metadata.pages ?? 1) !== 1) throw new Error("Generated output is not a still image.");

@@ -59,9 +59,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends python3-venv &&
 
 WORKDIR /workspace/apps/worker
 
-# Download Chrome Headless Shell at build time. Otherwise every new pod would
-# fetch ~90 MB before its first render.
-RUN node_modules/.bin/tsx src/ensure-browser.ts
+# Download Chrome Headless Shell and pre-build the Remotion webpack bundle at
+# build time. Otherwise every new pod would fetch ~90 MB and re-bundle before
+# its first render.
+RUN node_modules/.bin/tsx src/ensure-browser.ts \
+  && node_modules/.bin/tsx src/build-bundle.ts
 
 # The speech-recognition model (about 240 MB) for word-timed transcripts
 # (src/transcribe.ts), cached here so a render task never downloads it.

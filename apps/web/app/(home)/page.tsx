@@ -24,7 +24,8 @@ export const dynamic = "force-dynamic";
  */
 export default async function HomePage({ searchParams }: { searchParams: Promise<{ welcome?: string } & Record<string, string | string[] | undefined>> }) {
   if (!(await getSessionUser())) {
-    return <Landing samples={sampleReels()} attribution={pickAttribution(await searchParams)} currency={await requestCurrency()} offered={offeredCurrencies()} />;
+    const [params, currency] = await Promise.all([searchParams, requestCurrency()]);
+    return <Landing samples={sampleReels()} attribution={pickAttribution(params)} currency={currency} offered={offeredCurrencies()} />;
   }
   return <ReelsHome searchParams={searchParams} />;
 }
@@ -32,22 +33,22 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
 async function ReelsHome({ searchParams }: { searchParams: Promise<{ welcome?: string }> }) {
   const { welcome } = await searchParams;
   const user = await getCurrentUser();
-  const reels = await prisma.reel.findMany({
-    where: { workspaceId: user.workspaceId },
-    orderBy: { updatedAt: "desc" },
-    take: 60,
-    include: { renderJobs: { orderBy: { createdAt: "desc" }, take: 1, select: { status: true } } },
-  });
-  const [librarySize, songs] = await Promise.all([
+  const [reels, librarySize, songs, tours] = await Promise.all([
+    prisma.reel.findMany({
+      where: { workspaceId: user.workspaceId },
+      orderBy: { updatedAt: "desc" },
+      take: 60,
+      include: { renderJobs: { orderBy: { createdAt: "desc" }, take: 1, select: { status: true } } },
+    }),
     prisma.mediaAsset.count({ where: { ...mediaScope(user.workspaceId), kind: { not: "AUDIO" } } }),
     // Instagram sounds' private copies (ADR 0019) are not songs in your library.
     prisma.mediaAsset.count({ where: { ...mediaScope(user.workspaceId), kind: "AUDIO", instagramAudioId: null } }),
+    prisma.tour.findMany({
+      where: { workspaceId: user.workspaceId },
+      select: { id: true, name: true, _count: { select: { media: true } } },
+      take: 3,
+    }),
   ]);
-  const tours = await prisma.tour.findMany({
-    where: { workspaceId: user.workspaceId },
-    select: { id: true, name: true, _count: { select: { media: true } } },
-    take: 3,
-  });
   const timelines = reels.map((reel) => readTimeline(reel.timeline));
   const covers = await coverUrls(timelines);
   const now = new Date();

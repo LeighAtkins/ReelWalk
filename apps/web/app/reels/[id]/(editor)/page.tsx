@@ -30,29 +30,47 @@ export default async function EditReelPage({
   if (!reel) notFound();
 
   const timeline = readTimeline(reel.timeline);
-  // Everything this reel uses, plus recent uploads to reuse.
-  const [used, recent] = await Promise.all([
-    prisma.mediaAsset.findMany({ where: { ...mediaScope(user.workspaceId), id: { in: referencedAssetIds(timeline) } } }),
+  const usedIds = referencedAssetIds(timeline);
+  const aiOff = user.workspace.aiGeneration === "off";
+  const canUseAi = isAiAvailable() && !aiOff;
+  const hasInstagramSounds = isInstagramConfigured() || isFakeInstagram();
+  // Everything this reel uses, recent uploads, Instagram sound availability, saved briefs,
+  // AI usage and brand kit are independent reads — fetch them in parallel.
+  const [used, recent, soundProblem, ownBriefs, aiUsage, brandKit] = await Promise.all([
+    usedIds.length > 0
+      ? prisma.mediaAsset.findMany({ where: { ...mediaScope(user.workspaceId), id: { in: usedIds } } })
+      : Promise.resolve([]),
     prisma.mediaAsset.findMany({ where: mediaScope(user.workspaceId), orderBy: { createdAt: "desc" }, take: 120 }),
+    hasInstagramSounds ? instagramSoundProblem(user.workspaceId) : Promise.resolve(null),
+    canUseAi
+      ? prisma.reelBrief.findMany({ where: { workspaceId: user.workspaceId }, orderBy: { createdAt: "asc" }, select: { id: true, name: true, text: true } })
+      : Promise.resolve([]),
+    aiEditUsage(user.workspaceId),
+    workspaceBrandKit(user.workspaceId),
   ]);
   const unique = new Map([...recent, ...used].map((asset) => [asset.id, asset]));
-  const library = await toLibraryAssets([...unique.values()]);
+  const rawAssets = [...unique.values()];
 
-  // Floor plans of the tours this media belongs to.
-  const tourIds = [...new Set(library.map((asset) => asset.tourId).filter((value): value is string => value !== null))];
+  // Floor plans of the tours this media belongs to — fetch in parallel with URL signing.
+  const tourIds = [...new Set(rawAssets.map((asset) => asset.tourId).filter((value): value is string => value !== null))];
+  const [library, tourRows] = await Promise.all([
+    toLibraryAssets(rawAssets),
+    tourIds.length > 0
+      ? prisma.tour.findMany({ where: { id: { in: tourIds }, workspaceId: user.workspaceId } })
+      : Promise.resolve([]),
+  ]);
   const tours: Record<string, { name: string; plan: Plan }> = {};
-  for (const tour of await prisma.tour.findMany({ where: { id: { in: tourIds }, workspaceId: user.workspaceId } })) {
+  for (const tour of tourRows) {
     const plan = planSchema.safeParse(tour.plan);
     if (plan.success) tours[tour.id] = { name: tour.name, plan: plan.data };
   }
 
   // Instagram's sounds in the Music sheet (ADR 0019): not offered at all where
   // this deployment cannot reach Instagram; otherwise offered, or explained.
-  const instagramSounds = isInstagramConfigured() || isFakeInstagram() ? { problem: await instagramSoundProblem(user.workspaceId) } : null;
+  const instagramSounds = hasInstagramSounds ? { problem: soundProblem } : null;
   // Ways of cutting a whole reel: the built-in briefs, then the studio's own.
-  const aiOff = user.workspace.aiGeneration === "off";
-  const briefs = isAiAvailable() && !aiOff
-    ? [...AI_BRIEFS.map((brief) => ({ ...brief, own: false })), ...(await prisma.reelBrief.findMany({ where: { workspaceId: user.workspaceId }, orderBy: { createdAt: "asc" }, select: { id: true, name: true, text: true } })).map((brief) => ({ ...brief, own: true }))]
+  const briefs = canUseAi
+    ? [...AI_BRIEFS.map((brief) => ({ ...brief, own: false })), ...ownBriefs.map((brief) => ({ ...brief, own: true }))]
     : [];
 
   return (
@@ -64,12 +82,12 @@ export default async function EditReelPage({
       library={library}
       tours={tours}
       instagramSounds={instagramSounds}
-      askAvailable={isAiAvailable() && !aiOff}
+      askAvailable={canUseAi}
       aiOff={aiOff}
       briefs={briefs}
       autopilot={auto === "1"}
-      aiUsage={await aiEditUsage(user.workspaceId)}
-      brandKit={await workspaceBrandKit(user.workspaceId)}
+      aiUsage={aiUsage}
+      brandKit={brandKit}
     />
   );
 }

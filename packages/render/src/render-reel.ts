@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { accessSync, constants, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,10 +11,100 @@ import { REEL_COMPOSITION_ID, type ReelAsset } from "./reel/types";
 import { renderConcurrency } from "./concurrency";
 import { RENDER_PAGE_PORT, serveBundle } from "./bundle-server";
 
+const RENDER_SRC_DIR = path.dirname(fileURLToPath(import.meta.url));
+const RENDER_PKG_DIR = path.resolve(RENDER_SRC_DIR, "..");
+const RENDER_PUBLIC_DIR = path.join(RENDER_PKG_DIR, "public");
+const DEFAULT_BUNDLE_DIR = path.join(RENDER_PKG_DIR, "dist", "remotion-bundle");
+const BUNDLE_STAMP_FILE = ".reelwalk-bundle-stamp.json";
+
 let bundled: Promise<string> | null = null;
 
 /** Preflight stills drawn at once when the caller does not say (capped at the cores). */
 const PREFLIGHT_CONCURRENCY = 3;
+
+function hashTree(dir: string, hash: ReturnType<typeof createHash>, prefix: string): void {
+  if (!existsSync(dir)) return;
+  const entries = readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name));
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    const rel = `${prefix}/${entry.name}`;
+    if (entry.isDirectory()) {
+      hashTree(full, hash, rel);
+    } else if (entry.isFile()) {
+      hash.update(rel);
+      hash.update("\0");
+      hash.update(readFileSync(full));
+      hash.update("\0");
+    }
+  }
+}
+
+/** Deterministic content hash of renderer sources, bundled public assets, and core sources so a pre-built bundle is reused only when exact. */
+export function computeRenderBundleStamp(): string {
+  const hash = createHash("sha256");
+  const corePkgDir = path.resolve(RENDER_PKG_DIR, "..", "core");
+  hashTree(RENDER_SRC_DIR, hash, "render/src");
+  hashTree(RENDER_PUBLIC_DIR, hash, "render/public");
+  hashTree(path.join(corePkgDir, "src"), hash, "core/src");
+  for (const manifest of [path.join(RENDER_PKG_DIR, "package.json"), path.join(corePkgDir, "package.json")]) {
+    if (existsSync(manifest)) {
+      hash.update(path.basename(path.dirname(manifest)));
+      hash.update(readFileSync(manifest));
+    }
+  }
+  return hash.digest("hex");
+}
+
+export function readValidPrebuiltBundle(dir: string, expectedStamp: string): string | null {
+  const indexHtml = path.join(dir, "index.html");
+  const stampPath = path.join(dir, BUNDLE_STAMP_FILE);
+  if (!existsSync(indexHtml) || !existsSync(stampPath)) return null;
+  try {
+    const saved = JSON.parse(readFileSync(stampPath, "utf8")) as { stamp?: string };
+    return saved.stamp === expectedStamp ? dir : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Builds the Remotion webpack bundle into a persistent directory (or os.tmpdir fallback)
+ * and stamps it with the source content hash so fresh worker processes reuse it without re-bundling.
+ */
+export async function buildRenderBundle(outDir = process.env.REMOTION_BUNDLE_DIR || DEFAULT_BUNDLE_DIR): Promise<string> {
+  const entryPoint = path.join(RENDER_SRC_DIR, "index.ts");
+  const stamp = computeRenderBundleStamp();
+  const webpackCacheDir = path.join(os.tmpdir(), "reelwalk-webpack-cache");
+  let writableOutDir: string | undefined;
+  try {
+    mkdirSync(outDir, { recursive: true });
+    accessSync(outDir, constants.W_OK);
+    writableOutDir = outDir;
+  } catch {
+    writableOutDir = undefined;
+  }
+  // The bundled sound set (ADR 0066) is served from the package's public dir, so `staticFile("sfx/…")` resolves in the worker.
+  const dir = await bundle({
+    entryPoint,
+    publicDir: RENDER_PUBLIC_DIR,
+    ...(writableOutDir ? { outDir: writableOutDir } : {}),
+    webpackOverride: (config) => ({
+      ...config,
+      cache: {
+        type: "filesystem",
+        cacheDirectory: webpackCacheDir,
+      },
+    }),
+  });
+  if (writableOutDir && existsSync(path.join(dir, "index.html"))) {
+    try {
+      writeFileSync(path.join(dir, BUNDLE_STAMP_FILE), JSON.stringify({ stamp, builtAt: new Date().toISOString() }));
+    } catch {
+      // Read-only filesystem: bundle still works for this process lifetime.
+    }
+  }
+  return dir;
+}
 
 /**
  * Chrome's GL backend for the render (`REELWALK_RENDER_GL`, a Remotion `gl` value such as "swangle"), unset by default so
@@ -27,9 +119,9 @@ function chromiumOptions(): { gl: GlRenderer } | undefined {
 }
 
 /**
- * One browser for a run of stills. Without one, every `selectComposition` and `renderStill` launches and closes its own
- * Chrome and loads the bundle, fonts and matte models again: about as long as drawing the frame. Each still still gets a
- * fresh page, so one still's state cannot leak into the next.
+ * One browser across `selectComposition` and rendering (`renderMedia` or a run of stills).
+ * Without one, each step launches and closes its own Chrome and reloads the bundle, fonts and
+ * matte models.
  */
 async function withBrowser<T>(use: (browser: Awaited<ReturnType<typeof openBrowser>>) => Promise<T>): Promise<T> {
   const browser = await openBrowser("chrome", { chromiumOptions: chromiumOptions() ?? {} });
@@ -42,18 +134,19 @@ async function withBrowser<T>(use: (browser: Awaited<ReturnType<typeof openBrows
 
 /**
  * Webpack-bundling the compositions takes several seconds. Reel assets are
- * passed as URLs rather than copied into the bundle, so one bundle serves every
- * render this process does. It is served once, on RENDER_PAGE_PORT (ADR 0107):
- * every page has the origin the media bucket's CORS allows, however many
- * stills draw at once. If that port is taken, Remotion serves the bundle
- * itself as before, and a person matte may then fail its CORS check.
+ * passed as URLs rather than copied into the bundle, so one pre-built or
+ * in-process bundle serves every render this process does. It is served once,
+ * on RENDER_PAGE_PORT (ADR 0107): every page has the origin the media bucket's
+ * CORS allows, however many stills draw at once. If that port is taken,
+ * Remotion serves the bundle itself as before, and a person matte may then fail
+ * its CORS check.
  */
 function getServeUrl(): Promise<string> {
   if (!bundled) {
-    const entryPoint = path.join(path.dirname(fileURLToPath(import.meta.url)), "index.ts");
-    // The bundled sound set (ADR 0066) is served from the package's public dir, so `staticFile("sfx/…")` resolves in the worker.
-    const publicDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "public");
-    bundled = bundle({ entryPoint, publicDir, webpackOverride: (config) => config })
+    const outDir = process.env.REMOTION_BUNDLE_DIR || DEFAULT_BUNDLE_DIR;
+    const prebuilt = readValidPrebuiltBundle(outDir, computeRenderBundleStamp());
+    const bundleDir = prebuilt ? Promise.resolve(prebuilt) : buildRenderBundle(outDir);
+    bundled = bundleDir
       .then((dir) =>
         serveBundle(dir).then(
           ({ url }) => url,
@@ -103,37 +196,42 @@ export async function renderReel(
   // Last line of defence (ADR 0019): an Instagram sound is never baked into an export.
   const timeline = isInstagramMusic(input.timeline.music) ? { ...input.timeline, music: null } : input.timeline;
   const inputProps = { timeline, assets: input.assets, watermark: input.watermark ?? false };
-  const composition = await selectComposition({ serveUrl, id: REEL_COMPOSITION_ID, inputProps });
-
-  input.signal?.throwIfAborted();
   const outputLocation = path.resolve(input.output);
-  const cancel = remotionCancel(input.signal);
-  // Instagram re-encodes every upload, so start from a high-quality source:
-  // H.264, yuv420p, AAC, 30 fps, 1080x1920. Remotion adds +faststart for H.264.
-  await renderMedia({
-    chromiumOptions: chromiumOptions(),
-    composition,
-    serveUrl,
-    codec: "h264",
-    crf: 18,
-    audioBitrate: "192k",
-    pixelFormat: "yuv420p",
-    // Limited-range BT.709, the standard for web video. Without it the output
-    // is full-range (yuvj420p), which some players show with shifted colours.
-    colorSpace: "bt709",
-    // Free-plan exports come out at 720×1280: same layout, scaled down.
-    scale: (input.width ?? 1080) / 1080,
-    inputProps,
-    outputLocation,
-    concurrency: renderConcurrency(input.concurrency, os.availableParallelism()),
-    // Inside a container Remotion sizes these caches from the host's memory,
-    // not the cgroup limit, and the compositor gets killed. Fixed, modest
-    // caches instead; 1080p sources do not need more.
-    offthreadVideoCacheSizeInBytes: 512 * 1024 * 1024,
-    mediaCacheSizeInBytes: 512 * 1024 * 1024,
-    onProgress: ({ progress }) => onProgress?.(progress),
-    cancelSignal: cancel.cancelSignal,
-  }).finally(cancel.done);
+
+  await withBrowser(async (puppeteerInstance) => {
+    input.signal?.throwIfAborted();
+    const composition = await selectComposition({ serveUrl, id: REEL_COMPOSITION_ID, inputProps, puppeteerInstance });
+
+    input.signal?.throwIfAborted();
+    const cancel = remotionCancel(input.signal);
+    // Instagram re-encodes every upload, so start from a high-quality source:
+    // H.264, yuv420p, AAC, 30 fps, 1080x1920. Remotion adds +faststart for H.264.
+    await renderMedia({
+      chromiumOptions: chromiumOptions(),
+      composition,
+      puppeteerInstance,
+      serveUrl,
+      codec: "h264",
+      crf: 18,
+      audioBitrate: "192k",
+      pixelFormat: "yuv420p",
+      // Limited-range BT.709, the standard for web video. Without it the output
+      // is full-range (yuvj420p), which some players show with shifted colours.
+      colorSpace: "bt709",
+      // Free-plan exports come out at 720×1280: same layout, scaled down.
+      scale: (input.width ?? 1080) / 1080,
+      inputProps,
+      outputLocation,
+      concurrency: renderConcurrency(input.concurrency, os.availableParallelism()),
+      // Inside a container Remotion sizes these caches from the host's memory,
+      // not the cgroup limit, and the compositor gets killed. Fixed, modest
+      // caches instead; 1080p sources do not need more.
+      offthreadVideoCacheSizeInBytes: 512 * 1024 * 1024,
+      mediaCacheSizeInBytes: 512 * 1024 * 1024,
+      onProgress: ({ progress }) => onProgress?.(progress),
+      cancelSignal: cancel.cancelSignal,
+    }).finally(cancel.done);
+  });
   return outputLocation;
 }
 
